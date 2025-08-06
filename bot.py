@@ -910,6 +910,9 @@ Please enter the Solana token contract address you want to trade:
         shortage_sol = 1.0 - current_value_sol
         needed_mork = shortage_sol / mork_price_sol
         
+        # Create Jupiter swap link for instant purchase
+        jupiter_buy_link = f"https://jup.ag/swap/SOL-{MORK_TOKEN_CONTRACT}"
+        
         ineligible_text = f"""
 ❌ <b>Insufficient $MORK Holdings</b>
 
@@ -919,10 +922,13 @@ Please enter the Solana token contract address you want to trade:
 📉 <b>Required:</b> 1.000 SOL worth
 ⚠️ <b>Shortage:</b> {shortage_sol:.3f} SOL worth ({needed_mork:,.0f} more $MORK)
 
-<b>🛒 How to Get VIP Access:</b>
-• Purchase more $MORK tokens to reach 1 SOL value
+<b>🚀 INSTANT PURCHASE:</b>
+<a href="{jupiter_buy_link}">🔗 Buy $MORK Now with Phantom Wallet</a>
+
+<b>🛒 Manual Purchase Info:</b>
 • Current $MORK price: {mork_price_sol:.6f} SOL per token
 • $MORK Contract: <code>{MORK_TOKEN_CONTRACT}</code>
+• Available on Jupiter, Raydium, and other Solana DEXs
 
 <b>💡 Meanwhile, try our FREE simulation mode:</b>
 Type /snipe to practice trading without risk!
