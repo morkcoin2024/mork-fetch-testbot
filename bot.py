@@ -2824,3 +2824,99 @@ Your automated trading system is actively monitoring the market!
     """
     
     send_message(chat_id, orders_text)
+
+def format_enhanced_token_discovery(token: dict, trade_amount: float, jupiter_link: str) -> str:
+    """Format comprehensive token discovery message with all statistics and enhanced Jupiter links"""
+    
+    # Calculate age in readable format
+    age_seconds = int(time.time() - token.get('created_timestamp', time.time()))
+    if age_seconds < 60:
+        age_display = f"{age_seconds}s"
+    elif age_seconds < 3600:
+        age_display = f"{age_seconds // 60}min"
+    else:
+        age_display = f"{age_seconds // 3600}h"
+    
+    # Format market cap with proper scaling
+    market_cap = token.get('usd_market_cap', 0)
+    if market_cap >= 1000000:
+        mc_display = f"${market_cap / 1000000:.2f}M"
+    elif market_cap >= 1000:
+        mc_display = f"${market_cap / 1000:.1f}K"
+    else:
+        mc_display = f"${market_cap:,.0f}"
+    
+    # Format volume
+    volume = token.get('volume_24h', 0)
+    if volume >= 1000000:
+        vol_display = f"${volume / 1000000:.1f}M"
+    elif volume >= 1000:
+        vol_display = f"${volume / 1000:.0f}K"
+    else:
+        vol_display = f"${volume:,.0f}"
+    
+    # Risk level emoji
+    risk_level = token.get('risk_level', 'MEDIUM')
+    risk_emoji = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}.get(risk_level, "🟡")
+    
+    # Liquidity display
+    liquidity = token.get('liquidity_usd', 0)
+    if liquidity >= 1000:
+        liq_display = f"${liquidity / 1000:.0f}K"
+    else:
+        liq_display = f"${liquidity:,.0f}"
+    
+    # Price formatting
+    price = token.get('price', 0)
+    if price < 0.000001:
+        price_display = f"${price:.12f}"
+    elif price < 0.001:
+        price_display = f"${price:.8f}"
+    else:
+        price_display = f"${price:.6f}"
+    
+    # Safety indicators
+    safety_indicators = []
+    if token.get('is_renounced'):
+        safety_indicators.append("✅ Renounced")
+    if token.get('is_burnt'):
+        safety_indicators.append("🔥 LP Burnt")
+    safety_text = " | ".join(safety_indicators) if safety_indicators else "⚠️ Verify Safety"
+    
+    message = f"""
+🚀 <b>VIP FETCH NEW TOKEN DISCOVERED!</b>
+
+<b>💎 {token.get('name', 'Unknown')} (${token.get('symbol', 'TOKEN')})</b>
+📄 <b>Contract:</b> <code>{token.get('mint', '')}</code>
+
+<b>📊 COMPREHENSIVE TRADE SHEET:</b>
+⏰ <b>Launch Age:</b> {age_display} (FRESH!)
+💰 <b>Market Cap:</b> {mc_display}
+👥 <b>Holders:</b> {token.get('holder_count', 0):,}
+💲 <b>Price:</b> {price_display}
+📈 <b>Volume 24h:</b> {vol_display}
+💧 <b>Liquidity:</b> {liq_display}
+{risk_emoji} <b>Risk Level:</b> {risk_level}
+
+<b>🔒 Safety Status:</b>
+{safety_text}
+
+<b>📝 Description:</b>
+{token.get('description', 'New token launch on Pump.fun')}
+
+<b>🎯 OPTIMIZED JUPITER SWAP LINK:</b>
+<a href="{jupiter_link}">👆 Execute Trade - SOL → {token.get('symbol', 'TOKEN')}</a>
+
+<b>⚡ INSTANT TRADE EXECUTION:</b>
+1. Click Jupiter link (pre-populated with token contract)
+2. Connect Phantom wallet
+3. Amount: <b>{trade_amount:.3f} SOL</b>
+4. Verify: <b>SOL → {token.get('symbol', 'TOKEN')}</b>
+5. Set slippage: <b>1-3%</b>
+6. Execute swap - Phantom will prompt to sign
+
+<b>⏱️ EARLY BIRD ADVANTAGE - {age_display} old token!</b>
+<i>VIP FETCH Sniffer Dog detected this gem fresh from launch!</i>
+    """.strip()
+    
+    return message

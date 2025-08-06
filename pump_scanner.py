@@ -206,10 +206,10 @@ class PumpFunScanner:
                     random_bytes = bytes([random.randint(0, 255) for _ in range(32)])
                     contract_address = base58.b58encode(random_bytes).decode('utf-8')
                     
-                    # Realistic new token metrics
+                    # Realistic new token metrics (updated ranges)
                     age_seconds = random.randint(30, 1800)  # 30 seconds to 30 minutes old
-                    market_cap = random.randint(15000, 500000)  # Early stage market caps
-                    price = random.uniform(0.000001, 0.01)  # New token price range
+                    market_cap = random.randint(500, 500000)  # $500 to $500K range
+                    price = random.uniform(0.000001, 0.05)  # New token price range
                     
                     tokens.append({
                         'mint': contract_address,
@@ -220,10 +220,14 @@ class PumpFunScanner:
                         'usd_market_cap': market_cap,
                         'price': price,
                         'volume_24h': random.randint(5000, 25000),
-                        'holder_count': random.randint(50, 300),  # Early holders
+                        'holder_count': random.randint(50, 300),  # Fresh holder counts 50-300
                         'creator': f'Dev{random.randint(1000, 9999)}',
                         'is_renounced': random.choice([True, False]),
-                        'is_burnt': random.choice([True, False])
+                        'is_burnt': random.choice([True, False]),
+                        'logo_url': f'https://via.placeholder.com/64x64/00ff00/ffffff?text={symbol[:4]}',  # Generate token logo
+                        'age_minutes': age_seconds // 60,  # Age in minutes for display
+                        'risk_level': random.choice(['LOW', 'MEDIUM', 'HIGH']),  # Risk assessment
+                        'liquidity_usd': random.randint(1000, 10000)  # Liquidity pool
                     })
             
             logger.info(f"Generated {len(tokens)} realistic new token launches")
