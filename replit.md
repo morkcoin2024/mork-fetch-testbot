@@ -7,7 +7,7 @@ Mork Sniper Bot is a Telegram-based cryptocurrency trading bot designed for Sola
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
-Brand colors: Mork Coin branding with orange (#ff6b35) and yellow (#ffa726) color scheme to match morkcoin.io.
+Brand colors: Mork Coin branding with green primary color (#7cb342) and light green accent (#9ccc65) to match current brand guidelines.
 
 ## System Architecture
 
