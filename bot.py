@@ -1412,7 +1412,7 @@ Type /snipe for live trading or /fetch for VIP trading.
     mork_price_sol = get_mork_price_in_sol()
     current_value_sol = mork_balance * mork_price_sol
     
-    threshold_sol = 1.0 if trading_mode == 'fetch' else 0.1
+    threshold_sol = 1.0 if session.trading_mode == 'fetch' else 0.1
     if current_value_sol < threshold_sol:
         # Use the threshold calculated above
         insufficient_text = f"""
@@ -1433,49 +1433,94 @@ Type /snipe for live trading or /fetch for VIP trading.
         send_message(chat_id, insufficient_text)
         return
     
-    # Execute the live trade (placeholder for actual implementation)
+    # Execute the live trade - Create actual transaction
     is_vip_mode = session.trading_mode == 'fetch'
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
     
-    mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
-    execution_text = f"""
-🚀 <b>{mode_prefix}TRADE EXECUTED!</b>
-
-<b>✅ {"VIP " if is_vip_mode else ""}Order Placed Successfully</b>
+    try:
+        # Create buy transaction for the user to sign
+        transaction_data = create_buy_transaction(
+            wallet_address=session.wallet_address,
+            token_address=session.contract_address, 
+            sol_amount=session.trade_amount,
+            stop_loss_percent=session.stop_loss,
+            take_profit_percent=session.take_profit,
+            sell_percent=session.sell_percent
+        )
+        
+        if transaction_data and 'transaction' in transaction_data:
+            mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
+            execution_text = f"""
+🚀 <b>{mode_prefix}TRADE READY FOR SIGNING!</b>
 
 <b>📊 Trade Details:</b>
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}
+💰 <b>Trade Amount:</b> {session.trade_amount:.3f} SOL
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
 📉 <b>Stop-Loss:</b> -{session.stop_loss}%
 📈 <b>Take-Profit:</b> +{session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-<b>🎯 What Happens Next:</b>
-• Your order is now active on the Solana blockchain
-• The bot will monitor price movements 24/7
-• Automatic execution when targets are reached
-• You'll be notified of any trade executions
+<b>🔐 TRANSACTION CREATED!</b>
+Please approve the transaction in your Phantom wallet to complete the trade.
 
-<b>⚠️ Important Notes:</b>
-• Keep sufficient SOL in your wallet for transaction fees
-• Maintain your minimum $MORK token holdings
-• Market conditions can change rapidly
+<b>📋 Transaction Details:</b>
+• Buy {session.trade_amount:.3f} SOL worth of {token_display}
+• Fee: ~0.00001 SOL (network fee)
+• Slippage: 1% (Jupiter DEX standard)
 
-<b>📱 Monitoring:</b>
-Type /status to check your active orders anytime.
+<b>⚠️ Action Required:</b>
+Check your Phantom wallet now - you should see a transaction waiting for approval!
 
-Your live trading order is now active! Good luck! 🎯
-    """
-    
-    # Reset session after successful execution
-    update_session(chat_id, state=STATE_IDLE, 
-                  contract_address=None, wallet_address=None,
-                  stop_loss=None, take_profit=None, sell_percent=None,
-                  token_name=None, token_symbol=None, entry_price=None)
-    
-    send_message(chat_id, execution_text)
+<b>🔄 What happens after signing:</b>
+• Trade executes instantly on Jupiter DEX
+• Position monitoring begins automatically  
+• You'll receive notifications on target hits
+
+Your transaction is ready! Check your wallet now. 📱
+            """
+            
+            # Reset session after successful transaction creation
+            update_session(chat_id, state=STATE_IDLE, 
+                          contract_address=None, wallet_address=None,
+                          stop_loss=None, take_profit=None, sell_percent=None,
+                          trade_amount=None, trading_mode=None,
+                          token_name=None, token_symbol=None, entry_price=None)
+            
+            send_message(chat_id, execution_text)
+            
+        else:
+            # Transaction creation failed
+            error_text = """
+❌ <b>Transaction Creation Failed</b>
+
+Unable to create the trade transaction. This could be due to:
+
+• Network connectivity issues
+• Token liquidity problems  
+• Insufficient wallet balance
+• Jupiter DEX temporarily unavailable
+
+Please try again in a few moments, or contact support if the issue persists.
+
+Type /snipe to try again.
+            """
+            update_session(chat_id, state=STATE_IDLE)
+            send_message(chat_id, error_text)
+            
+    except Exception as e:
+        logging.error(f"Error executing live trade: {e}")
+        error_text = f"""
+❌ <b>Trade Execution Error</b>
+
+Failed to execute trade: {str(e)}
+
+Please try again with /snipe or contact support.
+        """
+        update_session(chat_id, state=STATE_IDLE)
+        send_message(chat_id, error_text)
 
 def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Start VIP FETCH automated trading"""

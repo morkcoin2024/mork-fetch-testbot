@@ -241,7 +241,9 @@ def validate_solana_address(address: str) -> bool:
     integrator = SolanaWalletIntegrator()
     return integrator.validate_wallet_address(address)
 
-def create_buy_transaction(wallet_address: str, token_mint: str, sol_amount: float, slippage: float = 0.5) -> Optional[Dict]:
+def create_buy_transaction(wallet_address: str, token_address: str, sol_amount: float, 
+                          stop_loss_percent: float = None, take_profit_percent: float = None, 
+                          sell_percent: float = None, slippage: float = 0.5) -> Optional[Dict]:
     """Create a buy transaction for a token"""
     integrator = SolanaWalletIntegrator()
     
@@ -251,7 +253,7 @@ def create_buy_transaction(wallet_address: str, token_mint: str, sol_amount: flo
     return integrator.create_swap_transaction_data(
         wallet_address=wallet_address,
         input_mint=WSOL_ADDRESS,
-        output_mint=token_mint,
+        output_mint=token_address,
         amount=lamports,
         slippage_bps=int(slippage * 100)
     )
