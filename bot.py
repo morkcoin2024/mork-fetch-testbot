@@ -136,34 +136,75 @@ def get_solana_wallet_balance(wallet_address, token_contract):
 def get_mork_price_in_sol():
     """Get current Mork token price in SOL"""
     try:
-        # Try Jupiter price API first
-        jupiter_url = f"https://price.jup.ag/v4/price?ids={MORK_TOKEN_CONTRACT}"
-        response = requests.get(jupiter_url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if 'data' in data and MORK_TOKEN_CONTRACT in data['data']:
-                price_usd = data['data'][MORK_TOKEN_CONTRACT]['price']
-                # Convert USD to SOL (approximate, could use SOL/USD rate)
-                sol_price_usd = 150  # Approximate SOL price, should be dynamic
-                return price_usd / sol_price_usd
-        
-        # Fallback to DexScreener
+        # Try DexScreener first (most reliable)
         dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{MORK_TOKEN_CONTRACT}"
-        response = requests.get(dex_url, timeout=10)
+        response = requests.get(dex_url, timeout=15)
         if response.status_code == 200:
             data = response.json()
             if 'pairs' in data and data['pairs']:
-                # Look for SOL pair
+                # Find SOL pair with highest liquidity
+                best_sol_pair = None
+                highest_liquidity = 0
+                
                 for pair in data['pairs']:
-                    if 'SOL' in pair.get('baseToken', {}).get('symbol', '') or 'SOL' in pair.get('quoteToken', {}).get('symbol', ''):
-                        return float(pair.get('priceNative', 0))
+                    # Check if this is a SOL pair
+                    quote_symbol = pair.get('quoteToken', {}).get('symbol', '')
+                    if quote_symbol == 'SOL':
+                        liquidity = float(pair.get('liquidity', {}).get('usd', 0)) if pair.get('liquidity') else 0
+                        if liquidity > highest_liquidity:
+                            highest_liquidity = liquidity
+                            best_sol_pair = pair
+                
+                if best_sol_pair:
+                    # priceNative gives us MORK price in SOL directly
+                    price_sol = float(best_sol_pair.get('priceNative', 0))
+                    if price_sol > 0:
+                        logging.info(f"Found MORK/SOL price: {price_sol} SOL per MORK")
+                        return price_sol
         
-        # Default fallback price
-        return 0.000001  # 1 millionth SOL per MORK
+        # Try CoinGecko with SOL conversion
+        try:
+            coingecko_url = f"https://api.coingecko.com/api/v3/coins/solana/contract/{MORK_TOKEN_CONTRACT}"
+            response = requests.get(coingecko_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                market_data = data.get('market_data', {})
+                
+                # Get MORK price in USD and SOL price in USD
+                mork_usd = market_data.get('current_price', {}).get('usd')
+                if mork_usd:
+                    # Get SOL price in USD
+                    sol_response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", timeout=10)
+                    if sol_response.status_code == 200:
+                        sol_data = sol_response.json()
+                        sol_usd = sol_data.get('solana', {}).get('usd')
+                        if sol_usd and sol_usd > 0:
+                            price_sol = mork_usd / sol_usd
+                            logging.info(f"Found MORK price via CoinGecko: {price_sol} SOL per MORK")
+                            return price_sol
+        except Exception as e:
+            logging.warning(f"CoinGecko SOL conversion failed: {e}")
+        
+        # Use get_token_info as fallback to get USD price then convert
+        token_info = get_token_info(MORK_TOKEN_CONTRACT)
+        if token_info.get('price', 0) > 0:
+            mork_usd = token_info['price']
+            # Get current SOL price
+            sol_response = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", timeout=10)
+            if sol_response.status_code == 200:
+                sol_data = sol_response.json()
+                sol_usd = sol_data.get('solana', {}).get('usd', 200)  # fallback SOL price
+                price_sol = mork_usd / sol_usd
+                logging.info(f"Calculated MORK price: {price_sol} SOL per MORK (${mork_usd} / ${sol_usd})")
+                return price_sol
+        
+        # Last resort fallback
+        logging.warning("Using fallback MORK price")
+        return 0.0002247 / 200  # Use known price from logs / estimated SOL price
         
     except Exception as e:
         logging.warning(f"Failed to fetch Mork price: {e}")
-        return 0.000001
+        return 0.0002247 / 200  # Fallback based on observed price
 
 def calculate_mork_sol_threshold():
     """Calculate how many Mork tokens equal 1 SOL"""
@@ -913,20 +954,24 @@ Please enter the Solana token contract address you want to trade:
         # Create Jupiter swap link for instant purchase
         jupiter_buy_link = f"https://jup.ag/swap/SOL-{MORK_TOKEN_CONTRACT}"
         
+        # Calculate tokens per 1 SOL for user reference
+        tokens_per_sol = 1.0 / mork_price_sol if mork_price_sol > 0 else 0
+        
         ineligible_text = f"""
 ❌ <b>Insufficient $MORK Holdings</b>
 
 <b>💎 Your Current Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
-📉 <b>Required:</b> 1.000 SOL worth
+📉 <b>Required:</b> Minimum 1.000 SOL worth
 ⚠️ <b>Shortage:</b> {shortage_sol:.3f} SOL worth ({needed_mork:,.0f} more $MORK)
 
 <b>🚀 INSTANT PURCHASE:</b>
 <a href="{jupiter_buy_link}">🔗 Buy $MORK Now with Phantom Wallet</a>
 
-<b>🛒 Manual Purchase Info:</b>
-• Current $MORK price: {mork_price_sol:.6f} SOL per token
+<b>🛒 Real-Time Purchase Info:</b>
+• Live $MORK price: {mork_price_sol:.8f} SOL per token
+• 1 SOL = {tokens_per_sol:,.0f} $MORK tokens
 • $MORK Contract: <code>{MORK_TOKEN_CONTRACT}</code>
 • Available on Jupiter, Raydium, and other Solana DEXs
 
