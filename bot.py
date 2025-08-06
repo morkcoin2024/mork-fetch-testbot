@@ -1483,8 +1483,14 @@ Searching for high-potential new launches...
         # Update session to completed state
         update_session(chat_id, state=STATE_IDLE, trade_amount=trade_amount)
         
-        # Start the automated trading process asynchronously
-        asyncio.create_task(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        # Start the automated trading process in a new thread to avoid event loop issues
+        import threading
+        trading_thread = threading.Thread(
+            target=run_vip_fetch_trading,
+            args=(chat_id, wallet_address, trade_amount)
+        )
+        trading_thread.daemon = True
+        trading_thread.start()
         
     except Exception as e:
         logging.error(f"VIP FETCH trading failed to start: {e}")
@@ -1496,6 +1502,33 @@ Failed to start automated trading: {str(e)}
 Please try again with /fetch or contact support.
         """
         send_message(chat_id, error_message)
+
+def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
+    """Wrapper function to run VIP FETCH in a new event loop"""
+    try:
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the trading function
+        loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        
+    except Exception as e:
+        logging.error(f"VIP FETCH thread execution failed: {e}")
+        error_message = f"""
+❌ <b>VIP FETCH System Error</b>
+
+Automated trading system encountered an error: {str(e)}
+
+Please try again with /fetch or contact support.
+        """
+        send_message(chat_id, error_message)
+    finally:
+        # Clean up the event loop
+        try:
+            loop.close()
+        except:
+            pass
 
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Execute the VIP FETCH automated trading process"""
@@ -1630,8 +1663,21 @@ def handle_stop_fetch_command(chat_id):
     try:
         from trade_executor import trade_executor
         
-        # Stop all active trades for this user
-        asyncio.create_task(trade_executor.stop_all_trades(str(chat_id)))
+        # Stop all active trades for this user in a thread-safe way
+        import threading
+        
+        def stop_trades():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(trade_executor.stop_all_trades(str(chat_id)))
+                loop.close()
+            except Exception as e:
+                logging.error(f"Stop trades failed: {e}")
+        
+        stop_thread = threading.Thread(target=stop_trades)
+        stop_thread.daemon = True
+        stop_thread.start()
         
         stop_message = """
 ⏹️ <b>VIP FETCH TRADING STOPPED</b>
