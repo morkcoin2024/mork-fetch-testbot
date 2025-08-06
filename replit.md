@@ -12,7 +12,7 @@ Branding rules: "Mork Sniper Bot" text should be dark green (#1a2e0a) on light g
 
 ## Recent Changes
 
-**2025-08-06**: Successfully fixed Telegram bot integration and database session persistence issues. Bot now properly handles multi-step conversations and validates Solana contract addresses correctly. Full simulation flow operational with proper state management. Added token name/symbol fetching via Jupiter and CoinGecko APIs for enhanced user experience with professional token identification display.
+**2025-08-06**: Successfully implemented comprehensive simulation enhancements including real-time price fetching, clear practice mode labeling, realistic trading outcomes, and performance tracking system. Bot now fetches live token prices via Jupiter/CoinGecko/DexScreener APIs, generates weighted random simulation results, and includes `/whatif` command for viewing trading performance history. All features working excellently with professional user experience.
 
 ## System Architecture
 
