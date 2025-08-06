@@ -34,6 +34,17 @@ STATE_LIVE_READY_TO_CONFIRM = "live_ready_to_confirm"
 # Mork token contract address
 MORK_TOKEN_CONTRACT = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
 
+# Import wallet integration for real trading
+from wallet_integration import (
+    get_real_sol_balance, 
+    get_real_token_balance, 
+    get_real_token_price_sol,
+    validate_solana_address,
+    create_buy_transaction,
+    create_sell_transaction,
+    get_wallet_transaction_history
+)
+
 
 
 def send_message(chat_id, text, reply_markup=None):
