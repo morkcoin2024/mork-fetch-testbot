@@ -33,6 +33,7 @@ class TradeSimulation(db.Model):
     chat_id = db.Column(db.String(64), nullable=False, index=True)
     contract_address = db.Column(db.String(64), nullable=False)
     entry_price = db.Column(db.Float, nullable=True)
+    trade_amount = db.Column(db.Float, nullable=True)  # Amount traded in simulation
     stop_loss = db.Column(db.Float, nullable=False)
     take_profit = db.Column(db.Float, nullable=False)
     sell_percent = db.Column(db.Float, nullable=False)
