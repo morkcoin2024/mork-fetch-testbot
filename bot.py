@@ -347,19 +347,22 @@ Practice crypto sniping without risk! Perfect for learning how token sniping wor
 Real trading for users with 1 SOL worth of $MORK tokens in their wallet.
 
 <b>Available Commands:</b>
-🎯 /simulate - Start simulation mode (free practice trading)
-🚀 /snipe - Live trading mode (requires $MORK verification)
+🐶 /simulate - Puppy in training (free practice mode)
+⚡ /snipe - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
+🎯 /fetch - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK)
 📊 /status - Check your current session
 ❓ /help - Get help and instructions
 
 <b>How to use:</b>
 • <b>Practice:</b> Use /simulate for risk-free simulation
-• <b>Live Trading:</b> Use /snipe to verify $MORK and trade real tokens
-• Both modes guide you through: contract → stop-loss → take-profit → sell %
+• <b>Live Trading:</b> Use /snipe to verify $MORK and trade real tokens (0.5% fee on profits)
+• <b>VIP Fetch:</b> Use /fetch for advanced trading features (coming soon)
+• All modes guide you through: contract → stop-loss → take-profit → sell %
 
 Ready to start? 
 • Type /simulate for practice
 • Type /snipe for live trading (VIP only)
+• Type /fetch for VIP features (requires 1 SOL worth of $MORK)
 
 <i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
     """
@@ -808,8 +811,9 @@ Practice crypto trading safely without real money.
 
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
-• <b>/simulate</b> - Start simulation mode (free practice)
-• <b>/snipe</b> - Start live trading (requires 1 SOL worth of $MORK tokens)
+• <b>/simulate</b> - Puppy in training (free practice mode)
+• <b>/snipe</b> - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
+• <b>/fetch</b> - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK)
 • <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/status</b> - Check current session status
 • <b>/cancel</b> - Cancel current operation
@@ -817,7 +821,7 @@ Practice crypto trading safely without real money.
 • <b>/whatif</b> - View your simulation performance history
 
 <b>📖 How to Use:</b>
-1. Type /simulate for practice or /snipe for live trading
+1. Type /simulate for practice, /snipe for live trading, or /fetch for VIP features
 2. Enter a Solana token contract address
 3. Set your stop-loss percentage (0-100%)
 4. Set your take-profit percentage (0-1000%)
@@ -930,14 +934,51 @@ Ready for more practice? Type /snipe to run another simulation!
     
     send_message(chat_id, whatif_text)
 
+def handle_fetch_command(chat_id):
+    """Handle /fetch command - VIP Trading sniffer dog mode"""
+    fetch_text = """
+🎯 <b>VIP Trading Sniffer Dog Mode</b>
+
+<b>🐕 FETCH - Advanced Trading Features</b>
+
+This is the VIP tier of Mork F.E.T.C.H Bot with enhanced trading capabilities:
+
+<b>🔒 VIP Requirements:</b>
+• Minimum 1 SOL worth of $MORK tokens in your wallet
+• Enhanced security verification
+• Priority execution speeds
+
+<b>🚀 VIP Features (Coming Soon):</b>
+• Advanced auto-sniping algorithms
+• Multi-token portfolio management
+• Copy trading from successful wallets
+• Real-time market alerts
+• Priority customer support
+• Lower fees and better execution
+
+<b>⚠️ Status: Under Development</b>
+The VIP Fetch mode is currently being developed. 
+
+For now, use:
+• /simulate for practice mode
+• /snipe for live trading with 0.5% fee
+
+Stay tuned for the full VIP experience!
+    """
+    
+    send_message(chat_id, fetch_text)
+
 def handle_snipe_command(chat_id):
-    """Handle /snipe command - start live trading mode"""
+    """Handle /snipe command - start live trading mode with 0.5% fee"""
     snipe_text = """
 🚀 <b>LIVE TRADING MODE - Real Money!</b>
 
+<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+
 <b>⚠️ IMPORTANT NOTICE:</b>
 • This is <b>REAL TRADING</b> with actual funds
-• You need 1 SOL worth of $MORK tokens to access VIP features
+• 0.5% fee charged only on profitable trades (sales value)
+• You need 1 SOL worth of $MORK tokens to access this mode
 • All trades are executed on the Solana blockchain
 • You are responsible for all trading decisions and outcomes
 
@@ -1370,6 +1411,8 @@ def handle_update(update):
                 handle_simulate_command(chat_id)
             elif command == '/snipe':
                 handle_snipe_command(chat_id)
+            elif command == '/fetch':
+                handle_fetch_command(chat_id)
             elif command == '/confirm':
                 handle_confirm_command(chat_id)
             elif command == '/status':
