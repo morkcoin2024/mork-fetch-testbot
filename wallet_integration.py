@@ -375,32 +375,9 @@ def execute_signed_transaction(wallet_address: str, signed_tx: str) -> Dict:
 
 def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = None, 
                       input_symbol: str = None, output_symbol: str = None) -> str:
-    """Generate Jupiter swap link for user to execute trades"""
-    base_url = "https://jup.ag/swap"
+    """Generate Jupiter swap link using the correct format"""
     
-    # Enhanced URL format: include symbols in path for better UX if available
-    if input_symbol and output_symbol and input_symbol != output_symbol:
-        # Special format for token pairs (e.g. SOL-QMOON_contractaddress)
-        if input_mint == WSOL_ADDRESS:
-            # SOL to Token: SOL-TOKEN_contract
-            url_path = f"SOL-{output_symbol}_{output_mint}"
-        elif output_mint == WSOL_ADDRESS:
-            # Token to SOL: TOKEN-SOL_contract  
-            url_path = f"{input_symbol}-SOL_{input_mint}"
-        else:
-            # Token to Token: use standard format
-            url_path = f"{input_symbol}-{output_symbol}"
-        
-        swap_url = f"{base_url}/{url_path}"
-        
-        # Add amount as query parameter if provided
-        if amount_sol:
-            lamports = int(amount_sol * 1_000_000_000)
-            swap_url += f"?inAmount={lamports}"
-        
-        return swap_url
-    
-    # Fallback to standard query parameter format
+    # Use proper Jupiter swap format with query parameters
     params = [
         f"inputMint={input_mint}",
         f"outputMint={output_mint}"
@@ -411,4 +388,8 @@ def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = No
         lamports = int(amount_sol * 1_000_000_000)
         params.append(f"inAmount={lamports}")
     
-    return f"{base_url}?{'&'.join(params)}"
+    return f"https://jup.ag/swap?{'&'.join(params)}"
+
+def generate_token_page_link(token_mint: str) -> str:
+    """Generate Jupiter token page link for viewing token info"""
+    return f"https://jup.ag/tokens/{token_mint}"
