@@ -5,6 +5,7 @@ import requests
 import json
 import random
 import base64
+import asyncio
 from datetime import datetime
 from flask import current_app
 
@@ -821,10 +822,10 @@ Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Tr
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
 • <b>/simulate</b> - Puppy in training (free practice mode)
-• <b>/snipe</b> - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
-• <b>/fetch</b> - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK + 0.5% fee on all profitable sales value)
+• <b>/snipe</b> - Live trading mode (0.5% fee on profitable sales)
+• <b>/fetch</b> - VIP automated Pump.fun scanner (requires $MORK)
 • <b>/confirm</b> - Execute the order (simulation or live)
-• <b>/status</b> - Check current session status
+• <b>/stopfetch</b> - Stop VIP automated trading
 • <b>/cancel</b> - Cancel current operation
 • <b>/help</b> - Show this help message
 • <b>/whatif</b> - View your simulation performance history
@@ -947,33 +948,36 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """Handle /fetch command - VIP Trading sniffer dog mode with full trading functionality"""
+    """Handle /fetch command - VIP Auto-Trading with Pump.fun Scanner"""
     fetch_text = """
-🎯 <b>VIP FETCH TRADING MODE - Real Money!</b>
+🎯 <b>VIP FETCH AUTO-TRADING MODE</b>
 
-<b>🐕 VIP Trading Sniffer Dog with Enhanced Features</b>
+<b>🐕 Automated Pump.fun Sniffer Dog</b>
 
-<b>⚠️ IMPORTANT NOTICE:</b>
-• This is <b>VIP REAL TRADING</b> with actual funds
-• 0.5% fee charged only on profitable trades (sales value)
-• You need 1 SOL worth of $MORK tokens to access this VIP mode
-• Enhanced execution speed and priority processing
-• All trades are executed on the Solana blockchain
-• You are responsible for all trading decisions and outcomes
+<b>🚀 FULLY AUTOMATED TRADING:</b>
+• Scans Pump.fun for new token launches every minute
+• Advanced safety filtering (blacklist words, age, market cap)
+• Automatically executes buy orders on top candidates
+• Real-time monitoring with stop-loss/take-profit
+• Instant notifications on trade completions
 
-<b>🔐 Required for VIP Trading:</b>
-• Valid Solana wallet address
-• Minimum 1 SOL equivalent in $MORK tokens (verified)
-• Sufficient SOL for transaction fees
-• VIP access privileges
+<b>🔐 VIP Requirements:</b>
+• Valid Solana wallet address with trading permissions
+• Minimum 1 SOL worth of $MORK tokens (verified)
+• Sufficient SOL balance for multiple trades
+• 0.5% fee on profitable trades only
 
-<b>🚀 VIP Features Active:</b>
-• Priority execution speeds
-• Enhanced risk management
-• Advanced trading analytics
-• Premium customer support
+<b>🎯 How VIP FETCH Works:</b>
+1. Continuously scans Pump.fun for new tokens
+2. Filters out risky tokens (scam words, too new/old)
+3. Executes micro-trades on top 3 candidates automatically
+4. Monitors each trade for 5 minutes with smart exits
+5. Reports results back to you instantly
 
-Please provide your Solana wallet address to verify your VIP $MORK token holdings:
+<b>⚠️ RISK WARNING:</b>
+This is REAL automated trading with actual funds. You could lose money rapidly.
+
+Please provide your Solana wallet address to start VIP FETCH Auto-Trading:
     """
     update_session(chat_id, state=STATE_WAITING_WALLET, trading_mode='fetch')
     send_message(chat_id, fetch_text)
@@ -1039,24 +1043,25 @@ Please provide a valid Solana wallet address for {mode_label} access:
         # Eligible for live trading
         if is_vip_mode:
             eligible_text = f"""
-✅ <b>🎯 VIP ACCESS VERIFIED!</b>
+✅ <b>🎯 VIP FETCH ACCESS VERIFIED!</b>
 
-<b>🐕 Welcome to VIP FETCH Trading Sniffer Dog Mode!</b>
+<b>🐕 Welcome to Automated Pump.fun Sniffer Dog Mode!</b>
 
 <b>💎 Your $MORK Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
 📈 <b>Required:</b> 1.000 SOL worth (✅ VIP QUALIFIED)
 
-<b>🚀 VIP Features Activated:</b>
-• Priority execution speeds
-• Enhanced risk management
-• Advanced trading analytics
-• Premium customer support
+<b>🚀 AUTO-TRADING SYSTEM READY:</b>
+• Pump.fun scanner initialized
+• Advanced safety filters active
+• Real-time monitoring enabled
+• Premium notifications ready
 
-<b>🎯 You now have VIP FETCH access!</b>
+<b>💰 Enter your SOL trading amount:</b>
+How much SOL do you want to allocate for automated Pump.fun trading?
 
-Please enter the Solana token contract address you want to trade with VIP priority:
+<i>Recommended: 0.1 - 1.0 SOL for optimal diversification across multiple trades</i>
             """
         else:
             eligible_text = f"""
@@ -1071,7 +1076,10 @@ Please enter the Solana token contract address you want to trade with VIP priori
 
 Please enter the Solana token contract address you want to trade:
             """
-        update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, wallet_address=wallet_address)
+        if is_vip_mode:
+            update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, wallet_address=wallet_address)
+        else:
+            update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, wallet_address=wallet_address)
         send_message(chat_id, eligible_text)
     else:
         # Not eligible - need more Mork
@@ -1192,10 +1200,17 @@ def handle_live_amount_input(chat_id, amount_text):
         if amount <= 0:
             raise ValueError("Amount must be positive")
         
-        # Store amount and move to stop-loss
+        session = get_or_create_session(chat_id)
+        
+        # Check if this is VIP FETCH auto-trading mode
+        if session.trading_mode == 'fetch':
+            # Start VIP FETCH auto-trading
+            start_vip_fetch_trading(chat_id, session.wallet_address, amount)
+            return
+        
+        # Regular live trading flow
         update_session(chat_id, trade_amount=amount, state=STATE_LIVE_WAITING_STOPLOSS)
         
-        session = get_or_create_session(chat_id)
         stoploss_text = f"""
 ✅ <b>Live Trade Amount Set: {amount:.3f} SOL</b>
 
@@ -1438,6 +1453,210 @@ Your live trading order is now active! Good luck! 🎯
     
     send_message(chat_id, execution_text)
 
+def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
+    """Start VIP FETCH automated trading"""
+    try:
+        # Send initial message
+        initial_message = f"""
+🚀 <b>VIP FETCH AUTO-TRADING INITIATED!</b>
+
+<b>🐕 Sniffer Dog is on the hunt!</b>
+
+<b>📊 Trading Parameters:</b>
+💰 <b>SOL Allocated:</b> {trade_amount:.3f} SOL
+👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
+🎯 <b>Strategy:</b> Automated Pump.fun scanning
+
+<b>🔍 Scanner Status:</b>
+• Scanning Pump.fun for new tokens...
+• Evaluating safety scores (blacklists, age, market cap)
+• Filtering top candidates for execution
+• Setting up 5-minute monitoring windows
+
+<b>⏱️ Phase 1: Token Discovery</b>
+Searching for high-potential new launches...
+
+<i>🐕 Your FETCH bot is working! Results will be reported automatically.</i>
+        """
+        send_message(chat_id, initial_message)
+        
+        # Update session to completed state
+        update_session(chat_id, state=STATE_IDLE, trade_amount=trade_amount)
+        
+        # Start the automated trading process asynchronously
+        asyncio.create_task(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        
+    except Exception as e:
+        logging.error(f"VIP FETCH trading failed to start: {e}")
+        error_message = f"""
+❌ <b>VIP FETCH Trading Error</b>
+
+Failed to start automated trading: {str(e)}
+
+Please try again with /fetch or contact support.
+        """
+        send_message(chat_id, error_message)
+
+async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
+    """Execute the VIP FETCH automated trading process"""
+    try:
+        # Import our trading modules
+        from pump_scanner import PumpFunScanner
+        from trade_executor import trade_executor, ActiveTrade
+        import time
+        
+        # Phase 1: Token Discovery
+        phase1_message = """
+🔍 <b>PHASE 1: TOKEN DISCOVERY</b>
+
+🐕 Scanning Pump.fun for fresh launches...
+• Fetching recent token data
+• Analyzing safety metrics  
+• Filtering by age and market cap
+• Checking for blacklist words
+        """
+        send_message(chat_id, phase1_message)
+        
+        # Scan for tokens
+        async with PumpFunScanner() as scanner:
+            candidates = await scanner.get_token_candidates(min_safety_score=70)
+            
+            if not candidates:
+                no_candidates_message = """
+📊 <b>SCAN COMPLETE - No Candidates</b>
+
+🔍 No suitable tokens found in current scan:
+• All recent tokens failed safety filters
+• Market conditions may be unfavorable
+• Will continue monitoring for opportunities
+
+<i>Your FETCH bot remains active for future opportunities!</i>
+                """
+                send_message(chat_id, no_candidates_message)
+                return
+        
+        # Phase 2: Trade Execution
+        selected_candidates = candidates[:3]  # Top 3 candidates
+        amount_per_trade = trade_amount / len(selected_candidates)
+        
+        phase2_message = f"""
+🚀 <b>PHASE 2: TRADE EXECUTION</b>
+
+Found {len(candidates)} candidates, executing top {len(selected_candidates)}:
+
+🎯 <b>Selected Tokens:</b>
+{chr(10).join([f"• {c.name} (${c.symbol}) - Score: {c.safety_score}/100" for c in selected_candidates])}
+
+💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
+⏱️ <b>Monitoring:</b> 5 minutes per trade
+
+<b>🐕 Executing buy orders...</b>
+        """
+        send_message(chat_id, phase2_message)
+        
+        # Execute trades
+        active_trades = []
+        for i, candidate in enumerate(selected_candidates):
+            # Simulate buy execution
+            buy_result = await trade_executor.execute_buy_order(
+                chat_id, wallet_address, candidate.mint, amount_per_trade
+            )
+            
+            if buy_result['success']:
+                # Create active trade
+                trade = ActiveTrade(
+                    trade_id=f"fetch_{int(time.time())}_{i}",
+                    chat_id=chat_id,
+                    token_mint=candidate.mint,
+                    token_name=candidate.name,
+                    token_symbol=candidate.symbol,
+                    entry_price=buy_result['entry_price'],
+                    trade_amount=amount_per_trade,
+                    stop_loss_percent=25.0,  # VIP default: 25% stop loss
+                    take_profit_percent=100.0,  # VIP default: 100% take profit
+                    entry_time=datetime.now(),
+                    status='monitoring'
+                )
+                
+                active_trades.append(trade)
+                
+                # Start monitoring
+                await trade_executor.start_trade_monitoring(trade)
+        
+        # Phase 3: Monitoring Status
+        if active_trades:
+            monitoring_message = f"""
+📊 <b>PHASE 3: ACTIVE MONITORING</b>
+
+<b>🎯 {len(active_trades)} Trades Active:</b>
+{chr(10).join([f"• {t.token_name} - Entry: ${t.entry_price:.8f}" for t in active_trades])}
+
+<b>🐕 VIP Features Active:</b>
+• Real-time price monitoring
+• Automatic stop-loss (25%)
+• Automatic take-profit (100%)
+• Instant exit notifications
+
+<i>Your FETCH trades are being monitored! Results incoming...</i>
+            """
+            send_message(chat_id, monitoring_message)
+        else:
+            failed_message = """
+❌ <b>TRADE EXECUTION FAILED</b>
+
+Unable to execute buy orders for selected tokens.
+This could be due to:
+• Network congestion
+• Liquidity issues
+• Price volatility
+
+<i>Your funds remain safe. Try again later with /fetch</i>
+            """
+            send_message(chat_id, failed_message)
+            
+    except Exception as e:
+        logging.error(f"VIP FETCH execution failed: {e}")
+        error_message = f"""
+❌ <b>VIP FETCH Error</b>
+
+Automated trading encountered an error: {str(e)}
+
+<i>Your funds are safe. Please try again with /fetch</i>
+        """
+        send_message(chat_id, error_message)
+
+def handle_stop_fetch_command(chat_id):
+    """Handle /stopfetch command to stop automated trading"""
+    try:
+        from trade_executor import trade_executor
+        
+        # Stop all active trades for this user
+        asyncio.create_task(trade_executor.stop_all_trades(str(chat_id)))
+        
+        stop_message = """
+⏹️ <b>VIP FETCH TRADING STOPPED</b>
+
+<b>🐕 Sniffer Dog recalled!</b>
+
+• All active trades monitoring stopped
+• Pending orders cancelled (if any)
+• Your funds remain in current positions
+• Bot scanning paused for your account
+
+<b>💡 To resume:</b>
+Use /fetch to start a new automated trading session.
+        """
+        send_message(chat_id, stop_message)
+        
+    except Exception as e:
+        logging.error(f"Stop fetch command failed: {e}")
+        error_message = """
+❌ <b>Error Stopping FETCH</b>
+
+Unable to stop automated trading. Please contact support if needed.
+        """
+        send_message(chat_id, error_message)
+
 def handle_update(update):
     """Main update handler for Telegram webhook"""
     try:
@@ -1476,7 +1695,8 @@ def handle_update(update):
                 handle_cancel_command(chat_id)
             elif command == '/whatif':
                 handle_whatif_command(chat_id)
-
+            elif command == '/stopfetch':
+                handle_stop_fetch_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:

@@ -3,153 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mork F.E.T.C.H Bot - Telegram Crypto Trading Bot</title>
+    <title>Mork F.E.T.C.H Bot - The Degens' Best Friend</title>
     <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.css">
     <style>
-        :root {
-            --mork-green: #7cb342;
-            --mork-green-light: #9ccc65;
-            --mork-dark: #1a1a1a;
-            --mork-darker: #0f0f0f;
-            --mork-accent: #8bc34a;
-            --mork-green-dark: #2d5016;
-            --mork-brand-dark: #1a2e0a;
-        }
-        
         .hero-section {
-            background: linear-gradient(135deg, var(--mork-green) 0%, var(--mork-green-light) 100%);
+            background: linear-gradient(135deg, #7cb342 0%, #9ccc65 100%);
+            color: white;
             padding: 4rem 0;
-            position: relative;
         }
-        
-        .hero-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.1);
-            z-index: 1;
+        .brand-text {
+            color: #1a2e0a;
+            font-weight: bold;
         }
-        
-        .hero-section .container {
-            position: relative;
-            z-index: 2;
-        }
-        
         .feature-card {
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
+            border: none;
             background: var(--bs-dark);
+            transition: transform 0.3s ease;
         }
-        
         .feature-card:hover {
             transform: translateY(-5px);
-            border-color: var(--mork-green);
-            box-shadow: 0 10px 30px rgba(124, 179, 66, 0.2);
         }
-        
-        .status-badge {
-            font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-        }
-        
-        .bot-info {
-            background: var(--mork-darker);
-            border: 2px solid var(--mork-green);
-            border-radius: 1rem;
+        .trading-mode {
+            border: 1px solid var(--bs-border-color);
+            border-radius: 10px;
             padding: 2rem;
-            margin: 2rem 0;
+            margin-bottom: 2rem;
         }
-        
-        .btn-mork {
-            background: var(--mork-green);
-            border-color: var(--mork-green);
-            color: white;
+        .vip-badge {
+            background: linear-gradient(135deg, #ffd700 0%, #ffed4a 100%);
+            color: #000;
             font-weight: bold;
+            border-radius: 15px;
+            padding: 0.3rem 0.8rem;
         }
-        
-        .btn-mork:hover {
-            background: var(--mork-accent);
-            border-color: var(--mork-accent);
-            color: white;
-        }
-        
-        .btn-outline-mork {
-            border-color: var(--mork-green);
-            color: var(--mork-green);
-            font-weight: bold;
-        }
-        
-        .btn-outline-mork:hover {
-            background: var(--mork-green);
-            border-color: var(--mork-green);
-            color: white;
-        }
-        
-        .text-mork {
-            color: var(--mork-green) !important;
-        }
-        
-        .bg-mork {
-            background-color: var(--mork-green) !important;
-        }
-        
-        .navbar-brand {
-            color: var(--mork-green) !important;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-        
-        .step-number {
-            background: var(--mork-green) !important;
-        }
-        
-        .status-online {
-            color: var(--mork-green-light) !important;
-        }
-        
-        h1, h2, h3, h4, h5, h6 {
-            font-weight: bold;
-        }
-        
-        .display-4, .display-6 {
-            background: linear-gradient(45deg, var(--mork-green), var(--mork-green-light));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .hero-section .display-4 {
-            color: var(--mork-brand-dark) !important;
-            background: none !important;
-            -webkit-text-fill-color: var(--mork-brand-dark) !important;
-            font-weight: 900;
-        }
-        
-        .hero-section .navbar-brand {
-            color: var(--mork-brand-dark) !important;
-            font-weight: 900;
-        }
-        
-        .hero-section h1, .hero-section h2, .hero-section h3, .hero-section h4, .hero-section h5, .hero-section h6 {
-            color: var(--mork-brand-dark) !important;
-        }
-        
-        .hero-section .lead, .hero-section p {
-            color: white !important;
+        .auto-feature {
+            background: rgba(124, 179, 66, 0.1);
+            border-left: 4px solid #7cb342;
+            padding: 1rem;
+            margin: 1rem 0;
         }
     </style>
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand fw-bold" href="#">
-                <i data-feather="zap" class="me-2"></i>
-                Mork F.E.T.C.H Bot
+                🐕 <span class="text-success">Mork F.E.T.C.H Bot</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -160,10 +60,10 @@
                         <a class="nav-link" href="#features">Features</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#how-it-works">How It Works</a>
+                        <a class="nav-link" href="#modes">Trading Modes</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#status">Status</a>
+                        <a class="nav-link" href="#telegram">Get Started</a>
                     </li>
                 </ul>
             </div>
@@ -171,57 +71,42 @@
     </nav>
 
     <!-- Hero Section -->
-    <section class="hero-section text-white">
+    <section class="hero-section text-center">
         <div class="container">
-            <div class="row align-items-center">
-                <div class="col-lg-6">
-                    <h1 class="display-4 fw-bold mb-4">
-                        Mork F.E.T.C.H Bot
-                    </h1>
-                    <p class="lead mb-4">
-                        <strong>The Degens' Best Friend</strong><br><br>
-                        <em>F.E.T.C.H. = Fast Execution, Trade Control Handler</em><br>
-                        Sniffing trades. Fetching bags. Barking profits.<br><br>
-                        
-                        🐾 <strong>Free Mode</strong> – Simulate sniping Solana tokens with zero risk. Learn the game without losing the leash.<br>
-                        🐾 <strong>V.I.P. Mode</strong> – Unlock real-time auto-sniping, sell targets, stop-losses, and Mork's full toolkit by holding 1 SOL worth of $MORK from morkcoin.io.<br><br>
-                        
-                        🔗 Built for degenerates. Powered by chaos.<br>
-                        <strong>Mork fetches. You profit.</strong>
-                    </p>
-                    <div class="d-flex flex-wrap gap-3">
-                        <a href="https://t.me/MorkFETCHBot" class="btn btn-mork btn-lg">
-                            <i data-feather="message-circle" class="me-2"></i>
-                            Start Bot on Telegram
-                        </a>
-                        <a href="#features" class="btn btn-outline-mork btn-lg">
-                            Learn More
-                        </a>
+            <h1 class="display-4 fw-bold mb-4">
+                <span class="brand-text">Mork F.E.T.C.H Bot</span>
+            </h1>
+            <h2 class="h3 mb-4">The Degens' Best Friend 🐕</h2>
+            <p class="lead mb-5">
+                <strong>F.E.T.C.H.</strong> = Fast Execution, Trade Control Handler<br>
+                Advanced Solana token trading bot with automated Pump.fun scanning
+            </p>
+            <div class="row justify-content-center">
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="text-success">🧪 FREE SIMULATION</h5>
+                            <p>Practice trading risk-free</p>
+                        </div>
                     </div>
                 </div>
-                <div class="col-lg-6">
-                    <div class="bot-info">
-                        <h3 class="h4 mb-3">
-                            <i data-feather="shield" class="me-2"></i>
-                            Free Simulation Mode
-                        </h3>
-                        <p class="mb-3">
-                            Practice crypto sniping without any risk. Learn how token sniping works with realistic simulations.
-                        </p>
-                        <ul class="list-unstyled">
-                            <li class="mb-2">
-                                <i data-feather="check-circle" class="text-success me-2"></i>
-                                Simulate token purchases
-                            </li>
-                            <li class="mb-2">
-                                <i data-feather="check-circle" class="text-success me-2"></i>
-                                Set stop-loss & take-profit
-                            </li>
-                            <li class="mb-2">
-                                <i data-feather="check-circle" class="text-success me-2"></i>
-                                Learn without financial risk
-                            </li>
-                        </ul>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark text-white h-100">
+                        <div class="card-body text-center">
+                            <h5 class="text-warning">⚡ LIVE TRADING</h5>
+                            <p>Manual trades with 0.5% fees</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card bg-dark text-white h-100 border-warning">
+                        <div class="card-body text-center">
+                            <h5 class="text-warning">
+                                💎 VIP FETCH
+                                <span class="vip-badge">VIP</span>
+                            </h5>
+                            <p>Automated Pump.fun scanning</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -231,82 +116,37 @@
     <!-- Features Section -->
     <section id="features" class="py-5">
         <div class="container">
+            <h2 class="text-center mb-5">🚀 Advanced Trading Features</h2>
             <div class="row">
-                <div class="col-lg-12 text-center mb-5">
-                    <h2 class="display-6 fw-bold">Features</h2>
-                    <p class="lead text-muted">Everything you need to master crypto token sniping</p>
-                </div>
-            </div>
-            <div class="row g-4">
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="play-circle" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Free Simulation</h5>
-                            <p class="card-text">
-                                Practice token sniping with realistic simulations. No wallet connection or real money required.
-                            </p>
-                            <span class="badge bg-success status-badge">Available Now</span>
+                <div class="col-md-6 mb-4">
+                    <div class="feature-card card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">🎯 Smart Contract Integration</h5>
+                            <p class="card-text">Direct Solana blockchain integration with real-time token price feeds and instant execution capabilities.</p>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="target" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Smart Stop-Loss</h5>
-                            <p class="card-text">
-                                Set automatic stop-loss and take-profit levels to manage risk and secure profits effectively.
-                            </p>
-                            <span class="badge bg-success status-badge">Available Now</span>
+                <div class="col-md-6 mb-4">
+                    <div class="feature-card card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">🛡️ Advanced Risk Management</h5>
+                            <p class="card-text">Customizable stop-loss and take-profit levels with automatic exit strategies to protect your investments.</p>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="trending-up" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Solana Integration</h5>
-                            <p class="card-text">
-                                Built specifically for Solana tokens and Pump.fun launched meme coins with fast execution.
-                            </p>
-                            <span class="badge bg-warning status-badge">Coming Soon</span>
+                <div class="col-md-6 mb-4">
+                    <div class="feature-card card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">⚡ Lightning Fast Execution</h5>
+                            <p class="card-text">Optimized for speed with priority execution for VIP users and minimal slippage protection.</p>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="wallet" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Phantom Wallet</h5>
-                            <p class="card-text">
-                                Connect your Phantom wallet for live trading. Requires 100,000 $MORK tokens for access.
-                            </p>
-                            <span class="badge bg-warning status-badge">Coming Soon</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="eye" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Auto Scanner</h5>
-                            <p class="card-text">
-                                Automatically scan Pump.fun for new token launches and suggest potential sniping opportunities.
-                            </p>
-                            <span class="badge bg-info status-badge">Planned</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6 col-lg-4">
-                    <div class="feature-card card h-100 p-4">
-                        <div class="card-body text-center">
-                            <i data-feather="copy" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
-                            <h5 class="card-title">Copy Trading</h5>
-                            <p class="card-text">
-                                Follow successful traders and automatically copy their trades with customizable parameters.
-                            </p>
-                            <span class="badge bg-info status-badge">Planned</span>
+                <div class="col-md-6 mb-4">
+                    <div class="feature-card card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">📊 Real-time Analytics</h5>
+                            <p class="card-text">Live price monitoring, market cap tracking, and comprehensive trade history analysis.</p>
                         </div>
                     </div>
                 </div>
@@ -314,145 +154,163 @@
         </div>
     </section>
 
-    <!-- How It Works Section -->
-    <section id="how-it-works" class="py-5 bg-dark">
+    <!-- Trading Modes Section -->
+    <section id="modes" class="py-5 bg-dark">
         <div class="container">
-            <div class="row">
-                <div class="col-lg-12 text-center mb-5">
-                    <h2 class="display-6 fw-bold">How It Works</h2>
-                    <p class="lead text-muted">Simple steps to start practicing token sniping</p>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-lg-8 mx-auto">
-                    <div class="row g-4">
-                        <div class="col-md-6">
-                            <div class="d-flex">
-                                <div class="flex-shrink-0">
-                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
-                                        <span class="fw-bold text-white">1</span>
-                                    </div>
-                                </div>
-                                <div class="flex-grow-1 ms-3">
-                                    <h5>Start the Bot</h5>
-                                    <p class="text-muted">
-                                        Open Telegram and start a conversation with Mork F.E.T.C.H Bot. Type /start to begin.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="d-flex">
-                                <div class="flex-shrink-0">
-                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
-                                        <span class="fw-bold text-white">2</span>
-                                    </div>
-                                </div>
-                                <div class="flex-grow-1 ms-3">
-                                    <h5>Enter Token Contract</h5>
-                                    <p class="text-muted">
-                                        Use /snipe command and enter the Solana token contract address you want to practice with.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="d-flex">
-                                <div class="flex-shrink-0">
-                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
-                                        <span class="fw-bold text-white">3</span>
-                                    </div>
-                                </div>
-                                <div class="flex-grow-1 ms-3">
-                                    <h5>Set Parameters</h5>
-                                    <p class="text-muted">
-                                        Configure your stop-loss, take-profit percentages, and how much to sell when triggered.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="d-flex">
-                                <div class="flex-shrink-0">
-                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
-                                        <span class="fw-bold text-white">4</span>
-                                    </div>
-                                </div>
-                                <div class="flex-grow-1 ms-3">
-                                    <h5>Confirm Simulation</h5>
-                                    <p class="text-muted">
-                                        Review your settings and type /confirm to run the simulation and see how it works.
-                                    </p>
-                                </div>
-                            </div>
+            <h2 class="text-center mb-5">🎮 Three-Tier Trading System</h2>
+            
+            <!-- Simulation Mode -->
+            <div class="trading-mode">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="text-success">🧪 FREE SIMULATION MODE</h3>
+                        <p class="lead">Perfect for beginners to learn token sniping strategies</p>
+                        <ul class="list-unstyled">
+                            <li>✅ Zero risk practice environment</li>
+                            <li>✅ Real token data and prices</li>
+                            <li>✅ Learn stop-loss and take-profit strategies</li>
+                            <li>✅ Track your virtual performance</li>
+                        </ul>
+                        <p class="text-muted">Command: <code>/simulate</code></p>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="badge bg-success p-3">
+                            <h4 class="mb-0">100% FREE</h4>
+                            <small>No risks, pure learning</small>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </section>
 
-    <!-- Status Section -->
-    <section id="status" class="py-5">
-        <div class="container">
-            <div class="row">
-                <div class="col-lg-12 text-center mb-5">
-                    <h2 class="display-6 fw-bold">Bot Status</h2>
-                    <p class="lead text-muted">Current service status and availability</p>
+            <!-- Live Trading Mode -->
+            <div class="trading-mode">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="text-warning">⚡ DEGENS SNIPE BOT</h3>
+                        <p class="lead">Manual live trading with real money</p>
+                        <ul class="list-unstyled">
+                            <li>✅ Real Solana blockchain trades</li>
+                            <li>✅ Manual token selection and timing</li>
+                            <li>✅ Custom risk parameters</li>
+                            <li>✅ 0.5% fee only on profitable trades</li>
+                        </ul>
+                        <p class="text-muted">Command: <code>/snipe</code></p>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="badge bg-warning text-dark p-3">
+                            <h4 class="mb-0">0.5% FEE</h4>
+                            <small>Only on profitable sales</small>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="row justify-content-center">
-                <div class="col-lg-8">
-                    <div class="card">
-                        <div class="card-body p-4">
-                            <div class="row g-4">
-                                <div class="col-md-6">
-                                    <div class="d-flex align-items-center">
-                                        <i data-feather="server" class="status-online me-3"></i>
-                                        <div>
-                                            <h6 class="mb-1">Bot Service</h6>
-                                            <span class="badge bg-success">Online</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="d-flex align-items-center">
-                                        <i data-feather="play-circle" class="status-online me-3"></i>
-                                        <div>
-                                            <h6 class="mb-1">Simulation Mode</h6>
-                                            <span class="badge bg-success">Available</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="d-flex align-items-center">
-                                        <i data-feather="wallet" class="text-warning me-3"></i>
-                                        <div>
-                                            <h6 class="mb-1">Live Trading</h6>
-                                            <span class="badge bg-warning">Coming Soon</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="d-flex align-items-center">
-                                        <i data-feather="eye" class="text-info me-3"></i>
-                                        <div>
-                                            <h6 class="mb-1">Auto Scanner</h6>
-                                            <span class="badge bg-info">In Development</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <hr class="my-4">
-                            <div class="text-center">
-                                <p class="mb-3">
-                                    <strong>Ready to start?</strong> Open Telegram and search for our bot!
+
+            <!-- VIP FETCH Mode -->
+            <div class="trading-mode border-warning">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h3 class="text-warning">
+                            💎 VIP FETCH AUTO-TRADING 
+                            <span class="vip-badge">VIP</span>
+                        </h3>
+                        <p class="lead">Fully automated Pump.fun token discovery and trading</p>
+                        
+                        <div class="auto-feature">
+                            <h5 class="text-success">🤖 Automated Token Discovery</h5>
+                            <ul class="list-unstyled">
+                                <li>• Scans Pump.fun for new token launches every minute</li>
+                                <li>• Advanced safety filtering (blacklist words, age, market cap)</li>
+                                <li>• AI-powered risk scoring system</li>
+                            </ul>
+                        </div>
+
+                        <div class="auto-feature">
+                            <h5 class="text-success">⚡ Smart Execution Engine</h5>
+                            <ul class="list-unstyled">
+                                <li>• Automatically executes top-rated token trades</li>
+                                <li>• Diversifies across multiple positions</li>
+                                <li>• Real-time monitoring with 5-minute windows</li>
+                            </ul>
+                        </div>
+
+                        <div class="auto-feature">
+                            <h5 class="text-success">🎯 VIP Features</h5>
+                            <ul class="list-unstyled">
+                                <li>• Priority execution speeds</li>
+                                <li>• Enhanced risk management</li>
+                                <li>• Instant profit/loss notifications</li>
+                                <li>• Premium customer support</li>
+                            </ul>
+                        </div>
+
+                        <p class="text-warning fw-bold">
+                            <strong>Requirement:</strong> Hold minimum 1 SOL worth of $MORK tokens
+                        </p>
+                        <p class="text-muted">Commands: <code>/fetch</code> to start, <code>/stopfetch</code> to stop</p>
+                    </div>
+                    <div class="col-md-4 text-center">
+                        <div class="badge bg-warning text-dark p-3 mb-3">
+                            <h4 class="mb-0">0.5% FEE</h4>
+                            <small>Only on profitable sales</small>
+                        </div>
+                        <div class="card bg-success text-dark">
+                            <div class="card-body">
+                                <h6>🔒 VIP ACCESS</h6>
+                                <p class="mb-0 small">
+                                    Requires $MORK token holdings<br>
+                                    Contract: <code class="small">ATo5zf...3XcH</code>
                                 </p>
-                                <a href="https://t.me/YourBotUsername" class="btn btn-primary btn-lg">
-                                    <i data-feather="message-circle" class="me-2"></i>
-                                    Start Bot Now
-                                </a>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="py-5">
+        <div class="container">
+            <h2 class="text-center mb-5">🔄 How VIP FETCH Works</h2>
+            <div class="row">
+                <div class="col-md-4 text-center mb-4">
+                    <div class="display-1 text-success">🔍</div>
+                    <h4>Phase 1: Discovery</h4>
+                    <p>Continuously scans Pump.fun for new token launches, analyzes safety metrics, and filters high-potential candidates.</p>
+                </div>
+                <div class="col-md-4 text-center mb-4">
+                    <div class="display-1 text-warning">⚡</div>
+                    <h4>Phase 2: Execution</h4>
+                    <p>Automatically executes buy orders on top 3 candidates, diversifying your investment across multiple positions.</p>
+                </div>
+                <div class="col-md-4 text-center mb-4">
+                    <div class="display-1 text-info">📊</div>
+                    <h4>Phase 3: Monitoring</h4>
+                    <p>Real-time price monitoring with automatic stop-loss and take-profit execution. Instant notifications on results.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Get Started Section -->
+    <section id="telegram" class="py-5 bg-success text-dark">
+        <div class="container text-center">
+            <h2 class="brand-text mb-4">🚀 Ready to Start FETCHing Profits?</h2>
+            <p class="lead mb-4">Join thousands of degens already using Mork F.E.T.C.H Bot</p>
+            <div class="row justify-content-center">
+                <div class="col-md-8">
+                    <div class="card bg-dark text-white">
+                        <div class="card-body">
+                            <h5 class="text-success mb-3">📱 Get Started on Telegram</h5>
+                            <ol class="text-start">
+                                <li>Open Telegram and search for <strong>@MorkFetchBot</strong></li>
+                                <li>Start with <code>/simulate</code> to practice risk-free</li>
+                                <li>Upgrade to <code>/snipe</code> for live trading</li>
+                                <li>Get $MORK tokens and unlock <code>/fetch</code> VIP mode</li>
+                            </ol>
+                            <a href="https://t.me/MorkFetchBot" class="btn btn-success btn-lg mt-3">
+                                🐕 Start Trading Now
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -461,42 +319,16 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-4 border-top">
+    <footer class="bg-dark text-center py-4">
         <div class="container">
-            <div class="row">
-                <div class="col-lg-12 text-center">
-                    <p class="text-muted mb-2">
-                        &copy; 2025 Mork F.E.T.C.H Bot. Built for the Solana ecosystem.
-                    </p>
-                    <p class="text-muted small">
-                        <strong>Disclaimer:</strong> This is educational software for learning purposes. 
-                        Always DYOR (Do Your Own Research) before making any financial decisions.
-                    </p>
-                </div>
-            </div>
+            <p class="mb-2">&copy; 2025 Mork F.E.T.C.H Bot - The Degens' Best Friend</p>
+            <p class="text-muted small mb-0">
+                ⚠️ Trading cryptocurrencies involves risk. Only trade what you can afford to lose. 
+                Always DYOR (Do Your Own Research).
+            </p>
         </div>
     </footer>
 
-    <!-- Bootstrap JS and Feather Icons -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.js"></script>
-    <script>
-        // Initialize feather icons
-        feather.replace();
-        
-        // Smooth scrolling for navigation links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }
-            });
-        });
-    </script>
 </body>
 </html>
