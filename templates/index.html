@@ -7,18 +7,47 @@
     <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.css">
     <style>
+        :root {
+            --mork-orange: #ff6b35;
+            --mork-yellow: #ffa726;
+            --mork-dark: #1a1a1a;
+            --mork-darker: #0f0f0f;
+            --mork-accent: #ff8a50;
+            --mork-light: #ffcc02;
+        }
+        
         .hero-section {
-            background: linear-gradient(135deg, var(--bs-primary) 0%, var(--bs-info) 100%);
+            background: linear-gradient(135deg, var(--mork-orange) 0%, var(--mork-yellow) 100%);
             padding: 4rem 0;
+            position: relative;
+        }
+        
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.1);
+            z-index: 1;
+        }
+        
+        .hero-section .container {
+            position: relative;
+            z-index: 2;
         }
         
         .feature-card {
-            transition: transform 0.3s ease;
-            border: 1px solid var(--bs-border-color);
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            background: var(--bs-dark);
         }
         
         .feature-card:hover {
             transform: translateY(-5px);
+            border-color: var(--mork-orange);
+            box-shadow: 0 10px 30px rgba(255, 107, 53, 0.2);
         }
         
         .status-badge {
@@ -27,10 +56,68 @@
         }
         
         .bot-info {
-            background: var(--bs-dark);
+            background: var(--mork-darker);
+            border: 2px solid var(--mork-orange);
             border-radius: 1rem;
             padding: 2rem;
             margin: 2rem 0;
+        }
+        
+        .btn-mork {
+            background: var(--mork-orange);
+            border-color: var(--mork-orange);
+            color: white;
+            font-weight: bold;
+        }
+        
+        .btn-mork:hover {
+            background: var(--mork-accent);
+            border-color: var(--mork-accent);
+            color: white;
+        }
+        
+        .btn-outline-mork {
+            border-color: var(--mork-orange);
+            color: var(--mork-orange);
+            font-weight: bold;
+        }
+        
+        .btn-outline-mork:hover {
+            background: var(--mork-orange);
+            border-color: var(--mork-orange);
+            color: white;
+        }
+        
+        .text-mork {
+            color: var(--mork-orange) !important;
+        }
+        
+        .bg-mork {
+            background-color: var(--mork-orange) !important;
+        }
+        
+        .navbar-brand {
+            color: var(--mork-orange) !important;
+            font-size: 1.5rem;
+        }
+        
+        .step-number {
+            background: var(--mork-orange) !important;
+        }
+        
+        .status-online {
+            color: var(--mork-yellow) !important;
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            font-weight: bold;
+        }
+        
+        .display-4, .display-6 {
+            background: linear-gradient(45deg, var(--mork-orange), var(--mork-yellow));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
     </style>
 </head>
@@ -70,14 +157,14 @@
                         Mork Sniper Bot
                     </h1>
                     <p class="lead mb-4">
-                        A Telegram-based crypto trading bot for Solana tokens. Practice token sniping with our FREE simulation mode or unlock live trading with $MORK tokens.
+                        A Telegram-based crypto trading bot for Solana tokens. Practice token sniping with our FREE simulation mode or unlock live trading with 100,000+ $MORK tokens from morkcoin.io.
                     </p>
                     <div class="d-flex flex-wrap gap-3">
-                        <a href="https://t.me/YourBotUsername" class="btn btn-light btn-lg">
+                        <a href="https://t.me/YourBotUsername" class="btn btn-mork btn-lg">
                             <i data-feather="message-circle" class="me-2"></i>
                             Start Bot on Telegram
                         </a>
-                        <a href="#features" class="btn btn-outline-light btn-lg">
+                        <a href="#features" class="btn btn-outline-mork btn-lg">
                             Learn More
                         </a>
                     </div>
@@ -124,7 +211,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="play-circle" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="play-circle" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Free Simulation</h5>
                             <p class="card-text">
                                 Practice token sniping with realistic simulations. No wallet connection or real money required.
@@ -136,7 +223,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="target" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="target" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Smart Stop-Loss</h5>
                             <p class="card-text">
                                 Set automatic stop-loss and take-profit levels to manage risk and secure profits effectively.
@@ -148,7 +235,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="trending-up" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="trending-up" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Solana Integration</h5>
                             <p class="card-text">
                                 Built specifically for Solana tokens and Pump.fun launched meme coins with fast execution.
@@ -160,7 +247,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="wallet" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="wallet" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Phantom Wallet</h5>
                             <p class="card-text">
                                 Connect your Phantom wallet for live trading. Requires 100,000 $MORK tokens for access.
@@ -172,7 +259,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="eye" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="eye" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Auto Scanner</h5>
                             <p class="card-text">
                                 Automatically scan Pump.fun for new token launches and suggest potential sniping opportunities.
@@ -184,7 +271,7 @@
                 <div class="col-md-6 col-lg-4">
                     <div class="feature-card card h-100 p-4">
                         <div class="card-body text-center">
-                            <i data-feather="copy" class="text-primary mb-3" style="width: 48px; height: 48px;"></i>
+                            <i data-feather="copy" class="text-mork mb-3" style="width: 48px; height: 48px;"></i>
                             <h5 class="card-title">Copy Trading</h5>
                             <p class="card-text">
                                 Follow successful traders and automatically copy their trades with customizable parameters.
@@ -212,7 +299,7 @@
                         <div class="col-md-6">
                             <div class="d-flex">
                                 <div class="flex-shrink-0">
-                                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
                                         <span class="fw-bold text-white">1</span>
                                     </div>
                                 </div>
@@ -227,7 +314,7 @@
                         <div class="col-md-6">
                             <div class="d-flex">
                                 <div class="flex-shrink-0">
-                                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
                                         <span class="fw-bold text-white">2</span>
                                     </div>
                                 </div>
@@ -242,7 +329,7 @@
                         <div class="col-md-6">
                             <div class="d-flex">
                                 <div class="flex-shrink-0">
-                                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
                                         <span class="fw-bold text-white">3</span>
                                     </div>
                                 </div>
@@ -257,7 +344,7 @@
                         <div class="col-md-6">
                             <div class="d-flex">
                                 <div class="flex-shrink-0">
-                                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
+                                    <div class="step-number rounded-circle d-flex align-items-center justify-content-center" style="width: 50px; height: 50px;">
                                         <span class="fw-bold text-white">4</span>
                                     </div>
                                 </div>
@@ -291,7 +378,7 @@
                             <div class="row g-4">
                                 <div class="col-md-6">
                                     <div class="d-flex align-items-center">
-                                        <i data-feather="server" class="text-success me-3"></i>
+                                        <i data-feather="server" class="status-online me-3"></i>
                                         <div>
                                             <h6 class="mb-1">Bot Service</h6>
                                             <span class="badge bg-success">Online</span>
@@ -300,7 +387,7 @@
                                 </div>
                                 <div class="col-md-6">
                                     <div class="d-flex align-items-center">
-                                        <i data-feather="play-circle" class="text-success me-3"></i>
+                                        <i data-feather="play-circle" class="status-online me-3"></i>
                                         <div>
                                             <h6 class="mb-1">Simulation Mode</h6>
                                             <span class="badge bg-success">Available</span>
