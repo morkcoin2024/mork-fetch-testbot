@@ -59,11 +59,29 @@ def update_session(chat_id, **kwargs):
 
 def is_valid_solana_address(address):
     """Validate Solana contract address format"""
-    if not address or len(address) < 32 or len(address) > 44:
+    if not address:
         return False
-    # Basic Base58 character check
+    
+    # Trim whitespace
+    address = address.strip()
+    
+    # Solana addresses are typically 32-44 characters, but let's be more flexible
+    if len(address) < 32 or len(address) > 50:
+        return False
+    
+    # Base58 character check (Bitcoin alphabet without 0, O, I, l)
     valid_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    return all(char in valid_chars for char in address)
+    
+    # Check if all characters are valid Base58
+    if not all(char in valid_chars for char in address):
+        return False
+    
+    # Additional check: Solana addresses shouldn't contain ambiguous characters
+    forbidden_chars = "0OIl"
+    if any(char in forbidden_chars for char in address):
+        return False
+    
+    return True
 
 def is_valid_percentage(value):
     """Validate percentage input (0-100)"""
