@@ -493,7 +493,8 @@ def handle_amount_input(chat_id, amount_text):
 
 This is the percentage loss at which the bot will automatically sell to limit losses.
 
-<i>Example: Enter "20" for 20% stop-loss</i>
+<i>Recommended: Enter "0.5" for 0.5% stop-loss (ultra-responsive)
+Alternative: Enter "3" for 3% stop-loss (standard)</i>
 
 <b>⚠️ SIMULATION MODE - Position size: ${amount:,.2f}</b>
 Type a number between 0-100 or /cancel to abort.
@@ -537,7 +538,8 @@ Try again or type /cancel to abort.
 
 This is the percentage gain at which the bot will automatically sell to secure profits.
 
-<i>Example: Enter "200" for 200% take-profit (3x return)</i>
+<i>Recommended: Enter "0.5" for 0.5% take-profit (quick gains)
+Alternative: Enter "10" for 10% take-profit (standard)</i>
 
 Type a number between 0-1000 or /cancel to abort.
     """
@@ -1240,7 +1242,8 @@ def handle_live_amount_input(chat_id, amount_text):
 
 This is the percentage loss at which the bot will automatically sell to limit losses.
 
-<i>Example: Enter "20" for 20% stop-loss</i>
+<i>Recommended: Enter "0.5" for 0.5% stop-loss (ultra-responsive)
+Alternative: Enter "3" for 3% stop-loss (standard)</i>
 
 <b>⚠️ LIVE TRADING - Position size: {amount:.3f} SOL</b>
 Type a number between 0-100 or /cancel to abort.
@@ -1269,12 +1272,12 @@ def handle_live_stoploss_input(chat_id, text):
         error_text = """
 ❌ <b>Invalid Stop-Loss Value</b>
 
-Please enter a valid stop-loss percentage between 1 and 99.
+Please enter a valid stop-loss percentage between 0.1 and 99.
 
 <b>💡 Examples:</b>
-• 10 (for -10% stop-loss)
-• 25 (for -25% stop-loss)
-• 50 (for -50% stop-loss)
+• 0.5 (for -0.5% stop-loss - ultra-responsive)
+• 3 (for -3% stop-loss - standard)
+• 10 (for -10% stop-loss - conservative)
 
 Enter your stop-loss percentage:
         """
@@ -1286,7 +1289,10 @@ Enter your stop-loss percentage:
 
 Your position will be automatically sold if the token price drops {stop_loss}% from your entry point.
 
-Now enter your take-profit percentage (e.g., 100 for +100%):
+Now enter your take-profit percentage:
+
+<i>Recommended: "0.5" for 0.5% take-profit (quick gains)
+Alternative: "10" for 10% take-profit (standard)</i>
     """
     
     update_session(chat_id, state=STATE_LIVE_WAITING_TAKEPROFIT, stop_loss=stop_loss)
@@ -1305,9 +1311,9 @@ def handle_live_takeprofit_input(chat_id, text):
 Please enter a valid take-profit percentage (positive number).
 
 <b>💡 Examples:</b>
-• 50 (for +50% profit target)
-• 100 (for +100% profit target)
-• 200 (for +200% profit target)
+• 0.5 (for +0.5% profit target - ultra-responsive)
+• 10 (for +10% profit target - standard)
+• 50 (for +50% profit target - conservative)
 
 Enter your take-profit percentage:
         """
