@@ -126,6 +126,7 @@ Ready to practice? Type /snipe to begin!
 def handle_snipe_command(chat_id):
     """Handle /snipe command"""
     session = get_or_create_session(chat_id)
+    logging.info(f"Chat {chat_id}: Starting snipe command, setting state to {STATE_WAITING_CONTRACT}")
     
     snipe_text = """
 🎯 <b>Starting Simulation Snipe</b>
@@ -137,7 +138,8 @@ Please enter the <b>Solana token contract address</b> you want to simulate snipi
 Type the contract address or /cancel to abort.
     """
     
-    update_session(chat_id, state=STATE_WAITING_CONTRACT)
+    session = update_session(chat_id, state=STATE_WAITING_CONTRACT)
+    logging.info(f"Chat {chat_id}: Session state after update = {session.state}")
     send_message(chat_id, snipe_text)
 
 def handle_contract_input(chat_id, contract_address):
@@ -470,15 +472,23 @@ def handle_update(update):
             # Handle text input based on current state
             session = get_or_create_session(chat_id)
             
+            # Debug logging
+            logging.info(f"Chat {chat_id}: Current state = {session.state}, Text = {text[:50]}")
+            
             if session.state == STATE_WAITING_CONTRACT:
+                logging.info(f"Chat {chat_id}: Processing contract input")
                 handle_contract_input(chat_id, text)
             elif session.state == STATE_WAITING_STOPLOSS:
+                logging.info(f"Chat {chat_id}: Processing stop-loss input")
                 handle_stoploss_input(chat_id, text)
             elif session.state == STATE_WAITING_TAKEPROFIT:
+                logging.info(f"Chat {chat_id}: Processing take-profit input")
                 handle_takeprofit_input(chat_id, text)
             elif session.state == STATE_WAITING_SELLPERCENT:
+                logging.info(f"Chat {chat_id}: Processing sell percent input")
                 handle_sellpercent_input(chat_id, text)
             else:
+                logging.info(f"Chat {chat_id}: Unknown state '{session.state}', sending help message")
                 send_message(chat_id, "I'm not sure what you mean. Type /help for available commands or /snipe to start a simulation.")
     
     except Exception as e:
