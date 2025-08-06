@@ -13,7 +13,8 @@
             --mork-dark: #1a1a1a;
             --mork-darker: #0f0f0f;
             --mork-accent: #8bc34a;
-            --mork-green-dark: #689f38;
+            --mork-green-dark: #2d5016;
+            --mork-brand-dark: #1a2e0a;
         }
         
         .hero-section {
@@ -99,6 +100,7 @@
         .navbar-brand {
             color: var(--mork-green) !important;
             font-size: 1.5rem;
+            font-weight: bold;
         }
         
         .step-number {
@@ -118,6 +120,26 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+        
+        .hero-section .display-4 {
+            color: var(--mork-brand-dark) !important;
+            background: none !important;
+            -webkit-text-fill-color: var(--mork-brand-dark) !important;
+            font-weight: 900;
+        }
+        
+        .hero-section .navbar-brand {
+            color: var(--mork-brand-dark) !important;
+            font-weight: 900;
+        }
+        
+        .hero-section h1, .hero-section h2, .hero-section h3, .hero-section h4, .hero-section h5, .hero-section h6 {
+            color: var(--mork-brand-dark) !important;
+        }
+        
+        .hero-section .lead, .hero-section p {
+            color: white !important;
         }
     </style>
 </head>
