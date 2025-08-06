@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import current_app
 
 # Bot configuration
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "your-bot-token-here")
+BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # Command states
@@ -41,7 +41,8 @@ def get_or_create_session(chat_id):
     with current_app.app_context():
         session = UserSession.query.filter_by(chat_id=str(chat_id)).first()
         if not session:
-            session = UserSession(chat_id=str(chat_id))
+            session = UserSession()
+            session.chat_id = str(chat_id)
             db.session.add(session)
             db.session.commit()
         return session
