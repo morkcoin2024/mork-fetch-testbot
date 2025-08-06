@@ -2003,7 +2003,7 @@ Missing trade parameters. Please restart your trade setup:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
-        task = loop.create_task(trade_executor.monitor_trade(trade))
+        task = loop.create_task(trade_executor.start_trade_monitoring(trade))
         trade_executor.monitoring_tasks[f"{chat_id}_{trade.trade_id}"] = task
         
         monitoring_text = f"""
@@ -2261,7 +2261,7 @@ Example: 20 (for 20% profit)
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
-            task = loop.create_task(trade_executor.monitor_trade(trade))
+            task = loop.create_task(trade_executor.start_trade_monitoring(trade))
             trade_executor.monitoring_tasks[f"{chat_id}_{trade.trade_id}"] = task
             
             monitoring_text = f"""
