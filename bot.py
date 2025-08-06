@@ -396,16 +396,40 @@ Type /snipe to start a new simulation.
         send_message(chat_id, error_text)
         return
     
-    # Generate realistic simulation results
-    scenarios = [
-        {"outcome": "profit", "change": random.uniform(10, 200), "trigger": "take_profit"},
-        {"outcome": "loss", "change": random.uniform(-50, -5), "trigger": "stop_loss"},
-        {"outcome": "partial_profit", "change": random.uniform(5, 50), "trigger": "manual_sell"}
+    # Generate realistic simulation results based on user's actual settings
+    # Add 10% variance to allow for realistic market slippage
+    variance_range = 10  # ±10% variance from target
+    
+    # Determine which trigger happens first with realistic probabilities
+    trigger_probabilities = [
+        {"outcome": "take_profit", "weight": 0.35},  # 35% chance of hitting take-profit
+        {"outcome": "stop_loss", "weight": 0.45},    # 45% chance of hitting stop-loss
+        {"outcome": "partial_sell", "weight": 0.20}  # 20% chance of manual partial sell
     ]
     
-    # Weight scenarios based on market reality (more losses/small gains than huge wins)
-    weights = [0.3, 0.4, 0.3]  # 30% big profit, 40% loss, 30% small profit
-    scenario = random.choices(scenarios, weights=weights)[0]
+    chosen_trigger = random.choices(
+        [t["outcome"] for t in trigger_probabilities],
+        weights=[t["weight"] for t in trigger_probabilities]
+    )[0]
+    
+    # Calculate realistic percentage change based on user's settings with variance
+    if chosen_trigger == "take_profit":
+        # Hit take-profit with ±10% variance
+        base_change = session.take_profit
+        variance = random.uniform(-variance_range, variance_range)
+        change_percent = base_change + variance
+        scenario = {"outcome": "profit", "change": change_percent, "trigger": "take_profit"}
+    elif chosen_trigger == "stop_loss":
+        # Hit stop-loss with ±10% variance (negative change)
+        base_change = -session.stop_loss
+        variance = random.uniform(-variance_range, variance_range)
+        change_percent = base_change + variance
+        scenario = {"outcome": "loss", "change": change_percent, "trigger": "stop_loss"}
+    else:
+        # Partial sell between entry and take-profit (small gains)
+        max_gain = min(session.take_profit * 0.7, 25)  # Max 70% of take-profit or 25%
+        change_percent = random.uniform(2, max_gain)
+        scenario = {"outcome": "partial_profit", "change": change_percent, "trigger": "manual_sell"}
     
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     
@@ -427,13 +451,13 @@ Type /snipe to start a new simulation.
     
     if scenario["outcome"] == "profit":
         result_emoji = "🎉"
-        result_text = f"<b>Simulation Successful!</b> +{change_percent:.1f}%"
+        result_text = f"<b>Take-profit triggered at {change_percent:.1f}%!</b> (Target: {session.take_profit}%)"
     elif scenario["outcome"] == "loss":
         result_emoji = "📉"
-        result_text = f"<b>Stop-loss triggered:</b> {change_percent:.1f}%"
+        result_text = f"<b>Stop-loss triggered at {change_percent:.1f}%</b> (Target: -{session.stop_loss}%)"
     else:
         result_emoji = "💰"
-        result_text = f"<b>Partial profit taken:</b> +{change_percent:.1f}%"
+        result_text = f"<b>Partial profit taken at +{change_percent:.1f}%</b> (Before reaching {session.take_profit}% target)"
     
     simulation_text = f"""
 🎮 <b>PRACTICE SIMULATION COMPLETE!</b>
@@ -442,10 +466,13 @@ Type /snipe to start a new simulation.
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}
 💵 <b>Simulated Investment:</b> 1.0 SOL
-📉 <b>Stop-Loss:</b> {session.stop_loss}%
-📈 <b>Take-Profit:</b> {session.take_profit}%
+
+<b>🎯 Your Settings:</b>
+📉 <b>Stop-Loss Target:</b> -{session.stop_loss}%
+📈 <b>Take-Profit Target:</b> +{session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
+<b>📋 What Happened:</b>
 {result_emoji} {result_text}
 💼 <b>Final Value:</b> {final_value:.3f} SOL
 📈 <b>Profit/Loss:</b> {profit_loss:+.3f} SOL
