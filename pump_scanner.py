@@ -81,13 +81,16 @@ class PumpFunScanner:
                 'order': 'DESC'
             }
             
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('coins', [])
-                else:
-                    logger.warning(f"API request failed with status {response.status}")
-                    return []
+            if self.session is not None:
+                async with self.session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get('coins', [])
+                    else:
+                        logger.warning(f"API request failed with status {response.status}")
+                        return []
+            else:
+                return []
                     
         except Exception as e:
             logger.error(f"Failed to fetch recent tokens from API: {e}")
@@ -97,10 +100,12 @@ class PumpFunScanner:
     async def _scrape_pump_homepage(self) -> List[Dict]:
         """Fallback scraping method"""
         try:
-            async with self.session.get(f"{self.base_url}/board") as response:
-                if response.status == 200:
-                    html = await response.text()
-                    return self._parse_token_data(html)
+            if self.session is not None:
+                async with self.session.get(f"{self.base_url}/board") as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        return self._parse_token_data(html)
+            return []
         except Exception as e:
             logger.error(f"Scraping failed: {e}")
             return []
