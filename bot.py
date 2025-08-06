@@ -1615,7 +1615,8 @@ Please try again with /fetch or contact support.
     finally:
         # Clean up the event loop
         try:
-            loop.close()
+            if 'loop' in locals():
+                loop.close()
         except:
             pass
 
@@ -1662,6 +1663,9 @@ Testing token discovery without safety filters.
                 # Start continuous scanning
                 await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount)
                 return
+            
+            # Convert TokenCandidate objects to dictionaries
+            candidates = [candidate.to_dict() if hasattr(candidate, 'to_dict') else candidate for candidate in candidates]
         
         # Phase 2: Live Trade Execution
         selected_candidates = candidates[:3]  # Top 3 candidates
@@ -1947,7 +1951,8 @@ Your position remains active. You can manually monitor or execute trades as need
         logging.error(f"VIP FETCH monitoring thread failed: {e}")
     finally:
         try:
-            loop.close()
+            if 'loop' in locals():
+                loop.close()
         except:
             pass
 
@@ -1992,13 +1997,16 @@ async def start_continuous_vip_scanning(chat_id: str, wallet_address: str, trade
             async with PumpFunScanner() as scanner:
                 candidates = await scanner.get_token_candidates(min_safety_score=0)
                 
+                # Convert TokenCandidate objects to dictionaries
+                candidates = [candidate.to_dict() if hasattr(candidate, 'to_dict') else candidate for candidate in candidates]
+                
                 if candidates:
                     found_message = f"""
 🎯 <b>TOKENS DISCOVERED!</b>
 
 Found {len(candidates)} tokens in scan #{scan_count}:
 
-{chr(10).join([f"• {c.name} (${c.symbol}) - Market Cap: ${c.market_cap:,.0f}" for c in candidates[:5]])}
+{chr(10).join([f"• {c.get('name', 'Unknown')} (${c.get('symbol', 'TOKEN')}) - Market Cap: ${c.get('market_cap', 0):,.0f}" for c in candidates[:5]])}
 
 <b>⚡ Proceeding to execution phase...</b>
                     """
@@ -2057,7 +2065,7 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
 🚀 <b>EXECUTING DISCOVERED TOKENS</b>
 
 <b>🎯 Selected for Trading:</b>
-{chr(10).join([f"• {c.name} (${c.symbol}) - ${c.price:.8f}" for c in selected_candidates])}
+{chr(10).join([f"• {c.get('name', 'Unknown')} (${c.get('symbol', 'TOKEN')}) - ${c.get('price', 0):.8f}" for c in selected_candidates])}
 
 💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
 ⚡ <b>Executing via Jupiter DEX...</b>
