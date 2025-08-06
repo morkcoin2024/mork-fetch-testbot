@@ -1087,7 +1087,7 @@ Please enter the Solana token contract address you want to trade:
         needed_mork = shortage_sol / mork_price_sol
         
         # Create Jupiter swap link for instant purchase
-        jupiter_buy_link = f"https://jup.ag/swap/SOL-{MORK_TOKEN_CONTRACT}"
+        jupiter_buy_link = "https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
         
         # Calculate tokens per 1 SOL for user reference
         tokens_per_sol = 1.0 / mork_price_sol if mork_price_sol > 0 else 0
