@@ -38,7 +38,7 @@ def monitor_once():
         print(f"Entry: {session.entry_price:.10f}, Current: {current_price:.10f}, Change: {change_percent:+.2f}%")
         
         triggered = False
-        if change_percent <= -0.5:
+        if change_percent <= -session.stop_loss:
             sell_link = generate_swap_link(session.contract_address, WSOL_ADDRESS, None)
             message = f"""🔴 STOP LOSS TRIGGERED!
 
@@ -49,7 +49,7 @@ Change: {change_percent:+.2f}%
 {sell_link}"""
             triggered = True
             
-        elif change_percent >= 0.5:
+        elif change_percent >= session.take_profit:
             sell_link = generate_swap_link(session.contract_address, WSOL_ADDRESS, None)
             message = f"""🟢 TAKE PROFIT TRIGGERED!
 
