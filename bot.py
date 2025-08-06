@@ -1452,9 +1452,8 @@ Type /snipe for live trading or /fetch for VIP trading.
         if transaction_data and 'transaction' in transaction_data:
             mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
             
-            # Create a shareable transaction link for Phantom wallet
-            transaction_base64 = transaction_data['transaction']
-            phantom_link = f"https://phantom.app/ul/browse/https://jup.ag/swap/SOL-{session.contract_address}?amount={session.trade_amount}&slippage=1"
+            # Create direct Jupiter swap link 
+            jupiter_link = f"https://jup.ag/swap/SOL-{session.contract_address}"
             
             execution_text = f"""
 🚀 <b>{mode_prefix}TRANSACTION CREATED!</b>
@@ -1468,24 +1467,24 @@ Type /snipe for live trading or /fetch for VIP trading.
 📈 <b>Take-Profit:</b> +{session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-<b>🔗 CLICK TO SIGN TRANSACTION:</b>
-👆 <a href="{phantom_link}">Execute Trade on Jupiter DEX</a>
+<b>🔗 EXECUTE YOUR TRADE:</b>
+<a href="{jupiter_link}">👆 Open Jupiter DEX</a>
 
-<b>📱 Alternative Methods:</b>
-1. Open Jupiter.ag in your browser
+<b>📱 Steps to Complete:</b>
+1. Click the Jupiter DEX link above
 2. Connect your Phantom wallet  
-3. Swap {session.trade_amount:.3f} SOL → {token_display}
-4. Set slippage to 1% and confirm
+3. Set: {session.trade_amount:.3f} SOL → {token_display}
+4. Confirm the swap (1% slippage recommended)
 
-<b>📋 Transaction Info:</b>
-• Fee: ~0.00001 SOL (network fee)
-• Slippage: 1% (Jupiter DEX standard)
+<b>📋 Transaction Details:</b>
+• Network fee: ~0.00001 SOL
 • Route: SOL → {token_display}
+• Recommended slippage: 1%
 
-<b>⚠️ Important:</b>
-After completing the swap, your position will be monitored for stop-loss ({session.stop_loss}%) and take-profit ({session.take_profit}%) levels.
+<b>⚠️ After Trade Execution:</b>
+Your position will be monitored automatically for your stop-loss ({session.stop_loss}%) and take-profit ({session.take_profit}%) targets.
 
-Ready to execute your trade! 🎯
+Ready to trade! Click the link above. 🎯
             """
             
             # Reset session after successful transaction creation
