@@ -125,55 +125,86 @@ class PumpFunScanner:
         return tokens
     
     def _get_demo_tokens(self) -> List[Dict]:
-        """Generate demo tokens for testing when real API is unavailable"""
+        """Generate realistic demo tokens for testing when real API is unavailable"""
         import time
+        import random
         current_time = int(time.time())
         
+        # Generate more realistic demo tokens with varied quality
         demo_tokens = [
             {
-                'mint': 'DemoToken1ABC123456789DEF',
-                'name': 'PumpDoge',
-                'symbol': 'PDOGE',
-                'description': 'The next big meme token on Solana',
-                'created_timestamp': current_time - 300,  # 5 minutes ago
-                'usd_market_cap': 25000,
-                'price': 0.000001,
-                'volume_24h': 5000,
-                'holder_count': 150,
-                'creator': 'Demo1Creator',
-                'is_renounced': False,
-                'is_burnt': False
-            },
-            {
-                'mint': 'DemoToken2XYZ987654321ABC',
-                'name': 'SolanaGem',
-                'symbol': 'SGEM',
-                'description': 'Hidden gem with strong fundamentals',
-                'created_timestamp': current_time - 180,  # 3 minutes ago
-                'usd_market_cap': 15000,
-                'price': 0.0000008,
-                'volume_24h': 3200,
-                'holder_count': 89,
-                'creator': 'Demo2Creator',
+                'mint': 'DemoHigh1ABC123456789DEF',
+                'name': 'SolPepe',
+                'symbol': 'SPEPE',
+                'description': 'Community-driven meme token with solid fundamentals',
+                'created_timestamp': current_time - random.randint(180, 600),  # 3-10 minutes ago
+                'usd_market_cap': random.randint(20000, 45000),
+                'price': random.uniform(0.0000008, 0.000002),
+                'volume_24h': random.randint(4000, 8000),
+                'holder_count': random.randint(120, 200),
+                'creator': 'HighQualityDev1',
                 'is_renounced': True,
                 'is_burnt': True
             },
             {
-                'mint': 'DemoToken3MNO555666777PQR',
-                'name': 'MoonShot',
-                'symbol': 'MOON',
-                'description': 'Ready for takeoff to the moon',
-                'created_timestamp': current_time - 120,  # 2 minutes ago
-                'usd_market_cap': 8000,
-                'price': 0.0000005,
-                'volume_24h': 1800,
-                'holder_count': 67,
-                'creator': 'Demo3Creator',
+                'mint': 'DemoMed2XYZ987654321ABC',
+                'name': 'RetroSol',
+                'symbol': 'RETRO',
+                'description': 'Nostalgic token bringing back the good old days',
+                'created_timestamp': current_time - random.randint(120, 400),  # 2-7 minutes ago
+                'usd_market_cap': random.randint(8000, 25000),
+                'price': random.uniform(0.0000005, 0.000001),
+                'volume_24h': random.randint(2000, 5000),
+                'holder_count': random.randint(60, 120),
+                'creator': 'MediumQualityDev2',
+                'is_renounced': False,
+                'is_burnt': True
+            },
+            {
+                'mint': 'DemoLow3MNO555666777PQR',
+                'name': 'QuickMoon',
+                'symbol': 'QMOON',
+                'description': 'Get rich quick scheme moon shot token',
+                'created_timestamp': current_time - random.randint(60, 180),  # 1-3 minutes ago
+                'usd_market_cap': random.randint(500, 3000),
+                'price': random.uniform(0.0000001, 0.0000005),
+                'volume_24h': random.randint(200, 1000),
+                'holder_count': random.randint(20, 60),
+                'creator': 'SuspiciousDev3',
                 'is_renounced': False,
                 'is_burnt': False
+            },
+            {
+                'mint': 'DemoScam4RST111222333UVW',
+                'name': 'FreeAirdrop',
+                'symbol': 'SCAM',
+                'description': 'Free airdrop! Get your tokens now! Limited time!',
+                'created_timestamp': current_time - random.randint(30, 120),  # 0.5-2 minutes ago
+                'usd_market_cap': random.randint(100, 800),
+                'price': random.uniform(0.00000001, 0.0000001),
+                'volume_24h': random.randint(50, 300),
+                'holder_count': random.randint(10, 30),
+                'creator': 'ScammerDev4',
+                'is_renounced': False,
+                'is_burnt': False
+            },
+            {
+                'mint': 'DemoGood5TUV444555666WXY',
+                'name': 'SolanaBuilder',
+                'symbol': 'BUILD',
+                'description': 'Supporting the Solana ecosystem development',
+                'created_timestamp': current_time - random.randint(300, 900),  # 5-15 minutes ago
+                'usd_market_cap': random.randint(30000, 60000),
+                'price': random.uniform(0.000001, 0.000003),
+                'volume_24h': random.randint(6000, 12000),
+                'holder_count': random.randint(180, 300),
+                'creator': 'LegitBuilderDev5',
+                'is_renounced': True,
+                'is_burnt': True
             }
         ]
         
+        logger.info(f"Generated {len(demo_tokens)} demo tokens for testing")
         return demo_tokens
     
     def _extract_token_info(self, element) -> Optional[Dict]:

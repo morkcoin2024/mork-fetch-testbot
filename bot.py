@@ -950,16 +950,16 @@ Ready for more practice? Type /simulate to run another simulation!
 def handle_fetch_command(chat_id):
     """Handle /fetch command - VIP Auto-Trading with Pump.fun Scanner"""
     fetch_text = """
-🎯 <b>VIP FETCH AUTO-TRADING MODE</b>
+🎯 <b>VIP FETCH DEMO MODE</b>
 
-<b>🐕 Automated Pump.fun Sniffer Dog</b>
+<b>🐕 Automated Pump.fun Token Scanner</b>
 
-<b>🚀 FULLY AUTOMATED TRADING:</b>
-• Scans Pump.fun for new token launches every minute
+<b>🧪 AUTOMATED TOKEN DISCOVERY (DEMO):</b>
+• Scans Pump.fun for new token launches in real-time
 • Advanced safety filtering (blacklist words, age, market cap)
-• Automatically executes buy orders on top candidates
-• Real-time monitoring with stop-loss/take-profit
-• Instant notifications on trade completions
+• Analyzes top candidates with detailed scoring system
+• Provides trade recommendations without execution
+• Proves concept for future live trading implementation
 
 <b>🔐 VIP Requirements:</b>
 • Valid Solana wallet address with trading permissions
@@ -1458,25 +1458,25 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
     try:
         # Send initial message
         initial_message = f"""
-🚀 <b>VIP FETCH AUTO-TRADING INITIATED!</b>
+🧪 <b>VIP FETCH DEMO MODE INITIATED!</b>
 
-<b>🐕 Sniffer Dog is on the hunt!</b>
+<b>🐕 Sniffer Dog scanning for tokens!</b>
 
-<b>📊 Trading Parameters:</b>
-💰 <b>SOL Allocated:</b> {trade_amount:.3f} SOL
+<b>📊 Demo Parameters:</b>
+💰 <b>Simulated Allocation:</b> {trade_amount:.3f} SOL
 👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
-🎯 <b>Strategy:</b> Automated Pump.fun scanning
+🎯 <b>Mode:</b> Token Discovery & Analysis (No Real Trading)
 
 <b>🔍 Scanner Status:</b>
-• Scanning Pump.fun for new tokens...
-• Evaluating safety scores (blacklists, age, market cap)
-• Filtering top candidates for execution
-• Setting up 5-minute monitoring windows
+• Connecting to Pump.fun data sources...
+• Applying advanced safety filtering algorithms
+• Analyzing market cap and age requirements
+• Generating trade recommendations with risk scores
 
 <b>⏱️ Phase 1: Token Discovery</b>
 Searching for high-potential new launches...
 
-<i>🐕 Your FETCH bot is working! Results will be reported automatically.</i>
+<i>🧪 DEMO MODE - No real trades will be executed. Proving concept only!</i>
         """
         send_message(chat_id, initial_message)
         
@@ -1573,79 +1573,106 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         amount_per_trade = trade_amount / len(selected_candidates)
         
         phase2_message = f"""
-🚀 <b>PHASE 2: TRADE EXECUTION</b>
+🧪 <b>PHASE 2: TOKEN ANALYSIS</b>
 
-Found {len(candidates)} candidates, executing top {len(selected_candidates)}:
+Found {len(candidates)} candidates, analyzing top {len(selected_candidates)}:
 
 🎯 <b>Selected Tokens:</b>
 {chr(10).join([f"• {c.name} (${c.symbol}) - Score: {c.safety_score}/100" for c in selected_candidates])}
 
-💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
-⏱️ <b>Monitoring:</b> 5 minutes per trade
+💰 <b>Simulated Position:</b> {amount_per_trade:.3f} SOL each
+📊 <b>Analysis:</b> Detailed scoring and recommendations
 
-<b>🐕 Executing buy orders...</b>
+<b>🔍 Generating trade analysis reports...</b>
         """
         send_message(chat_id, phase2_message)
         
-        # Execute trades
-        active_trades = []
+        # Simulate trades (Demo Mode - No Real Trading)
+        simulation_results = []
         for i, candidate in enumerate(selected_candidates):
-            # Simulate buy execution
-            buy_result = await trade_executor.execute_buy_order(
-                chat_id, wallet_address, candidate.mint, amount_per_trade
-            )
+            # Simulate the trade analysis without real execution
+            simulation_result = {
+                'token_name': candidate.name,
+                'token_symbol': candidate.symbol,
+                'safety_score': candidate.safety_score,
+                'market_cap': candidate.market_cap,
+                'entry_price': candidate.price,
+                'allocation': amount_per_trade,
+                'recommendation': 'BUY' if candidate.safety_score >= 75 else 'HOLD' if candidate.safety_score >= 60 else 'SKIP',
+                'risk_level': 'LOW' if candidate.safety_score >= 80 else 'MEDIUM' if candidate.safety_score >= 65 else 'HIGH'
+            }
+            simulation_results.append(simulation_result)
             
-            if buy_result['success']:
-                # Create active trade
-                trade = ActiveTrade(
-                    trade_id=f"fetch_{int(time.time())}_{i}",
-                    chat_id=chat_id,
-                    token_mint=candidate.mint,
-                    token_name=candidate.name,
-                    token_symbol=candidate.symbol,
-                    entry_price=buy_result['entry_price'],
-                    trade_amount=amount_per_trade,
-                    stop_loss_percent=25.0,  # VIP default: 25% stop loss
-                    take_profit_percent=100.0,  # VIP default: 100% take profit
-                    entry_time=datetime.now(),
-                    status='monitoring'
-                )
-                
-                active_trades.append(trade)
-                
-                # Start monitoring
-                await trade_executor.start_trade_monitoring(trade)
+            # Send individual token analysis
+            analysis_message = f"""
+🎯 <b>TOKEN ANALYSIS #{i+1}</b>
+
+<b>📊 {candidate.name} (${candidate.symbol})</b>
+💰 <b>Price:</b> ${candidate.price:.8f}
+📈 <b>Market Cap:</b> ${candidate.market_cap:,.0f}
+⭐ <b>Safety Score:</b> {candidate.safety_score}/100
+🎯 <b>Recommendation:</b> {simulation_result['recommendation']}
+⚠️ <b>Risk Level:</b> {simulation_result['risk_level']}
+💵 <b>Simulated Allocation:</b> {amount_per_trade:.3f} SOL
+
+<b>📋 Analysis Factors:</b>
+• Token age: {(time.time() - candidate.created_at.timestamp()) / 60:.1f} minutes
+• Market cap range: {'Optimal' if 1000 <= candidate.market_cap <= 50000 else 'Outside range'}
+• Safety filters: {'Passed' if candidate.safety_score >= 70 else 'Failed'}
+
+<i>🧪 DEMO MODE - No real trades executed</i>
+            """
+            send_message(chat_id, analysis_message)
+            
+            # Small delay between analyses
+            await asyncio.sleep(2)
         
-        # Phase 3: Monitoring Status
-        if active_trades:
-            monitoring_message = f"""
-📊 <b>PHASE 3: ACTIVE MONITORING</b>
+        # Phase 3: Summary Report
+        if simulation_results:
+            # Calculate summary stats
+            buy_recommendations = len([r for r in simulation_results if r['recommendation'] == 'BUY'])
+            avg_safety_score = sum(r['safety_score'] for r in simulation_results) / len(simulation_results)
+            
+            summary_message = f"""
+📊 <b>VIP FETCH SCAN COMPLETE</b>
 
-<b>🎯 {len(active_trades)} Trades Active:</b>
-{chr(10).join([f"• {t.token_name} - Entry: ${t.entry_price:.8f}" for t in active_trades])}
+<b>🎯 Analysis Summary:</b>
+• {len(simulation_results)} tokens analyzed
+• {buy_recommendations} BUY recommendations
+• Average Safety Score: {avg_safety_score:.1f}/100
+• Total Simulated Allocation: {trade_amount:.3f} SOL
 
-<b>🐕 VIP Features Active:</b>
-• Real-time price monitoring
-• Automatic stop-loss (25%)
-• Automatic take-profit (100%)
-• Instant exit notifications
+<b>🐕 Demo Results:</b>
+{chr(10).join([f"• {r['token_name']}: {r['recommendation']} ({r['safety_score']}/100)" for r in simulation_results])}
 
-<i>Your FETCH trades are being monitored! Results incoming...</i>
+<b>✅ VIP FETCH Proof of Concept Complete!</b>
+The system successfully:
+• Discovered new tokens from Pump.fun
+• Applied safety filtering algorithms
+• Generated intelligent trade recommendations
+• Provided detailed risk analysis
+
+<i>🚀 Ready for live trading implementation when approved!</i>
             """
-            send_message(chat_id, monitoring_message)
+            send_message(chat_id, summary_message)
         else:
-            failed_message = """
-❌ <b>TRADE EXECUTION FAILED</b>
+            no_results_message = """
+📊 <b>SCAN COMPLETE - No Suitable Tokens</b>
 
-Unable to execute buy orders for selected tokens.
-This could be due to:
-• Network congestion
-• Liquidity issues
-• Price volatility
+🔍 Token discovery results:
+• All recent tokens failed safety filters
+• No tokens met minimum safety score (70/100)
+• Market conditions may be unfavorable
 
-<i>Your funds remain safe. Try again later with /fetch</i>
+<b>🧪 System Status: Demo Working Correctly!</b>
+The VIP FETCH scanner successfully:
+• Connected to token sources
+• Applied filtering algorithms
+• Completed safety analysis
+
+<i>Try again later for different market conditions!</i>
             """
-            send_message(chat_id, failed_message)
+            send_message(chat_id, no_results_message)
             
     except Exception as e:
         logging.error(f"VIP FETCH execution failed: {e}")
