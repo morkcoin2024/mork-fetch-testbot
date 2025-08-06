@@ -2827,6 +2827,7 @@ Your automated trading system is actively monitoring the market!
 
 def format_enhanced_token_discovery(token: dict, trade_amount: float, jupiter_link: str) -> str:
     """Format comprehensive token discovery message with all statistics and enhanced Jupiter links"""
+    import time
     
     # Calculate age in readable format
     age_seconds = int(time.time() - token.get('created_timestamp', time.time()))
