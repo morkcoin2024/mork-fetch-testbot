@@ -1,0 +1,149 @@
+WHAT IS MORK SNIPER BOT?
+Mork Sniper Bot is a Telegram-based crypto bot that runs on Replit using Python. It helps users buy (or simulate buying) tokens on the Solana blockchain, especially those launched on Pump.fun, a platform for launching meme coins.
+
+There are two modes:
+🧪 1. FREE (Simulation/Test Mode)
+Anyone can try this version. It simulates the sniping experience without requiring tokens or wallets.
+
+What users can do:
+
+Run /snipe to test what the bot does.
+
+Enter token contract address
+
+Enter stop-loss, take-profit, and sell % settings
+
+Hit /confirm to simulate the trade
+
+✅ Purpose: Show users how the bot works without real risk.
+
+💰 2. PAID (Live Sniping Mode)
+This is the real deal — only available to users who hold at least 100,000 $MORK tokens in their Phantom wallet.
+
+What users will be able to do:
+
+Link their Phantom Wallet
+
+Bot checks if they hold ≥100,000 $MORK
+
+Once verified, they unlock access to:
+
+/fetch: Start a real snipe
+
+Bot asks for token contract
+
+Then asks:
+
+How much SOL to spend (e.g. 1 SOL)
+
+Stop-loss %
+
+Take-profit %
+
+What % of tokens to sell
+
+Then /confirm begins monitoring or executing trades via Solana DEXs
+
+Optional advanced logic:
+
+Auto-sell if token hits Raydium
+
+Risk filters (LP, volume, bonding curve)
+
+Meme coin strategy scanner
+
+⚙️ WHAT HAPPENS BEHIND THE SCENES?
+The bot handles:
+
+User input flow (wallet → token → risk parameters)
+
+MORK token balance check via Phantom wallet scan
+
+Simulated trades for test users
+
+Real trade triggers via Pump.fun/DEX once confirmed
+
+Stop-loss/Take-profit logic (sell if thresholds are hit)
+
+In later phases:
+
+The bot will scan Pump.fun live for new meme coin launches
+
+It will suggest potential snipes based on hype, volume, LP, social buzz, etc.
+
+Users can opt into auto-buy if it fits their chosen risk profile
+
+🔒 WHY IS MORK TOKEN REQUIRED?
+Holding $MORK is the entry pass to use the premium features.
+
+It's wallet-based access control
+
+Verified via Phantom wallet scan
+
+No $MORK = only test mode
+
+🧠 LONG-TERM VISION
+Mork Bot becomes:
+
+A fully autonomous meme coin trading assistant
+
+Suggests trending tokens and executes real trades
+
+Built-in scam filters, profit optimization, and wallet stats
+
+Possibly integrated with Raydium and Jupiter APIs for actual trade routing
+
+Expands into a real utility bot for degen Solana traders
+
+✅ SUMMARY
+Feature	Free Users	Verified Users (Hold 100K $MORK)
+Simulated Snipe	✅	✅
+Link Phantom Wallet	❌	✅
+Token Contract Entry	✅	✅
+Spend SOL	❌	✅
+Stop-Loss & Take-Profit	✅ (Sim)	✅ (Live)
+Confirm & Execute Trade	❌	✅
+Auto Scanner (Pump.fun)	❌	✅
+Suggest Snipes	❌	✅
+Copy Trade Features	❌	✅ (Future)
+
+Ready to build now?
+If that makes sense to you, I’ll:
+
+Start by coding just the FREE MODE (fully working simulation flow)
+
+Then add wallet linking and $MORK balance check
+
+Then add Pump.fun scanner + live trade logic
+
+Let me know if we’re 100% clear, or if you want to tweak/add anything before we code.
+
+
+
+
+
+
+
+You said:
+Perfect, i will create a new project on replit now and give you the details.
+
+
+ChatGPT said:
+Excellent — once you’ve created the new project on Replit, just drop the following here:
+
+✅ Your new Replit project name
+
+🌐 Your Replit domain link (e.g. https://mork-sniper-bot.replit.app)
+
+🔑 Bot token from BotFather (just for dev use — we can swap later for security)
+
+As soon as I have those, I’ll:
+
+Set up the full main.py with Flask + Telegram bot webhook support
+
+Configure environment variables and .replit settings for Replit deployment
+
+Begin building the FREE SIMULATION MODE flow (/start → /snipe → /confirm)
+
+Guide you step-by-step with zero guesswork
+
