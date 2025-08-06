@@ -345,19 +345,19 @@ Practice crypto sniping without risk! Perfect for learning how token sniping wor
 Real trading for users with 1 SOL worth of $MORK tokens in their wallet.
 
 <b>Available Commands:</b>
-🎯 /snipe - Start a simulation snipe (free practice mode)
-🚀 /fetch - Live trading mode (requires $MORK verification)
+🎯 /simulate - Start simulation mode (free practice trading)
+🚀 /snipe - Live trading mode (requires $MORK verification)
 📊 /status - Check your current session
 ❓ /help - Get help and instructions
 
 <b>How to use:</b>
-• <b>Practice:</b> Use /snipe for risk-free simulation
-• <b>Live Trading:</b> Use /fetch to verify $MORK and trade real tokens
+• <b>Practice:</b> Use /simulate for risk-free simulation
+• <b>Live Trading:</b> Use /snipe to verify $MORK and trade real tokens
 • Both modes guide you through: contract → stop-loss → take-profit → sell %
 
 Ready to start? 
-• Type /snipe for practice
-• Type /fetch for live trading (VIP only)
+• Type /simulate for practice
+• Type /snipe for live trading (VIP only)
 
 <i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
     """
@@ -368,24 +368,26 @@ Ready to start?
     
     send_message(chat_id, welcome_text)
 
-def handle_snipe_command(chat_id):
-    """Handle /snipe command"""
+def handle_simulate_command(chat_id):
+    """Handle /simulate command"""
     session = get_or_create_session(chat_id)
-    logging.info(f"Chat {chat_id}: Starting snipe command, setting state to {STATE_WAITING_CONTRACT}")
+    logging.info(f"Chat {chat_id}: Starting simulate command, setting state to {STATE_WAITING_CONTRACT}")
     
-    snipe_text = """
-🎯 <b>Starting Simulation Snipe</b>
+    simulate_text = """
+🎯 <b>Starting Simulation Mode</b>
 
-Please enter the <b>Solana token contract address</b> you want to simulate sniping:
+Please enter the <b>Solana token contract address</b> you want to simulate trading:
 
 <i>Example: 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM</i>
 
 Type the contract address or /cancel to abort.
+
+<i>🧪 This is simulation mode - no real trades will be executed.</i>
     """
     
     session = update_session(chat_id, state=STATE_WAITING_CONTRACT)
     logging.info(f"Chat {chat_id}: Session state after update = {session.state}")
-    send_message(chat_id, snipe_text)
+    send_message(chat_id, simulate_text)
 
 def handle_contract_input(chat_id, contract_address):
     """Handle contract address input"""
@@ -756,12 +758,12 @@ def handle_help_command(chat_id):
 ❓ <b>Mork Sniper Bot Help</b>
 
 <b>🧪 FREE SIMULATION MODE</b>
-Practice crypto sniping safely without real money.
+Practice crypto trading safely without real money.
 
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
-• <b>/snipe</b> - Start a new simulation snipe
-• <b>/fetch</b> - Start live trading (requires 1 SOL worth of $MORK tokens)
+• <b>/simulate</b> - Start simulation mode (free practice)
+• <b>/snipe</b> - Start live trading (requires 1 SOL worth of $MORK tokens)
 • <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/status</b> - Check current session status
 • <b>/cancel</b> - Cancel current operation
@@ -769,26 +771,26 @@ Practice crypto sniping safely without real money.
 • <b>/whatif</b> - View your simulation performance history
 
 <b>📖 How to Use:</b>
-1. Type /snipe to begin
+1. Type /simulate for practice or /snipe for live trading
 2. Enter a Solana token contract address
 3. Set your stop-loss percentage (0-100%)
 4. Set your take-profit percentage (0-1000%)
 5. Set what percentage to sell (1-100%)
-6. Type /confirm to run simulation
+6. Type /confirm to execute
 
-<b>🎯 What is Sniping?</b>
-Token sniping means buying tokens quickly when they launch or hit certain price points, then selling based on predefined profit/loss targets.
+<b>🎯 What is Token Trading?</b>
+Strategic buying and selling of tokens based on predefined profit/loss targets and market conditions.
 
 <b>⚠️ Important Notes:</b>
-• This is simulation mode - no real trades
-• Real mode requires 100,000 $MORK tokens
+• Simulation mode: No real trades, safe practice
+• Live mode: Real trades, requires minimum 1 SOL worth of $MORK tokens
 • Always DYOR (Do Your Own Research)
 
-<b>🔗 Future Features (Live Mode):</b>
-• Real Solana/Pump.fun integration
-• Phantom wallet linking
-• Auto-scanning new launches
-• Copy trading features
+<b>🔗 Live Trading Features:</b>
+• Real Solana blockchain integration
+• $MORK token verification
+• Wallet balance checking
+• Risk management warnings
 
 Need help? Contact support in our Telegram group!
     """
@@ -882,9 +884,9 @@ Ready for more practice? Type /snipe to run another simulation!
     
     send_message(chat_id, whatif_text)
 
-def handle_fetch_command(chat_id):
-    """Handle /fetch command - start live trading mode"""
-    fetch_text = """
+def handle_snipe_command(chat_id):
+    """Handle /snipe command - start live trading mode"""
+    snipe_text = """
 🚀 <b>LIVE TRADING MODE - Real Money!</b>
 
 <b>⚠️ IMPORTANT NOTICE:</b>
@@ -901,7 +903,7 @@ def handle_fetch_command(chat_id):
 Please provide your Solana wallet address to verify your $MORK token holdings:
     """
     update_session(chat_id, state=STATE_WAITING_WALLET)
-    send_message(chat_id, fetch_text)
+    send_message(chat_id, snipe_text)
 
 def handle_wallet_input(chat_id, wallet_address):
     """Handle wallet address input for live trading verification"""
@@ -976,7 +978,7 @@ Please enter the Solana token contract address you want to trade:
 • Available on Jupiter, Raydium, and other Solana DEXs
 
 <b>💡 Meanwhile, try our FREE simulation mode:</b>
-Type /snipe to practice trading without risk!
+Type /simulate to practice trading without risk!
         """
         update_session(chat_id, state=STATE_IDLE, wallet_address=None)
         send_message(chat_id, ineligible_text)
@@ -1277,6 +1279,8 @@ def handle_update(update):
             
             if command == '/start':
                 handle_start_command(chat_id, user_first_name)
+            elif command == '/simulate':
+                handle_simulate_command(chat_id)
             elif command == '/snipe':
                 handle_snipe_command(chat_id)
             elif command == '/confirm':
@@ -1289,8 +1293,7 @@ def handle_update(update):
                 handle_cancel_command(chat_id)
             elif command == '/whatif':
                 handle_whatif_command(chat_id)
-            elif command == '/fetch':
-                handle_fetch_command(chat_id)
+
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:

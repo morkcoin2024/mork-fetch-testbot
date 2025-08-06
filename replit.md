@@ -12,7 +12,7 @@ Branding rules: "Mork Sniper Bot" text should be dark green (#1a2e0a) on light g
 
 ## Recent Changes
 
-**2025-08-06**: Successfully implemented comprehensive live trading mode with wallet integration and $MORK token verification. Added `/fetch` command for VIP users, dynamic threshold of 1 SOL worth of $MORK tokens (replacing fixed 100,000 requirement), real Solana blockchain wallet balance checking, and complete live trading flow with risk warnings. Enhanced simulation mode with realistic ±10% variance system and `/whatif` performance tracking. Both modes now fully operational with professional user experience.
+**2025-08-06**: Successfully implemented comprehensive live trading mode with wallet integration and $MORK token verification. Renamed commands to `/simulate` for practice mode and `/snipe` for live trading (previously `/snipe` and `/fetch`). Added dynamic threshold of 1 SOL worth of $MORK tokens, real Solana blockchain wallet balance checking, and complete live trading flow with risk warnings. Enhanced simulation mode with realistic ±10% variance system and `/whatif` performance tracking. Added instant Jupiter DEX purchase links for users with insufficient $MORK holdings and real-time price display. Both modes now fully operational with professional user experience.
 
 ## System Architecture
 
