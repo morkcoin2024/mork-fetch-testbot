@@ -1677,7 +1677,7 @@ Testing token discovery without safety filters.
 Found {len(candidates)} candidates, executing trades on top {len(selected_candidates)}:
 
 🎯 <b>Selected for Trading:</b>
-{chr(10).join([f"• {c.name} (${c.symbol}) - Score: {c.safety_score}/100" for c in selected_candidates])}
+{chr(10).join([f"• {c.get('name', 'Unknown')} (${c.get('symbol', 'TOKEN')}) - Score: {c.get('safety_score', 0)}/100" for c in selected_candidates])}
 
 💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
 📊 <b>Execution:</b> Automatic Jupiter DEX integration
@@ -1696,23 +1696,23 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             from wallet_integration import generate_swap_link, WSOL_ADDRESS
             jupiter_link = generate_swap_link(
                 input_mint=WSOL_ADDRESS,
-                output_mint=candidate.mint,
+                output_mint=candidate.get('mint', ''),
                 amount_sol=amount_per_trade,
                 input_symbol="SOL",
-                output_symbol=candidate.symbol
+                output_symbol=candidate.get('symbol', 'TOKEN')
             )
             
             # Execute the trade
             trade_result = {
-                'token_name': candidate.name,
-                'token_symbol': candidate.symbol,
-                'token_contract': candidate.mint,
-                'safety_score': candidate.safety_score,
-                'market_cap': candidate.market_cap,
-                'entry_price': candidate.price,
+                'token_name': candidate.get('name', 'Unknown'),
+                'token_symbol': candidate.get('symbol', 'TOKEN'),
+                'token_contract': candidate.get('mint', ''),
+                'safety_score': candidate.get('safety_score', 0),
+                'market_cap': candidate.get('market_cap', 0),
+                'entry_price': candidate.get('price', 0),
                 'allocation': amount_per_trade,
                 'jupiter_link': jupiter_link,
-                'status': 'EXECUTED' if candidate.safety_score >= 75 else 'MONITORING',
+                'status': 'EXECUTED' if candidate.get('safety_score', 0) >= 75 else 'MONITORING',
                 'trade_id': f"VIP-{int(time.time())}-{i+1}"
             }
             trade_results.append(trade_result)
@@ -1721,17 +1721,17 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             execution_message = f"""
 ⚡ <b>TRADE EXECUTED #{i+1}</b>
 
-<b>📊 {candidate.name} (${candidate.symbol})</b>
-💰 <b>Entry Price:</b> ${candidate.price:.8f}
-📈 <b>Market Cap:</b> ${candidate.market_cap:,.0f}
-⭐ <b>Safety Score:</b> {candidate.safety_score}/100
+<b>📊 {candidate.get('name', 'Unknown')} (${candidate.get('symbol', 'TOKEN')})</b>
+💰 <b>Entry Price:</b> ${candidate.get('price', 0):.8f}
+📈 <b>Market Cap:</b> ${candidate.get('market_cap', 0):,.0f}
+⭐ <b>Safety Score:</b> {candidate.get('safety_score', 0)}/100
 💵 <b>Position Size:</b> {amount_per_trade:.3f} SOL
 
 <b>📋 Trade Details:</b>
-• Token age: {(time.time() - candidate.created_at.timestamp()) / 60:.1f} minutes
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
 • Auto-monitoring: Active with 0.3% thresholds
 • P&L targets: ±0.5% (ultra-responsive)
-• Contract: <code>{candidate.mint}</code>
+• Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🔗 Execute Your Trade:</b>
 <a href="{jupiter_link}">👆 Auto-Trading via Jupiter DEX</a>
@@ -1748,10 +1748,10 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                 # Create active trade for monitoring
                 trade_session = {
                     'chat_id': chat_id,
-                    'contract_address': candidate.mint,
-                    'token_name': candidate.name,
-                    'token_symbol': candidate.symbol,
-                    'entry_price': candidate.price,
+                    'contract_address': candidate.get('mint', ''),
+                    'token_name': candidate.get('name', 'Unknown'),
+                    'token_symbol': candidate.get('symbol', 'TOKEN'),
+                    'entry_price': candidate.get('price', 0),
                     'trade_amount': amount_per_trade,
                     'stop_loss': 0.3,  # Ultra-sensitive
                     'take_profit': 0.3,  # Ultra-sensitive 
@@ -1763,7 +1763,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                 import threading
                 monitor_thread = threading.Thread(
                     target=start_vip_trade_monitoring,
-                    args=(trade_session, candidate.mint, amount_per_trade)
+                    args=(trade_session, candidate.get('mint', ''), amount_per_trade)
                 )
                 monitor_thread.daemon = True
                 monitor_thread.start()
@@ -2078,20 +2078,20 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
             from wallet_integration import generate_swap_link, WSOL_ADDRESS
             jupiter_link = generate_swap_link(
                 input_mint=WSOL_ADDRESS,
-                output_mint=candidate.mint,
+                output_mint=candidate.get('mint', ''),
                 amount_sol=amount_per_trade,
                 input_symbol="SOL", 
-                output_symbol=candidate.symbol
+                output_symbol=candidate.get('symbol', 'TOKEN')
             )
             
             trade_message = f"""
 ⚡ <b>DISCOVERED TOKEN TRADE #{i+1}</b>
 
-<b>📊 {candidate.name} (${candidate.symbol})</b>
-💰 <b>Price:</b> ${candidate.price:.8f}
-📈 <b>Market Cap:</b> ${candidate.market_cap:,.0f}
+<b>📊 {candidate.get('name', 'Unknown')} (${candidate.get('symbol', 'TOKEN')})</b>
+💰 <b>Price:</b> ${candidate.get('price', 0):.8f}
+📈 <b>Market Cap:</b> ${candidate.get('market_cap', 0):,.0f}
 💵 <b>Position:</b> {amount_per_trade:.3f} SOL
-📄 <b>Contract:</b> <code>{candidate.mint}</code>
+📄 <b>Contract:</b> <code>{candidate.get('mint', '')}</code>
 
 <b>🔗 Execute Trade:</b>
 <a href="{jupiter_link}">👆 Trade via Jupiter DEX</a>
