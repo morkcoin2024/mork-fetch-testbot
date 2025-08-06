@@ -1974,7 +1974,7 @@ Missing trade parameters. Please restart your trade setup:
         from wallet_integration import get_token_price
         current_price = get_token_price(session.contract_address)
         if not current_price:
-            current_price = session.entry_price or 0.0001  # Fallback
+            current_price = session.entry_price or 0.0002247  # MORK fallback price
             
         # Create active trade object
         trade = ActiveTrade(
@@ -2070,18 +2070,18 @@ Or provide another token's contract address:
         return
     
     # Get token info
-    from wallet_integration import get_token_info, get_token_price
+    from wallet_integration import get_token_price
     
     try:
-        token_info = get_token_info(contract_address)
         current_price = get_token_price(contract_address)
         
-        if token_info:
-            token_name = token_info.get('name', 'Unknown Token')
-            token_symbol = token_info.get('symbol', 'UNKNOWN')
+        # Set token details based on contract address
+        if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH":
+            token_name = "MORK"
+            token_symbol = "MORK"
         else:
-            token_name = "MORK" if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH" else "Unknown Token"
-            token_symbol = "MORK" if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH" else "UNKNOWN"
+            token_name = "Unknown Token"
+            token_symbol = "UNKNOWN"
         
         price_display = f"${current_price:.8f}" if current_price else "Price unavailable"
         
