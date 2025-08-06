@@ -15,6 +15,7 @@ class UserSession(db.Model):
     contract_address = db.Column(db.String(64), nullable=True)
     token_name = db.Column(db.String(128), nullable=True)
     token_symbol = db.Column(db.String(32), nullable=True)
+    entry_price = db.Column(db.Float, nullable=True)
     stop_loss = db.Column(db.Float, nullable=True)
     take_profit = db.Column(db.Float, nullable=True)
     sell_percent = db.Column(db.Float, nullable=True)
@@ -29,13 +30,13 @@ class TradeSimulation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chat_id = db.Column(db.String(64), nullable=False, index=True)
     contract_address = db.Column(db.String(64), nullable=False)
+    entry_price = db.Column(db.Float, nullable=True)
     stop_loss = db.Column(db.Float, nullable=False)
     take_profit = db.Column(db.Float, nullable=False)
     sell_percent = db.Column(db.Float, nullable=False)
-    simulated_entry_price = db.Column(db.Float, nullable=True)
-    simulated_tokens = db.Column(db.Float, nullable=True)
-    execution_time = db.Column(db.Float, nullable=True)
+    result_type = db.Column(db.String(32), default="pending", nullable=False)  # "profit", "loss", "partial_profit"
+    profit_loss = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f'<TradeSimulation {self.chat_id} - {self.contract_address}>'
+        return f'<TradeSimulation {self.chat_id}: {self.result_type}>'

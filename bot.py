@@ -86,7 +86,15 @@ def is_valid_solana_address(address):
     return True
 
 def get_token_info(contract_address):
-    """Fetch token information from Solana"""
+    """Fetch token information and current price from Solana"""
+    token_data = {
+        'name': 'Unknown Token',
+        'symbol': 'UNKNOWN',
+        'decimals': 9,
+        'price_usd': None,
+        'market_cap': None
+    }
+    
     try:
         # Use Jupiter API for token info
         url = f"https://api.jupiterswap.com/tokens/{contract_address}"
@@ -94,35 +102,48 @@ def get_token_info(contract_address):
         
         if response.status_code == 200:
             data = response.json()
-            return {
+            token_data.update({
                 'name': data.get('name', 'Unknown Token'),
                 'symbol': data.get('symbol', 'UNKNOWN'),
                 'decimals': data.get('decimals', 9)
-            }
+            })
     except Exception as e:
         logging.warning(f"Failed to fetch token info for {contract_address}: {e}")
     
-    # Fallback: Try CoinGecko API
+    # Try CoinGecko for comprehensive data including price
     try:
         url = f"https://api.coingecko.com/api/v3/coins/solana/contract/{contract_address}"
         response = requests.get(url, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            return {
-                'name': data.get('name', 'Unknown Token'),
-                'symbol': data.get('symbol', 'UNKNOWN').upper(),
-                'decimals': data.get('detail_platforms', {}).get('solana', {}).get('decimal_place', 9)
-            }
+            token_data.update({
+                'name': data.get('name', token_data['name']),
+                'symbol': data.get('symbol', token_data['symbol']).upper(),
+                'price_usd': data.get('market_data', {}).get('current_price', {}).get('usd'),
+                'market_cap': data.get('market_data', {}).get('market_cap', {}).get('usd')
+            })
     except Exception as e:
         logging.warning(f"CoinGecko API failed for {contract_address}: {e}")
     
-    # Final fallback
-    return {
-        'name': 'Unknown Token',
-        'symbol': 'UNKNOWN',
-        'decimals': 9
-    }
+    # Try DexScreener for price data (good for newer tokens)
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{contract_address}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('pairs') and len(data['pairs']) > 0:
+                pair = data['pairs'][0]  # Get the first trading pair
+                token_data.update({
+                    'price_usd': float(pair.get('priceUsd', 0)) if pair.get('priceUsd') else None,
+                    'name': pair.get('baseToken', {}).get('name', token_data['name']),
+                    'symbol': pair.get('baseToken', {}).get('symbol', token_data['symbol'])
+                })
+    except Exception as e:
+        logging.warning(f"DexScreener API failed for {contract_address}: {e}")
+    
+    return token_data
 
 def is_valid_percentage(value):
     """Validate percentage input (0-100)"""
@@ -198,21 +219,33 @@ Try again or type /cancel to abort.
         send_message(chat_id, error_text)
         return
     
-    # Fetch token information
-    send_message(chat_id, "🔍 <i>Fetching token information...</i>")
+    # Fetch token information and current price
+    send_message(chat_id, "🔍 <i>Fetching token information and current price...</i>")
     token_info = get_token_info(contract_address)
     
-    # Store token info in session
+    # Format price display
+    price_display = ""
+    if token_info['price_usd']:
+        if token_info['price_usd'] < 0.01:
+            price_display = f"💲 <b>Current Price:</b> ${token_info['price_usd']:.8f} USD"
+        else:
+            price_display = f"💲 <b>Current Price:</b> ${token_info['price_usd']:.4f} USD"
+    else:
+        price_display = "💲 <b>Current Price:</b> Price data unavailable"
+    
+    # Store token info in session including entry price
     update_session(chat_id, 
                   contract_address=contract_address, 
                   token_name=token_info['name'],
                   token_symbol=token_info['symbol'],
+                  entry_price=token_info['price_usd'],
                   state=STATE_WAITING_STOPLOSS)
     
     stoploss_text = f"""
-✅ <b>Token Identified:</b>
+✅ <b>🎮 SIMULATION - Token Identified:</b>
 🏷️ <b>Name:</b> {token_info['name']}
 🎯 <b>Symbol:</b> ${token_info['symbol']}
+{price_display}
 📄 <b>Contract:</b> <code>{contract_address}</code>
 
 📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
@@ -221,6 +254,7 @@ This is the percentage loss at which the bot will automatically sell to limit lo
 
 <i>Example: Enter "20" for 20% stop-loss</i>
 
+<b>⚠️ PRACTICE MODE - No real money involved</b>
 Type a number between 0-100 or /cancel to abort.
     """
     
@@ -316,18 +350,29 @@ Try again or type /cancel to abort.
     
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     
+    # Format entry price
+    entry_price_display = ""
+    if session.entry_price:
+        if session.entry_price < 0.01:
+            entry_price_display = f"💲 <b>Entry Price:</b> ${session.entry_price:.8f} USD"
+        else:
+            entry_price_display = f"💲 <b>Entry Price:</b> ${session.entry_price:.4f} USD"
+    else:
+        entry_price_display = "💲 <b>Entry Price:</b> Price data unavailable"
+    
     confirm_text = f"""
-🎯 <b>Simulation Snipe Ready!</b>
+🎮 <b>SIMULATION SNIPE READY!</b>
 
-<b>📋 Configuration Summary:</b>
+<b>📋 Practice Configuration Summary:</b>
 🏷️ <b>Token:</b> {token_display}
 📄 <b>Contract:</b> <code>{session.contract_address}</code>
+{entry_price_display}
 📉 <b>Stop-Loss:</b> {session.stop_loss}%
 📈 <b>Take-Profit:</b> {session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-<b>⚠️ This is SIMULATION MODE</b>
-No real trades will be executed. This is for learning purposes only.
+<b>⚠️ This is PRACTICE MODE - No real money involved</b>
+Perfect for learning trading strategies risk-free!
 
 Type <b>/confirm</b> to run the simulation or /cancel to abort.
     """
@@ -335,51 +380,106 @@ Type <b>/confirm</b> to run the simulation or /cancel to abort.
     send_message(chat_id, confirm_text)
 
 def handle_confirm_command(chat_id):
-    """Handle /confirm command"""
+    """Handle simulation execution"""
+    from models import UserSession, TradeSimulation, db
+    import random
     session = get_or_create_session(chat_id)
     
     if session.state != STATE_READY_TO_CONFIRM:
         error_text = """
-❌ <b>Nothing to Confirm</b>
+❌ <b>No Active Simulation</b>
 
-Please start a new snipe with /snipe first.
+You need to set up a snipe configuration first.
+
+Type /snipe to start a new simulation.
         """
         send_message(chat_id, error_text)
         return
     
-    # Simulate the trade
+    # Generate realistic simulation results
+    scenarios = [
+        {"outcome": "profit", "change": random.uniform(10, 200), "trigger": "take_profit"},
+        {"outcome": "loss", "change": random.uniform(-50, -5), "trigger": "stop_loss"},
+        {"outcome": "partial_profit", "change": random.uniform(5, 50), "trigger": "manual_sell"}
+    ]
+    
+    # Weight scenarios based on market reality (more losses/small gains than huge wins)
+    weights = [0.3, 0.4, 0.3]  # 30% big profit, 40% loss, 30% small profit
+    scenario = random.choices(scenarios, weights=weights)[0]
+    
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     
+    # Format entry price
+    entry_price_display = ""
+    if session.entry_price:
+        if session.entry_price < 0.01:
+            entry_price_display = f"${session.entry_price:.8f}"
+        else:
+            entry_price_display = f"${session.entry_price:.4f}"
+    else:
+        entry_price_display = "Price unavailable"
+    
+    # Calculate simulated performance
+    sol_invested = 1.0
+    change_percent = scenario["change"]
+    final_value = sol_invested * (1 + change_percent / 100)
+    profit_loss = final_value - sol_invested
+    
+    if scenario["outcome"] == "profit":
+        result_emoji = "🎉"
+        result_text = f"<b>Simulation Successful!</b> +{change_percent:.1f}%"
+    elif scenario["outcome"] == "loss":
+        result_emoji = "📉"
+        result_text = f"<b>Stop-loss triggered:</b> {change_percent:.1f}%"
+    else:
+        result_emoji = "💰"
+        result_text = f"<b>Partial profit taken:</b> +{change_percent:.1f}%"
+    
     simulation_text = f"""
-🎮 <b>SIMULATION EXECUTING...</b>
+🎮 <b>PRACTICE SIMULATION COMPLETE!</b>
 
-<b>📊 Simulated Trade Details:</b>
+<b>📊 Simulated Trade Results:</b>
 🏷️ <b>Token:</b> {token_display}
-📄 <b>Contract:</b> <code>{session.contract_address}</code>
+💲 <b>Entry Price:</b> {entry_price_display}
 💵 <b>Simulated Investment:</b> 1.0 SOL
 📉 <b>Stop-Loss:</b> {session.stop_loss}%
 📈 <b>Take-Profit:</b> {session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-⏱️ <b>Simulation Results:</b>
-✅ Trade simulation completed successfully!
-📈 Simulated entry price: $0.00234 per token
-🎯 Tokens acquired: 427,350 tokens
-⏰ Execution time: 0.3 seconds
+{result_emoji} {result_text}
+💼 <b>Final Value:</b> {final_value:.3f} SOL
+📈 <b>Profit/Loss:</b> {profit_loss:+.3f} SOL
 
-<b>🎯 Monitoring Conditions:</b>
-• Stop-loss trigger: Price drops to $0.{int((100-session.stop_loss)*234/100):05d}
-• Take-profit trigger: Price rises to $0.{int((100+session.take_profit)*234/100):05d}
-• Will sell {session.sell_percent}% when triggered
+<b>💡 This was practice mode - No real money involved!</b>
+Real trading requires 100,000+ $MORK tokens for live execution.
 
-<b>🧪 This was a SIMULATION!</b>
-In live mode, this would execute real trades on Solana DEXs.
-
-Type /snipe to run another simulation or /status to check session.
+Type /whatif to see your simulation history or /snipe for another practice round!
     """
     
-    # Reset session after simulation
-    update_session(chat_id, state=STATE_IDLE)
+    # Save simulation record
+    trade_sim = TradeSimulation()
+    trade_sim.chat_id = str(chat_id)
+    trade_sim.contract_address = session.contract_address
+    trade_sim.stop_loss = session.stop_loss
+    trade_sim.take_profit = session.take_profit
+    trade_sim.sell_percent = session.sell_percent
+    trade_sim.result_type = scenario["outcome"]
+    trade_sim.profit_loss = profit_loss
+    trade_sim.entry_price = session.entry_price
+    
+    db.session.add(trade_sim)
+    db.session.commit()
+    
+    # Reset session
+    update_session(chat_id, 
+                  state=STATE_IDLE,
+                  contract_address=None,
+                  token_name=None,
+                  token_symbol=None,
+                  entry_price=None,
+                  stop_loss=None,
+                  take_profit=None,
+                  sell_percent=None)
     
     send_message(chat_id, simulation_text)
 
@@ -439,6 +539,7 @@ Practice crypto sniping safely without real money.
 • <b>/status</b> - Check current session status
 • <b>/cancel</b> - Cancel current operation
 • <b>/help</b> - Show this help message
+• <b>/whatif</b> - View your simulation performance history
 
 <b>📖 How to Use:</b>
 1. Type /snipe to begin
@@ -492,6 +593,68 @@ Type /snipe to start a new simulation!
     
     send_message(chat_id, cancel_text)
 
+def handle_whatif_command(chat_id):
+    """Handle /whatif command - show simulation history"""
+    from models import TradeSimulation, db
+    
+    # Get user's simulation history (last 10 trades)
+    simulations = TradeSimulation.query.filter_by(chat_id=str(chat_id)).order_by(TradeSimulation.created_at.desc()).limit(10).all()
+    
+    if not simulations:
+        whatif_text = """
+📊 <b>Your Simulation Performance</b>
+
+🔍 <b>No Simulations Yet!</b>
+
+You haven't run any practice simulations yet. Start building your trading experience with /snipe!
+
+<b>🎮 Why Use Simulations?</b>
+• Learn trading strategies risk-free
+• Test different stop-loss/take-profit settings
+• Build confidence before real trading
+• See how your strategies would have performed
+
+Type /snipe to run your first practice simulation!
+        """
+    else:
+        # Calculate overall statistics
+        total_trades = len(simulations)
+        profitable_trades = len([s for s in simulations if s.profit_loss > 0])
+        win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
+        total_pnl = sum(s.profit_loss for s in simulations if s.profit_loss is not None)
+        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+        
+        # Create performance summary
+        recent_trades = []
+        for sim in simulations[:5]:  # Show last 5 trades
+            date_str = sim.created_at.strftime("%m/%d")
+            result_emoji = "🎉" if sim.profit_loss > 0 else "📉" if sim.profit_loss < 0 else "⚪"
+            pnl_str = f"{sim.profit_loss:+.3f}" if sim.profit_loss else "0.000"
+            recent_trades.append(f"  {date_str} {result_emoji} {pnl_str} SOL")
+        
+        whatif_text = f"""
+📊 <b>Your Simulation Performance</b>
+
+<b>🎯 Overall Statistics:</b>
+📈 <b>Total Simulations:</b> {total_trades}
+💎 <b>Profitable Trades:</b> {profitable_trades}/{total_trades}
+🎯 <b>Win Rate:</b> {win_rate:.1f}%
+💰 <b>Total P&L:</b> {total_pnl:+.3f} SOL
+📊 <b>Average P&L:</b> {avg_pnl:+.3f} SOL per trade
+
+<b>📋 Recent Simulations:</b>
+{chr(10).join(recent_trades)}
+
+<b>🧠 Performance Insights:</b>
+{"🎉 Great job! You're showing consistent profits!" if win_rate > 60 else "📚 Keep practicing! Trading takes time to master." if win_rate > 40 else "💡 Try adjusting your stop-loss/take-profit settings."}
+
+<b>💡 Remember:</b> These are practice simulations. Real trading requires 100,000+ $MORK tokens and carries actual risk.
+
+Ready for more practice? Type /snipe to run another simulation!
+        """
+    
+    send_message(chat_id, whatif_text)
+
 def handle_update(update):
     """Main update handler for Telegram webhook"""
     try:
@@ -524,6 +687,8 @@ def handle_update(update):
                 handle_help_command(chat_id)
             elif command == '/cancel':
                 handle_cancel_command(chat_id)
+            elif command == '/whatif':
+                handle_whatif_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:
