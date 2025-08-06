@@ -1692,15 +1692,9 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
         active_trades = []
         
         for i, candidate in enumerate(selected_candidates):
-            # Create Jupiter swap link pre-populated with the specific token using enhanced format
-            from wallet_integration import generate_swap_link, WSOL_ADDRESS
-            jupiter_link = generate_swap_link(
-                input_mint=WSOL_ADDRESS,
-                output_mint=candidate.get('mint', ''),
-                amount_sol=amount_per_trade,
-                input_symbol="SOL",
-                output_symbol=candidate.get('symbol', 'TOKEN')
-            )
+            # Create Jupiter token page link (working format)
+            from wallet_integration import generate_token_page_link
+            jupiter_link = generate_token_page_link(candidate.get('mint', ''))
             
             # Execute the trade
             trade_result = {
@@ -1734,7 +1728,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 • Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🔗 Execute Your Trade:</b>
-<a href="{jupiter_link}">👆 Auto-Trading via Jupiter DEX</a>
+<a href="{jupiter_link}">👆 Trade {candidate.get('symbol', 'TOKEN')} on Jupiter</a>
 
 <b>🚀 LIVE TRADE ACTIVE - Monitoring started!</b>
             """
@@ -2074,15 +2068,9 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
         
         # Execute trades on discovered tokens
         for i, candidate in enumerate(selected_candidates):
-            # Create Jupiter swap link pre-populated with the specific token
-            from wallet_integration import generate_swap_link, WSOL_ADDRESS
-            jupiter_link = generate_swap_link(
-                input_mint=WSOL_ADDRESS,
-                output_mint=candidate.get('mint', ''),
-                amount_sol=amount_per_trade,
-                input_symbol="SOL", 
-                output_symbol=candidate.get('symbol', 'TOKEN')
-            )
+            # Create Jupiter token page link (working format)
+            from wallet_integration import generate_token_page_link
+            jupiter_link = generate_token_page_link(candidate.get('mint', ''))
             
             trade_message = f"""
 ⚡ <b>DISCOVERED TOKEN TRADE #{i+1}</b>
@@ -2094,7 +2082,7 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
 📄 <b>Contract:</b> <code>{candidate.get('mint', '')}</code>
 
 <b>🔗 Execute Trade:</b>
-<a href="{jupiter_link}">👆 Trade via Jupiter DEX</a>
+<a href="{jupiter_link}">👆 Trade {candidate.get('symbol', 'TOKEN')} on Jupiter</a>
 
 <b>🎯 Token discovered via continuous VIP FETCH scanning!</b>
             """
