@@ -35,14 +35,18 @@ def webhook():
     """Handle incoming Telegram webhook updates"""
     try:
         update = request.get_json()
+        logging.info(f"Received webhook update: {update}")
         if update:
             with app.app_context():
                 import bot
-                bot.handle_update(update)
+                result = bot.handle_update(update)
+                logging.info(f"Bot handled update successfully")
         return 'OK', 200
     except Exception as e:
         logging.error(f"Webhook error: {e}")
-        return 'Error', 500
+        import traceback
+        traceback.print_exc()
+        return 'OK', 200  # Return 200 to prevent retry loops
 
 @app.route('/health')
 def health():
