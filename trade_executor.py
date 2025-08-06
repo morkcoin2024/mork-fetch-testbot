@@ -239,7 +239,7 @@ class TradeExecutor:
         """Send trade completion notification"""
         from bot import send_message
         
-        pnl_percent = (trade.pnl / trade.trade_amount) * 100 if trade.pnl else 0
+        pnl_percent = (trade.pnl / trade.trade_amount) * 100 if trade.pnl and trade.trade_amount else 0
         emoji = "🎉" if trade.pnl and trade.pnl > 0 else "📉" if trade.pnl and trade.pnl < 0 else "⚪"
         
         notification = f"""
@@ -252,10 +252,10 @@ class TradeExecutor:
 💵 <b>Amount:</b> {trade.trade_amount:.3f} SOL
 📊 <b>P&L:</b> {trade.pnl:+.3f} SOL ({pnl_percent:+.1f}%)
 🎯 <b>Exit:</b> {trade.exit_reason}
-⏱️ <b>Duration:</b> {(trade.exit_time - trade.entry_time).total_seconds():.0f}s
+⏱️ <b>Duration:</b> {(trade.exit_time - trade.entry_time).total_seconds():.0f if trade.exit_time and trade.entry_time else 0}s
 
 <b>🐕 VIP FETCH Results:</b>
-{"🚀 Successful snipe! Great timing!" if trade.pnl > 0 else "📉 This one didn't work out, but that's trading!" if trade.pnl < 0 else "⚪ Neutral result - better safe than sorry!"}
+{"🚀 Successful snipe! Great timing!" if trade.pnl and trade.pnl > 0 else "📉 This one didn't work out, but that's trading!" if trade.pnl and trade.pnl < 0 else "⚪ Neutral result - better safe than sorry!"}
 
 Keep FETCHing those opportunities! 🐕‍🦺
         """

@@ -1486,12 +1486,20 @@ Type /snipe for live trading or /fetch for VIP trading.
 <b>🎯 Ready to execute your {session.trade_amount:.3f} SOL trade!</b>
             """
             
-            # Reset session after successful transaction creation
-            update_session(chat_id, state=STATE_IDLE, 
-                          contract_address=None, wallet_address=None,
-                          stop_loss=None, take_profit=None, sell_percent=None,
-                          trade_amount=None, trading_mode=None,
-                          token_name=None, token_symbol=None, entry_price=None)
+            # Add monitoring startup information
+            execution_text += f"""
+
+<b>📊 After Completing Your Trade:</b>
+Type <b>/executed</b> to start automatic monitoring
+• I'll track your {session.stop_loss}% stop-loss and {session.take_profit}% take-profit
+• You'll receive notifications when targets are hit
+• Position will be monitored for 5 minutes
+
+<b>🎯 Complete your trade on Jupiter, then type /executed!</b>
+            """
+            
+            # Keep session data for potential monitoring startup
+            update_session(chat_id, state="awaiting_execution")
             
             send_message(chat_id, execution_text)
             
@@ -1843,6 +1851,8 @@ def handle_update(update):
                 handle_whatif_command(chat_id)
             elif command == '/stopfetch':
                 handle_stop_fetch_command(chat_id)
+            elif command == '/executed':
+                handle_executed_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:
@@ -1895,6 +1905,125 @@ def handle_update(update):
         if 'message' in update:
             chat_id = update['message']['chat']['id']
             send_message(chat_id, "Sorry, an error occurred. Please try again or type /start to reset.")
+
+def handle_executed_command(chat_id):
+    """Handle /executed command - start monitoring after trade execution"""
+    session = get_or_create_session(chat_id)
+    
+    if session.state != "awaiting_execution":
+        executed_text = """
+❌ <b>No Trade Pending</b>
+
+You don't have any trade waiting for execution monitoring.
+
+To set up a new trade:
+• Type /snipe for live trading
+• Type /simulate for practice
+
+After configuring and executing your trade, use /executed to start monitoring.
+        """
+        send_message(chat_id, executed_text)
+        return
+        
+    if not all([session.contract_address, session.stop_loss, session.take_profit, 
+                session.trade_amount, session.wallet_address]):
+        executed_text = """
+❌ <b>Incomplete Trade Data</b>
+
+Missing trade parameters. Please restart your trade setup:
+• Type /snipe for live trading
+• Complete all parameters
+• Execute trade on Jupiter
+• Then use /executed
+        """
+        send_message(chat_id, executed_text)
+        return
+        
+    # Start monitoring the executed trade
+    from trade_executor import trade_executor, ActiveTrade
+    import asyncio
+    from datetime import datetime
+    import time
+    
+    # Get current token price as entry price
+    try:
+        from wallet_integration import get_token_price
+        current_price = get_token_price(session.contract_address)
+        if not current_price:
+            current_price = session.entry_price or 0.0001  # Fallback
+            
+        # Create active trade object
+        trade = ActiveTrade(
+            trade_id=f"manual_{int(time.time())}",
+            chat_id=str(chat_id),
+            token_mint=session.contract_address,
+            token_name=session.token_name or "MORK", 
+            token_symbol=session.token_symbol or "MORK",
+            entry_price=current_price,
+            trade_amount=session.trade_amount,
+            stop_loss_percent=session.stop_loss,
+            take_profit_percent=session.take_profit,
+            entry_time=datetime.now(),
+            status='monitoring'
+        )
+        
+        # Add to active trades
+        if str(chat_id) not in trade_executor.active_trades:
+            trade_executor.active_trades[str(chat_id)] = []
+        trade_executor.active_trades[str(chat_id)].append(trade)
+        
+        # Start monitoring task
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        task = loop.create_task(trade_executor.monitor_trade(trade))
+        trade_executor.monitoring_tasks[f"{chat_id}_{trade.trade_id}"] = task
+        
+        monitoring_text = f"""
+🎯 <b>MONITORING STARTED!</b>
+
+<b>📊 Trade Details:</b>
+🏷️ <b>Token:</b> {trade.token_name}
+💲 <b>Entry Price:</b> ${current_price:.8f}
+💰 <b>Amount:</b> {session.trade_amount:.3f} SOL
+📉 <b>Stop-Loss:</b> -{session.stop_loss}% (${current_price * (1 - session.stop_loss/100):.8f})
+📈 <b>Take-Profit:</b> +{session.take_profit}% (${current_price * (1 + session.take_profit/100):.8f})
+
+<b>🔄 Monitoring Status:</b>
+• Real-time price tracking: ACTIVE
+• Stop-loss monitoring: ACTIVE  
+• Take-profit monitoring: ACTIVE
+• Duration: 5 minutes maximum
+• Check interval: Every 10 seconds
+
+<b>📱 You'll be notified when:</b>
+• Stop-loss is triggered (-{session.stop_loss}%)
+• Take-profit is hit (+{session.take_profit}%)
+• 5-minute monitoring period ends
+
+<b>🎯 Your position is now being monitored automatically!</b>
+        """
+        
+        # Reset session
+        update_session(chat_id, state=STATE_IDLE)
+        
+        send_message(chat_id, monitoring_text)
+        
+    except Exception as e:
+        error_text = f"""
+❌ <b>Monitoring Setup Failed</b>
+
+Error starting trade monitoring: {str(e)}
+
+Please try:
+• /status to check your session
+• /snipe to set up a new trade
+• Contact support if issue persists
+        """
+        send_message(chat_id, error_text)
 
 def set_webhook(webhook_url):
     """Set the webhook URL for the bot"""
