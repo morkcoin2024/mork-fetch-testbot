@@ -2884,7 +2884,7 @@ def format_enhanced_token_discovery(token: dict, trade_amount: float, jupiter_li
         safety_indicators.append("🔥 LP Burnt")
     safety_text = " | ".join(safety_indicators) if safety_indicators else "⚠️ Verify Safety"
     
-    # Generate both swap link and token page link
+    # Generate token page link (the working format)
     from wallet_integration import generate_token_page_link
     token_page_link = generate_token_page_link(token.get('mint', ''))
     
@@ -2909,16 +2909,15 @@ def format_enhanced_token_discovery(token: dict, trade_amount: float, jupiter_li
 <b>📝 Description:</b>
 {token.get('description', 'New token launch on Pump.fun')}
 
-<b>🎯 JUPITER LINKS:</b>
-<a href="{jupiter_link}">🔄 Execute Swap (SOL → {token.get('symbol', 'TOKEN')})</a>
-<a href="{token_page_link}">📊 View Token Page</a>
+<b>🎯 JUPITER TOKEN PAGE:</b>
+<a href="{token_page_link}">👆 View & Trade {token.get('symbol', 'TOKEN')} on Jupiter</a>
 
 <b>⚡ INSTANT TRADE EXECUTION:</b>
-1. Click swap link above (pre-populated with contract)
-2. Connect Phantom wallet
-3. Amount: <b>{trade_amount:.3f} SOL</b>
-4. Verify: <b>SOL → {token.get('symbol', 'TOKEN')}</b>
-5. Set slippage: <b>1-3%</b>
+1. Click Jupiter token page above
+2. Click "Swap" button on Jupiter
+3. Connect Phantom wallet
+4. Set amount: <b>{trade_amount:.3f} SOL</b>
+5. Verify: <b>SOL → {token.get('symbol', 'TOKEN')}</b>
 6. Execute swap - Phantom will prompt to sign
 
 <b>⏱️ EARLY BIRD ADVANTAGE - {age_display} old token!</b>
