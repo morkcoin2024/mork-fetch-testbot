@@ -197,19 +197,52 @@ class TradeExecutor:
                     exit_reason = "Stop Loss Hit"
                 
                 if exit_reason:
-                    # Execute sell order
-                    sell_result = await self.execute_sell_order(trade, 100.0)
+                    # Generate automatic sell order for user
+                    from wallet_integration import generate_swap_link, WSOL_ADDRESS
                     
-                    if sell_result['success']:
-                        trade.status = 'completed'
-                        trade.exit_price = sell_result['exit_price']
-                        trade.exit_time = datetime.now()
-                        trade.pnl = sell_result['pnl']
-                        trade.exit_reason = exit_reason
-                        
-                        # Send notification
-                        await self._send_trade_notification(trade)
-                        return
+                    # Create sell transaction link
+                    sell_link = generate_swap_link(
+                        input_mint=trade.token_mint,
+                        output_mint=WSOL_ADDRESS,
+                        amount_sol=None  # User can adjust amount
+                    )
+                    
+                    trade.status = 'exit_triggered'
+                    trade.exit_price = current_price
+                    trade.exit_time = datetime.now()
+                    trade.exit_reason = exit_reason
+                    
+                    # Calculate potential P&L
+                    price_change = ((current_price - trade.entry_price) / trade.entry_price) * 100
+                    potential_pnl = trade.trade_amount * (price_change / 100)
+                    
+                    # Send automated sell notification with transaction link
+                    await self._send_exit_notification(
+                        trade.chat_id,
+                        f"""
+🚨 <b>{exit_reason}!</b>
+
+<b>📊 Trade Alert:</b>
+🏷️ <b>Token:</b> {trade.token_name} ({trade.token_symbol})
+💲 <b>Entry:</b> ${trade.entry_price:.8f}
+💲 <b>Current:</b> ${current_price:.8f}
+📈 <b>Change:</b> {price_change:+.2f}%
+💰 <b>Est. P&L:</b> {potential_pnl:+.4f} SOL
+
+<b>🔗 EXECUTE SELL ORDER:</b>
+<a href="{sell_link}">👆 CLICK TO SELL ON JUPITER</a>
+
+<b>⚡ Quick Action Required:</b>
+Your {trade.token_name} position has hit your {exit_reason.lower()} target. Click the link above to execute the sell order through Jupiter DEX with Phantom wallet.
+
+<b>🔄 This link will:</b>
+• Open Jupiter DEX pre-configured for your token
+• Connect to your Phantom wallet  
+• Execute the sell transaction
+• Convert your tokens back to SOL
+                        """
+                    )
+                    return
                 
                 await asyncio.sleep(check_interval)
             
@@ -234,6 +267,11 @@ class TradeExecutor:
             trade_key = f"{trade.chat_id}_{trade.trade_id}"
             if trade_key in self.monitoring_tasks:
                 del self.monitoring_tasks[trade_key]
+    
+    async def _send_exit_notification(self, chat_id: str, message: str):
+        """Send exit signal notification with Jupiter link"""
+        from bot import send_message
+        send_message(chat_id, message)
     
     async def _send_trade_notification(self, trade: ActiveTrade):
         """Send trade completion notification"""
@@ -260,7 +298,7 @@ class TradeExecutor:
 Keep FETCHing those opportunities! 🐕‍🦺
         """
         
-        send_message(trade.chat_id, notification)
+        send_message(chat_id, notification)
     
     def get_active_trades(self, chat_id: str) -> List[ActiveTrade]:
         """Get active trades for a user"""

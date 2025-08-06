@@ -219,6 +219,38 @@ class SolanaWalletIntegrator:
         except Exception as e:
             logging.error(f"Error creating swap transaction: {str(e)}")
             return None
+    
+    def execute_swap_with_signature(self, wallet_address: str, signed_transaction: str) -> Dict[str, Any]:
+        """Execute a signed swap transaction on Solana"""
+        try:
+            # Submit signed transaction to Solana network
+            result = self._make_rpc_call("sendTransaction", [
+                signed_transaction,
+                {
+                    "encoding": "base64",
+                    "preflightCommitment": "processed",
+                    "commitment": "processed"
+                }
+            ])
+            
+            if isinstance(result, str):  # Transaction signature
+                return {
+                    'success': True,
+                    'signature': result,
+                    'status': 'submitted'
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Transaction submission failed'
+                }
+                
+        except Exception as e:
+            logging.error(f"Error executing swap: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
 # Real wallet integration functions
 def get_real_sol_balance(wallet_address: str) -> float:
@@ -277,3 +309,23 @@ def get_wallet_transaction_history(wallet_address: str) -> list:
     """Get recent transaction history for wallet"""
     integrator = SolanaWalletIntegrator()
     return integrator.get_recent_transactions(wallet_address)
+
+def execute_signed_transaction(wallet_address: str, signed_tx: str) -> Dict:
+    """Execute a pre-signed transaction"""
+    integrator = SolanaWalletIntegrator()
+    return integrator.execute_swap_with_signature(wallet_address, signed_tx)
+
+def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = None) -> str:
+    """Generate Jupiter swap link for user to execute trades"""
+    base_url = "https://jup.ag/swap"
+    params = [
+        f"inputMint={input_mint}",
+        f"outputMint={output_mint}"
+    ]
+    
+    if amount_sol:
+        # Convert SOL to lamports for the amount parameter
+        lamports = int(amount_sol * 1_000_000_000)
+        params.append(f"inAmount={lamports}")
+    
+    return f"{base_url}?{'&'.join(params)}"

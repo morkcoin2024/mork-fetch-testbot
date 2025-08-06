@@ -1853,6 +1853,12 @@ def handle_update(update):
                 handle_stop_fetch_command(chat_id)
             elif command == '/executed':
                 handle_executed_command(chat_id)
+            elif command == '/autobuy':
+                handle_autobuy_command(chat_id, text)
+            elif command == '/autosell':
+                handle_autosell_command(chat_id, text)
+            elif command == '/autoorders':
+                handle_autoorders_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:
@@ -2331,3 +2337,136 @@ def set_webhook(webhook_url):
     except Exception as e:
         logging.error(f"Error setting webhook: {e}")
         return False
+
+def handle_autobuy_command(chat_id, text):
+    """Handle /autobuy command for automated buying"""
+    autobuy_text = """
+🤖 <b>AUTOMATED BUYING</b>
+
+Set up automatic buy orders that execute when token prices drop to your target levels.
+
+<b>🎯 How it works:</b>
+• Set a target price below current market price
+• Bot monitors price 24/7
+• When price drops to your target, you get instant Jupiter link
+• Execute the buy with one click
+
+<b>⚡ Perfect for:</b>
+• Buying dips while you sleep
+• Dollar cost averaging
+• Catching flash crashes
+• Entry point optimization
+
+<b>🔧 To set up auto-buy:</b>
+1. Find a token you want to buy
+2. Set your target entry price
+3. Set your buy amount
+4. Bot monitors and alerts when triggered
+
+<b>📊 Example Strategy:</b>
+• MORK trading at $0.0003
+• Set auto-buy at $0.0002 (33% lower)
+• When price drops, instant buy notification
+• Follow up with /executed to monitor
+
+Would you like to set up an auto-buy order for MORK or another token?
+    """
+    send_message(chat_id, autobuy_text)
+
+def handle_autosell_command(chat_id, text):
+    """Handle /autosell command for automated selling"""
+    autosell_text = """
+🤖 <b>AUTOMATED SELLING</b>
+
+Set up automatic sell orders that execute when token prices rise to your target levels.
+
+<b>🎯 How it works:</b>
+• Set a target price above current market price
+• Bot monitors your token 24/7
+• When price rises to your target, you get instant Jupiter link
+• Execute the sell with one click
+
+<b>⚡ Perfect for:</b>
+• Taking profits while away
+• Securing gains at resistance levels
+• Protecting against late-night dumps
+• Exit strategy automation
+
+<b>🔧 To set up auto-sell:</b>
+1. Must own tokens already
+2. Set your target exit price
+3. Bot monitors and alerts when triggered
+4. One-click execution via Jupiter
+
+<b>📊 Example Strategy:</b>
+• Bought MORK at $0.0002
+• Set auto-sell at $0.0004 (100% profit)
+• When price rises, instant sell notification
+• Secure your profits automatically
+
+Would you like to set up an auto-sell order for your MORK or another token position?
+    """
+    send_message(chat_id, autosell_text)
+
+def handle_autoorders_command(chat_id):
+    """Handle /autoorders command to view pending automated orders"""
+    from auto_trader import auto_trading_engine
+    from datetime import datetime
+    
+    pending_trades = auto_trading_engine.get_pending_trades(str(chat_id))
+    
+    if not pending_trades:
+        no_orders_text = """
+📋 <b>YOUR AUTO-ORDERS</b>
+
+<b>❌ No pending auto-orders</b>
+
+You don't have any automated buy/sell orders active.
+
+<b>🤖 Available Auto-Trading:</b>
+• /autobuy - Set up automatic buy orders
+• /autosell - Set up automatic sell orders
+
+<b>📊 Benefits:</b>
+• 24/7 price monitoring
+• Instant notifications when triggered
+• One-click execution via Jupiter
+• Never miss opportunities while sleeping
+
+Ready to set up your first auto-order?
+        """
+        send_message(chat_id, no_orders_text)
+        return
+    
+    # Show pending orders
+    orders_text = f"""
+📋 <b>YOUR AUTO-ORDERS</b>
+
+<b>📊 Active Orders: {len(pending_trades)}</b>
+
+"""
+    
+    for i, trade in enumerate(pending_trades, 1):
+        time_active = (datetime.now() - trade.created_time).total_seconds() / 60
+        
+        orders_text += f"""
+<b>{i}. {trade.strategy.replace('_', '-').title()}</b>
+🏷️ <b>Token:</b> {trade.token_name}
+💲 <b>Target:</b> ${trade.trigger_price:.8f}
+💰 <b>Amount:</b> {trade.amount_sol} SOL
+⏱️ <b>Active:</b> {time_active:.0f} minutes
+📊 <b>Status:</b> {trade.status.replace('_', ' ').title()}
+
+"""
+    
+    orders_text += """
+<b>🔧 Management:</b>
+• Orders expire after 30 minutes
+• Get notified instantly when triggered
+• One-click execution via Jupiter
+• Use /autobuy or /autosell for new orders
+
+Your automated trading system is actively monitoring the market!
+    """
+    
+    send_message(chat_id, orders_text)
