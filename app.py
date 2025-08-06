@@ -36,8 +36,9 @@ def webhook():
     try:
         update = request.get_json()
         if update:
-            import bot
-            bot.handle_update(update)
+            with app.app_context():
+                import bot
+                bot.handle_update(update)
         return 'OK', 200
     except Exception as e:
         logging.error(f"Webhook error: {e}")

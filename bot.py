@@ -38,24 +38,25 @@ def send_message(chat_id, text, reply_markup=None):
 def get_or_create_session(chat_id):
     """Get or create a user session"""
     from models import UserSession, db
-    with current_app.app_context():
-        session = UserSession.query.filter_by(chat_id=str(chat_id)).first()
-        if not session:
-            session = UserSession()
-            session.chat_id = str(chat_id)
-            db.session.add(session)
-            db.session.commit()
-        return session
+    session = UserSession.query.filter_by(chat_id=str(chat_id)).first()
+    if not session:
+        session = UserSession()
+        session.chat_id = str(chat_id)
+        session.state = STATE_IDLE
+        db.session.add(session)
+        db.session.commit()
+        logging.info(f"Chat {chat_id}: Created new session")
+    return session
 
 def update_session(chat_id, **kwargs):
     """Update user session data"""
     from models import UserSession, db
-    with current_app.app_context():
-        session = get_or_create_session(chat_id)
-        for key, value in kwargs.items():
-            setattr(session, key, value)
-        db.session.commit()
-        return session
+    session = get_or_create_session(chat_id)
+    for key, value in kwargs.items():
+        setattr(session, key, value)
+    db.session.commit()
+    logging.info(f"Chat {chat_id}: Updated session - State: {session.state}")
+    return session
 
 def is_valid_solana_address(address):
     """Validate Solana contract address format"""
