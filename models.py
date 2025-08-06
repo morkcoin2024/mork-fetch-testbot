@@ -12,6 +12,7 @@ class UserSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chat_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
     state = db.Column(db.String(32), default="idle", nullable=False)
+    trading_mode = db.Column(db.String(16), nullable=True)  # 'snipe' or 'fetch' for VIP mode
     wallet_address = db.Column(db.String(64), nullable=True)
     contract_address = db.Column(db.String(64), nullable=True)
     token_name = db.Column(db.String(128), nullable=True)

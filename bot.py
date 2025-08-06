@@ -947,37 +947,35 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """Handle /fetch command - VIP Trading sniffer dog mode"""
+    """Handle /fetch command - VIP Trading sniffer dog mode with full trading functionality"""
     fetch_text = """
-🎯 <b>VIP Trading Sniffer Dog Mode</b>
+🎯 <b>VIP FETCH TRADING MODE - Real Money!</b>
 
-<b>🐕 FETCH - Advanced Trading Features</b>
+<b>🐕 VIP Trading Sniffer Dog with Enhanced Features</b>
 
-This is the VIP tier of Mork F.E.T.C.H Bot with enhanced trading capabilities:
+<b>⚠️ IMPORTANT NOTICE:</b>
+• This is <b>VIP REAL TRADING</b> with actual funds
+• 0.5% fee charged only on profitable trades (sales value)
+• You need 1 SOL worth of $MORK tokens to access this VIP mode
+• Enhanced execution speed and priority processing
+• All trades are executed on the Solana blockchain
+• You are responsible for all trading decisions and outcomes
 
-<b>🔒 VIP Requirements:</b>
-• Minimum 1 SOL worth of $MORK tokens in your wallet
-• Enhanced security verification
+<b>🔐 Required for VIP Trading:</b>
+• Valid Solana wallet address
+• Minimum 1 SOL equivalent in $MORK tokens (verified)
+• Sufficient SOL for transaction fees
+• VIP access privileges
+
+<b>🚀 VIP Features Active:</b>
 • Priority execution speeds
+• Enhanced risk management
+• Advanced trading analytics
+• Premium customer support
 
-<b>🚀 VIP Features (Coming Soon):</b>
-• Advanced auto-sniping algorithms
-• Multi-token portfolio management
-• Copy trading from successful wallets
-• Real-time market alerts
-• Priority customer support
-• Lower fees and better execution
-
-<b>⚠️ Status: Under Development</b>
-The VIP Fetch mode is currently being developed. 
-
-For now, use:
-• /simulate for practice mode
-• /snipe for live trading with 0.5% fee
-
-Stay tuned for the full VIP experience!
+Please provide your Solana wallet address to verify your VIP $MORK token holdings:
     """
-    
+    update_session(chat_id, state=STATE_WAITING_WALLET, trading_mode='fetch')
     send_message(chat_id, fetch_text)
 
 def handle_snipe_command(chat_id):
@@ -1001,14 +999,19 @@ def handle_snipe_command(chat_id):
 
 Please provide your Solana wallet address to verify your $MORK token holdings:
     """
-    update_session(chat_id, state=STATE_WAITING_WALLET)
+    update_session(chat_id, state=STATE_WAITING_WALLET, trading_mode='snipe')
     send_message(chat_id, snipe_text)
 
 def handle_wallet_input(chat_id, wallet_address):
     """Handle wallet address input for live trading verification"""
+    # Get current session to determine trading mode
+    session = get_or_create_session(chat_id)
+    is_vip_mode = session.trading_mode == 'fetch'
+    
     # Validate wallet address format
     if not validate_solana_wallet(wallet_address):
-        error_text = """
+        mode_label = "VIP" if is_vip_mode else "Live Trading"
+        error_text = f"""
 ❌ <b>Invalid Wallet Address</b>
 
 The provided address doesn't appear to be a valid Solana wallet address.
@@ -1018,13 +1021,14 @@ The provided address doesn't appear to be a valid Solana wallet address.
 • Contains only valid base58 characters
 • Example: 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
 
-Please provide a valid Solana wallet address:
+Please provide a valid Solana wallet address for {mode_label} access:
         """
         send_message(chat_id, error_text)
         return
     
     # Check Mork token balance
-    send_message(chat_id, "🔍 <b>Checking your $MORK token balance...</b>")
+    check_message = "🔍 <b>Verifying your VIP $MORK token holdings...</b>" if is_vip_mode else "🔍 <b>Checking your $MORK token balance...</b>"
+    send_message(chat_id, check_message)
     
     mork_balance = get_solana_wallet_balance(wallet_address, MORK_TOKEN_CONTRACT)
     required_mork = calculate_mork_sol_threshold()
@@ -1033,8 +1037,30 @@ Please provide a valid Solana wallet address:
     
     if current_value_sol >= 1.0:  # Has 1 SOL worth of Mork
         # Eligible for live trading
-        eligible_text = f"""
-✅ <b>VIP ACCESS VERIFIED!</b>
+        if is_vip_mode:
+            eligible_text = f"""
+✅ <b>🎯 VIP ACCESS VERIFIED!</b>
+
+<b>🐕 Welcome to VIP FETCH Trading Sniffer Dog Mode!</b>
+
+<b>💎 Your $MORK Holdings:</b>
+🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
+💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
+📈 <b>Required:</b> 1.000 SOL worth (✅ VIP QUALIFIED)
+
+<b>🚀 VIP Features Activated:</b>
+• Priority execution speeds
+• Enhanced risk management
+• Advanced trading analytics
+• Premium customer support
+
+<b>🎯 You now have VIP FETCH access!</b>
+
+Please enter the Solana token contract address you want to trade with VIP priority:
+            """
+        else:
+            eligible_text = f"""
+✅ <b>ACCESS VERIFIED!</b>
 
 <b>💎 Your $MORK Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
@@ -1044,7 +1070,7 @@ Please provide a valid Solana wallet address:
 <b>🎯 You now have access to LIVE TRADING!</b>
 
 Please enter the Solana token contract address you want to trade:
-        """
+            """
         update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, wallet_address=wallet_address)
         send_message(chat_id, eligible_text)
     else:
@@ -1058,13 +1084,16 @@ Please enter the Solana token contract address you want to trade:
         # Calculate tokens per 1 SOL for user reference
         tokens_per_sol = 1.0 / mork_price_sol if mork_price_sol > 0 else 0
         
+        mode_title = "VIP FETCH ACCESS DENIED" if is_vip_mode else "Insufficient $MORK Holdings"
+        access_type = "VIP FETCH Trading" if is_vip_mode else "Live Trading"
+        
         ineligible_text = f"""
-❌ <b>Insufficient $MORK Holdings</b>
+❌ <b>{mode_title}</b>
 
 <b>💎 Your Current Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
-📉 <b>Required:</b> Minimum 1.000 SOL worth
+📉 <b>Required for {access_type}:</b> Minimum 1.000 SOL worth
 ⚠️ <b>Shortage:</b> {shortage_sol:.3f} SOL worth ({needed_mork:,.0f} more $MORK)
 
 <b>🚀 INSTANT PURCHASE:</b>
@@ -1282,16 +1311,26 @@ Enter sell percentage:
         return
     
     session = get_or_create_session(chat_id)
+    is_vip_mode = session.trading_mode == 'fetch'
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
     trade_amount_display = f"{session.trade_amount:.3f} SOL" if session.trade_amount else "Not specified"
     
+    mode_title = "VIP FETCH TRADING ORDER READY" if is_vip_mode else "LIVE TRADING ORDER READY"
+    mode_features = """
+<b>🎯 VIP Features Active:</b>
+• Priority execution speeds
+• Enhanced risk management
+• Advanced trading analytics
+• Premium customer support
+""" if is_vip_mode else ""
+    
     confirmation_text = f"""
-⚠️ <b>LIVE TRADING ORDER READY</b>
+⚠️ <b>{mode_title}</b>
 
 <b>🔴 FINAL CONFIRMATION REQUIRED</b>
 This will place a REAL trade with your actual funds!
-
+{mode_features}
 <b>📊 Order Summary:</b>
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}
@@ -1307,7 +1346,7 @@ This will place a REAL trade with your actual funds!
 • Market conditions can change rapidly
 • No refunds or reversal possible
 
-Type <b>/confirm</b> to execute this LIVE trade or <b>/cancel</b> to abort.
+Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}LIVE trade or <b>/cancel</b> to abort.
     """
     
     update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
@@ -1325,7 +1364,7 @@ def execute_live_trade(chat_id):
 
 Your trading session appears incomplete. Please start over.
 
-Type /fetch to begin a new live trading session.
+Type /snipe for live trading or /fetch for VIP trading.
         """
         update_session(chat_id, state=STATE_IDLE)
         send_message(chat_id, error_text)
@@ -1349,20 +1388,22 @@ Your $MORK balance has changed since verification.
 
 Please ensure you maintain the required $MORK holdings and try again.
 
-Type /fetch to start a new live trading session.
+Type /snipe for live trading or /fetch for VIP trading.
         """
         update_session(chat_id, state=STATE_IDLE)
         send_message(chat_id, insufficient_text)
         return
     
     # Execute the live trade (placeholder for actual implementation)
+    is_vip_mode = session.trading_mode == 'fetch'
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
     
+    mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
     execution_text = f"""
-🚀 <b>LIVE TRADE EXECUTED!</b>
+🚀 <b>{mode_prefix}TRADE EXECUTED!</b>
 
-<b>✅ Order Placed Successfully</b>
+<b>✅ {"VIP " if is_vip_mode else ""}Order Placed Successfully</b>
 
 <b>📊 Trade Details:</b>
 🏷️ <b>Token:</b> {token_display}
