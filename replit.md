@@ -12,7 +12,7 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 
 ## Recent Changes
 
-**2025-08-06**: Successfully implemented comprehensive live trading mode with wallet integration and $MORK token verification. Renamed commands to `/simulate` for practice mode and `/snipe` for live trading (previously `/snipe` and `/fetch`). Added dynamic threshold of 1 SOL worth of $MORK tokens, real Solana blockchain wallet balance checking, and complete live trading flow with risk warnings. Enhanced simulation mode with realistic ±10% variance system and `/whatif` performance tracking. Added instant Jupiter DEX purchase links for users with insufficient $MORK holdings and real-time price display. Both modes now fully operational with professional user experience. Updated branding from "Mork Sniper Bot" to "Mork F.E.T.C.H Bot" across all user interfaces.
+**2025-08-06**: Successfully implemented three-tier command structure with enhanced messaging. Created `/fetch` command as VIP Trading placeholder for future advanced features. Updated all bot messaging with consistent three-mode structure: /simulate (free practice), /snipe (live trading with 0.5% fee), and /fetch (VIP mode for 1 SOL worth $MORK holders). Enhanced welcome message, help command, and all user-facing text with "DEGENS SNIPE BOT" and "VIP LIVE FETCH TRADING MODE" branding. Added comprehensive fee structure information (0.5% on profitable sales) across all commands. Updated trade flow descriptions to include trade amount step. All commands now properly reference the correct modes and requirements.
 
 ## System Architecture
 

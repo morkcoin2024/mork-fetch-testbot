@@ -343,13 +343,16 @@ def handle_start_command(chat_id, user_first_name):
 <b>🧪 FREE SIMULATION MODE</b>
 Practice crypto sniping without risk! Perfect for learning how token sniping works.
 
-<b>💎 VIP LIVE TRADING MODE</b>
-Real trading for users with 1 SOL worth of $MORK tokens in their wallet.
+<b>⚡ DEGENS SNIPE BOT</b>
+Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+
+<b>💎 VIP LIVE FETCH TRADING MODE</b>
+Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
 
 <b>Available Commands:</b>
 🐶 /simulate - Puppy in training (free practice mode)
 ⚡ /snipe - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
-🎯 /fetch - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK)
+🎯 /fetch - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK + 0.5% fee on all profitable sales value)
 📊 /status - Check your current session
 ❓ /help - Get help and instructions
 
@@ -357,11 +360,11 @@ Real trading for users with 1 SOL worth of $MORK tokens in their wallet.
 • <b>Practice:</b> Use /simulate for risk-free simulation
 • <b>Live Trading:</b> Use /snipe to verify $MORK and trade real tokens (0.5% fee on profits)
 • <b>VIP Fetch:</b> Use /fetch for advanced trading features (coming soon)
-• All modes guide you through: contract → stop-loss → take-profit → sell %
+• All modes guide you through: contract → amount → stop-loss → take-profit → sell %
 
-Ready to start? 
+<b>Ready to start?</b>
 • Type /simulate for practice
-• Type /snipe for live trading (VIP only)
+• Type /snipe for live trading (requires 1 SOL worth of $MORK)
 • Type /fetch for VIP features (requires 1 SOL worth of $MORK)
 
 <i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
@@ -807,13 +810,19 @@ def handle_help_command(chat_id):
 ❓ <b>Mork F.E.T.C.H Bot Help</b>
 
 <b>🧪 FREE SIMULATION MODE</b>
-Practice crypto trading safely without real money.
+Practice crypto sniping without risk! Perfect for learning how token sniping works.
+
+<b>⚡ DEGENS SNIPE BOT</b>
+Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+
+<b>💎 VIP LIVE FETCH TRADING MODE</b>
+Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
 
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
 • <b>/simulate</b> - Puppy in training (free practice mode)
 • <b>/snipe</b> - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
-• <b>/fetch</b> - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK)
+• <b>/fetch</b> - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK + 0.5% fee on all profitable sales value)
 • <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/status</b> - Check current session status
 • <b>/cancel</b> - Cancel current operation
@@ -823,17 +832,19 @@ Practice crypto trading safely without real money.
 <b>📖 How to Use:</b>
 1. Type /simulate for practice, /snipe for live trading, or /fetch for VIP features
 2. Enter a Solana token contract address
-3. Set your stop-loss percentage (0-100%)
-4. Set your take-profit percentage (0-1000%)
-5. Set what percentage to sell (1-100%)
-6. Type /confirm to execute
+3. Enter your trade amount (SOL amount to invest)
+4. Set your stop-loss percentage (0-100%)
+5. Set your take-profit percentage (0-1000%)
+6. Set what percentage to sell (1-100%)
+7. Type /confirm to execute
 
-<b>🎯 What is Token Trading?</b>
-Strategic buying and selling of tokens based on predefined profit/loss targets and market conditions.
+<b>🎯 What is Token Sniping?</b>
+Strategic buying and selling of tokens based on predefined profit/loss targets and market conditions with fast execution.
 
 <b>⚠️ Important Notes:</b>
 • Simulation mode: No real trades, safe practice
 • Live mode: Real trades, requires minimum 1 SOL worth of $MORK tokens
+• 0.5% fee charged only on profitable trades (sales value)
 • Always DYOR (Do Your Own Research)
 
 <b>🔗 Live Trading Features:</b>
@@ -841,6 +852,7 @@ Strategic buying and selling of tokens based on predefined profit/loss targets a
 • $MORK token verification
 • Wallet balance checking
 • Risk management warnings
+• Fast execution trading
 
 Need help? Contact support in our Telegram group!
     """
@@ -857,15 +869,15 @@ def handle_cancel_command(chat_id):
 
 You don't have any active operations running.
 
-Type /snipe to start a new simulation!
+Type /simulate for practice or /snipe for live trading!
         """
     else:
         cancel_text = """
 ❌ <b>Operation Cancelled</b>
 
-Your current snipe setup has been cancelled and reset.
+Your current setup has been cancelled and reset.
 
-Type /snipe to start a new simulation!
+Type /simulate for practice or /snipe for live trading!
         """
         update_session(chat_id, state=STATE_IDLE, contract_address=None,
                       stop_loss=None, take_profit=None, sell_percent=None)
@@ -885,7 +897,7 @@ def handle_whatif_command(chat_id):
 
 🔍 <b>No Simulations Yet!</b>
 
-You haven't run any practice simulations yet. Start building your trading experience with /snipe!
+You haven't run any practice simulations yet. Start building your trading experience with /simulate!
 
 <b>🎮 Why Use Simulations?</b>
 • Learn trading strategies risk-free
@@ -893,7 +905,7 @@ You haven't run any practice simulations yet. Start building your trading experi
 • Build confidence before real trading
 • See how your strategies would have performed
 
-Type /snipe to run your first practice simulation!
+Type /simulate to run your first practice simulation!
         """
     else:
         # Calculate overall statistics
@@ -927,9 +939,9 @@ Type /snipe to run your first practice simulation!
 <b>🧠 Performance Insights:</b>
 {"🎉 Great job! You're showing consistent profits!" if win_rate > 60 else "📚 Keep practicing! Trading takes time to master." if win_rate > 40 else "💡 Try adjusting your stop-loss/take-profit settings."}
 
-<b>💡 Remember:</b> These are practice simulations. Real trading requires 100,000+ $MORK tokens and carries actual risk.
+<b>💡 Remember:</b> These are practice simulations. Real trading requires 1 SOL worth of $MORK tokens and carries actual risk.
 
-Ready for more practice? Type /snipe to run another simulation!
+Ready for more practice? Type /simulate to run another simulation!
         """
     
     send_message(chat_id, whatif_text)
