@@ -88,13 +88,14 @@ class PumpFunScanner:
                         return data.get('coins', [])
                     else:
                         logger.warning(f"API request failed with status {response.status}")
-                        return []
+                        # Return demo tokens when API fails
+                        return self._get_demo_tokens()
             else:
-                return []
+                return self._get_demo_tokens()
                     
         except Exception as e:
             logger.error(f"Failed to fetch recent tokens from API: {e}")
-            # For demonstration purposes, return simulated token data
+            # Always return demo tokens when API fails
             return self._get_demo_tokens()
     
     async def _scrape_pump_homepage(self) -> List[Dict]:
@@ -301,6 +302,8 @@ class PumpFunScanner:
         """Get filtered token candidates based on safety criteria"""
         recent_tokens = await self.fetch_recent_tokens()
         candidates = []
+        
+        logger.info(f"Processing {len(recent_tokens)} tokens for candidates")
         
         for token_data in recent_tokens:
             try:
