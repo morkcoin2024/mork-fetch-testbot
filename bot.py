@@ -12,6 +12,7 @@ from flask import current_app
 # Bot configuration
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+BOT_USERNAME = "@MorkSniperBot"
 
 # Command states - Simulation mode
 STATE_IDLE = "idle"

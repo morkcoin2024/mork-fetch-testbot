@@ -94,7 +94,7 @@ if __name__ == "__main__":
     
     if success:
         print("\n✅ Setup complete! Your bot is now ready.")
-        print("Users can start chatting with @MorkFETCHBot on Telegram!")
+        print("Users can start chatting with @MorkSniperBot on Telegram!")
         print("\nAvailable commands:")
         print("• /start - Welcome message and instructions")
         print("• /snipe - Start a simulation snipe")
