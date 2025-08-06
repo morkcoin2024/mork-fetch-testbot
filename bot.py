@@ -1971,8 +1971,8 @@ Missing trade parameters. Please restart your trade setup:
     
     # Get current token price as entry price
     try:
-        from wallet_integration import get_token_price
-        current_price = get_token_price(session.contract_address)
+        from wallet_integration import get_real_token_price_sol
+        current_price = get_real_token_price_sol(session.contract_address)
         if not current_price:
             current_price = session.entry_price or 0.0002247  # MORK fallback price
             
@@ -2070,10 +2070,10 @@ Or provide another token's contract address:
         return
     
     # Get token info
-    from wallet_integration import get_token_price
+    from wallet_integration import get_real_token_price_sol
     
     try:
-        current_price = get_token_price(contract_address)
+        current_price = get_real_token_price_sol(contract_address)
         
         # Set token details based on contract address
         if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH":
