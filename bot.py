@@ -297,25 +297,28 @@ def handle_start_command(chat_id, user_first_name):
     welcome_text = f"""
 🤖 <b>Welcome to Mork Sniper Bot, {user_first_name}!</b>
 
-🧪 <b>FREE SIMULATION MODE</b>
-Practice crypto sniping without risk! This is a simulation environment where you can learn how token sniping works.
+<b>🧪 FREE SIMULATION MODE</b>
+Practice crypto sniping without risk! Perfect for learning how token sniping works.
+
+<b>💎 VIP LIVE TRADING MODE</b>
+Real trading for users with 1 SOL worth of $MORK tokens in their wallet.
 
 <b>Available Commands:</b>
-🎯 /snipe - Start a simulation snipe
+🎯 /snipe - Start a simulation snipe (free practice mode)
+🚀 /fetch - Live trading mode (requires $MORK verification)
 📊 /status - Check your current session
 ❓ /help - Get help and instructions
 
-<b>How it works:</b>
-1. Use /snipe to start
-2. Enter a token contract address
-3. Set your stop-loss percentage
-4. Set your take-profit percentage  
-5. Set your sell percentage
-6. Confirm to run simulation
+<b>How to use:</b>
+• <b>Practice:</b> Use /snipe for risk-free simulation
+• <b>Live Trading:</b> Use /fetch to verify $MORK and trade real tokens
+• Both modes guide you through: contract → stop-loss → take-profit → sell %
 
-Ready to practice? Type /snipe to begin!
+Ready to start? 
+• Type /snipe for practice
+• Type /fetch for live trading (VIP only)
 
-<i>Note: This is simulation mode only. No real trades are executed.</i>
+<i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
     """
     
     # Reset user session
