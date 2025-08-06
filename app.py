@@ -46,4 +46,4 @@ def webhook():
 
 @app.route('/health')
 def health():
-    return {'status': 'healthy', 'service': 'Mork Sniper Bot'}, 200
+    return {'status': 'healthy', 'service': 'Mork F.E.T.C.H Bot'}, 200

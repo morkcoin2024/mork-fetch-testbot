@@ -1,18 +1,18 @@
-# Mork Sniper Bot
+# Mork F.E.T.C.H Bot
 
 ## Overview
 
-Mork Sniper Bot is a Telegram-based cryptocurrency trading bot designed for Solana blockchain tokens, particularly those launched on Pump.fun. The bot operates in two modes: a free simulation mode for testing and a paid live trading mode for users holding at least 100,000 $MORK tokens. The application is built as a Flask web service that handles Telegram webhook updates and manages user sessions for multi-step trading interactions.
+Mork F.E.T.C.H Bot is a Telegram-based cryptocurrency trading bot designed for Solana blockchain tokens, particularly those launched on Pump.fun. The bot operates in two modes: a free simulation mode for testing and a paid live trading mode for users holding at least 100,000 $MORK tokens. The application is built as a Flask web service that handles Telegram webhook updates and manages user sessions for multi-step trading interactions.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
 Brand colors: Mork Coin branding with green primary color (#7cb342) and light green accent (#9ccc65) to match current brand guidelines.
-Branding rules: "Mork Sniper Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text.
+Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text.
 
 ## Recent Changes
 
-**2025-08-06**: Successfully implemented comprehensive live trading mode with wallet integration and $MORK token verification. Renamed commands to `/simulate` for practice mode and `/snipe` for live trading (previously `/snipe` and `/fetch`). Added dynamic threshold of 1 SOL worth of $MORK tokens, real Solana blockchain wallet balance checking, and complete live trading flow with risk warnings. Enhanced simulation mode with realistic ±10% variance system and `/whatif` performance tracking. Added instant Jupiter DEX purchase links for users with insufficient $MORK holdings and real-time price display. Both modes now fully operational with professional user experience.
+**2025-08-06**: Successfully implemented comprehensive live trading mode with wallet integration and $MORK token verification. Renamed commands to `/simulate` for practice mode and `/snipe` for live trading (previously `/snipe` and `/fetch`). Added dynamic threshold of 1 SOL worth of $MORK tokens, real Solana blockchain wallet balance checking, and complete live trading flow with risk warnings. Enhanced simulation mode with realistic ±10% variance system and `/whatif` performance tracking. Added instant Jupiter DEX purchase links for users with insufficient $MORK holdings and real-time price display. Both modes now fully operational with professional user experience. Updated branding from "Mork Sniper Bot" to "Mork F.E.T.C.H Bot" across all user interfaces.
 
 ## System Architecture
 

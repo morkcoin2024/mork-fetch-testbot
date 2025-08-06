@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script to configure the Mork Sniper Bot webhook
+Setup script to configure the Mork F.E.T.C.H Bot webhook
 Run this script after setting the BOT_TOKEN environment variable
 """
 import os
@@ -83,7 +83,7 @@ def check_webhook():
         logger.error(f"HTTP error {response.status_code}: {response.text}")
 
 if __name__ == "__main__":
-    print("🤖 Mork Sniper Bot Setup")
+    print("🤖 Mork F.E.T.C.H Bot Setup")
     print("=" * 50)
     
     print("\n1. Checking current webhook status...")
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     
     if success:
         print("\n✅ Setup complete! Your bot is now ready.")
-        print("Users can start chatting with @MorkSniperBot on Telegram!")
+        print("Users can start chatting with @MorkFETCHBot on Telegram!")
         print("\nAvailable commands:")
         print("• /start - Welcome message and instructions")
         print("• /snipe - Start a simulation snipe")

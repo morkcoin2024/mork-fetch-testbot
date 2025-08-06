@@ -338,7 +338,7 @@ def is_valid_percentage(value):
 def handle_start_command(chat_id, user_first_name):
     """Handle /start command"""
     welcome_text = f"""
-🤖 <b>Welcome to Mork Sniper Bot, {user_first_name}!</b>
+🤖 <b>Welcome to Mork F.E.T.C.H Bot, {user_first_name}!</b>
 
 <b>🧪 FREE SIMULATION MODE</b>
 Practice crypto sniping without risk! Perfect for learning how token sniping works.
@@ -801,7 +801,7 @@ Type /cancel to abort current operation.
 def handle_help_command(chat_id):
     """Handle /help command"""
     help_text = """
-❓ <b>Mork Sniper Bot Help</b>
+❓ <b>Mork F.E.T.C.H Bot Help</b>
 
 <b>🧪 FREE SIMULATION MODE</b>
 Practice crypto trading safely without real money.
