@@ -1896,6 +1896,19 @@ def handle_update(update):
             elif session.state == STATE_LIVE_WAITING_SELLPERCENT:
                 logging.info(f"Chat {chat_id}: Processing live sell percent input")
                 handle_live_sellpercent_input(chat_id, text)
+            # Manual monitoring setup states
+            elif session.state == "manual_setup_contract":
+                logging.info(f"Chat {chat_id}: Processing manual setup contract")
+                handle_manual_setup_contract(chat_id, text)
+            elif session.state == "manual_setup_amount":
+                logging.info(f"Chat {chat_id}: Processing manual setup amount")
+                handle_manual_setup_amount(chat_id, text)
+            elif session.state == "manual_setup_stoploss":
+                logging.info(f"Chat {chat_id}: Processing manual setup stop-loss")
+                handle_manual_setup_stoploss(chat_id, text)
+            elif session.state == "manual_setup_takeprofit":
+                logging.info(f"Chat {chat_id}: Processing manual setup take-profit")
+                handle_manual_setup_takeprofit(chat_id, text)
             else:
                 logging.info(f"Chat {chat_id}: Unknown state '{session.state}', sending help message")
                 send_message(chat_id, "I'm not sure what you mean. Type /help for available commands or /snipe to start a simulation.")
@@ -1910,20 +1923,31 @@ def handle_executed_command(chat_id):
     """Handle /executed command - start monitoring after trade execution"""
     session = get_or_create_session(chat_id)
     
-    if session.state != "awaiting_execution":
-        executed_text = """
-❌ <b>No Trade Pending</b>
+    # Check if user has any recent Jupiter transaction or just allow manual setup
+    executed_text = """
+🎯 <b>MANUAL TRADE MONITORING SETUP</b>
 
-You don't have any trade waiting for execution monitoring.
+Since you completed a trade on Jupiter, let's set up monitoring for your MORK position.
 
-To set up a new trade:
-• Type /snipe for live trading
-• Type /simulate for practice
+<b>📊 Please provide your trade details:</b>
 
-After configuring and executing your trade, use /executed to start monitoring.
-        """
-        send_message(chat_id, executed_text)
-        return
+<b>1. Token Contract Address:</b>
+For MORK: ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>2. Your Trade Amount (SOL):</b>
+How much SOL did you spend? (e.g., 0.1)
+
+<b>3. Stop-Loss Percentage:</b>
+At what % loss should I sell? (e.g., 10)
+
+<b>4. Take-Profit Percentage:</b>
+At what % profit should I sell? (e.g., 10)
+
+Please provide the contract address first:
+    """
+    
+    update_session(chat_id, state="manual_setup_contract", trading_mode="manual_monitor")
+    send_message(chat_id, executed_text)
         
     if not all([session.contract_address, session.stop_loss, session.take_profit, 
                 session.trade_amount, session.wallet_address]):
@@ -2022,6 +2046,275 @@ Please try:
 • /status to check your session
 • /snipe to set up a new trade
 • Contact support if issue persists
+        """
+        send_message(chat_id, error_text)
+
+def handle_manual_setup_contract(chat_id, contract_address):
+    """Handle contract address input for manual monitoring setup"""
+    session = get_or_create_session(chat_id)
+    
+    # Validate contract address format
+    contract_address = contract_address.strip()
+    
+    if len(contract_address) < 32:
+        error_text = """
+❌ <b>Invalid Contract Address</b>
+
+Please provide a valid Solana token contract address.
+
+For MORK token, use: ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+Or provide another token's contract address:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    # Get token info
+    from wallet_integration import get_token_info, get_token_price
+    
+    try:
+        token_info = get_token_info(contract_address)
+        current_price = get_token_price(contract_address)
+        
+        if token_info:
+            token_name = token_info.get('name', 'Unknown Token')
+            token_symbol = token_info.get('symbol', 'UNKNOWN')
+        else:
+            token_name = "MORK" if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH" else "Unknown Token"
+            token_symbol = "MORK" if contract_address == "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH" else "UNKNOWN"
+        
+        price_display = f"${current_price:.8f}" if current_price else "Price unavailable"
+        
+        contract_text = f"""
+✅ <b>Token Verified</b>
+
+<b>🏷️ Token Details:</b>
+📛 <b>Name:</b> {token_name}
+🔖 <b>Symbol:</b> {token_symbol}
+💲 <b>Current Price:</b> {price_display}
+📝 <b>Contract:</b> {contract_address[:8]}...{contract_address[-8:]}
+
+<b>💰 Now enter your trade amount:</b>
+How much SOL did you spend on this token?
+
+Example: 0.1
+        """
+        
+        update_session(chat_id, 
+                      state="manual_setup_amount",
+                      contract_address=contract_address,
+                      token_name=token_name,
+                      token_symbol=token_symbol,
+                      entry_price=current_price)
+        
+        send_message(chat_id, contract_text)
+        
+    except Exception as e:
+        error_text = f"""
+❌ <b>Token Verification Failed</b>
+
+Unable to verify token: {str(e)}
+
+Please check the contract address and try again, or provide a different token contract address:
+        """
+        send_message(chat_id, error_text)
+
+def handle_manual_setup_amount(chat_id, amount_text):
+    """Handle trade amount input for manual monitoring setup"""
+    try:
+        trade_amount = float(amount_text.strip())
+        
+        if trade_amount <= 0 or trade_amount > 100:
+            error_text = """
+❌ <b>Invalid Amount</b>
+
+Please enter a valid SOL amount between 0.001 and 100.
+
+Example: 0.1
+            """
+            send_message(chat_id, error_text)
+            return
+        
+        amount_text = f"""
+✅ <b>Trade Amount Set</b>
+
+<b>💰 Amount:</b> {trade_amount:.3f} SOL
+
+<b>📉 Now set your stop-loss percentage:</b>
+At what percentage loss should I trigger a sell?
+
+Recommended: 5-20%
+Example: 10
+        """
+        
+        update_session(chat_id, 
+                      state="manual_setup_stoploss",
+                      trade_amount=trade_amount)
+        
+        send_message(chat_id, amount_text)
+        
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Number Format</b>
+
+Please enter a valid number for the SOL amount.
+
+Example: 0.1
+        """
+        send_message(chat_id, error_text)
+
+def handle_manual_setup_stoploss(chat_id, stoploss_text):
+    """Handle stop-loss input for manual monitoring setup"""
+    try:
+        stop_loss = float(stoploss_text.strip())
+        
+        if stop_loss < 0 or stop_loss > 100:
+            error_text = """
+❌ <b>Invalid Stop-Loss</b>
+
+Please enter a stop-loss percentage between 0 and 100.
+
+Example: 10 (for 10% loss)
+            """
+            send_message(chat_id, error_text)
+            return
+        
+        stoploss_text = f"""
+✅ <b>Stop-Loss Set</b>
+
+<b>📉 Stop-Loss:</b> -{stop_loss}%
+
+<b>📈 Finally, set your take-profit percentage:</b>
+At what percentage gain should I trigger a sell?
+
+Recommended: 10-50%
+Example: 20
+        """
+        
+        update_session(chat_id, 
+                      state="manual_setup_takeprofit",
+                      stop_loss=stop_loss)
+        
+        send_message(chat_id, stoploss_text)
+        
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Number Format</b>
+
+Please enter a valid number for the stop-loss percentage.
+
+Example: 10
+        """
+        send_message(chat_id, error_text)
+
+def handle_manual_setup_takeprofit(chat_id, takeprofit_text):
+    """Handle take-profit input for manual monitoring setup"""
+    try:
+        take_profit = float(takeprofit_text.strip())
+        
+        if take_profit < 0 or take_profit > 1000:
+            error_text = """
+❌ <b>Invalid Take-Profit</b>
+
+Please enter a take-profit percentage between 0 and 1000.
+
+Example: 20 (for 20% profit)
+            """
+            send_message(chat_id, error_text)
+            return
+        
+        # Now start the monitoring with all collected data
+        session = get_or_create_session(chat_id)
+        
+        from trade_executor import trade_executor, ActiveTrade
+        import asyncio
+        from datetime import datetime
+        import time
+        
+        try:
+            current_price = session.entry_price or 0.0001
+            
+            # Create active trade object
+            trade = ActiveTrade(
+                trade_id=f"manual_{int(time.time())}",
+                chat_id=str(chat_id),
+                token_mint=session.contract_address,
+                token_name=session.token_name or "Unknown", 
+                token_symbol=session.token_symbol or "UNKNOWN",
+                entry_price=current_price,
+                trade_amount=session.trade_amount,
+                stop_loss_percent=session.stop_loss,
+                take_profit_percent=take_profit,
+                entry_time=datetime.now(),
+                status='monitoring'
+            )
+            
+            # Add to active trades
+            if str(chat_id) not in trade_executor.active_trades:
+                trade_executor.active_trades[str(chat_id)] = []
+            trade_executor.active_trades[str(chat_id)].append(trade)
+            
+            # Start monitoring task
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+            task = loop.create_task(trade_executor.monitor_trade(trade))
+            trade_executor.monitoring_tasks[f"{chat_id}_{trade.trade_id}"] = task
+            
+            monitoring_text = f"""
+🎯 <b>MONITORING ACTIVATED!</b>
+
+<b>📊 Trade Summary:</b>
+🏷️ <b>Token:</b> {trade.token_name} (${trade.token_symbol})
+💲 <b>Entry Price:</b> ${current_price:.8f}
+💰 <b>Amount:</b> {session.trade_amount:.3f} SOL
+📉 <b>Stop-Loss:</b> -{session.stop_loss}% (${current_price * (1 - session.stop_loss/100):.8f})
+📈 <b>Take-Profit:</b> +{take_profit}% (${current_price * (1 + take_profit/100):.8f})
+
+<b>🔄 Monitoring Status:</b>
+• Real-time price tracking: ACTIVE
+• Stop-loss monitoring: ACTIVE  
+• Take-profit monitoring: ACTIVE
+• Duration: 5 minutes maximum
+• Check interval: Every 10 seconds
+
+<b>📱 Notifications:</b>
+You'll be notified automatically when:
+• Stop-loss triggers (-{session.stop_loss}%)
+• Take-profit triggers (+{take_profit}%)
+• 5-minute monitoring ends
+
+<b>🎯 Your {trade.token_name} position is now being monitored!</b>
+            """
+            
+            # Reset session
+            update_session(chat_id, state=STATE_IDLE)
+            
+            send_message(chat_id, monitoring_text)
+            
+        except Exception as e:
+            error_text = f"""
+❌ <b>Monitoring Setup Failed</b>
+
+Error starting monitoring: {str(e)}
+
+Please try:
+• /executed to try again
+• /snipe for a new trade setup
+• Contact support if issue persists
+            """
+            send_message(chat_id, error_text)
+        
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Number Format</b>
+
+Please enter a valid number for the take-profit percentage.
+
+Example: 20
         """
         send_message(chat_id, error_text)
 
