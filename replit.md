@@ -10,6 +10,10 @@ Preferred communication style: Simple, everyday language.
 Brand colors: Mork Coin branding with green primary color (#7cb342) and light green accent (#9ccc65) to match current brand guidelines.
 Branding rules: "Mork Sniper Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text.
 
+## Recent Changes
+
+**2025-08-06**: Successfully fixed Telegram bot integration and database session persistence issues. Bot now properly handles multi-step conversations and validates Solana contract addresses correctly. Full simulation flow operational with proper state management.
+
 ## System Architecture
 
 ### Web Framework Architecture
