@@ -210,11 +210,18 @@ def get_mork_price_in_sol():
         return 0.0002247 / 200  # Fallback based on observed price
 
 def calculate_mork_sol_threshold():
-    """Calculate how many Mork tokens equal 1 SOL"""
+    """Calculate how many Mork tokens equal 1 SOL (for VIP FETCH mode)"""
     mork_price_sol = get_mork_price_in_sol()
     if mork_price_sol > 0:
         return 1.0 / mork_price_sol  # How many Mork tokens = 1 SOL
     return 1000000  # Fallback: 1M Mork tokens
+
+def calculate_mork_snipe_threshold():
+    """Calculate how many Mork tokens equal 0.1 SOL (for Live Snipe mode)"""
+    mork_price_sol = get_mork_price_in_sol()
+    if mork_price_sol > 0:
+        return 0.1 / mork_price_sol  # How many Mork tokens = 0.1 SOL
+    return 100000  # Fallback: 100K Mork tokens
 
 def validate_solana_wallet(wallet_address):
     """Validate if the provided string is a valid Solana wallet address"""
@@ -346,9 +353,10 @@ Practice crypto sniping without risk! Perfect for learning how token sniping wor
 
 <b>⚡ DEGENS SNIPE BOT</b>
 Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+Requires 0.1 SOL worth of $MORK tokens to access this mode
 
 <b>💎 VIP LIVE FETCH TRADING MODE</b>
-Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
 
 <b>Available Commands:</b>
 🐶 /simulate - Puppy in training (free practice mode)
@@ -365,7 +373,7 @@ Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Tr
 
 <b>Ready to start?</b>
 • Type /simulate for practice
-• Type /snipe for live trading (requires 1 SOL worth of $MORK)
+• Type /snipe for live trading (requires 0.1 SOL worth of $MORK)
 • Type /fetch for VIP features (requires 1 SOL worth of $MORK)
 
 <i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
@@ -815,9 +823,10 @@ Practice crypto sniping without risk! Perfect for learning how token sniping wor
 
 <b>⚡ DEGENS SNIPE BOT</b>
 Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+Requires 0.1 SOL worth of $MORK tokens to access this mode
 
 <b>💎 VIP LIVE FETCH TRADING MODE</b>
-Real trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
 
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
@@ -844,7 +853,7 @@ Strategic buying and selling of tokens based on predefined profit/loss targets a
 
 <b>⚠️ Important Notes:</b>
 • Simulation mode: No real trades, safe practice
-• Live mode: Real trades, requires minimum 1 SOL worth of $MORK tokens
+• Live mode: Real trades, requires minimum 0.1 SOL worth of $MORK tokens
 • 0.5% fee charged only on profitable trades (sales value)
 • Always DYOR (Do Your Own Research)
 
@@ -998,7 +1007,7 @@ def handle_snipe_command(chat_id):
 
 <b>🔐 Required for Live Trading:</b>
 • Valid Solana wallet address
-• Minimum 1 SOL equivalent in $MORK tokens
+• Minimum 0.1 SOL equivalent in $MORK tokens
 • Sufficient SOL for transaction fees
 
 Please provide your Solana wallet address to verify your $MORK token holdings:
@@ -1035,11 +1044,12 @@ Please provide a valid Solana wallet address for {mode_label} access:
     send_message(chat_id, check_message)
     
     mork_balance = get_solana_wallet_balance(wallet_address, MORK_TOKEN_CONTRACT)
-    required_mork = calculate_mork_sol_threshold()
+    required_mork = calculate_mork_snipe_threshold()
     mork_price_sol = get_mork_price_in_sol()
     current_value_sol = mork_balance * mork_price_sol
     
-    if current_value_sol >= 1.0:  # Has 1 SOL worth of Mork
+    threshold_sol = 1.0 if is_vip_mode else 0.1  # VIP needs 1 SOL, Live snipe needs 0.1 SOL
+    if current_value_sol >= threshold_sol:  # Has required SOL worth of Mork
         # Eligible for live trading
         if is_vip_mode:
             eligible_text = f"""
@@ -1070,7 +1080,7 @@ How much SOL do you want to allocate for automated Pump.fun trading?
 <b>💎 Your $MORK Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
-📈 <b>Required:</b> 1.000 SOL worth (✅ QUALIFIED)
+📈 <b>Required:</b> {threshold_sol:.1f} SOL worth (✅ QUALIFIED)
 
 <b>🎯 You now have access to LIVE TRADING!</b>
 
@@ -1083,7 +1093,7 @@ Please enter the Solana token contract address you want to trade:
         send_message(chat_id, eligible_text)
     else:
         # Not eligible - need more Mork
-        shortage_sol = 1.0 - current_value_sol
+        shortage_sol = threshold_sol - current_value_sol
         needed_mork = shortage_sol / mork_price_sol
         
         # Create Jupiter swap link for instant purchase
@@ -1101,7 +1111,7 @@ Please enter the Solana token contract address you want to trade:
 <b>💎 Your Current Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
-📉 <b>Required for {access_type}:</b> Minimum 1.000 SOL worth
+📉 <b>Required for {access_type}:</b> Minimum {threshold_sol:.1f} SOL worth
 ⚠️ <b>Shortage:</b> {shortage_sol:.3f} SOL worth ({needed_mork:,.0f} more $MORK)
 
 <b>🚀 INSTANT PURCHASE:</b>
@@ -1111,7 +1121,7 @@ Please enter the Solana token contract address you want to trade:
 • Live $MORK price: {mork_price_sol:.8f} SOL per token
 • 1 SOL = {tokens_per_sol:,.0f} $MORK tokens
 • $MORK Contract: <code>{MORK_TOKEN_CONTRACT}</code>
-• Available on Jupiter, Raydium, and other Solana DEXs
+• Buy directly: <a href="{jupiter_buy_link}">Jupiter Exchange</a>
 
 <b>💡 Meanwhile, try our FREE simulation mode:</b>
 Type /simulate to practice trading without risk!
@@ -1390,7 +1400,9 @@ Type /snipe for live trading or /fetch for VIP trading.
     mork_price_sol = get_mork_price_in_sol()
     current_value_sol = mork_balance * mork_price_sol
     
-    if current_value_sol < 1.0:
+    threshold_sol = 1.0 if trading_mode == 'fetch' else 0.1
+    if current_value_sol < threshold_sol:
+        # Use the threshold calculated above
         insufficient_text = f"""
 ❌ <b>Insufficient $MORK Holdings</b>
 
@@ -1399,7 +1411,7 @@ Your $MORK balance has changed since verification.
 <b>💎 Current Holdings:</b>
 🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
 💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
-📉 <b>Required:</b> 1.000 SOL worth
+📉 <b>Required:</b> {threshold_sol:.1f} SOL worth
 
 Please ensure you maintain the required $MORK holdings and try again.
 
