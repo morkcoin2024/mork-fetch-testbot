@@ -2,13 +2,13 @@
 
 ## Overview
 
-Mork F.E.T.C.H Bot is a Telegram-based cryptocurrency trading bot designed for Solana blockchain tokens, particularly those launched on Pump.fun. The bot operates in two modes: a free simulation mode for testing and a paid live trading mode for users holding at least 100,000 $MORK tokens. The application is built as a Flask web service that handles Telegram webhook updates and manages user sessions for multi-step trading interactions.
+Mork F.E.T.C.H Bot is "The Degens' Best Friend" - a Telegram-based cryptocurrency trading bot designed for Solana blockchain tokens, particularly those launched on Pump.fun. F.E.T.C.H. stands for "Fast Execution, Trade Control Handler". The bot operates in two modes: Free Mode (simulation for learning) and V.I.P. Mode (live trading for users holding 1 SOL worth of $MORK tokens). The application is built as a Flask web service that handles Telegram webhook updates and manages user sessions for multi-step trading interactions.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
 Brand colors: Mork Coin branding with green primary color (#7cb342) and light green accent (#9ccc65) to match current brand guidelines.
-Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text.
+Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text. The bot is positioned as "The Degens' Best Friend" with playful dog-themed messaging around "fetching" profits and "sniffing" trades. F.E.T.C.H. = Fast Execution, Trade Control Handler. Uses casual, meme-friendly language appealing to crypto degenerates while maintaining professionalism.
 
 ## Recent Changes
 
