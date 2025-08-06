@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import requests
+import json
 from datetime import datetime
 from flask import current_app
 
@@ -84,6 +85,45 @@ def is_valid_solana_address(address):
     
     return True
 
+def get_token_info(contract_address):
+    """Fetch token information from Solana"""
+    try:
+        # Use Jupiter API for token info
+        url = f"https://api.jupiterswap.com/tokens/{contract_address}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'name': data.get('name', 'Unknown Token'),
+                'symbol': data.get('symbol', 'UNKNOWN'),
+                'decimals': data.get('decimals', 9)
+            }
+    except Exception as e:
+        logging.warning(f"Failed to fetch token info for {contract_address}: {e}")
+    
+    # Fallback: Try CoinGecko API
+    try:
+        url = f"https://api.coingecko.com/api/v3/coins/solana/contract/{contract_address}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'name': data.get('name', 'Unknown Token'),
+                'symbol': data.get('symbol', 'UNKNOWN').upper(),
+                'decimals': data.get('detail_platforms', {}).get('solana', {}).get('decimal_place', 9)
+            }
+    except Exception as e:
+        logging.warning(f"CoinGecko API failed for {contract_address}: {e}")
+    
+    # Final fallback
+    return {
+        'name': 'Unknown Token',
+        'symbol': 'UNKNOWN',
+        'decimals': 9
+    }
+
 def is_valid_percentage(value):
     """Validate percentage input (0-100)"""
     try:
@@ -158,11 +198,22 @@ Try again or type /cancel to abort.
         send_message(chat_id, error_text)
         return
     
-    update_session(chat_id, contract_address=contract_address, state=STATE_WAITING_STOPLOSS)
+    # Fetch token information
+    send_message(chat_id, "🔍 <i>Fetching token information...</i>")
+    token_info = get_token_info(contract_address)
+    
+    # Store token info in session
+    update_session(chat_id, 
+                  contract_address=contract_address, 
+                  token_name=token_info['name'],
+                  token_symbol=token_info['symbol'],
+                  state=STATE_WAITING_STOPLOSS)
     
     stoploss_text = f"""
-✅ <b>Contract Address Set:</b>
-<code>{contract_address}</code>
+✅ <b>Token Identified:</b>
+🏷️ <b>Name:</b> {token_info['name']}
+🎯 <b>Symbol:</b> ${token_info['symbol']}
+📄 <b>Contract:</b> <code>{contract_address}</code>
 
 📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
 
@@ -263,11 +314,14 @@ Try again or type /cancel to abort.
     
     session = update_session(chat_id, sell_percent=sell_percent_value, state=STATE_READY_TO_CONFIRM)
     
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    
     confirm_text = f"""
 🎯 <b>Simulation Snipe Ready!</b>
 
 <b>📋 Configuration Summary:</b>
-🎯 <b>Contract:</b> <code>{session.contract_address}</code>
+🏷️ <b>Token:</b> {token_display}
+📄 <b>Contract:</b> <code>{session.contract_address}</code>
 📉 <b>Stop-Loss:</b> {session.stop_loss}%
 📈 <b>Take-Profit:</b> {session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
@@ -294,11 +348,14 @@ Please start a new snipe with /snipe first.
         return
     
     # Simulate the trade
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    
     simulation_text = f"""
 🎮 <b>SIMULATION EXECUTING...</b>
 
 <b>📊 Simulated Trade Details:</b>
-🎯 <b>Token:</b> <code>{session.contract_address}</code>
+🏷️ <b>Token:</b> {token_display}
+📄 <b>Contract:</b> <code>{session.contract_address}</code>
 💵 <b>Simulated Investment:</b> 1.0 SOL
 📉 <b>Stop-Loss:</b> {session.stop_loss}%
 📈 <b>Take-Profit:</b> {session.take_profit}%

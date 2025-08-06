@@ -13,6 +13,8 @@ class UserSession(db.Model):
     chat_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
     state = db.Column(db.String(32), default="idle", nullable=False)
     contract_address = db.Column(db.String(64), nullable=True)
+    token_name = db.Column(db.String(128), nullable=True)
+    token_symbol = db.Column(db.String(32), nullable=True)
     stop_loss = db.Column(db.Float, nullable=True)
     take_profit = db.Column(db.Float, nullable=True)
     sell_percent = db.Column(db.Float, nullable=True)
