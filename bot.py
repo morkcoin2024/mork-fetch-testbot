@@ -1456,9 +1456,9 @@ Type /snipe for live trading or /fetch for VIP trading.
             jupiter_link = f"https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint={session.contract_address}"
             
             execution_text = f"""
-🚀 <b>{mode_prefix}TRANSACTION CREATED!</b>
+🚀 <b>{mode_prefix}TRANSACTION READY!</b>
 
-<b>📊 Trade Details:</b>
+<b>📊 Trade Configuration:</b>
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}  
 💰 <b>Trade Amount:</b> {session.trade_amount:.3f} SOL
@@ -1467,24 +1467,23 @@ Type /snipe for live trading or /fetch for VIP trading.
 📈 <b>Take-Profit:</b> +{session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-<b>🔗 EXECUTE YOUR TRADE:</b>
-<a href="{jupiter_link}">👆 Open Jupiter DEX</a>
+<b>🔗 EXECUTE ON JUPITER DEX:</b>
+<a href="{jupiter_link}">👆 Open Jupiter Swap Interface</a>
 
-<b>📱 Steps to Complete:</b>
-1. Click the Jupiter DEX link above
-2. Connect your Phantom wallet  
-3. Set: {session.trade_amount:.3f} SOL → {token_display}
-4. Confirm the swap (1% slippage recommended)
+<b>📱 Complete Your Trade:</b>
+1. Click the Jupiter link above
+2. Connect your Phantom wallet to Jupiter
+3. Enter amount: <b>{session.trade_amount:.3f} SOL</b>
+4. Verify tokens: <b>SOL → MORK</b>
+5. Set slippage: <b>1%</b>
+6. Click "Swap" - <b>Phantom will prompt to sign!</b>
 
-<b>📋 Transaction Details:</b>
-• Network fee: ~0.00001 SOL
-• Route: SOL → {token_display}
-• Recommended slippage: 1%
+<b>💡 Important Notes:</b>
+• Phantom only prompts when you click "Swap" on Jupiter
+• Your configured stop-loss/take-profit will activate after trade
+• Keep enough SOL for network fees (~0.001 SOL)
 
-<b>⚠️ After Trade Execution:</b>
-Your position will be monitored automatically for your stop-loss ({session.stop_loss}%) and take-profit ({session.take_profit}%) targets.
-
-Ready to trade! Click the link above. 🎯
+<b>🎯 Ready to execute your {session.trade_amount:.3f} SOL trade!</b>
             """
             
             # Reset session after successful transaction creation
