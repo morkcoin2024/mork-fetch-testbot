@@ -17,6 +17,7 @@ class UserSession(db.Model):
     token_name = db.Column(db.String(128), nullable=True)
     token_symbol = db.Column(db.String(32), nullable=True)
     entry_price = db.Column(db.Float, nullable=True)
+    trade_amount = db.Column(db.Float, nullable=True)  # Amount in SOL or USD to trade
     stop_loss = db.Column(db.Float, nullable=True)
     take_profit = db.Column(db.Float, nullable=True)
     sell_percent = db.Column(db.Float, nullable=True)

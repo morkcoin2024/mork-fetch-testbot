@@ -15,6 +15,7 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 # Command states - Simulation mode
 STATE_IDLE = "idle"
 STATE_WAITING_CONTRACT = "waiting_contract"
+STATE_WAITING_AMOUNT = "waiting_amount"
 STATE_WAITING_STOPLOSS = "waiting_stoploss"
 STATE_WAITING_TAKEPROFIT = "waiting_takeprofit"
 STATE_WAITING_SELLPERCENT = "waiting_sellpercent"
@@ -23,6 +24,7 @@ STATE_READY_TO_CONFIRM = "ready_to_confirm"
 # Live trading states
 STATE_WAITING_WALLET = "waiting_wallet"
 STATE_LIVE_WAITING_CONTRACT = "live_waiting_contract"
+STATE_LIVE_WAITING_AMOUNT = "live_waiting_amount"
 STATE_LIVE_WAITING_STOPLOSS = "live_waiting_stoploss"
 STATE_LIVE_WAITING_TAKEPROFIT = "live_waiting_takeprofit"
 STATE_LIVE_WAITING_SELLPERCENT = "live_waiting_sellpercent"
@@ -424,14 +426,41 @@ Try again or type /cancel to abort.
                   token_name=token_info['name'],
                   token_symbol=token_info['symbol'],
                   entry_price=token_info['price'],
-                  state=STATE_WAITING_STOPLOSS)
+                  state=STATE_WAITING_AMOUNT)
     
-    stoploss_text = f"""
+    amount_text = f"""
 ✅ <b>🎮 SIMULATION - Token Identified:</b>
 🏷️ <b>Name:</b> {token_info['name']}
 🎯 <b>Symbol:</b> ${token_info['symbol']}
 {price_display}
 📄 <b>Contract:</b> <code>{contract_address}</code>
+
+💰 Now enter how much you want to simulate trading:
+
+<b>Enter amount in USD:</b>
+<i>Example: "100" for $100 simulation trade</i>
+
+This determines your position size for the simulation.
+
+<b>⚠️ PRACTICE MODE - No real money involved</b>
+Type an amount (e.g. 50, 100, 500) or /cancel to abort.
+    """
+    
+    send_message(chat_id, amount_text)
+
+def handle_amount_input(chat_id, amount_text):
+    """Handle trade amount input"""
+    try:
+        amount = float(amount_text)
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        
+        # Store amount and move to stop-loss
+        update_session(chat_id, trade_amount=amount, state=STATE_WAITING_STOPLOSS)
+        
+        session = get_or_create_session(chat_id)
+        stoploss_text = f"""
+✅ <b>Trade Amount Set: ${amount:,.2f} USD</b>
 
 📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
 
@@ -439,11 +468,22 @@ This is the percentage loss at which the bot will automatically sell to limit lo
 
 <i>Example: Enter "20" for 20% stop-loss</i>
 
-<b>⚠️ PRACTICE MODE - No real money involved</b>
+<b>⚠️ SIMULATION MODE - Position size: ${amount:,.2f}</b>
 Type a number between 0-100 or /cancel to abort.
-    """
-    
-    send_message(chat_id, stoploss_text)
+        """
+        send_message(chat_id, stoploss_text)
+        
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Trade Amount</b>
+
+Please enter a valid amount in USD (numbers only).
+
+<i>Examples: "100", "250", "1000"</i>
+
+Try again or type /cancel to abort.
+        """
+        send_message(chat_id, error_text)
 
 def handle_stoploss_input(chat_id, stop_loss):
     """Handle stop-loss percentage input"""
@@ -545,6 +585,9 @@ Try again or type /cancel to abort.
     else:
         entry_price_display = "💲 <b>Entry Price:</b> Price data unavailable"
     
+    # Trade amount display
+    trade_amount_display = f"💵 <b>Trade Amount:</b> ${session.trade_amount:,.2f} USD" if session.trade_amount else "💵 <b>Trade Amount:</b> $100.00 USD (default)"
+    
     confirm_text = f"""
 🎮 <b>SIMULATION SNIPE READY!</b>
 
@@ -552,6 +595,7 @@ Try again or type /cancel to abort.
 🏷️ <b>Token:</b> {token_display}
 📄 <b>Contract:</b> <code>{session.contract_address}</code>
 {entry_price_display}
+{trade_amount_display}
 📉 <b>Stop-Loss:</b> {session.stop_loss}%
 📈 <b>Take-Profit:</b> {session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
@@ -644,11 +688,11 @@ def execute_simulation(chat_id):
     else:
         entry_price_display = "Price unavailable"
     
-    # Calculate simulated performance
-    sol_invested = 1.0
+    # Calculate simulated performance using actual trade amount
+    usd_invested = session.trade_amount or 100.0  # Default to $100 if not set
     change_percent = scenario["change"]
-    final_value = sol_invested * (1 + change_percent / 100)
-    profit_loss = final_value - sol_invested
+    final_value = usd_invested * (1 + change_percent / 100)
+    profit_loss = final_value - usd_invested
     
     if scenario["outcome"] == "profit":
         result_emoji = "🎉"
@@ -666,7 +710,7 @@ def execute_simulation(chat_id):
 <b>📊 Simulated Trade Results:</b>
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}
-💵 <b>Simulated Investment:</b> 1.0 SOL
+💵 <b>Simulated Investment:</b> ${usd_invested:,.2f} USD
 
 <b>🎯 Your Settings:</b>
 📉 <b>Stop-Loss Target:</b> -{session.stop_loss}%
@@ -675,8 +719,8 @@ def execute_simulation(chat_id):
 
 <b>📋 What Happened:</b>
 {result_emoji} {result_text}
-💼 <b>Final Value:</b> {final_value:.3f} SOL
-📈 <b>Profit/Loss:</b> {profit_loss:+.3f} SOL
+💼 <b>Final Value:</b> ${final_value:,.2f} USD
+📈 <b>Profit/Loss:</b> ${profit_loss:+,.2f} USD
 
 <b>💡 This was practice mode - No real money involved!</b>
 Real trading requires 100,000+ $MORK tokens for live execution.
@@ -694,6 +738,7 @@ Type /whatif to see your simulation history or /snipe for another practice round
     trade_sim.result_type = scenario["outcome"]
     trade_sim.profit_loss = profit_loss
     trade_sim.entry_price = session.entry_price
+    trade_sim.trade_amount = usd_invested
     
     db.session.add(trade_sim)
     db.session.commit()
@@ -707,7 +752,8 @@ Type /whatif to see your simulation history or /snipe for another practice round
                   entry_price=None,
                   stop_loss=None,
                   take_profit=None,
-                  sell_percent=None)
+                  sell_percent=None,
+                  trade_amount=None)
     
     send_message(chat_id, simulation_text)
 
@@ -1043,17 +1089,56 @@ Enter a different token contract address:
 📊 <b>Contract:</b> <code>{contract_address}</code>
 💲 <b>Current Price:</b> {entry_price_display}
 
-<b>⚠️ This is LIVE TRADING - Real money at risk!</b>
+💰 <b>How much SOL do you want to trade?</b>
 
-Enter your stop-loss percentage (e.g., 20 for -20%):
+Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
+
+<b>⚠️ This is LIVE TRADING - Real money at risk!</b>
     """
     
-    update_session(chat_id, state=STATE_LIVE_WAITING_STOPLOSS, 
+    update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, 
                   contract_address=contract_address,
                   token_name=token_name, token_symbol=token_symbol, 
                   entry_price=current_price)
     
     send_message(chat_id, contract_text)
+
+def handle_live_amount_input(chat_id, amount_text):
+    """Handle live trading amount input"""
+    try:
+        amount = float(amount_text)
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        
+        # Store amount and move to stop-loss
+        update_session(chat_id, trade_amount=amount, state=STATE_LIVE_WAITING_STOPLOSS)
+        
+        session = get_or_create_session(chat_id)
+        stoploss_text = f"""
+✅ <b>Live Trade Amount Set: {amount:.3f} SOL</b>
+
+📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
+
+This is the percentage loss at which the bot will automatically sell to limit losses.
+
+<i>Example: Enter "20" for 20% stop-loss</i>
+
+<b>⚠️ LIVE TRADING - Position size: {amount:.3f} SOL</b>
+Type a number between 0-100 or /cancel to abort.
+        """
+        send_message(chat_id, stoploss_text)
+        
+    except ValueError:
+        error_text = """
+❌ <b>Invalid SOL Amount</b>
+
+Please enter a valid amount in SOL (numbers only).
+
+<i>Examples: "0.1", "0.5", "1.0"</i>
+
+Try again or type /cancel to abort.
+        """
+        send_message(chat_id, error_text)
 
 def handle_live_stoploss_input(chat_id, text):
     """Handle stop-loss input for live trading"""
@@ -1146,6 +1231,7 @@ Enter sell percentage:
     session = get_or_create_session(chat_id)
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
+    trade_amount_display = f"{session.trade_amount:.3f} SOL" if session.trade_amount else "Not specified"
     
     confirmation_text = f"""
 ⚠️ <b>LIVE TRADING ORDER READY</b>
@@ -1156,6 +1242,7 @@ This will place a REAL trade with your actual funds!
 <b>📊 Order Summary:</b>
 🏷️ <b>Token:</b> {token_display}
 💲 <b>Entry Price:</b> {entry_price_display}
+💰 <b>Trade Amount:</b> {trade_amount_display}
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
 📉 <b>Stop-Loss:</b> -{session.stop_loss}%
 📈 <b>Take-Profit:</b> +{session.take_profit}%
@@ -1306,6 +1393,9 @@ def handle_update(update):
             if session.state == STATE_WAITING_CONTRACT:
                 logging.info(f"Chat {chat_id}: Processing contract input")
                 handle_contract_input(chat_id, text)
+            elif session.state == STATE_WAITING_AMOUNT:
+                logging.info(f"Chat {chat_id}: Processing amount input")
+                handle_amount_input(chat_id, text)
             elif session.state == STATE_WAITING_STOPLOSS:
                 logging.info(f"Chat {chat_id}: Processing stop-loss input")
                 handle_stoploss_input(chat_id, text)
@@ -1322,6 +1412,9 @@ def handle_update(update):
             elif session.state == STATE_LIVE_WAITING_CONTRACT:
                 logging.info(f"Chat {chat_id}: Processing live contract input")
                 handle_live_contract_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_AMOUNT:
+                logging.info(f"Chat {chat_id}: Processing live amount input")
+                handle_live_amount_input(chat_id, text)
             elif session.state == STATE_LIVE_WAITING_STOPLOSS:
                 logging.info(f"Chat {chat_id}: Processing live stop-loss input")
                 handle_live_stoploss_input(chat_id, text)
