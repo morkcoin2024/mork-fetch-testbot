@@ -1452,8 +1452,8 @@ Type /snipe for live trading or /fetch for VIP trading.
         if transaction_data and 'transaction' in transaction_data:
             mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
             
-            # Create direct Jupiter swap link 
-            jupiter_link = f"https://jup.ag/swap/SOL-{session.contract_address}"
+            # Create direct Jupiter swap link using correct parameter format
+            jupiter_link = f"https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint={session.contract_address}"
             
             execution_text = f"""
 🚀 <b>{mode_prefix}TRANSACTION CREATED!</b>
