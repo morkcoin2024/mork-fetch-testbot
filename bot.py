@@ -410,11 +410,11 @@ Try again or type /cancel to abort.
     
     # Format price display
     price_display = ""
-    if token_info['price_usd']:
-        if token_info['price_usd'] < 0.01:
-            price_display = f"💲 <b>Current Price:</b> ${token_info['price_usd']:.8f} USD"
+    if token_info['price'] and token_info['price'] > 0:
+        if token_info['price'] < 0.01:
+            price_display = f"💲 <b>Current Price:</b> ${token_info['price']:.8f} USD"
         else:
-            price_display = f"💲 <b>Current Price:</b> ${token_info['price_usd']:.4f} USD"
+            price_display = f"💲 <b>Current Price:</b> ${token_info['price']:.4f} USD"
     else:
         price_display = "💲 <b>Current Price:</b> Price data unavailable"
     
@@ -423,7 +423,7 @@ Try again or type /cancel to abort.
                   contract_address=contract_address, 
                   token_name=token_info['name'],
                   token_symbol=token_info['symbol'],
-                  entry_price=token_info['price_usd'],
+                  entry_price=token_info['price'],
                   state=STATE_WAITING_STOPLOSS)
     
     stoploss_text = f"""
