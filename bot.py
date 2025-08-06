@@ -1688,8 +1688,15 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
         active_trades = []
         
         for i, candidate in enumerate(selected_candidates):
-            # Create Jupiter swap link for automatic trading
-            jupiter_link = f"https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint={candidate.mint}"
+            # Create Jupiter swap link pre-populated with the specific token using enhanced format
+            from wallet_integration import generate_swap_link, WSOL_ADDRESS
+            jupiter_link = generate_swap_link(
+                input_mint=WSOL_ADDRESS,
+                output_mint=candidate.mint,
+                amount_sol=amount_per_trade,
+                input_symbol="SOL",
+                output_symbol=candidate.symbol
+            )
             
             # Execute the trade
             trade_result = {
@@ -1857,7 +1864,15 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                         
                         # Check for stop-loss trigger
                         if price_change <= -stop_loss:
-                            jupiter_sell_link = f"https://jup.ag/swap?inputMint={token_contract}&outputMint=So11111111111111111111111111111111111111112"
+                            # Create Jupiter sell link with enhanced format
+                            from wallet_integration import generate_swap_link, WSOL_ADDRESS
+                            token_symbol = trade_session.get('token_symbol', 'TOKEN')
+                            jupiter_sell_link = generate_swap_link(
+                                input_mint=token_contract,
+                                output_mint=WSOL_ADDRESS,
+                                input_symbol=token_symbol,
+                                output_symbol="SOL"
+                            )
                             stop_loss_message = f"""
 🔴 <b>VIP FETCH STOP-LOSS TRIGGERED</b>
 
@@ -1877,7 +1892,15 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                             
                         # Check for take-profit trigger
                         elif price_change >= take_profit:
-                            jupiter_sell_link = f"https://jup.ag/swap?inputMint={token_contract}&outputMint=So11111111111111111111111111111111111111112"
+                            # Create Jupiter sell link with enhanced format
+                            from wallet_integration import generate_swap_link, WSOL_ADDRESS
+                            token_symbol = trade_session.get('token_symbol', 'TOKEN')
+                            jupiter_sell_link = generate_swap_link(
+                                input_mint=token_contract,
+                                output_mint=WSOL_ADDRESS,
+                                input_symbol=token_symbol,
+                                output_symbol="SOL"
+                            )
                             take_profit_message = f"""
 🟢 <b>VIP FETCH TAKE-PROFIT TRIGGERED</b>
 
@@ -2043,7 +2066,15 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
         
         # Execute trades on discovered tokens
         for i, candidate in enumerate(selected_candidates):
-            jupiter_link = f"https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint={candidate.mint}"
+            # Create Jupiter swap link pre-populated with the specific token
+            from wallet_integration import generate_swap_link, WSOL_ADDRESS
+            jupiter_link = generate_swap_link(
+                input_mint=WSOL_ADDRESS,
+                output_mint=candidate.mint,
+                amount_sol=amount_per_trade,
+                input_symbol="SOL", 
+                output_symbol=candidate.symbol
+            )
             
             trade_message = f"""
 ⚡ <b>DISCOVERED TOKEN TRADE #{i+1}</b>

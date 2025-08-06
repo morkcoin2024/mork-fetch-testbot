@@ -373,9 +373,34 @@ def execute_signed_transaction(wallet_address: str, signed_tx: str) -> Dict:
     integrator = SolanaWalletIntegrator()
     return integrator.execute_swap_with_signature(wallet_address, signed_tx)
 
-def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = None) -> str:
+def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = None, 
+                      input_symbol: str = None, output_symbol: str = None) -> str:
     """Generate Jupiter swap link for user to execute trades"""
     base_url = "https://jup.ag/swap"
+    
+    # Enhanced URL format: include symbols in path for better UX if available
+    if input_symbol and output_symbol and input_symbol != output_symbol:
+        # Special format for token pairs (e.g. SOL-QMOON_contractaddress)
+        if input_mint == WSOL_ADDRESS:
+            # SOL to Token: SOL-TOKEN_contract
+            url_path = f"SOL-{output_symbol}_{output_mint}"
+        elif output_mint == WSOL_ADDRESS:
+            # Token to SOL: TOKEN-SOL_contract  
+            url_path = f"{input_symbol}-SOL_{input_mint}"
+        else:
+            # Token to Token: use standard format
+            url_path = f"{input_symbol}-{output_symbol}"
+        
+        swap_url = f"{base_url}/{url_path}"
+        
+        # Add amount as query parameter if provided
+        if amount_sol:
+            lamports = int(amount_sol * 1_000_000_000)
+            swap_url += f"?inAmount={lamports}"
+        
+        return swap_url
+    
+    # Fallback to standard query parameter format
     params = [
         f"inputMint={input_mint}",
         f"outputMint={output_mint}"
