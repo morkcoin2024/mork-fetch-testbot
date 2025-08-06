@@ -12,6 +12,7 @@ class UserSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     chat_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
     state = db.Column(db.String(32), default="idle", nullable=False)
+    wallet_address = db.Column(db.String(64), nullable=True)
     contract_address = db.Column(db.String(64), nullable=True)
     token_name = db.Column(db.String(128), nullable=True)
     token_symbol = db.Column(db.String(32), nullable=True)

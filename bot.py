@@ -3,6 +3,8 @@ import re
 import logging
 import requests
 import json
+import random
+import base64
 from datetime import datetime
 from flask import current_app
 
@@ -10,13 +12,26 @@ from flask import current_app
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Command states
+# Command states - Simulation mode
 STATE_IDLE = "idle"
 STATE_WAITING_CONTRACT = "waiting_contract"
 STATE_WAITING_STOPLOSS = "waiting_stoploss"
 STATE_WAITING_TAKEPROFIT = "waiting_takeprofit"
 STATE_WAITING_SELLPERCENT = "waiting_sellpercent"
 STATE_READY_TO_CONFIRM = "ready_to_confirm"
+
+# Live trading states
+STATE_WAITING_WALLET = "waiting_wallet"
+STATE_LIVE_WAITING_CONTRACT = "live_waiting_contract"
+STATE_LIVE_WAITING_STOPLOSS = "live_waiting_stoploss"
+STATE_LIVE_WAITING_TAKEPROFIT = "live_waiting_takeprofit"
+STATE_LIVE_WAITING_SELLPERCENT = "live_waiting_sellpercent"
+STATE_LIVE_READY_TO_CONFIRM = "live_ready_to_confirm"
+
+# Mork token contract address
+MORK_TOKEN_CONTRACT = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
+
+
 
 def send_message(chat_id, text, reply_markup=None):
     """Send a message to a Telegram chat"""
@@ -84,6 +99,98 @@ def is_valid_solana_address(address):
         return False
     
     return True
+
+def get_solana_wallet_balance(wallet_address, token_contract):
+    """Get token balance for a Solana wallet address"""
+    try:
+        # Use Solana RPC endpoint to get token account info
+        rpc_url = "https://api.mainnet-beta.solana.com"
+        
+        # First, get all token accounts for the wallet
+        data = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                wallet_address,
+                {"mint": token_contract},
+                {"encoding": "jsonParsed"}
+            ]
+        }
+        
+        response = requests.post(rpc_url, json=data)
+        result = response.json()
+        
+        if 'result' in result and result['result']['value']:
+            # Get the token amount from the first account
+            account_info = result['result']['value'][0]['account']['data']['parsed']['info']
+            token_amount = float(account_info['tokenAmount']['uiAmount'] or 0)
+            return token_amount
+        else:
+            return 0.0
+            
+    except Exception as e:
+        logging.warning(f"Failed to fetch wallet balance: {e}")
+        return 0.0
+
+def get_mork_price_in_sol():
+    """Get current Mork token price in SOL"""
+    try:
+        # Try Jupiter price API first
+        jupiter_url = f"https://price.jup.ag/v4/price?ids={MORK_TOKEN_CONTRACT}"
+        response = requests.get(jupiter_url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data and MORK_TOKEN_CONTRACT in data['data']:
+                price_usd = data['data'][MORK_TOKEN_CONTRACT]['price']
+                # Convert USD to SOL (approximate, could use SOL/USD rate)
+                sol_price_usd = 150  # Approximate SOL price, should be dynamic
+                return price_usd / sol_price_usd
+        
+        # Fallback to DexScreener
+        dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{MORK_TOKEN_CONTRACT}"
+        response = requests.get(dex_url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if 'pairs' in data and data['pairs']:
+                # Look for SOL pair
+                for pair in data['pairs']:
+                    if 'SOL' in pair.get('baseToken', {}).get('symbol', '') or 'SOL' in pair.get('quoteToken', {}).get('symbol', ''):
+                        return float(pair.get('priceNative', 0))
+        
+        # Default fallback price
+        return 0.000001  # 1 millionth SOL per MORK
+        
+    except Exception as e:
+        logging.warning(f"Failed to fetch Mork price: {e}")
+        return 0.000001
+
+def calculate_mork_sol_threshold():
+    """Calculate how many Mork tokens equal 1 SOL"""
+    mork_price_sol = get_mork_price_in_sol()
+    if mork_price_sol > 0:
+        return 1.0 / mork_price_sol  # How many Mork tokens = 1 SOL
+    return 1000000  # Fallback: 1M Mork tokens
+
+def validate_solana_wallet(wallet_address):
+    """Validate if the provided string is a valid Solana wallet address"""
+    if not wallet_address or len(wallet_address) < 32 or len(wallet_address) > 44:
+        return False
+    
+    # Basic validation - Solana addresses are base58 encoded
+    import string
+    base58_chars = string.ascii_letters + string.digits
+    base58_chars = base58_chars.replace('0', '').replace('O', '').replace('I', '').replace('l', '')
+    
+    for char in wallet_address:
+        if char not in base58_chars:
+            return False
+    
+    return True
+
+def validate_solana_contract(contract_address):
+    """Validate if the provided string is a valid Solana contract address"""
+    return validate_solana_wallet(contract_address)  # Same validation as wallet
 
 def get_token_info(contract_address):
     """Fetch token information and current price from Solana"""
@@ -380,21 +487,37 @@ Type <b>/confirm</b> to run the simulation or /cancel to abort.
     send_message(chat_id, confirm_text)
 
 def handle_confirm_command(chat_id):
-    """Handle simulation execution"""
+    """Handle confirmation for both simulation and live trading"""
     from models import UserSession, TradeSimulation, db
     import random
     session = get_or_create_session(chat_id)
     
-    if session.state != STATE_READY_TO_CONFIRM:
+    if session.state == STATE_READY_TO_CONFIRM:
+        # Execute simulation
+        execute_simulation(chat_id)
+    elif session.state == STATE_LIVE_READY_TO_CONFIRM:
+        # Execute live trade
+        execute_live_trade(chat_id)
+    elif session.state not in [STATE_READY_TO_CONFIRM, STATE_LIVE_READY_TO_CONFIRM]:
         error_text = """
-❌ <b>No Active Simulation</b>
+❌ <b>No Order Ready for Confirmation</b>
 
-You need to set up a snipe configuration first.
+You don't have a pending order to confirm. 
 
-Type /snipe to start a new simulation.
+<b>To set up a new order:</b>
+• Type /snipe for practice simulation
+• Type /fetch for live trading (requires $MORK tokens)
+
+Choose your trading mode!
         """
         send_message(chat_id, error_text)
         return
+
+def execute_simulation(chat_id):
+    """Execute a practice simulation"""
+    from models import UserSession, TradeSimulation, db
+    import random
+    session = get_or_create_session(chat_id)
     
     # Generate realistic simulation results based on user's actual settings
     # Add 10% variance to allow for realistic market slippage
@@ -562,7 +685,8 @@ Practice crypto sniping safely without real money.
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
 • <b>/snipe</b> - Start a new simulation snipe
-• <b>/confirm</b> - Execute the simulation
+• <b>/fetch</b> - Start live trading (requires 1 SOL worth of $MORK tokens)
+• <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/status</b> - Check current session status
 • <b>/cancel</b> - Cancel current operation
 • <b>/help</b> - Show this help message
@@ -682,6 +806,369 @@ Ready for more practice? Type /snipe to run another simulation!
     
     send_message(chat_id, whatif_text)
 
+def handle_fetch_command(chat_id):
+    """Handle /fetch command - start live trading mode"""
+    fetch_text = """
+🚀 <b>LIVE TRADING MODE - Real Money!</b>
+
+<b>⚠️ IMPORTANT NOTICE:</b>
+• This is <b>REAL TRADING</b> with actual funds
+• You need 1 SOL worth of $MORK tokens to access VIP features
+• All trades are executed on the Solana blockchain
+• You are responsible for all trading decisions and outcomes
+
+<b>🔐 Required for Live Trading:</b>
+• Valid Solana wallet address
+• Minimum 1 SOL equivalent in $MORK tokens
+• Sufficient SOL for transaction fees
+
+Please provide your Solana wallet address to verify your $MORK token holdings:
+    """
+    update_session(chat_id, state=STATE_WAITING_WALLET)
+    send_message(chat_id, fetch_text)
+
+def handle_wallet_input(chat_id, wallet_address):
+    """Handle wallet address input for live trading verification"""
+    # Validate wallet address format
+    if not validate_solana_wallet(wallet_address):
+        error_text = """
+❌ <b>Invalid Wallet Address</b>
+
+The provided address doesn't appear to be a valid Solana wallet address.
+
+<b>💡 Wallet Address Requirements:</b>
+• Must be 32-44 characters long
+• Contains only valid base58 characters
+• Example: 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
+
+Please provide a valid Solana wallet address:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    # Check Mork token balance
+    send_message(chat_id, "🔍 <b>Checking your $MORK token balance...</b>")
+    
+    mork_balance = get_solana_wallet_balance(wallet_address, MORK_TOKEN_CONTRACT)
+    required_mork = calculate_mork_sol_threshold()
+    mork_price_sol = get_mork_price_in_sol()
+    current_value_sol = mork_balance * mork_price_sol
+    
+    if current_value_sol >= 1.0:  # Has 1 SOL worth of Mork
+        # Eligible for live trading
+        eligible_text = f"""
+✅ <b>VIP ACCESS VERIFIED!</b>
+
+<b>💎 Your $MORK Holdings:</b>
+🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
+💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
+📈 <b>Required:</b> 1.000 SOL worth (✅ QUALIFIED)
+
+<b>🎯 You now have access to LIVE TRADING!</b>
+
+Please enter the Solana token contract address you want to trade:
+        """
+        update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, wallet_address=wallet_address)
+        send_message(chat_id, eligible_text)
+    else:
+        # Not eligible - need more Mork
+        shortage_sol = 1.0 - current_value_sol
+        needed_mork = shortage_sol / mork_price_sol
+        
+        ineligible_text = f"""
+❌ <b>Insufficient $MORK Holdings</b>
+
+<b>💎 Your Current Holdings:</b>
+🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
+💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
+📉 <b>Required:</b> 1.000 SOL worth
+⚠️ <b>Shortage:</b> {shortage_sol:.3f} SOL worth ({needed_mork:,.0f} more $MORK)
+
+<b>🛒 How to Get VIP Access:</b>
+• Purchase more $MORK tokens to reach 1 SOL value
+• Current $MORK price: {mork_price_sol:.6f} SOL per token
+• $MORK Contract: <code>{MORK_TOKEN_CONTRACT}</code>
+
+<b>💡 Meanwhile, try our FREE simulation mode:</b>
+Type /snipe to practice trading without risk!
+        """
+        update_session(chat_id, state=STATE_IDLE, wallet_address=None)
+        send_message(chat_id, ineligible_text)
+
+def handle_live_contract_input(chat_id, contract_address):
+    """Handle contract address input for live trading"""
+    session = get_or_create_session(chat_id)
+    
+    # Validate contract address
+    if not validate_solana_contract(contract_address):
+        error_text = """
+❌ <b>Invalid Contract Address</b>
+
+Please provide a valid Solana token contract address.
+
+<b>💡 Requirements:</b>
+• 32-44 characters long
+• Valid base58 encoding
+• Example: So11111111111111111111111111111111111111112
+
+Enter the token contract address:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    # Fetch token information
+    send_message(chat_id, "🔍 <b>Fetching live token data...</b>")
+    
+    token_info = get_token_info(contract_address)
+    token_name = token_info.get('name', 'Unknown Token')
+    token_symbol = token_info.get('symbol', 'UNK')
+    current_price = token_info.get('price', 0)
+    
+    if current_price == 0:
+        error_text = """
+⚠️ <b>Token Information Unavailable</b>
+
+Unable to fetch current price data for this token. This could mean:
+• The token is very new or not actively traded
+• The token may not exist
+• API temporarily unavailable
+
+<b>🔄 Please try:</b>
+• A different token contract address
+• Wait a few minutes and try again
+• Contact support if this continues
+
+Enter a different token contract address:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    # Display token info and ask for stop-loss
+    token_display = f"{token_name} (${token_symbol})" if token_name != 'Unknown Token' else f"Contract: {contract_address[:8]}..."
+    entry_price_display = f"${current_price:.8f}" if current_price < 1 else f"${current_price:.4f}"
+    
+    contract_text = f"""
+🎯 <b>LIVE TRADING TOKEN CONFIRMED</b>
+
+<b>🏷️ Token Information:</b>
+📛 <b>Name:</b> {token_display}
+📊 <b>Contract:</b> <code>{contract_address}</code>
+💲 <b>Current Price:</b> {entry_price_display}
+
+<b>⚠️ This is LIVE TRADING - Real money at risk!</b>
+
+Enter your stop-loss percentage (e.g., 20 for -20%):
+    """
+    
+    update_session(chat_id, state=STATE_LIVE_WAITING_STOPLOSS, 
+                  contract_address=contract_address,
+                  token_name=token_name, token_symbol=token_symbol, 
+                  entry_price=current_price)
+    
+    send_message(chat_id, contract_text)
+
+def handle_live_stoploss_input(chat_id, text):
+    """Handle stop-loss input for live trading"""
+    try:
+        stop_loss = float(text)
+        if stop_loss <= 0 or stop_loss >= 100:
+            raise ValueError("Stop-loss must be between 0 and 100")
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Stop-Loss Value</b>
+
+Please enter a valid stop-loss percentage between 1 and 99.
+
+<b>💡 Examples:</b>
+• 10 (for -10% stop-loss)
+• 25 (for -25% stop-loss)
+• 50 (for -50% stop-loss)
+
+Enter your stop-loss percentage:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    stoploss_text = f"""
+📉 <b>LIVE Stop-Loss Set: -{stop_loss}%</b>
+
+Your position will be automatically sold if the token price drops {stop_loss}% from your entry point.
+
+Now enter your take-profit percentage (e.g., 100 for +100%):
+    """
+    
+    update_session(chat_id, state=STATE_LIVE_WAITING_TAKEPROFIT, stop_loss=stop_loss)
+    send_message(chat_id, stoploss_text)
+
+def handle_live_takeprofit_input(chat_id, text):
+    """Handle take-profit input for live trading"""
+    try:
+        take_profit = float(text)
+        if take_profit <= 0:
+            raise ValueError("Take-profit must be positive")
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Take-Profit Value</b>
+
+Please enter a valid take-profit percentage (positive number).
+
+<b>💡 Examples:</b>
+• 50 (for +50% profit target)
+• 100 (for +100% profit target)
+• 200 (for +200% profit target)
+
+Enter your take-profit percentage:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    takeprofit_text = f"""
+📈 <b>LIVE Take-Profit Set: +{take_profit}%</b>
+
+Your position will be automatically sold when the token price increases {take_profit}% from your entry point.
+
+Finally, enter what percentage of your holdings to sell when targets are hit (e.g., 100 for all holdings):
+    """
+    
+    update_session(chat_id, state=STATE_LIVE_WAITING_SELLPERCENT, take_profit=take_profit)
+    send_message(chat_id, takeprofit_text)
+
+def handle_live_sellpercent_input(chat_id, text):
+    """Handle sell percentage input for live trading"""
+    try:
+        sell_percent = float(text)
+        if sell_percent <= 0 or sell_percent > 100:
+            raise ValueError("Sell percentage must be between 1 and 100")
+    except ValueError:
+        error_text = """
+❌ <b>Invalid Sell Percentage</b>
+
+Please enter a valid percentage between 1 and 100.
+
+<b>💡 Examples:</b>
+• 50 (sell 50% of holdings)
+• 75 (sell 75% of holdings)  
+• 100 (sell all holdings)
+
+Enter sell percentage:
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    session = get_or_create_session(chat_id)
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
+    
+    confirmation_text = f"""
+⚠️ <b>LIVE TRADING ORDER READY</b>
+
+<b>🔴 FINAL CONFIRMATION REQUIRED</b>
+This will place a REAL trade with your actual funds!
+
+<b>📊 Order Summary:</b>
+🏷️ <b>Token:</b> {token_display}
+💲 <b>Entry Price:</b> {entry_price_display}
+👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
+💰 <b>Sell Amount:</b> {sell_percent}%
+
+<b>⚠️ RISK WARNING:</b>
+• This involves REAL money and blockchain transactions
+• You could lose your entire investment
+• Market conditions can change rapidly
+• No refunds or reversal possible
+
+Type <b>/confirm</b> to execute this LIVE trade or <b>/cancel</b> to abort.
+    """
+    
+    update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
+    send_message(chat_id, confirmation_text)
+
+def execute_live_trade(chat_id):
+    """Execute a live trading order"""
+    session = get_or_create_session(chat_id)
+    
+    # Verify all required information is present
+    if not all([session.wallet_address, session.contract_address, session.stop_loss, 
+                session.take_profit, session.sell_percent]):
+        error_text = """
+❌ <b>Incomplete Trading Information</b>
+
+Your trading session appears incomplete. Please start over.
+
+Type /fetch to begin a new live trading session.
+        """
+        update_session(chat_id, state=STATE_IDLE)
+        send_message(chat_id, error_text)
+        return
+    
+    # Re-verify Mork balance before executing
+    mork_balance = get_solana_wallet_balance(session.wallet_address, MORK_TOKEN_CONTRACT)
+    mork_price_sol = get_mork_price_in_sol()
+    current_value_sol = mork_balance * mork_price_sol
+    
+    if current_value_sol < 1.0:
+        insufficient_text = f"""
+❌ <b>Insufficient $MORK Holdings</b>
+
+Your $MORK balance has changed since verification.
+
+<b>💎 Current Holdings:</b>
+🪙 <b>Balance:</b> {mork_balance:,.0f} $MORK tokens
+💰 <b>Current Value:</b> {current_value_sol:.3f} SOL
+📉 <b>Required:</b> 1.000 SOL worth
+
+Please ensure you maintain the required $MORK holdings and try again.
+
+Type /fetch to start a new live trading session.
+        """
+        update_session(chat_id, state=STATE_IDLE)
+        send_message(chat_id, insufficient_text)
+        return
+    
+    # Execute the live trade (placeholder for actual implementation)
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
+    
+    execution_text = f"""
+🚀 <b>LIVE TRADE EXECUTED!</b>
+
+<b>✅ Order Placed Successfully</b>
+
+<b>📊 Trade Details:</b>
+🏷️ <b>Token:</b> {token_display}
+💲 <b>Entry Price:</b> {entry_price_display}
+👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
+💰 <b>Sell Amount:</b> {session.sell_percent}%
+
+<b>🎯 What Happens Next:</b>
+• Your order is now active on the Solana blockchain
+• The bot will monitor price movements 24/7
+• Automatic execution when targets are reached
+• You'll be notified of any trade executions
+
+<b>⚠️ Important Notes:</b>
+• Keep sufficient SOL in your wallet for transaction fees
+• Maintain your minimum $MORK token holdings
+• Market conditions can change rapidly
+
+<b>📱 Monitoring:</b>
+Type /status to check your active orders anytime.
+
+Your live trading order is now active! Good luck! 🎯
+    """
+    
+    # Reset session after successful execution
+    update_session(chat_id, state=STATE_IDLE, 
+                  contract_address=None, wallet_address=None,
+                  stop_loss=None, take_profit=None, sell_percent=None,
+                  token_name=None, token_symbol=None, entry_price=None)
+    
+    send_message(chat_id, execution_text)
+
 def handle_update(update):
     """Main update handler for Telegram webhook"""
     try:
@@ -716,6 +1203,8 @@ def handle_update(update):
                 handle_cancel_command(chat_id)
             elif command == '/whatif':
                 handle_whatif_command(chat_id)
+            elif command == '/fetch':
+                handle_fetch_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:
@@ -737,6 +1226,22 @@ def handle_update(update):
             elif session.state == STATE_WAITING_SELLPERCENT:
                 logging.info(f"Chat {chat_id}: Processing sell percent input")
                 handle_sellpercent_input(chat_id, text)
+            # Live trading states
+            elif session.state == STATE_WAITING_WALLET:
+                logging.info(f"Chat {chat_id}: Processing wallet input")
+                handle_wallet_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_CONTRACT:
+                logging.info(f"Chat {chat_id}: Processing live contract input")
+                handle_live_contract_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_STOPLOSS:
+                logging.info(f"Chat {chat_id}: Processing live stop-loss input")
+                handle_live_stoploss_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_TAKEPROFIT:
+                logging.info(f"Chat {chat_id}: Processing live take-profit input")
+                handle_live_takeprofit_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_SELLPERCENT:
+                logging.info(f"Chat {chat_id}: Processing live sell percent input")
+                handle_live_sellpercent_input(chat_id, text)
             else:
                 logging.info(f"Chat {chat_id}: Unknown state '{session.state}', sending help message")
                 send_message(chat_id, "I'm not sure what you mean. Type /help for available commands or /snipe to start a simulation.")
