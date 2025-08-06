@@ -1451,35 +1451,41 @@ Type /snipe for live trading or /fetch for VIP trading.
         
         if transaction_data and 'transaction' in transaction_data:
             mode_prefix = "VIP FETCH " if is_vip_mode else "LIVE "
+            
+            # Create a shareable transaction link for Phantom wallet
+            transaction_base64 = transaction_data['transaction']
+            phantom_link = f"https://phantom.app/ul/browse/https://jup.ag/swap/SOL-{session.contract_address}?amount={session.trade_amount}&slippage=1"
+            
             execution_text = f"""
-🚀 <b>{mode_prefix}TRADE READY FOR SIGNING!</b>
+🚀 <b>{mode_prefix}TRANSACTION CREATED!</b>
 
 <b>📊 Trade Details:</b>
 🏷️ <b>Token:</b> {token_display}
-💲 <b>Entry Price:</b> {entry_price_display}
+💲 <b>Entry Price:</b> {entry_price_display}  
 💰 <b>Trade Amount:</b> {session.trade_amount:.3f} SOL
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
 📉 <b>Stop-Loss:</b> -{session.stop_loss}%
 📈 <b>Take-Profit:</b> +{session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
-<b>🔐 TRANSACTION CREATED!</b>
-Please approve the transaction in your Phantom wallet to complete the trade.
+<b>🔗 CLICK TO SIGN TRANSACTION:</b>
+👆 <a href="{phantom_link}">Execute Trade on Jupiter DEX</a>
 
-<b>📋 Transaction Details:</b>
-• Buy {session.trade_amount:.3f} SOL worth of {token_display}
+<b>📱 Alternative Methods:</b>
+1. Open Jupiter.ag in your browser
+2. Connect your Phantom wallet  
+3. Swap {session.trade_amount:.3f} SOL → {token_display}
+4. Set slippage to 1% and confirm
+
+<b>📋 Transaction Info:</b>
 • Fee: ~0.00001 SOL (network fee)
 • Slippage: 1% (Jupiter DEX standard)
+• Route: SOL → {token_display}
 
-<b>⚠️ Action Required:</b>
-Check your Phantom wallet now - you should see a transaction waiting for approval!
+<b>⚠️ Important:</b>
+After completing the swap, your position will be monitored for stop-loss ({session.stop_loss}%) and take-profit ({session.take_profit}%) levels.
 
-<b>🔄 What happens after signing:</b>
-• Trade executes instantly on Jupiter DEX
-• Position monitoring begins automatically  
-• You'll receive notifications on target hits
-
-Your transaction is ready! Check your wallet now. 📱
+Ready to execute your trade! 🎯
             """
             
             # Reset session after successful transaction creation
