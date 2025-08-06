@@ -94,25 +94,83 @@ class SolanaWalletIntegrator:
             return 0.0
     
     def get_token_price_in_sol(self, token_mint: str) -> float:
-        """Get token price in SOL using Jupiter Price API"""
+        """Get token price in SOL using multiple reliable sources"""
         try:
-            # Use Jupiter Price API
-            url = f"https://price.jup.ag/v4/price"
-            params = {
-                'ids': token_mint,
-                'vsToken': WSOL_ADDRESS
-            }
+            # Method 1: Try DexScreener API first (most reliable)
+            try:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{token_mint}"
+                response = self.session.get(url, timeout=15)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    pairs = data.get('pairs', [])
+                    
+                    if pairs:
+                        # Find SOL pairs and get best one by liquidity
+                        sol_pairs = [p for p in pairs if p.get('quoteToken', {}).get('symbol') == 'SOL']
+                        if sol_pairs:
+                            best_pair = max(sol_pairs, key=lambda x: float(x.get('liquidity', {}).get('usd', 0)))
+                            price = float(best_pair.get('priceNative', 0))
+                            if price > 0:
+                                logging.info(f"Found {data.get('pairs', [{}])[0].get('baseToken', {}).get('name', 'Token')}/SOL price: {price} SOL per token")
+                                return price
+            except Exception as e:
+                logging.warning(f"DexScreener failed: {str(e)}")
             
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            # Method 2: Try Birdeye API as backup
+            try:
+                url = f"https://public-api.birdeye.so/defi/price?address={token_mint}"
+                headers = {'X-API-KEY': 'public'}  # Using public tier
+                response = self.session.get(url, headers=headers, timeout=15)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('success') and 'data' in data:
+                        # Birdeye returns price in USD, need to convert to SOL
+                        usd_price = float(data['data'].get('value', 0))
+                        if usd_price > 0:
+                            # Get SOL/USD price to convert
+                            sol_usd_url = f"https://public-api.birdeye.so/defi/price?address={WSOL_ADDRESS}"
+                            sol_response = self.session.get(sol_usd_url, headers=headers, timeout=10)
+                            if sol_response.status_code == 200:
+                                sol_data = sol_response.json()
+                                if sol_data.get('success'):
+                                    sol_usd_price = float(sol_data['data'].get('value', 0))
+                                    if sol_usd_price > 0:
+                                        sol_price = usd_price / sol_usd_price
+                                        logging.info(f"Found token price via Birdeye: {sol_price} SOL")
+                                        return sol_price
+            except Exception as e:
+                logging.warning(f"Birdeye failed: {str(e)}")
             
-            if token_mint in data['data']:
-                return float(data['data'][token_mint]['price'])
+            # Method 3: Try Jupiter Quote API (more reliable than price API)
+            try:
+                # Use quote API with 1 SOL to get exchange rate
+                url = "https://quote-api.jup.ag/v6/quote"
+                params = {
+                    'inputMint': WSOL_ADDRESS,
+                    'outputMint': token_mint,
+                    'amount': 1000000000,  # 1 SOL in lamports
+                    'slippageBps': 50
+                }
+                
+                response = self.session.get(url, params=params, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'outAmount' in data:
+                        tokens_per_sol = float(data['outAmount']) / (10 ** int(data.get('outAmountDecimals', 9)))
+                        if tokens_per_sol > 0:
+                            price_per_token = 1.0 / tokens_per_sol
+                            logging.info(f"Found token price via Jupiter Quote: {price_per_token} SOL per token")
+                            return price_per_token
+            except Exception as e:
+                logging.warning(f"Jupiter Quote API failed: {str(e)}")
             
+            logging.error(f"All price sources failed for token {token_mint}")
             return 0.0
+            
         except Exception as e:
-            logging.error(f"Error getting token price: {str(e)}")
+            logging.error(f"Critical error getting token price: {str(e)}")
             return 0.0
     
     def validate_wallet_address(self, address: str) -> bool:

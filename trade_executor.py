@@ -120,37 +120,67 @@ class TradeExecutor:
             }
     
     async def _get_token_price(self, token_mint: str) -> Optional[float]:
-        """Get current token price from various sources"""
+        """Get current token price from multiple reliable sources"""
         try:
-            # Try DexScreener first
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{token_mint}"
-            response = requests.get(url, timeout=10)
+            # Method 1: Try DexScreener first (most reliable for monitoring)
+            try:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{token_mint}"
+                response = requests.get(url, timeout=15)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    pairs = data.get('pairs', [])
+                    if pairs:
+                        # Find SOL pair with highest liquidity
+                        sol_pairs = [p for p in pairs if p.get('quoteToken', {}).get('symbol') == 'SOL']
+                        if sol_pairs:
+                            best_pair = max(sol_pairs, key=lambda x: float(x.get('liquidity', {}).get('usd', 0)))
+                            price = float(best_pair.get('priceNative', 0))
+                            if price > 0:
+                                logger.info(f"DexScreener price for monitoring: {price} SOL")
+                                return price
+            except Exception as e:
+                logger.warning(f"DexScreener failed: {str(e)}")
             
-            if response.status_code == 200:
-                data = response.json()
-                pairs = data.get('pairs', [])
-                if pairs:
-                    # Find SOL pair with highest liquidity
-                    sol_pairs = [p for p in pairs if p.get('quoteToken', {}).get('symbol') == 'SOL']
-                    if sol_pairs:
-                        best_pair = max(sol_pairs, key=lambda x: float(x.get('liquidity', {}).get('usd', 0)))
-                        return float(best_pair.get('priceNative', 0))
+            # Method 2: Try Jupiter Quote API (more reliable than price API)
+            try:
+                url = "https://quote-api.jup.ag/v6/quote"
+                params = {
+                    'inputMint': "So11111111111111111111111111111111111111112",  # SOL
+                    'outputMint': token_mint,
+                    'amount': 1000000000,  # 1 SOL in lamports
+                    'slippageBps': 100
+                }
+                
+                response = requests.get(url, params=params, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'outAmount' in data:
+                        # Calculate price per token
+                        tokens_per_sol = float(data['outAmount']) / (10 ** 9)  # Assuming 9 decimals
+                        if tokens_per_sol > 0:
+                            price_per_token = 1.0 / tokens_per_sol
+                            logger.info(f"Jupiter Quote price for monitoring: {price_per_token} SOL")
+                            return price_per_token
+            except Exception as e:
+                logger.warning(f"Jupiter Quote failed: {str(e)}")
             
-            # Fallback to Jupiter API
-            jupiter_url = f"https://price.jup.ag/v4/price?ids={token_mint}"
-            response = requests.get(jupiter_url, timeout=10)
+            # Method 3: Try wallet integration as fallback
+            try:
+                from wallet_integration import SolanaWalletIntegrator
+                integrator = SolanaWalletIntegrator()
+                price = integrator.get_token_price_in_sol(token_mint)
+                if price > 0:
+                    logger.info(f"Wallet integration price for monitoring: {price} SOL")
+                    return price
+            except Exception as e:
+                logger.warning(f"Wallet integration fallback failed: {str(e)}")
             
-            if response.status_code == 200:
-                data = response.json()
-                token_data = data.get('data', {}).get(token_mint)
-                if token_data:
-                    return float(token_data.get('price', 0))
-            
-            # If all fails, return None
+            logger.error(f"All price sources failed for token {token_mint} during monitoring")
             return None
             
         except Exception as e:
-            logger.error(f"Failed to get token price: {e}")
+            logger.error(f"Critical error getting token price for monitoring: {e}")
             return None
     
     async def start_trade_monitoring(self, trade: ActiveTrade):
