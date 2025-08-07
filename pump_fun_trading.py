@@ -48,6 +48,39 @@ class PumpFunTrader:
             logger.error(f"Failed to generate bonding curve address: {e}")
             return ""
     
+    def check_wallet_balance(self, wallet_address: str) -> Dict:
+        """Check wallet SOL balance before trading (ChatGPT's suggestion)"""
+        try:
+            pubkey = PublicKey.from_string(wallet_address)
+            balance_response = self.client.get_balance(pubkey)
+            
+            if balance_response.value is not None:
+                lamports = balance_response.value
+                sol_balance = lamports / 1e9
+                
+                logger.info(f"Wallet balance check: {sol_balance:.6f} SOL ({lamports} lamports)")
+                
+                return {
+                    "success": True,
+                    "sol_balance": sol_balance,
+                    "lamports": lamports,
+                    "funded": lamports > 0,
+                    "trading_ready": lamports >= 10_000_000  # 0.01 SOL minimum
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Unable to fetch balance",
+                    "funded": False
+                }
+        except Exception as e:
+            logger.error(f"Balance check failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "funded": False
+            }
+
     async def buy_pump_token(self, 
                            private_key: str,
                            token_mint: str, 
@@ -62,6 +95,21 @@ class PumpFunTrader:
             keypair = Keypair.from_secret_key(private_key_bytes)
             public_key = str(keypair.public_key)
             
+            # CRITICAL: Check wallet balance first (ChatGPT's suggestion)
+            balance_check = self.check_wallet_balance(public_key)
+            if not balance_check.get("funded", False):
+                return {
+                    "success": False,
+                    "error": f"Wallet not funded: {balance_check.get('sol_balance', 0):.6f} SOL available, need {sol_amount} SOL"
+                }
+            
+            if balance_check.get("sol_balance", 0) < sol_amount:
+                return {
+                    "success": False,
+                    "error": f"Insufficient funds: {balance_check.get('sol_balance', 0):.6f} SOL available, need {sol_amount} SOL"
+                }
+            
+            logger.info(f"✅ Wallet funded with {balance_check.get('sol_balance', 0):.6f} SOL")
             logger.info(f"Buying {sol_amount} SOL worth of {token_mint[:8]}...")
             
             # Use PumpPortal API for proper pump.fun trading

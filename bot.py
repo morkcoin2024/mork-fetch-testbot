@@ -3876,6 +3876,8 @@ def handle_update(update):
                 handle_stop_fetch_command(chat_id)
             elif command == '/executed':
                 handle_executed_command(chat_id)
+            elif command == '/diagnostic' or command == '/checkwallet':
+                handle_diagnostic_command(chat_id)
             elif command == '/autobuy':
                 handle_autobuy_command(chat_id, text)
             elif command == '/autosell':
@@ -4255,7 +4257,36 @@ Keep fetching those profits! 🐕
 def handle_executed_command(chat_id):
     """Handle /executed command - start automatic sell monitoring for BonkvsPump manual trade"""
     try:
-        # Check if user has burner wallet for automatic sells
+        # Comprehensive wallet diagnostics (ChatGPT's suggestions)
+        from wallet_diagnostics import wallet_diagnostics
+        
+        diagnosis = wallet_diagnostics.diagnose_trading_readiness(str(chat_id))
+        
+        if not diagnosis.get("ready", False):
+            issues_text = "\n".join([f"• {issue}" for issue in diagnosis.get("issues", [])])
+            recommendations_text = "\n".join([f"• {rec}" for rec in diagnosis.get("recommendations", [])])
+            
+            executed_text = f"""
+❌ <b>Wallet Not Ready for Trading</b>
+
+<b>🔍 Issues Found:</b>
+{issues_text}
+
+<b>💡 Recommendations:</b>
+{recommendations_text}
+
+<b>🛠️ Quick Fix:</b>
+• Use /mywallet to check wallet status
+• Send SOL to your burner wallet address
+• Try /executed again once funded
+
+<b>💰 Current Balance:</b>
+{diagnosis.get('funding', {}).get('sol_balance', 0):.6f} SOL
+            """
+            send_message(chat_id, executed_text)
+            return
+        
+        # Get wallet data for trading
         import os
         import json
         
@@ -4271,17 +4302,6 @@ def handle_executed_command(chat_id):
                     wallet_data = json.load(f)
                 logging.info(f"Found wallet file: {wallet_file}")
                 break
-        
-        if not wallet_data:
-            executed_text = """
-❌ <b>No Burner Wallet Found</b>
-
-To use automatic sell monitoring, you need a burner wallet.
-
-Use /mywallet to create your burner wallet, then try /executed again.
-            """
-            send_message(chat_id, executed_text)
-            return
         
         # Get wallet credentials
         public_key = wallet_data.get('public_key', '')
