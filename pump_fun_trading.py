@@ -90,8 +90,24 @@ class PumpFunTrader:
         Buy pump.fun token using PumpPortal API (correct method)
         """
         try:
-            # Get wallet from private key
-            private_key_bytes = base58.b58decode(private_key)
+            # Handle encrypted private key (from burner wallet system)
+            if private_key.startswith('gAAAAAB'):
+                # This is an encrypted private key - decrypt it first
+                logger.info("Decrypting encrypted private key...")
+                try:
+                    from burner_wallet_system import decrypt_private_key
+                    decrypted_key = decrypt_private_key(private_key)
+                    if not decrypted_key:
+                        return {"success": False, "error": "Failed to decrypt private key"}
+                    private_key_bytes = decrypted_key
+                except Exception as decrypt_error:
+                    logger.error(f"Decryption failed: {decrypt_error}")
+                    return {"success": False, "error": f"Key decryption failed: {decrypt_error}"}
+            else:
+                # Plain base58 private key
+                logger.info("Using plain base58 private key...")
+                private_key_bytes = base58.b58decode(private_key)
+                
             keypair = Keypair.from_secret_key(private_key_bytes)
             public_key = str(keypair.public_key)
             
@@ -183,8 +199,21 @@ class PumpFunTrader:
         Sell pump.fun token using PumpPortal API
         """
         try:
-            # Get wallet from private key
-            private_key_bytes = base58.b58decode(private_key)
+            # Handle encrypted private key (same as buy function)
+            if private_key.startswith('gAAAAAB'):
+                logger.info("Decrypting encrypted private key for sell...")
+                try:
+                    from burner_wallet_system import decrypt_private_key
+                    decrypted_key = decrypt_private_key(private_key)
+                    if not decrypted_key:
+                        return {"success": False, "error": "Failed to decrypt private key"}
+                    private_key_bytes = decrypted_key
+                except Exception as decrypt_error:
+                    logger.error(f"Sell decryption failed: {decrypt_error}")
+                    return {"success": False, "error": f"Key decryption failed: {decrypt_error}"}
+            else:
+                private_key_bytes = base58.b58decode(private_key)
+                
             keypair = Keypair.from_secret_key(private_key_bytes)
             public_key = str(keypair.public_key)
             
