@@ -384,30 +384,41 @@ Practice crypto sniping without risk! Perfect for learning how token sniping wor
 
 <b>⚡ DEGENS SNIPE BOT</b>
 Live trading mode - Trading bot with 0.5% fee on all profitable sales value
-Requires 0.1 SOL worth of $MORK tokens to access this mode
+Requires 100K $MORK tokens to access this mode
 
 <b>💎 VIP LIVE FETCH TRADING MODE</b>
-Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+Automated trading for users with 100K $MORK tokens in their burner wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+
+<b>💳 BURNER WALLET SYSTEM</b>
+Non-custodial wallets generated locally - YOU control the keys!
 
 <b>Available Commands:</b>
 🐶 /simulate - Puppy in training (free practice mode)
-⚡ /snipe - Live trading mode (Trading bot with 0.5% fee on all profitable sales value)
-🎯 /fetch - VIP Trading sniffer dog (Minimum 1 SOL worth holding of $MORK + 0.5% fee on all profitable sales value)
+⚡ /snipe - Live trading mode (requires 100K MORK)
+🎯 /fetch - VIP Trading sniffer dog (requires 100K MORK)
+💼 /mywallet - Create or view your burner wallet
+🔓 /exportwallet - Backup your private keys
 📊 /status - Check your current session
 ❓ /help - Get help and instructions
 
 <b>How to use:</b>
+• <b>Start here:</b> Use /mywallet to create your secure burner wallet
+• <b>Fund wallet:</b> Send SOL + 100K MORK to your wallet address
 • <b>Practice:</b> Use /simulate for risk-free simulation
-• <b>Live Trading:</b> Use /snipe to verify $MORK and trade real tokens (0.5% fee on profits)
-• <b>VIP Fetch:</b> Use /fetch for advanced trading features (coming soon)
+• <b>Live Trading:</b> Use /snipe to trade real tokens (0.5% fee on profits)
+• <b>VIP Fetch:</b> Use /fetch for automated trading features
 • All modes guide you through: contract → amount → stop-loss → take-profit → sell %
 
 <b>Ready to start?</b>
+• Type /mywallet to create your burner wallet
 • Type /simulate for practice
-• Type /snipe for live trading (requires 0.1 SOL worth of $MORK)
-• Type /fetch for VIP features (requires 1 SOL worth of $MORK)
+• Type /snipe for live trading (requires 100K MORK)
+• Type /fetch for VIP features (requires 100K MORK)
 
-<i>Simulation mode: No real trades. Live mode: Real wallet verification required.</i>
+<b>💰 Get $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<i>Burner wallets: Non-custodial, you control keys. Trading: Real wallet verification required.</i>
     """
     
     # Reset user session
