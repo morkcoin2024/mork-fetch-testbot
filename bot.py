@@ -2781,7 +2781,7 @@ Unable to create the trade transaction. This could be due to:
 • Network connectivity issues
 • Token liquidity problems  
 • Insufficient wallet balance
-• Jupiter DEX temporarily unavailable
+• Smart Platform Trading active
 
 Please try again in a few moments, or contact support if the issue persists.
 
@@ -3014,7 +3014,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each ({trade_amount:.3f} SOL total)
 🎯 <b>Strategy:</b> {"Focused single-token" if token_count == 1 else f"Diversified {token_count}-token portfolio"}
 
-<b>⚡ EXECUTING REAL JUPITER DEX TRADES NOW...</b>
+<b>⚡ EXECUTING REAL PUMP.FUN TRADES NOW...</b>
 📊 <b>Execution:</b> Smart Platform Routing
 🎯 <b>Monitoring:</b> Ultra-sensitive 0.3% thresholds per trade
 
@@ -3361,7 +3361,7 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
 💔 <b>Your Loss:</b> {loss_sol:.6f} SOL
 
 <b>🔗 EXECUTE STOP-LOSS:</b>
-<a href="{jupiter_sell_link}">👆 Sell via Jupiter DEX</a>
+<a href="{jupiter_sell_link}">👆 Sell via Smart Platform</a>
 
 <b>⚡ Ultra-sensitive monitoring detected the price drop!</b>
                             """
@@ -3406,7 +3406,7 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
 💎 <b>Net Profit to You:</b> {updated_trade_data.get('net_profit_sol', gross_profit_sol):.6f} SOL
 
 <b>🔗 EXECUTE SALE:</b>
-<a href="{jupiter_sell_link}">👆 Sell via Jupiter DEX</a>
+<a href="{jupiter_sell_link}">👆 Sell via Smart Platform</a>
 
 <b>✅ Fee automatically deducted and sent to marketing wallet!</b>
 <b>🎯 VIP FETCH Sniffer Dog secured your profits!</b>
@@ -3560,7 +3560,7 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
 {chr(10).join([f"• {c.get('name', 'Unknown')} (${c.get('symbol', 'TOKEN')}) - ${c.get('price', 0):.8f}" for c in selected_candidates])}
 
 💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
-⚡ <b>Executing via Jupiter DEX...</b>
+⚡ <b>Executing via Smart Platform Trading...</b>
         """
         send_message(chat_id, execution_message)
         

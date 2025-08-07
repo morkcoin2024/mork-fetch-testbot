@@ -95,11 +95,21 @@ class PumpFunTrader:
                 # This is an encrypted private key - decrypt it first
                 logger.info("Decrypting encrypted private key...")
                 try:
-                    from burner_wallet_system import decrypt_private_key
-                    decrypted_key = decrypt_private_key(private_key)
-                    if not decrypted_key:
-                        return {"success": False, "error": "Failed to decrypt private key"}
-                    private_key_bytes = decrypted_key
+                    # Use the encryption key file to decrypt
+                    from cryptography.fernet import Fernet
+                    import os
+                    
+                    key_file = 'wallet_encryption.key'
+                    if os.path.exists(key_file):
+                        with open(key_file, 'rb') as f:
+                            key = f.read()
+                        fernet = Fernet(key)
+                        decrypted_bytes = fernet.decrypt(private_key.encode())
+                        private_key_bytes = decrypted_bytes
+                        logger.info("✅ Private key decrypted successfully")
+                    else:
+                        return {"success": False, "error": "Encryption key file not found"}
+                        
                 except Exception as decrypt_error:
                     logger.error(f"Decryption failed: {decrypt_error}")
                     return {"success": False, "error": f"Key decryption failed: {decrypt_error}"}
@@ -203,11 +213,20 @@ class PumpFunTrader:
             if private_key.startswith('gAAAAAB'):
                 logger.info("Decrypting encrypted private key for sell...")
                 try:
-                    from burner_wallet_system import decrypt_private_key
-                    decrypted_key = decrypt_private_key(private_key)
-                    if not decrypted_key:
-                        return {"success": False, "error": "Failed to decrypt private key"}
-                    private_key_bytes = decrypted_key
+                    from cryptography.fernet import Fernet
+                    import os
+                    
+                    key_file = 'wallet_encryption.key'
+                    if os.path.exists(key_file):
+                        with open(key_file, 'rb') as f:
+                            key = f.read()
+                        fernet = Fernet(key)
+                        decrypted_bytes = fernet.decrypt(private_key.encode())
+                        private_key_bytes = decrypted_bytes
+                        logger.info("✅ Private key decrypted successfully for sell")
+                    else:
+                        return {"success": False, "error": "Encryption key file not found"}
+                        
                 except Exception as decrypt_error:
                     logger.error(f"Sell decryption failed: {decrypt_error}")
                     return {"success": False, "error": f"Key decryption failed: {decrypt_error}"}
