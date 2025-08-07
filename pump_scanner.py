@@ -620,25 +620,33 @@ class PumpFunScanner:
         
         logger.info(f"Processing {len(recent_tokens)} tokens for candidates")
         
-        # Enhance tokens with AI analysis
+        # Enhance tokens with Advanced AI analysis
         try:
-            from openai_token_analyzer import enhance_tokens_with_ai
-            enhanced_tokens = await enhance_tokens_with_ai(recent_tokens)
-            logger.info("Tokens enhanced with AI analysis")
+            from ai_enhanced_pump_rules import AIEnhancedPumpRules
+            ai_engine = AIEnhancedPumpRules()
+            enhanced_tokens = await ai_engine.enhance_token_scoring(recent_tokens)
+            logger.info(f"Tokens enhanced with advanced AI analysis - {len(enhanced_tokens)} tokens processed")
         except Exception as e:
-            logger.debug(f"AI enhancement failed, using basic analysis: {e}")
-            enhanced_tokens = recent_tokens
+            logger.debug(f"Advanced AI enhancement failed, trying basic AI: {e}")
+            try:
+                from openai_token_analyzer import enhance_tokens_with_ai
+                enhanced_tokens = await enhance_tokens_with_ai(recent_tokens)
+                logger.info("Tokens enhanced with basic AI analysis")
+            except Exception as e2:
+                logger.debug(f"All AI enhancement failed, using basic analysis: {e2}")
+                enhanced_tokens = recent_tokens
         
         for token_data in enhanced_tokens:
             try:
                 safety_score, safety_reasons = self.evaluate_token_safety(token_data)
                 
-                # Consider AI recommendation in scoring
-                ai_score = token_data.get('ai_potential_score', 50)
-                ai_confidence = token_data.get('ai_confidence', 50)
+                # Consider Advanced AI recommendation in scoring
+                ai_enhanced_score = token_data.get('ai_enhanced_score', 50)
+                ai_viral_score = token_data.get('ai_viral_score', 50)
+                trend_score = token_data.get('trend_score', 50)
                 
-                # Combined scoring: safety (60%) + AI potential (30%) + AI confidence (10%)
-                combined_score = (safety_score * 0.6) + (ai_score * 0.3) + (ai_confidence * 0.1)
+                # Advanced combined scoring: safety (40%) + AI enhanced (35%) + viral potential (15%) + trends (10%)
+                combined_score = (safety_score * 0.4) + (ai_enhanced_score * 0.35) + (ai_viral_score * 0.15) + (trend_score * 0.1)
                 
                 if combined_score >= min_safety_score:
                     candidate = TokenCandidate(
