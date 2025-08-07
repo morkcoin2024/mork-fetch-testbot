@@ -1463,6 +1463,7 @@ def handle_fetch_command(chat_id):
                 import json
                 
                 wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                wallet_info = None
                 
                 if os.path.exists(wallet_file):
                     # Load existing wallet info
@@ -1472,8 +1473,19 @@ def handle_fetch_command(chat_id):
                     wallet_info = {'public_key': wallet_data['public_key']}
                     
                 if wallet_info and wallet_info.get('public_key'):
-                    # User has burner wallet - check eligibility for VIP trading
-                    requirements = await check_trading_eligibility(str(chat_id))
+                    # User has burner wallet - check eligibility for VIP trading using the same approach as /mywallet
+                    try:
+                        sol_balance = get_solana_balance(wallet_info['public_key']) or 0
+                        mork_balance = get_solana_wallet_balance(wallet_info['public_key'], MORK_TOKEN_CONTRACT) or 0
+                    except:
+                        sol_balance = 0
+                        mork_balance = 0
+                    
+                    requirements = {
+                        'eligible': mork_balance >= 100000 and sol_balance >= 0.01,
+                        'sol_balance': sol_balance,
+                        'mork_balance': mork_balance
+                    }
                     
                     if requirements.get('eligible', False) and requirements.get('mork_balance', 0) >= 100000:
                         # Ready for VIP automated trading
@@ -1588,6 +1600,7 @@ def handle_snipe_command(chat_id):
                 import json
                 
                 wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                wallet_info = None
                 
                 if os.path.exists(wallet_file):
                     # Load existing wallet info
@@ -1597,8 +1610,19 @@ def handle_snipe_command(chat_id):
                     wallet_info = {'public_key': wallet_data['public_key']}
                     
                 if wallet_info and wallet_info.get('public_key'):
-                    # User has burner wallet - check eligibility
-                    requirements = await check_trading_eligibility(str(chat_id))
+                    # User has burner wallet - check eligibility using the same approach as /mywallet
+                    try:
+                        sol_balance = get_solana_balance(wallet_info['public_key']) or 0
+                        mork_balance = get_solana_wallet_balance(wallet_info['public_key'], MORK_TOKEN_CONTRACT) or 0
+                    except:
+                        sol_balance = 0
+                        mork_balance = 0
+                    
+                    requirements = {
+                        'eligible': mork_balance >= 100000 and sol_balance >= 0.01,
+                        'sol_balance': sol_balance,
+                        'mork_balance': mork_balance
+                    }
                     
                     if requirements.get('eligible', False):
                         # Ready for live trading
