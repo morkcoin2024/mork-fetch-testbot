@@ -132,6 +132,50 @@ class RealTimePumpMonitor:
         try:
             logger.info("Connecting to Solana WebSocket for program logs...")
             
+            logger.info("Integrating Chainstack real-time monitoring...")
+            
+            # Import and use Chainstack monitor
+            try:
+                from chainstack_pump_monitor import ChainstackPumpMonitor
+                
+                async def on_chainstack_token(token):
+                    """Handle tokens detected by Chainstack method"""
+                    # Convert Chainstack token to PumpToken format
+                    pump_token = PumpToken(
+                        mint=token.mint,
+                        name=token.name,
+                        symbol=token.symbol,
+                        creator=token.creator,
+                        created_at=token.detected_at,
+                        market_cap=15000,  # Fresh token estimate
+                        price_usd=0.000001,  # Initial price
+                        bonding_curve_complete=False,
+                        migrated_to_raydium=False,
+                        detection_method='chainstack_logs'
+                    )
+                    
+                    logger.info(f"🚀 Chainstack detected: {token.name} ({token.symbol})")
+                    await self._notify_callbacks(pump_token)
+                
+                # Use Chainstack monitor for superior detection
+                async with ChainstackPumpMonitor() as chainstack_monitor:
+                    chainstack_monitor.add_callback(on_chainstack_token)
+                    logger.info("Using Chainstack logsSubscribe for real-time detection")
+                    await chainstack_monitor.start_monitoring()
+                    
+            except ImportError:
+                logger.warning("Chainstack monitor not available, using fallback")
+                await self._fallback_monitoring()
+            except Exception as e:
+                logger.error(f"Chainstack error: {e}")
+                await self._fallback_monitoring()
+                
+        except Exception as e:
+            logger.error(f"Solana monitoring error: {e}")
+            
+    async def _fallback_monitoring(self):
+        """Fallback monitoring method"""
+        try:
             # Pump.fun program ID
             pump_program_id = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
             
