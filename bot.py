@@ -1901,43 +1901,26 @@ def handle_fetch_command(chat_id):
                     if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
                         # Ready for VIP automated trading
                         ready_message = f"""
-<b>VIP F.E.T.C.H TRADING ORDER READY</b>
+🎯 <b>VIP F.E.T.C.H AUTOMATED TRADING - Ready!</b>
 
-🔴 <b>FINAL CONFIRMATION REQUIRED FROM YOU DEGEN</b>
-• This will place a REAL trade with your actual funds!
+<b>✅ Burner Wallet Verified:</b>
+• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-⭐ <b>VIP FETCH Features:</b>
-• Automated token discovery & live screening
-• Real-time pump.fun + Raydium migration monitoring
-• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
-• Strategy: Diversified - 3 tokens × 0.0333 SOL each (auto-split for risk management)
-• Independent monitoring & trailing stop-loss per position
-• Automatic 5% fee collection on net profits
+<b>🤖 VIP FETCH Features:</b>
+• Fully automated token discovery
+• Real-time pump.fun monitoring
+• Automatic buy/sell execution
+• AI-enhanced safety filtering
+• Hands-off trading experience
 
-📊 <b>Order Summary:</b>
-🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
-💲 <b>Entry Price:</b> Auto-detected at execution
-💰 <b>Trade Amount:</b> 0.100 SOL
-👛 <b>Wallet:</b> {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
-📉 <b>Stop-Loss:</b> -10.0%
-📈 <b>Take-Profit:</b> +50.0%
-💸 <b>Partial Sell:</b> 80% at target, 20% rides with auto trailing-stop
-🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
+<b>💰 Trade Amount:</b>
+How much SOL do you want to allocate for automated trading?
 
-⚠️ <b>RISK WARNING:</b>
-• These are real, non-reversible blockchain trades
-• You can lose ALL your funds
-• Market and contract risks are extreme (including instant rug pulls)
-• Always DYOR, no refunds
-
-💸 <b>FEE NOTICE:</b>
-• By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
-
-Type <b>/confirm</b> if you're feeling it to execute this VIP trade or <b>/cancel</b> to abort.
-
-⚠️ <i>By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>
+Enter amount in SOL (e.g., 0.1, 0.5, 1.0):{TRADING_DISCLAIMER}
                         """
-                        update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, trading_mode='fetch', wallet_address=wallet_info['public_key'], trade_amount=0.1, stop_loss=10.0, take_profit=50.0, sell_percent=80)
+                        update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
                         return
                     else:
@@ -2643,10 +2626,10 @@ Enter sell percentage:
     
     if is_vip_mode:
         # For VIP FETCH, show auto-discovery format
-        confirmation_text = f"""<b>VIP FETCH TRADING ORDER READY</b>
+        confirmation_text = f"""<b>VIP F.E.T.C.H TRADING ORDER READY</b>
 
-🔴 <b>FINAL CONFIRMATION REQUIRED</b>
-This will place a REAL trade with your actual funds!
+🔴 <b>FINAL CONFIRMATION REQUIRED FROM YOU DEGEN</b>
+• This will place a REAL trade with your actual funds!
 
 ⭐ <b>VIP FETCH Features:</b>
 • Automated token discovery & live screening
@@ -2661,8 +2644,8 @@ This will place a REAL trade with your actual funds!
 💲 <b>Entry Price:</b> Auto-detected at execution
 💰 <b>Trade Amount:</b> {trade_amount_display}
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
-📉 <b>Stop-Loss:</b> -{session.stop_loss}% (trailing, auto-tighten if profit >30%)
-📈 <b>Take-Profit:</b> +{session.take_profit}% (auto-scale out 80%, keep 20% moon bag)
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
 💸 <b>Partial Sell:</b> {sell_percent}% at target, {100-sell_percent}% rides with auto trailing-stop
 🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
 
@@ -2675,7 +2658,9 @@ This will place a REAL trade with your actual funds!
 💸 <b>FEE NOTICE:</b>
 • By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
 
-Type /confirm to execute this VIP trade or /cancel to abort.{TRADING_DISCLAIMER}
+Type <b>/confirm</b> if you're feeling it to execute this VIP trade or <b>/cancel</b> to abort.
+
+⚠️ <i>By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>{TRADING_DISCLAIMER}
         """
     else:
         # For regular live trading, show specific token details
