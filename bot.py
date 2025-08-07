@@ -2860,14 +2860,49 @@ Please try again with /fetch or contact support.
         """
         send_message(chat_id, error_message)
 
-def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
+async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amount: float, wallet_address: str) -> dict:
+    """Execute automatic buy trade using burner wallet"""
+    try:
+        from wallet_integration import SolanaWalletIntegrator
+        integrator = SolanaWalletIntegrator()
+        
+        # Create Jupiter swap transaction
+        swap_result = integrator.create_jupiter_swap_transaction(
+            private_key=private_key,
+            input_mint="So11111111111111111111111111111111111111112",  # SOL mint
+            output_mint=token_mint,
+            amount=int(sol_amount * 1_000_000_000),  # Convert SOL to lamports
+            slippage_bps=500  # 5% slippage for pump.fun tokens
+        )
+        
+        if swap_result and swap_result.get('success'):
+            return {
+                'success': True,
+                'tx_hash': swap_result.get('tx_hash', ''),
+                'tokens_received': swap_result.get('tokens_received', 0),
+                'sol_spent': sol_amount
+            }
+        else:
+            return {
+                'success': False,
+                'error': swap_result.get('error', 'Transaction failed') if swap_result else 'Jupiter swap failed'
+            }
+            
+    except Exception as e:
+        logging.error(f"Automatic buy trade failed: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
     """Wrapper function to run VIP FETCH in a new event loop"""
     try:
         # Create new event loop for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        # Run the trading function
+        # Run the trading function with all parameters
         loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
         
     except Exception as e:
@@ -2935,9 +2970,13 @@ Testing token discovery without safety filters.
             # Convert TokenCandidate objects to dictionaries
             candidates = [candidate.to_dict() if hasattr(candidate, 'to_dict') else candidate for candidate in candidates]
         
-        # Phase 2: Live Trade Execution
-        selected_candidates = candidates[:3]  # Top 3 candidates
-        amount_per_trade = min(0.1, trade_amount / len(selected_candidates))  # Max 0.1 SOL per trade for safety
+        # Phase 2: Live Trade Execution  
+        session = get_or_create_session(chat_id)
+        token_count = getattr(session, 'token_count', 1) or 1
+        
+        # Select appropriate number of candidates based on user preference
+        selected_candidates = candidates[:token_count]
+        amount_per_trade = trade_amount / len(selected_candidates)
         
         phase2_message = f"""
 🚀 <b>PHASE 2: LIVE TRADE EXECUTION</b>
@@ -2947,7 +2986,10 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 🎯 <b>Selected for Trading:</b>
 {chr(10).join([f"• {c.get('name', 'Unknown')} (${c.get('symbol', 'TOKEN')}) - Score: {c.get('safety_score', 0)}/100" for c in selected_candidates])}
 
-💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each
+💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL each ({trade_amount:.3f} SOL total)
+🎯 <b>Strategy:</b> {"Focused single-token" if token_count == 1 else f"Diversified {token_count}-token portfolio"}
+
+<b>⚡ EXECUTING REAL JUPITER DEX TRADES NOW...</b>
 📊 <b>Execution:</b> Automatic Jupiter DEX integration
 🎯 <b>Monitoring:</b> Ultra-sensitive 0.3% thresholds per trade
 
@@ -2996,9 +3038,78 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             if candidate.get('pfp_url') and candidate.get('pfp_url') != 'https://pump.fun/logo.png':
                 pfp_display = f"🖼️ <a href='{candidate['pfp_url']}'>Token Image</a> | "
             
-            # Send individual trade execution notification with REAL data and PFP
-            execution_message = f"""
-⚡ <b>TRADE EXECUTED #{i+1}</b>
+            # EXECUTE AUTOMATIC TRADE USING BURNER WALLET
+            try:
+                from burner_wallet_system import BurnerWalletSystem
+                burner_system = BurnerWalletSystem()
+                
+                # Get the actual burner wallet for this user
+                wallet_data = burner_system.get_wallet(chat_id)
+                if wallet_data and 'private_key' in wallet_data:
+                    
+                    # Execute actual automated buy transaction
+                    buy_result = await execute_automatic_buy_trade(
+                        wallet_data['private_key'],
+                        candidate.get('mint', ''),
+                        amount_per_trade,
+                        wallet_address
+                    )
+                    
+                    if buy_result['success']:
+                        # Successful automatic trade execution
+                        trade_result['tx_hash'] = buy_result.get('tx_hash', '')
+                        trade_result['tokens_received'] = buy_result.get('tokens_received', 0)
+                        trade_result['actual_sol_spent'] = buy_result.get('sol_spent', amount_per_trade)
+                        
+                        execution_message = f"""
+✅ <b>AUTOMATIC TRADE EXECUTED #{i+1}</b>
+
+<b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
+{pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
+
+💰 <b>SOL Spent:</b> {trade_result['actual_sol_spent']:.3f} SOL (REAL)
+🪙 <b>Tokens Received:</b> {trade_result['tokens_received']:,.0f} {trade_result['token_symbol']}
+📈 <b>Entry Price:</b> {trade_result['entry_price']:.11f} SOL
+📈 <b>Market Cap:</b> ${trade_result['market_cap']:,.0f}
+⭐ <b>Safety Score:</b> {trade_result['safety_score']}/100
+
+<b>🔗 Transaction Hash:</b>
+<code>{trade_result['tx_hash']}</code>
+
+<b>📋 Trade Details:</b>
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
+• Status: LIVE POSITION ACTIVE
+• Monitoring: 0.5% stop-loss / 0.5% take-profit
+• Contract: <code>{candidate.get('mint', '')}</code>
+
+<b>🚀 REAL TRADE COMPLETED - Auto-monitoring active!</b>
+                        """
+                    else:
+                        # Trade execution failed
+                        execution_message = f"""
+❌ <b>TRADE EXECUTION FAILED #{i+1}</b>
+
+<b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
+{pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
+
+💰 <b>Attempted Size:</b> {amount_per_trade:.3f} SOL
+❌ <b>Error:</b> {buy_result.get('error', 'Transaction failed')}
+
+<b>💡 Fallback Option:</b>
+<a href="{jupiter_link}">Manual Trade on Jupiter</a>
+
+<b>📋 Trade Details:</b>
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
+• Contract: <code>{candidate.get('mint', '')}</code>
+
+<b>🔄 Will retry with next token...</b>
+                        """
+                        continue  # Skip monitoring for failed trades
+                        
+                else:
+                    # No wallet available, fallback to manual trading
+                    execution_message = f"""
+⚠️ <b>MANUAL TRADE REQUIRED #{i+1}</b>
 
 <b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
 {pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
@@ -3008,17 +3119,37 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 ⭐ <b>Safety Score:</b> {trade_result['safety_score']}/100
 💵 <b>Position Size:</b> {amount_per_trade:.3f} SOL
 
-<b>📋 Trade Details:</b>
-• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
-• Auto-monitoring: Active with 0.3% thresholds
-• P&L targets: ±0.5% (ultra-responsive)
-• Contract: <code>{candidate.get('mint', '')}</code>
-
 <b>🔗 Execute Your Trade:</b>
 <a href="{jupiter_link}">👆 Trade {candidate.get('symbol', 'TOKEN')} on Jupiter</a>
 
-<b>🚀 LIVE TRADE ACTIVE - Monitoring started!</b>
-            """
+<b>📋 Trade Details:</b>
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
+• Auto-monitoring: Will start after manual execution
+• Contract: <code>{candidate.get('mint', '')}</code>
+
+<b>💡 Type /executed after completing your trade</b>
+                    """
+                    
+            except Exception as e:
+                logging.error(f"Automatic trade execution failed: {e}")
+                # Fallback to manual trading link
+                execution_message = f"""
+⚠️ <b>AUTOMATIC TRADE ERROR #{i+1}</b>
+
+<b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
+{pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
+
+❌ <b>Auto-execution failed:</b> {str(e)}
+
+<b>🔗 Manual Fallback:</b>
+<a href="{jupiter_link}">👆 Trade {candidate.get('symbol', 'TOKEN')} on Jupiter</a>
+
+<b>📋 Trade Details:</b>
+• Position Size: {amount_per_trade:.3f} SOL
+• Contract: <code>{candidate.get('mint', '')}</code>
+
+<b>💡 Type /executed after completing your manual trade</b>
+                """
             send_message(chat_id, execution_message)
             
             # Start automatic monitoring for this trade (no safety filter for testing)
