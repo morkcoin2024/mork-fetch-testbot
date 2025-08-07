@@ -2011,8 +2011,20 @@ def handle_live_amount_input(chat_id, amount_text):
         
         # Check if this is VIP FETCH auto-trading mode
         if session.trading_mode == 'fetch':
-            # Start VIP FETCH auto-trading
-            start_vip_fetch_trading(chat_id, session.wallet_address, amount)
+            # For VIP FETCH, proceed to profit/stop-loss configuration first
+            update_session(chat_id, trade_amount=amount, state=STATE_LIVE_WAITING_STOPLOSS)
+            
+            stoploss_text = f"""
+✅ <b>VIP FETCH - Trade Amount Set: {amount:.3f} SOL</b>
+
+📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
+
+<i>Example: Enter "20" for 20% stop-loss</i>
+<i>Recommended: 10-40% for automated trading</i>
+
+<b>🤖 This will be used for automated VIP FETCH trading</b>
+            """
+            send_message(chat_id, stoploss_text)
             return
         
         # Regular live trading flow
@@ -2182,7 +2194,13 @@ def execute_live_trade(chat_id):
     """Execute a live trading order"""
     session = get_or_create_session(chat_id)
     
-    # Verify all required information is present
+    # Check if this is VIP FETCH mode - start automated trading
+    if session.trading_mode == 'fetch':
+        start_vip_fetch_trading(chat_id, session.wallet_address, session.trade_amount, 
+                               session.stop_loss, session.take_profit, session.sell_percent)
+        return
+    
+    # Verify all required information is present for regular live trading
     if not all([session.wallet_address, session.contract_address, session.stop_loss, 
                 session.take_profit, session.sell_percent]):
         error_text = """
@@ -2323,10 +2341,15 @@ Please try again with /snipe or contact support.
         update_session(chat_id, state=STATE_IDLE)
         send_message(chat_id, error_text)
 
-def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
-    """Start VIP FETCH automated trading"""
+def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = None, take_profit: float = None, sell_percent: float = None):
+    """Start VIP FETCH automated trading with user-configured parameters"""
     try:
-        # Send initial message
+        # Use user-configured parameters or defaults
+        stop_loss = stop_loss or 40.0
+        take_profit = take_profit or 100.0
+        sell_percent = sell_percent or 100.0
+        
+        # Send initial message with user's custom parameters
         initial_message = f"""
 🚀 <b>VIP FETCH LIVE TRADING INITIATED!</b>
 
@@ -2337,7 +2360,8 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
 👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
 🎯 <b>Mode:</b> Automated Live Trading with Jupiter DEX
 📊 <b>Monitoring:</b> Ultra-sensitive 0.3% thresholds
-🎯 <b>P&L Targets:</b> 0.5% stop-loss / 0.5% take-profit per trade
+🎯 <b>P&L Targets:</b> {stop_loss}% stop-loss / {take_profit}% take-profit per trade
+💰 <b>Sell Amount:</b> {sell_percent}% of holdings per target
 
 <b>🔍 Scanner Status:</b>
 • Connected to Pump.fun live data feeds
