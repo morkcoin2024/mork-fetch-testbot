@@ -1514,6 +1514,31 @@ Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
                         update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
                         return
+                    else:
+                        # Wallet exists but needs MORK funding
+                        funding_message = f"""
+🎯 <b>VIP FETCH - FUNDING REQUIRED</b>
+
+<b>✅ Burner Wallet Found:</b>
+• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+
+<b>📋 VIP Requirements:</b>
+• ✅ Burner wallet created
+• ❌ Need 100,000 MORK tokens (you have {requirements.get('mork_balance', 0):,})
+• ❌ Need sufficient SOL for gas fees
+
+<b>💰 Get 100K+ MORK tokens:</b>
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>🚀 After funding, use /fetch again to start VIP automated trading!</b>
+
+<i>Your wallet is ready - just needs MORK tokens for VIP access</i>
+                        """
+                        update_session(chat_id, state=STATE_IDLE)
+                        send_message(chat_id, funding_message)
+                        return
                 
                 # User needs burner wallet or funding
                 wallet_setup_message = """
@@ -1644,6 +1669,31 @@ Please enter the Solana token contract address you want to trade:
                         """
                         update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, trading_mode='snipe', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
+                        return
+                    else:
+                        # Wallet exists but needs MORK funding
+                        funding_message = f"""
+🚀 <b>LIVE TRADING - FUNDING REQUIRED</b>
+
+<b>✅ Burner Wallet Found:</b>
+• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+
+<b>📋 Trading Requirements:</b>
+• ✅ Burner wallet created
+• ❌ Need 100,000 MORK tokens (you have {requirements.get('mork_balance', 0):,})
+• ❌ Need sufficient SOL for gas fees
+
+<b>💰 Get 100K+ MORK tokens:</b>
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>🚀 After funding, use /snipe again to start live trading!</b>
+
+<i>Your wallet is ready - just needs MORK tokens for trading access</i>
+                        """
+                        update_session(chat_id, state=STATE_IDLE)
+                        send_message(chat_id, funding_message)
                         return
                 
                 # User needs burner wallet or funding
