@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime
 from flask import current_app
 from sqlalchemy import func
+from fee_collection_system import fee_collector, collect_profit_fee
 
 # Bot configuration
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
@@ -412,19 +413,19 @@ def handle_start_command(chat_id, user_first_name):
 Practice crypto sniping without risk! Perfect for learning how token sniping works.
 
 <b>⚡ DEGENS SNIPE BOT</b>
-Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+Live trading mode - Trading bot with 5% fee on all profitable trades
 Requires 100K $MORK tokens to access this mode
 
 <b>💎 VIP LIVE FETCH TRADING MODE</b>
-Automated trading for users with 100K $MORK tokens in their burner wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+Automated trading for users with 100K $MORK tokens in their burner wallet - VIP Trading bot with 5% fee on all profitable trades
 
 <b>💳 BURNER WALLET SYSTEM</b>
 Non-custodial wallets generated locally - YOU control the keys!
 
 <b>Available Commands:</b>
 🐶 /simulate - Puppy in training (free practice mode)
-⚡ /snipe - Live trading mode (requires 100K MORK)
-🎯 /fetch - VIP Trading sniffer dog (requires 100K MORK)
+⚡ /snipe - Live trading mode (requires 100K MORK + 5% fee on profits)
+🎯 /fetch - VIP Trading sniffer dog (requires 100K MORK + 5% fee on profits)
 💼 /mywallet - Create or view your burner wallet
 🔓 /exportwallet - Backup your private keys
 📊 /status - Check active trades and session status
@@ -435,7 +436,7 @@ Non-custodial wallets generated locally - YOU control the keys!
 • <b>Start here:</b> Use /mywallet to create your secure burner wallet
 • <b>Fund wallet:</b> Send SOL + 100K MORK to your wallet address
 • <b>Practice:</b> Use /simulate for risk-free simulation
-• <b>Live Trading:</b> Use /snipe to trade real tokens (0.5% fee on profits)
+• <b>Live Trading:</b> Use /snipe to trade real tokens (5% fee on profits)
 • <b>VIP Fetch:</b> Use /fetch for automated trading features
 • All modes guide you through: contract → amount → stop-loss → take-profit → sell %
 
@@ -1287,16 +1288,16 @@ def handle_help_command(chat_id):
 Practice crypto sniping without risk! Perfect for learning how token sniping works.
 
 <b>⚡ DEGENS SNIPE BOT</b>
-Live trading mode - Trading bot with 0.5% fee on all profitable sales value
+Live trading mode - Trading bot with 5% fee on all profitable trades
 Requires 0.1 SOL worth of $MORK tokens to access this mode
 
 <b>💎 VIP LIVE FETCH TRADING MODE</b>
-Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 0.5% fee on all profitable sales value
+Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - VIP Trading bot with 5% fee on all profitable trades
 
 <b>📋 Available Commands:</b>
 • <b>/start</b> - Welcome message and reset session
 • <b>/simulate</b> - Puppy in training (free practice mode)
-• <b>/snipe</b> - Live trading mode (0.5% fee on profitable sales)
+• <b>/snipe</b> - Live trading mode (5% fee on profitable trades)
 • <b>/fetch</b> - VIP automated Pump.fun scanner (requires $MORK)
 • <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/stopfetch</b> - Stop VIP automated trading
@@ -1322,7 +1323,7 @@ Strategic buying and selling of tokens based on predefined profit/loss targets a
 <b>⚠️ Important Notes:</b>
 • Simulation mode: No real trades, safe practice
 • Live mode: Real trades, requires minimum 0.1 SOL worth of $MORK tokens
-• 0.5% fee charged only on profitable trades (sales value)
+• 5% fee charged only on profitable trades, sent to marketing wallet
 • Always DYOR (Do Your Own Research)
 
 <b>🔗 Live Trading Features:</b>
@@ -1576,11 +1577,11 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>🎯 VIP AUTOMATED TRADING MODE</b>
 
-<b>🤖 Automated Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>🤖 Automated Trading Bot with 5% fee on all profitable trades</b>
 
 <b>⚠️ IMPORTANT NOTICE:</b>
 • This is <b>REAL AUTOMATED TRADING</b> with actual funds
-• 0.5% fee charged only on profitable trades (sales value)
+• 5% fee charged only on profitable trades
 • You need 100K $MORK tokens to access VIP FETCH mode
 • Bot automatically finds and trades pump.fun tokens
 • You are responsible for all trading decisions and outcomes
@@ -1611,7 +1612,7 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>⚠️ VIP AUTOMATED TRADING - REAL MONEY!</b>
 
-<b>💎 VIP Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>💎 VIP Trading Bot with 5% fee on all profitable trades</b>
 
 Burner wallet system is currently unavailable. Please try again later.
 
@@ -1635,7 +1636,7 @@ Type <b>/mywallet</b> to create your secure trading wallet!
 
 <b>⚠️ VIP TRADING - REAL MONEY!</b>
 
-<b>💎 VIP Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>💎 VIP Trading Bot with 5% fee on all profitable trades</b>
 
 Burner wallet system is currently unavailable. Please try again later.
 
@@ -1732,11 +1733,11 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>🚀 LIVE TRADING MODE - Real Money!</b>
 
-<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>⚡ Trading Bot with 5% fee on all profitable trades</b>
 
 <b>⚠️ IMPORTANT NOTICE:</b>
 • This is <b>REAL TRADING</b> with actual funds
-• 0.5% fee charged only on profitable trades (sales value)
+• 5% fee charged only on profitable trades
 • You need 100K $MORK tokens to access this mode
 • All trades are executed on the Solana blockchain
 • You are responsible for all trading decisions and outcomes
@@ -1765,11 +1766,11 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
                 snipe_text = """
 🚀 <b>LIVE TRADING MODE - Real Money!</b>
 
-<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>⚡ Trading Bot with 5% fee on all profitable trades</b>
 
 <b>⚠️ IMPORTANT NOTICE:</b>
 • This is <b>REAL TRADING</b> with actual funds
-• 0.5% fee charged only on profitable trades (sales value)
+• 5% fee charged only on profitable trades
 • You need 1 SOL worth of $MORK tokens to access this mode
 • All trades are executed on the Solana blockchain
 • You are responsible for all trading decisions and outcomes
@@ -1795,11 +1796,11 @@ Please provide your Solana wallet address to verify your $MORK token holdings:
     snipe_text = """
 🚀 <b>LIVE TRADING MODE - Real Money!</b>
 
-<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+<b>⚡ Trading Bot with 5% fee on all profitable trades</b>
 
 <b>⚠️ IMPORTANT NOTICE:</b>
 • This is <b>REAL TRADING</b> with actual funds
-• 0.5% fee charged only on profitable trades (sales value)
+• 5% fee charged only on profitable trades
 • You need 1 SOL worth of $MORK tokens to access this mode
 • All trades are executed on the Solana blockchain
 • You are responsible for all trading decisions and outcomes
