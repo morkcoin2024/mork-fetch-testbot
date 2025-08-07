@@ -107,7 +107,15 @@ def update_session(chat_id, **kwargs):
     from models import UserSession, db
     session = get_or_create_session(chat_id)
     for key, value in kwargs.items():
-        setattr(session, key, value)
+        try:
+            setattr(session, key, value)
+        except Exception as e:
+            if 'token_count' in str(e):
+                # Handle case where token_count column might not exist yet
+                logging.warning(f"token_count column not available: {e}")
+                continue
+            else:
+                raise e
     db.session.commit()
     logging.info(f"Chat {chat_id}: Updated session - State: {session.state}")
     return session
@@ -2588,8 +2596,11 @@ Enter sell percentage:
     mode_title = "VIP FETCH TRADING ORDER READY" if is_vip_mode else "LIVE TRADING ORDER READY"
     
     if is_vip_mode:
-        # Get token count for VIP FETCH display
-        token_count = getattr(session, 'token_count', 1) or 1
+        # Get token count for VIP FETCH display (safe access)
+        try:
+            token_count = getattr(session, 'token_count', 1) or 1
+        except:
+            token_count = 1  # Fallback if column doesn't exist yet
         sol_per_token = session.trade_amount / token_count if token_count > 1 else session.trade_amount
         
         if token_count == 1:
@@ -2791,9 +2802,12 @@ Please try again with /snipe or contact support.
 def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = None, take_profit: float = None, sell_percent: float = None):
     """Start VIP FETCH automated trading with user-configured parameters"""
     try:
-        # Get session to retrieve token count
+        # Get session to retrieve token count (safe access)
         session = get_or_create_session(chat_id)
-        token_count = getattr(session, 'token_count', 1) or 1
+        try:
+            token_count = getattr(session, 'token_count', 1) or 1
+        except:
+            token_count = 1  # Fallback if column doesn't exist yet
         
         # Use user-configured parameters or defaults
         stop_loss = stop_loss or 40.0
@@ -2972,7 +2986,10 @@ Testing token discovery without safety filters.
         
         # Phase 2: Live Trade Execution  
         session = get_or_create_session(chat_id)
-        token_count = getattr(session, 'token_count', 1) or 1
+        try:
+            token_count = getattr(session, 'token_count', 1) or 1
+        except:
+            token_count = 1  # Fallback if column doesn't exist yet
         
         # Select appropriate number of candidates based on user preference
         selected_candidates = candidates[:token_count]
