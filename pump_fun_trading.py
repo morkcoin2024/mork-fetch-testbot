@@ -13,6 +13,7 @@ from solders.transaction import VersionedTransaction
 from solana.rpc.api import Client
 from solders.transaction import Transaction
 from solders.system_program import TransferParams, transfer
+# ChatGPT's burner trade execution approach using Solders library
 import asyncio
 import aiohttp
 
@@ -142,42 +143,47 @@ class PumpFunTrader:
             logger.info(f"✅ Wallet funded with {balance_check.get('sol_balance', 0):.6f} SOL")
             logger.info(f"Buying {sol_amount} SOL worth of {token_mint[:8]}...")
             
-            # CHATGPT'S FIX: Use SystemProgram.transfer() directly to bonding curve
+            # CHATGPT'S BURNER TRADE EXECUTION CODE 
             bonding_curve_address = self.generate_bonding_curve_address(token_mint)
             if not bonding_curve_address:
                 return {"success": False, "error": "Failed to generate bonding curve address"}
             
-            # Create the transfer transaction (ChatGPT's exact suggestion)
+            # Execute direct SOL transfer using Solders (simplified approach)
             try:
-                tx = Transaction()
-                transfer_params = TransferParams(
-                    from_pubkey=keypair.pubkey(),  # burner wallet
-                    to_pubkey=PublicKey.from_string(bonding_curve_address),  # pump.fun bonding address
-                    lamports=int(sol_amount * 1_000_000_000),  # Convert SOL to lamports
-                )
-                tx.add(transfer(transfer_params))
+                lamports = int(sol_amount * 1_000_000_000)  # Convert SOL to lamports
                 
                 # Debug printing as ChatGPT suggested
-                logger.info(f"🔍 ChatGPT Debug Info:")
-                logger.info(f"  Burner public key: {keypair.pubkey()}")
-                logger.info(f"  Bonding contract address: {bonding_curve_address}")
-                logger.info(f"  Amount in lamports: {int(sol_amount * 1_000_000_000)}")
-                
-                # Send the transaction with burner wallet signing
+                logger.info("✅ Preparing to trade from burner wallet")
+                logger.info(f"Burner address: {keypair.pubkey()}")
+                logger.info(f"Bonding contract: {bonding_curve_address}")
+                logger.info(f"Amount (SOL): {sol_amount}")
+                logger.info(f"Amount (lamports): {lamports}")
+
+                # Create direct transfer transaction using Solders
+                tx = Transaction()
+                transfer_params = TransferParams(
+                    from_pubkey=keypair.pubkey(),  # burner wallet  
+                    to_pubkey=PublicKey.from_string(bonding_curve_address),  # bonding curve
+                    lamports=lamports,  # amount to transfer
+                )
+                tx.add(transfer(transfer_params))
+
+                # Execute the trade with proper error handling
                 response = self.client.send_transaction(tx, keypair)
-                logger.info(f"✅ Transaction sent: {response}")
+                logger.info(f"✅ Trade executed. TX signature: {response}")
                 
                 return {
                     "success": True,
-                    "transaction_id": str(response.value) if hasattr(response, 'value') else str(response),
+                    "transaction_id": str(response.value if hasattr(response, 'value') else response),
                     "message": f"Successfully bought {sol_amount} SOL worth of {token_mint}",
                     "bonding_curve": bonding_curve_address,
-                    "amount_lamports": int(sol_amount * 1_000_000_000)
+                    "amount_sol": sol_amount,
+                    "amount_lamports": lamports
                 }
                 
             except Exception as transfer_error:
-                logger.error(f"SystemProgram.transfer() failed: {transfer_error}")
-                return {"success": False, "error": f"Direct transfer failed: {transfer_error}"}
+                logger.error(f"Direct SOL transfer failed: {transfer_error}")
+                return {"success": False, "error": f"Transfer execution failed: {transfer_error}"}
             
             # Fallback to PumpPortal API if direct transfer fails
             trade_data = {
