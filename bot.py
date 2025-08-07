@@ -1857,7 +1857,7 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
             while time.time() - start_time < monitoring_duration:
                 try:
                     current_price = integrator.get_token_price_in_sol(token_contract)
-                    if current_price and current_price > 0:
+                    if current_price and current_price > 0 and entry_price and entry_price > 0:
                         price_change = (current_price - entry_price) / entry_price
                         
                         # Check for stop-loss trigger

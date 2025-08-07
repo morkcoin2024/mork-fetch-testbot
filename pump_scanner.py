@@ -548,9 +548,47 @@ class PumpFunScanner:
         return score, reasons
     
     async def get_token_candidates(self, min_safety_score: int = 60) -> List[TokenCandidate]:
-        """Get filtered token candidates with AI enhancement"""
+        """Get filtered token candidates with advanced pump.fun rules"""
         recent_tokens = await self.fetch_recent_tokens()
         candidates = []
+        
+        logger.info(f"Processing {len(recent_tokens)} tokens with advanced pump.fun rules")
+        
+        # Import advanced rules
+        try:
+            from advanced_pump_rules import AdvancedPumpRules
+            rules_engine = AdvancedPumpRules()
+            
+            # Apply sophisticated analysis to select top 3 tokens
+            top_analyses = await rules_engine.select_top_3_tokens(recent_tokens)
+            
+            logger.info(f"Advanced rules selected {len(top_analyses)} top tokens")
+            
+            # Convert analyses back to TokenCandidate objects
+            for analysis in top_analyses:
+                candidate = TokenCandidate(
+                    mint=analysis.mint,
+                    name=analysis.name,
+                    symbol=analysis.symbol,
+                    description=f"Advanced Analysis: {analysis.recommendation} | Score: {analysis.overall_score}/100 | Risk: {analysis.risk_level}",
+                    created_at=datetime.now(),
+                    market_cap=analysis.bonding_momentum.get('sol_bonded', 1) * 15000,  # Estimate
+                    price=0.00003,  # Default pump.fun price
+                    volume_24h=8000,
+                    holder_count=100,
+                    creator='AdvancedRules',
+                    pump_score=analysis.overall_score,
+                    safety_score=analysis.meme_score,
+                    is_renounced=True,
+                    is_burnt=analysis.migration_signals
+                )
+                candidates.append(candidate)
+            
+            if candidates:
+                return candidates
+                
+        except Exception as e:
+            logger.warning(f"Advanced rules failed, using basic analysis: {e}")
         
         logger.info(f"Processing {len(recent_tokens)} tokens for candidates")
         

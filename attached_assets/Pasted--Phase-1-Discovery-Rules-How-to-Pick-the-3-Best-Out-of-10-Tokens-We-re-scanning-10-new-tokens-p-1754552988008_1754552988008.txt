@@ -1,0 +1,133 @@
+🧠 Phase 1: Discovery Rules – How to Pick the 3 Best Out of 10 Tokens
+We’re scanning 10 new tokens per batch. Our goal: isolate the ones with serious upside and dodge the rugs, honeypots, and fluff.
+
+✅ Selection Criteria for Winners:
+Name/Meme Power
+
+Strong meme value (e.g., “ZUCKED,” “SIMP3000,” “BILL GATES BACKDOOR”)
+
+Pop culture tie-ins or trend jacks
+
+Easy to shill, pronounce, or turn into memes.
+
+Telegram Activity Within 10 Minutes of Launch
+
+≥ 50 members in group within 5 minutes = high alpha
+
+Devs answering questions = ✅
+
+Pinned messages, memes, sticker packs ready = ✅
+
+Initial Bonding Momentum
+
+≥ 0.3 SOL bonded in < 3 minutes
+
+3+ unique buyers (not all one wallet)
+
+No instant 100% sell = indicates real community building
+
+Dev Doxxing or Social Proof
+
+Dev Twitter/X account with history
+
+Telegram bio links to past legit projects
+
+Group description includes roadmap / values / DEX migration intent
+
+Migration Signals (Off-Ramp Planning)
+
+Mentions of Raydium, Jupiter, or LP setup
+
+“We will launch LP soon” or “DEX at 20 SOL” = higher quality
+
+Wallet Health
+
+Creator wallet has activity history, not brand new
+
+Creator is not a serial rugger on Solana (can be checked)
+
+🔐 Phase 2: Risk Management Rules – How Not to Get Rekt
+You’ve picked the 3 best. Here’s how you minimize downside and maximize upside:
+
+📉 Risk Controls per Trade:
+Entry Timing
+
+Never enter before 0.3–0.5 SOL bonded (avoid illiquid rugs)
+
+Ideal: 0.8–2.0 SOL range — still early, but confirmed traction
+
+Wallet Spread
+
+Don’t go all-in. Use 3 separate Phantom wallets for entry
+
+3x 1 SOL is better than 1x 3 SOL = exit flexibility + rug insulation
+
+Stop-Loss
+
+Auto-sell at -40% if momentum stalls for 3m
+
+Exception: Known dev with migration plan? Hold longer.
+
+Take-Profit Strategy
+
+Take 30–50% profits at 2x (early exit liquidity)
+
+Trail stop remaining with +100% trailing margin (e.g. 4x → sell if drops to 3x)
+
+Anti-Rug Filter
+
+Pull funds from wallet instantly if:
+
+Dev removes group link
+
+Creator wallet dumps more than 30%
+
+Telegram pinned message deleted
+
+Daily Max Exposure
+
+Max 10% of trading bankroll per day
+
+3.33% per token × 3 tokens = optimal risk distribution
+
+📈 Phase 3: Scaling and Alpha Capture
+🧪 Post-Investment Monitoring:
+Twitter Mentions Tracker
+
+Monitor $TOKEN cashtags on X
+
+Volume spikes = exit signal (often precedes dump)
+
+Pump.fun Leaderboard Rank
+
+If token enters Top 20: raise stop-loss to -20%
+
+If token hits Top 10: consider full exit or 70% profit lock
+
+DEX Migration Confirmed?
+
+Pull LP status from Solana / Raydium
+
+Token goes live on DEX? Rebuy at pullback.
+
+🧬 Automation Rules for Bot Version (F.E.T.C.H)
+If we plug this into a bot:
+
+Auto-scan latest Pump.fun contracts
+
+Apply meme filter, social signal analysis, bonding metrics
+
+Filter Top 3: Auto-tag tokens for manual review or buy
+
+Execute buys via burner Phantom wallets
+
+Monitor TG + price movement via bot hooks
+
+Set auto stop-loss and take-profit thresholds
+
+Notify trader via Telegram on key trigger events
+
+🥩 Summary (Degenerate Edition):
+Only buy what looks like it could get posted on X/Twitter by a thousand bored anons at once.
+Never ape in blind. Let other idiots test the water.
+Shillability > Tech. Liquidity > Hope. Risk mgmt > Ego.
