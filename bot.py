@@ -2612,32 +2612,33 @@ Enter sell percentage:
         else:
             diversification_text = f"🎯 <b>Strategy:</b> Diversified - {token_count} tokens × {sol_per_token:.4f} SOL each"
         
-        mode_features = f"""
-<b>⭐ VIP FETCH Features:</b>
+        mode_features = f"""⭐ VIP FETCH Features:
 • Automated token discovery & live screening
-• Real-time pump.fun + Raydium migration monitoring  
+• Real-time pump.fun + Raydium migration monitoring
 • AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
 • {diversification_text} (auto-split for risk management)
 • Independent monitoring & trailing stop-loss per position
 • Automatic 5% fee collection on net profits
+
 """
     else:
         mode_features = ""
     
-    confirmation_text = f"""
-⚠️ <b>{mode_title}</b>
+    if is_vip_mode:
+        # For VIP FETCH, show auto-discovery format
+        confirmation_text = f"""<b>{mode_title}</b>
 
 <b>🔴 FINAL CONFIRMATION REQUIRED</b>
 This will place a REAL trade with your actual funds!
-{mode_features}
-<b>📊 Order Summary:</b>
-🏷️ <b>Token:</b> {token_display}
-💲 <b>Entry Price:</b> {entry_price_display}
+
+{mode_features}<b>📊 Order Summary:</b>
+🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
+💲 <b>Entry Price:</b> Auto-detected at execution
 💰 <b>Trade Amount:</b> {trade_amount_display}
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
 📉 <b>Stop-Loss:</b> -{session.stop_loss}% (trailing, auto-tighten if profit >30%)
 📈 <b>Take-Profit:</b> +{session.take_profit}% (auto-scale out 80%, keep 20% moon bag)
-💸 <b>Partial Sell:</b> {sell_percent}% at target, remainder rides with auto trailing-stop
+💸 <b>Partial Sell:</b> {sell_percent}% at target, {100-sell_percent}% rides with auto trailing-stop
 🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
 
 <b>⚠️ RISK WARNING:</b>
@@ -2649,8 +2650,32 @@ This will place a REAL trade with your actual funds!
 <b>💸 FEE NOTICE:</b>
 • By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
 
-Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
-    """
+Type <b>/confirm</b> to execute this VIP trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
+        """
+    else:
+        # For regular live trading, show specific token details
+        confirmation_text = f"""⚠️ <b>{mode_title}</b>
+
+<b>🔴 FINAL CONFIRMATION REQUIRED</b>
+This will place a REAL trade with your actual funds!
+{mode_features}
+<b>📊 Order Summary:</b>
+🏷️ <b>Token:</b> {token_display}
+💲 <b>Entry Price:</b> {entry_price_display}
+💰 <b>Trade Amount:</b> {trade_amount_display}
+👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
+💸 <b>Partial Sell:</b> {sell_percent}% at target
+
+<b>⚠️ RISK WARNING:</b>
+• These are real, non-reversible blockchain trades
+• You can lose ALL your funds
+• Market and contract risks are extreme (including instant rug pulls)
+• Always DYOR, no refunds
+
+Type <b>/confirm</b> to execute this trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
+        """
     
     update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
     send_message(chat_id, confirmation_text)
