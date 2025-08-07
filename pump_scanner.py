@@ -587,10 +587,22 @@ class PumpFunScanner:
                     # Get token PFP from pump.fun
                     pfp_url = None
                     try:
-                        from pump_pfp_fetcher import fetch_pump_fun_pfp
-                        pfp_url = await fetch_pump_fun_pfp(analysis.mint)
+                        from pump_pfp_fetcher import PumpFunPFPFetcher
+                        async with PumpFunPFPFetcher() as pfp_fetcher:
+                            pfp_url = await pfp_fetcher.get_token_pfp(analysis.mint)
                     except Exception as e:
                         logger.debug(f"Failed to fetch PFP for {analysis.mint}: {e}")
+                        # Try direct API approach
+                        try:
+                            import requests
+                            api_url = f"https://frontend-api.pump.fun/coins/{analysis.mint}"
+                            response = requests.get(api_url, timeout=5)
+                            if response.status_code == 200:
+                                data = response.json()
+                                pfp_url = data.get('image_uri') or data.get('image')
+                                logger.info(f"Got PFP via direct API: {pfp_url}")
+                        except Exception as e2:
+                            logger.debug(f"Direct PFP fetch also failed: {e2}")
                     
                     candidate = TokenCandidate(
                         mint=analysis.mint,

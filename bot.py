@@ -3060,8 +3060,10 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             pfp_display = ""
             pump_page_link = f"https://pump.fun/coin/{candidate.get('mint', '')}"
             
-            if candidate.get('pfp_url') and candidate.get('pfp_url') != 'https://pump.fun/logo.png':
-                pfp_display = f"🖼️ <a href='{candidate['pfp_url']}'>Token Image</a> | "
+            # Check for token image from multiple sources
+            token_image = candidate.get('pfp_url') or candidate.get('image_url') or candidate.get('image_uri')
+            if token_image and token_image != 'https://pump.fun/logo.png' and "default" not in token_image.lower():
+                pfp_display = f"🖼️ <a href='{token_image}'>Token Image</a> | "
             
             # EXECUTE AUTOMATIC TRADE USING BURNER WALLET
             try:
@@ -3093,13 +3095,16 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                 
                 if private_key:
                     
-                    # Execute actual automated buy transaction
-                    logging.info(f"Attempting auto-trade for {candidate.get('name', 'Unknown')} with {amount_per_trade} SOL")
-                    buy_result = await execute_automatic_buy_trade(
-                        private_key,
-                        candidate.get('mint', ''),
-                        amount_per_trade,
-                        wallet_address
+                    # Execute actual automated buy transaction using smart router
+                    logging.info(f"Attempting smart auto-trade for {candidate.get('name', 'Unknown')} with {amount_per_trade} SOL")
+                    
+                    from smart_trading_router import smart_trading_router
+                    buy_result = await smart_trading_router.execute_smart_trade(
+                        private_key=private_key,
+                        token_mint=candidate.get('mint', ''),
+                        token_symbol=candidate.get('symbol', 'TOKEN'),
+                        sol_amount=amount_per_trade,
+                        trade_type="buy"
                     )
                     
                     if buy_result['success']:
