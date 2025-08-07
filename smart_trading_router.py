@@ -182,10 +182,10 @@ class SmartTradingRouter:
                 if trade_type == "buy":
                     # Jupiter buy logic (existing system)
                     result = create_buy_transaction(
-                        wallet_address="",  # Will be derived from private_key
-                        token_mint=token_mint,
+                        private_key=private_key,
+                        token_contract=token_mint,
                         sol_amount=sol_amount,
-                        slippage=0.5
+                        wallet_address=""  # Will be derived from private_key
                     )
                 else:  # sell
                     result = create_sell_transaction(

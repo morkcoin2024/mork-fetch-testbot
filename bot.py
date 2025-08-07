@@ -2836,7 +2836,7 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
 💰 <b>Total Allocation:</b> {trade_amount:.3f} SOL
 {strategy_text}
 👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
-🎯 <b>Mode:</b> Automated Live Trading with Jupiter DEX
+🎯 <b>Mode:</b> Smart Platform Trading (Pump.fun + Jupiter)
 📊 <b>Monitoring:</b> Each position monitored independently
 🎯 <b>P&L Targets:</b> {stop_loss}% stop-loss / {take_profit}% take-profit per token
 💰 <b>Sell Amount:</b> {sell_percent}% of holdings per target
@@ -2845,7 +2845,7 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
 • Connected to Pump.fun live data feeds
 • Safety filtering algorithms active  
 • Market cap and age analysis running
-• Ready to execute real trades via Jupiter DEX
+• Smart routing: Pump tokens → Pump.fun, Others → Jupiter
 
 <b>⏱️ Phase 1: Token Discovery</b>
 {"Scanning for THE best token launch..." if token_count == 1 else f"Scanning for {token_count} high-potential fresh launches..."}
@@ -3015,7 +3015,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 🎯 <b>Strategy:</b> {"Focused single-token" if token_count == 1 else f"Diversified {token_count}-token portfolio"}
 
 <b>⚡ EXECUTING REAL JUPITER DEX TRADES NOW...</b>
-📊 <b>Execution:</b> Automatic Jupiter DEX integration
+📊 <b>Execution:</b> Smart Platform Routing
 🎯 <b>Monitoring:</b> Ultra-sensitive 0.3% thresholds per trade
 
 <b>⚡ Executing live trades now...</b>
@@ -3263,7 +3263,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <b>✅ VIP FETCH LIVE TRADING ACTIVE!</b>
 The system has successfully:
 • Discovered profitable tokens from Pump.fun
-• Executed real trades via Jupiter DEX integration
+• Smart routing with automatic platform selection
 • Activated ultra-sensitive monitoring (0.3% thresholds)
 • Set optimal P&L targets (0.5% stop-loss/take-profit)
 
