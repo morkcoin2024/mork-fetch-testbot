@@ -167,6 +167,34 @@ def get_solana_wallet_balance(wallet_address, token_contract):
         logging.warning(f"Failed to fetch wallet balance: {e}")
         return 0.0
 
+def get_solana_sol_balance(wallet_address):
+    """Get SOL balance for a Solana wallet address"""
+    try:
+        # Use Solana RPC endpoint to get SOL balance
+        rpc_url = "https://api.mainnet-beta.solana.com"
+        
+        data = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getBalance",
+            "params": [wallet_address]
+        }
+        
+        response = requests.post(rpc_url, json=data)
+        result = response.json()
+        
+        if 'result' in result and 'value' in result['result']:
+            # Convert lamports to SOL (1 SOL = 1,000,000,000 lamports)
+            lamports = result['result']['value']
+            sol_balance = lamports / 1000000000
+            return sol_balance
+        else:
+            return 0.0
+            
+    except Exception as e:
+        logging.warning(f"Failed to fetch SOL balance: {e}")
+        return 0.0
+
 def get_mork_price_in_sol():
     """Get current Mork token price in SOL"""
     try:
@@ -1475,8 +1503,8 @@ def handle_fetch_command(chat_id):
                 if wallet_info and wallet_info.get('public_key'):
                     # User has burner wallet - check eligibility for VIP trading using simple balance check
                     try:
-                        # Use existing get_solana_wallet_balance function 
-                        sol_balance = 0  # For now, assume user has some SOL (balance checking is complex)
+                        # Get actual SOL and MORK balances
+                        sol_balance = get_solana_sol_balance(wallet_info['public_key']) or 0
                         mork_balance = get_solana_wallet_balance(wallet_info['public_key'], MORK_TOKEN_CONTRACT) or 0
                     except Exception as e:
                         logging.error(f"Error checking balances: {e}")
@@ -1639,8 +1667,8 @@ def handle_snipe_command(chat_id):
                 if wallet_info and wallet_info.get('public_key'):
                     # User has burner wallet - check eligibility using simple balance check
                     try:
-                        # Use existing get_solana_wallet_balance function 
-                        sol_balance = 0.1  # For now, assume user has some SOL (balance checking is complex)
+                        # Get actual SOL and MORK balances
+                        sol_balance = get_solana_sol_balance(wallet_info['public_key']) or 0
                         mork_balance = get_solana_wallet_balance(wallet_info['public_key'], MORK_TOKEN_CONTRACT) or 0
                     except Exception as e:
                         logging.error(f"Error checking balances: {e}")
