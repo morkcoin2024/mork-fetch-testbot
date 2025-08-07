@@ -66,6 +66,9 @@ except ImportError as e:
     logging.warning(f"Burner wallet system not available: {e}")
     BURNER_WALLET_ENABLED = False
 
+# Risk disclaimer and fee agreement for trading functions
+TRADING_DISCLAIMER = "\n\n<i>⚠️ By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>"
+
 
 
 def send_message(chat_id, text, reply_markup=None):
@@ -497,7 +500,7 @@ Please enter the <b>Solana token contract address</b> you want to simulate tradi
 
 Type the contract address or /cancel to abort.
 
-<b>🧪 This is 100% simulation - no real trades, no real risk, pure learning!</b>
+<b>🧪 This is 100% simulation - no real trades, no real risk, pure learning!</b>{TRADING_DISCLAIMER}
     """
     
     # Set simulation mode and reset any previous trading mode
@@ -724,7 +727,7 @@ Try again or type /cancel to abort.
 <b>⚠️ This is PRACTICE MODE - No real money involved</b>
 Perfect for learning trading strategies risk-free!
 
-Reply with: <b>1</b> (Auto), <b>2</b> (Manual), <b>3</b> (Cancel), or /confirm for Auto-Trade
+Reply with: <b>1</b> (Auto), <b>2</b> (Manual), <b>3</b> (Cancel), or /confirm for Auto-Trade{TRADING_DISCLAIMER}
     """
     
     # Add inline keyboard for better UX
@@ -1319,7 +1322,7 @@ Please start over with /fetch and provide all parameters.
 • You'll get alerts when targets are hit
 • 5% automatic fee on profitable trades only
 
-<b>⚡ Ready to invest {session.trade_amount:.3f} SOL? Click the Jupiter link!</b>
+<b>⚡ Ready to invest {session.trade_amount:.3f} SOL? Click the Jupiter link!</b>{TRADING_DISCLAIMER}
         """
         
         # Store the trade for monitoring when user types /executed
@@ -1914,7 +1917,7 @@ def handle_fetch_command(chat_id):
 <b>💰 Trade Amount:</b>
 How much SOL do you want to allocate for automated trading?
 
-Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
+Enter amount in SOL (e.g., 0.1, 0.5, 1.0):{TRADING_DISCLAIMER}
                         """
                         update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
@@ -2070,7 +2073,7 @@ def handle_snipe_command(chat_id):
 
 <b>⚡ You're qualified for live trading!</b>
 
-Please enter the Solana token contract address you want to trade:
+Please enter the Solana token contract address you want to trade:{TRADING_DISCLAIMER}
                         """
                         update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, trading_mode='snipe', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
@@ -2641,7 +2644,7 @@ This will place a REAL trade with your actual funds!
 • Market conditions can change rapidly
 • No refunds or reversal possible
 
-Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}LIVE trade or <b>/cancel</b> to abort.
+Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}LIVE trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
     """
     
     update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
