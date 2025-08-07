@@ -45,9 +45,9 @@ class SmartTradingRouter:
                     logger.info(f"✅ {reason}")
                     
             else:
-                # Non-pump tokens use Jupiter by default
-                platform = "jupiter"
-                reason = f"Token {token_symbol or 'UNKNOWN'} is not a pump token - using Jupiter DEX"
+                # For VIP FETCH discovered tokens, assume they're from pump.fun
+                platform = "pump_fun"
+                reason = f"Token {token_symbol or 'UNKNOWN'} from VIP FETCH - using Pump.fun bonding curve"
                 logger.info(f"✅ {reason}")
             
             return {
