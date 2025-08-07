@@ -393,3 +393,112 @@ def generate_swap_link(input_mint: str, output_mint: str, amount_sol: float = No
 def generate_token_page_link(token_mint: str) -> str:
     """Generate Jupiter token page link for viewing token info"""
     return f"https://jup.ag/tokens/{token_mint}"
+
+def create_jupiter_swap_transaction(private_key: str, input_mint: str, output_mint: str, 
+                                  amount: int, slippage_bps: int = 500) -> Dict[str, Any]:
+    """Create and execute Jupiter swap transaction with private key"""
+    try:
+        # Import Solana transaction tools
+        try:
+            from solders.keypair import Keypair
+            from solders.transaction import Transaction
+            import base64
+        except ImportError:
+            return {
+                'success': False,
+                'error': 'Solana transaction libraries not available'
+            }
+        
+        # Decrypt the private key if it's encrypted
+        if private_key.startswith('gAAAAAB'):
+            try:
+                from cryptography.fernet import Fernet
+                import os
+                
+                # Load encryption key
+                key_file = "wallet_encryption.key"
+                if os.path.exists(key_file):
+                    with open(key_file, 'rb') as f:
+                        encryption_key = f.read()
+                    
+                    f = Fernet(encryption_key)
+                    private_key_bytes = f.decrypt(private_key.encode())
+                    private_key = private_key_bytes.decode()
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Encryption key not found for wallet decryption'
+                    }
+            except Exception as e:
+                return {
+                    'success': False,
+                    'error': f'Failed to decrypt private key: {str(e)}'
+                }
+        
+        # Create keypair from private key
+        try:
+            private_key_bytes = base64.b64decode(private_key)
+            keypair = Keypair.from_bytes(private_key_bytes)
+            wallet_address = str(keypair.pubkey())
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Invalid private key format: {str(e)}'
+            }
+        
+        # Create integrator and get transaction data
+        integrator = SolanaWalletIntegrator()
+        
+        tx_data = integrator.create_swap_transaction_data(
+            wallet_address=wallet_address,
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount=amount,
+            slippage_bps=slippage_bps
+        )
+        
+        if not tx_data or 'transaction' not in tx_data:
+            return {
+                'success': False,
+                'error': 'Failed to create Jupiter swap transaction'
+            }
+        
+        # Sign and submit transaction
+        try:
+            transaction_data = tx_data['transaction']
+            transaction = Transaction.from_bytes(base64.b64decode(transaction_data))
+            
+            # Sign transaction
+            transaction.sign([keypair])
+            
+            # Serialize signed transaction
+            signed_tx = base64.b64encode(bytes(transaction)).decode('utf-8')
+            
+            # Submit to network
+            result = integrator.execute_swap_with_signature(wallet_address, signed_tx)
+            
+            if result.get('success'):
+                return {
+                    'success': True,
+                    'tx_hash': result.get('signature', ''),
+                    'tokens_received': tx_data.get('expected_output', 0),
+                    'sol_spent': amount / 1_000_000_000  # Convert lamports to SOL
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': result.get('error', 'Transaction submission failed')
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Transaction signing/submission failed: {str(e)}'
+            }
+            
+    except Exception as e:
+        logging.error(f"Jupiter swap transaction failed: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
