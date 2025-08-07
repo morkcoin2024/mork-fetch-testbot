@@ -428,12 +428,27 @@ https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&output
     send_message(chat_id, welcome_text)
 
 def handle_simulate_command(chat_id):
-    """Handle /simulate command"""
+    """Handle /simulate command - full practice mode with no wallet requirements"""
     session = get_or_create_session(chat_id)
     logging.info(f"Chat {chat_id}: Starting simulate command, setting state to {STATE_WAITING_CONTRACT}")
     
     simulate_text = """
-🎯 <b>Starting Simulation Mode</b>
+🐶 <b>PUPPY IN TRAINING - SIMULATION MODE</b>
+
+<b>🧪 FREE PRACTICE TRADING</b>
+Practice crypto sniping without any risk! Perfect for learning how token trading works.
+
+<b>✅ No Requirements:</b>
+• No wallet needed
+• No MORK tokens required  
+• No real money at risk
+• Full trading experience simulation
+
+<b>🎯 What You'll Practice:</b>
+• Token contract analysis
+• Stop-loss and take-profit settings
+• Trade amount calculations
+• Market timing decisions
 
 Please enter the <b>Solana token contract address</b> you want to simulate trading:
 
@@ -441,10 +456,11 @@ Please enter the <b>Solana token contract address</b> you want to simulate tradi
 
 Type the contract address or /cancel to abort.
 
-<i>🧪 This is simulation mode - no real trades will be executed.</i>
+<b>🧪 This is 100% simulation - no real trades, no real risk, pure learning!</b>
     """
     
-    session = update_session(chat_id, state=STATE_WAITING_CONTRACT)
+    # Set simulation mode and reset any previous trading mode
+    session = update_session(chat_id, state=STATE_WAITING_CONTRACT, trading_mode='simulate')
     logging.info(f"Chat {chat_id}: Session state after update = {session.state}")
     send_message(chat_id, simulate_text)
 
@@ -1434,39 +1450,116 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """Handle /fetch command - VIP Auto-Trading with Pump.fun Scanner"""
-    fetch_text = """
-🎯 <b>VIP FETCH - LIVE AUTOMATED TRADING</b>
+    """Handle /fetch command - start VIP automated trading mode with burner wallet"""
+    # Check if user has a burner wallet first
+    if BURNER_WALLET_ENABLED:
+        import asyncio
+        
+        async def check_fetch_requirements():
+            try:
+                wallet_info = await get_user_burner_wallet(str(chat_id))
+                if wallet_info and wallet_info.get('public_key'):
+                    # User has burner wallet - check eligibility for VIP trading
+                    requirements = await check_trading_eligibility(str(chat_id))
+                    
+                    if requirements.get('eligible', False) and requirements.get('mork_balance', 0) >= 100000:
+                        # Ready for VIP automated trading
+                        ready_message = f"""
+🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
 
-<b>🐕 The Ultimate Pump.fun Sniffer Dog</b>
+<b>✅ Burner Wallet Verified:</b>
+• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-<b>🚀 FULLY AUTOMATED TOKEN DISCOVERY & TRADING:</b>
-• Scans Pump.fun for new token launches in real-time
-• Advanced safety filtering (scam detection, age, market cap)
-• Automatically executes micro-trades on top candidates
-• Ultra-sensitive 0.3% monitoring with 0.5% P&L targets
-• 5-minute monitoring windows with smart exit strategies
+<b>🤖 VIP FETCH Features:</b>
+• Fully automated token discovery
+• Real-time pump.fun monitoring
+• Automatic buy/sell execution
+• 2x profit targets / -40% stop-loss
+• Hands-off trading experience
 
-<b>🔐 VIP Requirements:</b>
-• Valid Solana wallet address with trading permissions
-• Minimum 1 SOL worth of $MORK tokens (verified)
-• Sufficient SOL balance for multiple trades
-• 0.5% fee on profitable trades only
+<b>💰 Trade Amount:</b>
+How much SOL do you want to allocate for automated trading?
 
-<b>🎯 How VIP FETCH Works:</b>
-1. Continuously scans Pump.fun for fresh token launches
-2. Filters out risky tokens using advanced safety algorithms
-3. Automatically executes small trades (0.05-0.1 SOL) on top 3 candidates
-4. Monitors each position with ultra-fast stop-loss/take-profit
-5. Sends instant notifications with Jupiter execution links
+Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
+                        """
+                        update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
+                        send_message(chat_id, ready_message)
+                        return
+                
+                # User needs burner wallet or funding
+                wallet_setup_message = """
+💎 <b>VIP FETCH SETUP REQUIRED</b>
 
-<b>⚠️ RISK WARNING:</b>
-This is REAL automated trading with actual funds. You could lose money rapidly.
+<b>🎯 VIP AUTOMATED TRADING MODE</b>
 
-Please provide your Solana wallet address to start VIP FETCH Live Trading:
-    """
-    update_session(chat_id, state=STATE_WAITING_WALLET, trading_mode='fetch')
-    send_message(chat_id, fetch_text)
+<b>🤖 Automated Trading Bot with 0.5% fee on all profitable sales value</b>
+
+<b>⚠️ IMPORTANT NOTICE:</b>
+• This is <b>REAL AUTOMATED TRADING</b> with actual funds
+• 0.5% fee charged only on profitable trades (sales value)
+• You need 100K $MORK tokens to access VIP FETCH mode
+• Bot automatically finds and trades pump.fun tokens
+• You are responsible for all trading decisions and outcomes
+
+<b>🔥 MORK F.E.T.C.H Bot can create a secure burner wallet for you!</b>
+
+<b>🛡️ VIP Burner Wallet Benefits:</b>
+• Non-custodial - YOU control the private keys
+• Automated trading execution from your wallet
+• Real-time pump.fun token discovery
+• Complete hands-off trading experience
+• Export keys anytime with /exportwallet
+
+<b>🚀 Get started:</b>
+Type <b>/mywallet</b> to create your secure trading wallet now!
+
+<b>💰 After wallet creation, get 100K+ $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+                """
+                update_session(chat_id, state=STATE_IDLE)
+                send_message(chat_id, wallet_setup_message)
+                
+            except Exception as e:
+                logging.error(f"Error checking burner wallet for fetch: {e}")
+                # Fallback message
+                fetch_text = """
+🎯 <b>VIP LIVE FETCH TRADING MODE</b>
+
+<b>⚠️ VIP AUTOMATED TRADING - REAL MONEY!</b>
+
+<b>💎 VIP Trading Bot with 0.5% fee on all profitable sales value</b>
+
+Burner wallet system is currently unavailable. Please try again later.
+
+<b>🚀 To get started:</b>
+Type <b>/mywallet</b> to create your secure trading wallet!
+
+<i>💎 VIP Mode: Automated trading, enhanced features, priority execution</i>
+                """
+                update_session(chat_id, state=STATE_IDLE)
+                send_message(chat_id, fetch_text)
+        
+        # Run async check
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(check_fetch_requirements())
+        loop.close()
+    else:
+        # Burner wallet system not available
+        fetch_text = """
+🎯 <b>VIP LIVE FETCH TRADING MODE</b>
+
+<b>⚠️ VIP TRADING - REAL MONEY!</b>
+
+<b>💎 VIP Trading Bot with 0.5% fee on all profitable sales value</b>
+
+Burner wallet system is currently unavailable. Please try again later.
+
+<i>💎 VIP Mode: Enhanced features, priority execution, advanced analytics</i>
+        """
+        send_message(chat_id, fetch_text)
 
 def handle_snipe_command(chat_id):
     """Handle /snipe command - start live trading mode with 0.5% fee"""
@@ -2861,69 +2954,132 @@ def handle_update(update):
             send_message(chat_id, "Sorry, an error occurred. Please try again or type /start to reset.")
 
 def handle_mywallet_command(chat_id):
-    """Handle /mywallet command - show burner wallet info"""
+    """Handle /mywallet command - create or show burner wallet info"""
     if not BURNER_WALLET_ENABLED:
-        send_message(chat_id, "🔥 Burner wallet system is currently unavailable. Please try again later.")
+        send_message(chat_id, "💳 Burner wallet system is currently unavailable. Please try again later.")
         return
         
     try:
-        import asyncio
+        from burner_wallet_system import BurnerWalletManager
+        import os
         
-        async def get_wallet_info():
-            # Get or create user's burner wallet
-            wallet = await get_user_burner_wallet(str(chat_id))
-            
-            if not wallet:
-                return "❌ Failed to create burner wallet. Please try again."
+        wallet_manager = BurnerWalletManager()
+        wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+        
+        if os.path.exists(wallet_file):
+            # Show existing wallet info
+            try:
+                import json
+                with open(wallet_file, 'r') as f:
+                    wallet_data = json.load(f)
                 
-            # Check wallet requirements
-            requirements = await check_trading_eligibility(str(chat_id))
-            
-            # Format wallet info message
-            status_emoji = "✅" if requirements.get('eligible', False) else "⚠️"
-            eligibility_text = "ELIGIBLE FOR TRADING" if requirements.get('eligible', False) else "NOT ELIGIBLE FOR TRADING"
-            
-            message = f"""
-🔥 <b>YOUR BURNER WALLET</b>
+                # Try to get balance info (fallback to 0 if API fails)
+                try:
+                    sol_balance = get_solana_balance(wallet_data['public_key']) or 0
+                    mork_balance = get_solana_wallet_balance(wallet_data['public_key'], MORK_TOKEN_CONTRACT) or 0
+                except:
+                    sol_balance = 0
+                    mork_balance = 0
+                
+                # Check eligibility
+                has_min_mork = mork_balance >= 100000
+                has_min_sol = sol_balance >= 0.01
+                eligible = has_min_mork and has_min_sol
+                
+                status_emoji = "✅" if eligible else "⚠️"
+                eligibility_text = "ELIGIBLE FOR TRADING" if eligible else "NEEDS FUNDING"
+                
+                message = f"""
+💼 <b>YOUR BURNER WALLET</b>
 
 {status_emoji} <b>Status:</b> {eligibility_text}
 
-<b>📍 Wallet Address:</b>
-<code>{wallet['public_key']}</code>
+<b>🔑 Wallet Address:</b>
+<code>{wallet_data['public_key']}</code>
 
-<b>💰 Balances:</b>
-• SOL: {requirements.get('sol_balance', 0):.4f} SOL
-• MORK: {requirements.get('mork_balance', 0):,} tokens
+<b>💰 Current Balances:</b>
+• SOL: {sol_balance:.4f} SOL
+• MORK: {mork_balance:,} tokens
 
-<b>📋 Requirements for Trading:</b>
-• Minimum MORK: {requirements.get('min_mork_required', 100000):,} tokens
-• Has enough MORK: {'✅' if requirements.get('has_min_mork', False) else '❌'}
-• Has enough SOL: {'✅' if requirements.get('has_min_sol', False) else '❌'}
+<b>📋 Trading Requirements:</b>
+• Minimum MORK: 100,000 tokens {'✅' if has_min_mork else '❌'}
+• Minimum SOL: 0.01 SOL {'✅' if has_min_sol else '❌'}
 
-<b>🔒 Security:</b>
-• Non-custodial (you control your keys)
-• Automatic 0.5% fee on profits only
+<b>🛡️ Security Features:</b>
+• Non-custodial (YOU control the keys)
+• Generated locally using: keypair = Keypair.generate()
+• Encrypted storage for maximum security
 • Export backup with /exportwallet
 
-<b>💰 Fund Your Wallet:</b>
-Send SOL and MORK tokens to your wallet address above to start trading!
+<b>💸 Fund Your Wallet:</b>
+Send SOL and MORK tokens to your address above
 
-Get $MORK: https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
-            """
+<b>💰 Get $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>🚀 Ready to Trade:</b>
+• /simulate - Practice mode (free)
+• /snipe - Live trading (requires 100K MORK)
+• /fetch - VIP automated trading (requires 100K MORK)
+                """
+                send_message(chat_id, message)
+                
+            except Exception as e:
+                logging.error(f"Error reading wallet file: {e}")
+                send_message(chat_id, "❌ Error reading wallet information. Please try again.")
+        else:
+            # Create new wallet
+            result = wallet_manager.generate_burner_wallet(str(chat_id))
             
-            return message
-            
-        # Run async function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(get_wallet_info())
-        loop.close()
-        
-        send_message(chat_id, result)
+            if result.get('success'):
+                creation_message = f"""
+🎉 <b>BURNER WALLET CREATED!</b>
+
+<b>🔑 Your New Wallet Address:</b>
+<code>{result['public_key']}</code>
+
+<b>✅ Generated Using:</b>
+<code>from solana.keypair import Keypair
+keypair = Keypair.generate()</code>
+
+<b>🛡️ Non-Custodial Security:</b>
+• YOU control the private keys
+• We never touch your wallet
+• Encrypted storage locally
+• Full user control
+
+<b>⚠️ CRITICAL WARNING:</b>
+{result['warning']}
+
+<b>📋 Next Steps:</b>
+1. Send SOL to your wallet for transaction fees
+2. Send 100,000+ MORK tokens for trading access
+3. Use /exportwallet to backup your keys safely
+
+<b>💰 Get $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>🚀 Start Trading:</b>
+• /simulate - Practice mode (free)
+• /snipe - Manual live trading
+• /fetch - VIP automated trading
+                """
+                send_message(chat_id, creation_message)
+            else:
+                error_message = f"""
+❌ <b>Wallet Creation Failed</b>
+
+Error: {result.get('error', 'Unknown error')}
+
+This might be due to missing Solana libraries. The wallet system will be available once dependencies are properly installed.
+
+Please try again later or contact support.
+                """
+                send_message(chat_id, error_message)
         
     except Exception as e:
         logging.error(f"Error in /mywallet command: {e}")
-        send_message(chat_id, "❌ Error retrieving wallet information. Please try again later.")
+        send_message(chat_id, "❌ Error with wallet system. Please try again later.")
 
 def handle_exportwallet_command(chat_id):
     """Handle /exportwallet command - export private key"""
