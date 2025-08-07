@@ -159,17 +159,27 @@ class PumpFunTrader:
                 logger.info(f"Amount (SOL): {sol_amount}")
                 logger.info(f"Amount (lamports): {lamports}")
 
-                # Create direct transfer transaction using Solders
-                tx = Transaction()
-                transfer_params = TransferParams(
-                    from_pubkey=keypair.pubkey(),  # burner wallet  
-                    to_pubkey=PublicKey.from_string(bonding_curve_address),  # bonding curve
-                    lamports=lamports,  # amount to transfer
+                # Create direct transfer instruction using Solders
+                transfer_instruction = transfer(
+                    TransferParams(
+                        from_pubkey=keypair.pubkey(),  # burner wallet  
+                        to_pubkey=PublicKey.from_string(bonding_curve_address),  # bonding curve
+                        lamports=lamports,  # amount to transfer
+                    )
                 )
-                tx.add(transfer(transfer_params))
+                
+                # Get recent blockhash for transaction
+                recent_blockhash = self.client.get_latest_blockhash()
+                blockhash = recent_blockhash.value.blockhash
+                
+                # Create transaction with proper parameters
+                from solders.message import Message
+                message = Message.new_with_blockhash([transfer_instruction], keypair.pubkey(), blockhash)
+                tx = Transaction.new_unsigned(message)
 
-                # Execute the trade with proper error handling
-                response = self.client.send_transaction(tx, keypair)
+                # Sign and execute the trade with proper error handling
+                tx.sign([keypair], blockhash)
+                response = self.client.send_transaction(tx)
                 logger.info(f"✅ Trade executed. TX signature: {response}")
                 
                 return {
