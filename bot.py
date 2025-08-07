@@ -2626,12 +2626,20 @@ Enter sell percentage:
     
     if is_vip_mode:
         # For VIP FETCH, show auto-discovery format
-        confirmation_text = f"""<b>{mode_title}</b>
+        confirmation_text = f"""<b>VIP FETCH TRADING ORDER READY</b>
 
-<b>🔴 FINAL CONFIRMATION REQUIRED</b>
+🔴 <b>FINAL CONFIRMATION REQUIRED</b>
 This will place a REAL trade with your actual funds!
 
-{mode_features}<b>📊 Order Summary:</b>
+⭐ <b>VIP FETCH Features:</b>
+• Automated token discovery & live screening
+• Real-time pump.fun + Raydium migration monitoring
+• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
+• {diversification_text} (auto-split for risk management)
+• Independent monitoring & trailing stop-loss per position
+• Automatic 5% fee collection on net profits
+
+📊 <b>Order Summary:</b>
 🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
 💲 <b>Entry Price:</b> Auto-detected at execution
 💰 <b>Trade Amount:</b> {trade_amount_display}
@@ -2641,16 +2649,16 @@ This will place a REAL trade with your actual funds!
 💸 <b>Partial Sell:</b> {sell_percent}% at target, {100-sell_percent}% rides with auto trailing-stop
 🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
 
-<b>⚠️ RISK WARNING:</b>
+⚠️ <b>RISK WARNING:</b>
 • These are real, non-reversible blockchain trades
 • You can lose ALL your funds
 • Market and contract risks are extreme (including instant rug pulls)
 • Always DYOR, no refunds
 
-<b>💸 FEE NOTICE:</b>
+💸 <b>FEE NOTICE:</b>
 • By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
 
-Type <b>/confirm</b> to execute this VIP trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
+Type /confirm to execute this VIP trade or /cancel to abort.{TRADING_DISCLAIMER}
         """
     else:
         # For regular live trading, show specific token details
