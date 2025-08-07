@@ -3257,7 +3257,7 @@ The VIP FETCH scanner successfully:
 
 <i>Try again later for different market conditions!</i>
             """
-                send_message(chat_id, no_results_message)
+            send_message(chat_id, no_results_message)
             
     except Exception as e:
         logging.error(f"VIP FETCH execution failed: {e}")
