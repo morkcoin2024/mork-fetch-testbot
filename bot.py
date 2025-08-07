@@ -416,7 +416,7 @@ Non-custodial wallets generated locally - YOU control the keys!
 • Type /fetch for VIP features (requires 100K MORK)
 
 <b>💰 Get $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <i>Burner wallets: Non-custodial, you control keys. Trading: Real wallet verification required.</i>
     """
@@ -850,7 +850,7 @@ Please use manual trading or try again later.
 Type <b>/mywallet</b> to create your secure trading wallet now, or continue with manual trading.
 
 <b>💰 After wallet creation, get $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
             """
             send_message(chat_id, wallet_offer_message)
             return
@@ -983,7 +983,7 @@ Please try manual trading or contact support.
 3. Return here to start auto-trading
 
 <b>💰 Get $MORK tokens:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>🤖 Auto-Trading Features:</b>
 • Identifies good tokens automatically
@@ -1457,7 +1457,20 @@ def handle_fetch_command(chat_id):
         
         async def check_fetch_requirements():
             try:
-                wallet_info = await get_user_burner_wallet(str(chat_id))
+                # Check if user has existing burner wallet using the same method as /mywallet
+                from burner_wallet_system import BurnerWalletManager
+                import os
+                import json
+                
+                wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                
+                if os.path.exists(wallet_file):
+                    # Load existing wallet info
+                    with open(wallet_file, 'r') as f:
+                        wallet_data = json.load(f)
+                    
+                    wallet_info = {'public_key': wallet_data['public_key']}
+                    
                 if wallet_info and wallet_info.get('public_key'):
                     # User has burner wallet - check eligibility for VIP trading
                     requirements = await check_trading_eligibility(str(chat_id))
@@ -1516,7 +1529,7 @@ Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
 Type <b>/mywallet</b> to create your secure trading wallet now!
 
 <b>💰 After wallet creation, get 100K+ $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
                 """
                 update_session(chat_id, state=STATE_IDLE)
                 send_message(chat_id, wallet_setup_message)
@@ -1569,7 +1582,20 @@ def handle_snipe_command(chat_id):
         
         async def check_burner_wallet():
             try:
-                wallet_info = await get_user_burner_wallet(str(chat_id))
+                # Check if user has existing burner wallet using the same method as /mywallet
+                from burner_wallet_system import BurnerWalletManager
+                import os
+                import json
+                
+                wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                
+                if os.path.exists(wallet_file):
+                    # Load existing wallet info
+                    with open(wallet_file, 'r') as f:
+                        wallet_data = json.load(f)
+                    
+                    wallet_info = {'public_key': wallet_data['public_key']}
+                    
                 if wallet_info and wallet_info.get('public_key'):
                     # User has burner wallet - check eligibility
                     requirements = await check_trading_eligibility(str(chat_id))
@@ -1620,7 +1646,7 @@ Please enter the Solana token contract address you want to trade:
 Type <b>/mywallet</b> to create your secure trading wallet now!
 
 <b>💰 After wallet creation, get $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
                 """
                 update_session(chat_id, state=STATE_IDLE)
                 send_message(chat_id, wallet_setup_message)
@@ -3015,7 +3041,7 @@ def handle_mywallet_command(chat_id):
 Send SOL and MORK tokens to your address above
 
 <b>💰 Get $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>🚀 Ready to Trade:</b>
 • /simulate - Practice mode (free)
@@ -3057,7 +3083,7 @@ keypair = Keypair.generate()</code>
 3. Use /exportwallet to backup your keys safely
 
 <b>💰 Get $MORK:</b>
-https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
 
 <b>🚀 Start Trading:</b>
 • /simulate - Practice mode (free)

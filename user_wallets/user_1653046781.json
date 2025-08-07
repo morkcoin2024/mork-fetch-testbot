@@ -1,10 +1,9 @@
 {
   "user_id": "1653046781",
-  "public_key": "DoEtWAMZFRdNkCsuPZFXZXz9b9b7Yjpwbjyk29wDHRzB",
-  "private_key_encrypted": "gAAAAABolHe2MtEoHIiiGDdtBNZi0eQq3Tj3jheszlijbahTFbp8vnUfY5GPD8V5AehMtLiIsjbU-gLYN33it26GdbhSSG6g3vEL6WVdz0ivwP-IvIKUUF5CBqeSsOKNZ8U2mqeZXxUv90Gg68Ld0PFkUY5bAbR3wMXenLVBXkPRxaf_xqJtncC0jTOKHWKh91Jl4zKsbS_v",
-  "created_at": "2025-08-07T09:53:58.684780",
+  "public_key": "7F8sMJZsHy7uCmYsSy8pn9TGXt87oMceVtkzKdCnyh4b",
+  "private_key_encrypted": "gAAAAABolHsFmT63ox0QobHFc3cr6ORf1Wa5vbxEwkaRjQNkxpTFa3VKKMgS-9_xk3vxFtCkdJVEFTVHWgEo1Jcdvhjhzihaza7odM47IjNWBXXZXtM5ByWE8E-hN35ZJE0YE1GI9hv9V5mQbNwxKd99kbopd4vSv2PSjKR8KuFiwlrLF1kdKW9Hikz8-zwbUZSrqE1jLwwK",
+  "created_at": "2025-08-07T10:08:05.603925",
   "trades_count": 0,
   "total_profit": 0.0,
-  "warning_shown": true,
-  "last_export": "2025-08-07T09:54:37.379538"
+  "warning_shown": false
 }
