@@ -1102,8 +1102,8 @@ def handle_confirm_command(chat_id):
     elif session.state == STATE_LIVE_READY_TO_CONFIRM:
         # Execute ACTUAL live trade with real SOL
         if session.trading_mode == 'fetch':
-            # VIP FETCH mode - execute immediate trade with user's specified token
-            execute_immediate_vip_trade(chat_id)
+            # VIP FETCH mode - start automated trading
+            execute_live_trade(chat_id)  # This handles VIP FETCH automated trading
         else:
             # Regular snipe mode
             execute_live_trade(chat_id)
@@ -1886,26 +1886,28 @@ def handle_fetch_command(chat_id):
                     }
                     
                     if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
-                        # Ready for VIP FETCH trading with specific token
+                        # Ready for VIP automated trading
                         ready_message = f"""
-🎯 <b>VIP FETCH TRADING - Ready!</b>
+🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
 
 <b>✅ Burner Wallet Verified:</b>
 • Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
 • SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
 • MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-<b>🚀 VIP FETCH Features:</b>
-• Instant execution on any Solana token
-• Real-time price monitoring
-• Stop-loss/take-profit automation
-• Automatic 5% fee collection on profits
-• Premium trading speed
+<b>🤖 VIP FETCH Features:</b>
+• Fully automated token discovery
+• Real-time pump.fun monitoring
+• Automatic buy/sell execution
+• 2x profit targets / -40% stop-loss
+• Hands-off trading experience
 
-<b>📝 Enter Token Contract Address:</b>
-Paste the Solana contract address of the token you want to buy:
+<b>💰 Trade Amount:</b>
+How much SOL do you want to allocate for automated trading?
+
+Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
                         """
-                        update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
+                        update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
                         return
                     else:
@@ -2562,6 +2564,7 @@ def execute_live_trade(chat_id):
     
     # Check if this is VIP FETCH mode - start automated trading
     if session.trading_mode == 'fetch':
+        # Start automated pump.fun discovery and trading
         start_vip_fetch_trading(chat_id, session.wallet_address, session.trade_amount, 
                                session.stop_loss, session.take_profit, session.sell_percent)
         return
