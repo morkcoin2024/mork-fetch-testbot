@@ -10,6 +10,7 @@ from datetime import datetime
 from flask import current_app
 from sqlalchemy import func
 from fee_collection_system import fee_collector, collect_profit_fee
+from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
 
 # Bot configuration
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
@@ -2700,14 +2701,21 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                                 input_symbol=token_symbol,
                                 output_symbol="SOL"
                             )
+                            # Calculate loss (no fee on losses)
+                            loss_sol = trade_amount * abs(price_change)
+                            
                             stop_loss_message = f"""
 🔴 <b>VIP FETCH STOP-LOSS TRIGGERED</b>
 
 <b>📊 {trade_session['token_name']} (${trade_session['token_symbol']})</b>
 💰 <b>Entry Price:</b> ${entry_price:.8f}
 💰 <b>Current Price:</b> ${current_price:.8f}
-📉 <b>Change:</b> {price_change*100:.2f}%
+📉 <b>Loss:</b> {price_change*100:.2f}% ({loss_sol:.6f} SOL)
 💵 <b>Position:</b> {trade_amount:.3f} SOL
+
+<b>💳 NO FEES ON LOSSES:</b>
+❌ <b>Platform Fee:</b> 0.00 SOL (only charged on profits)
+💔 <b>Your Loss:</b> {loss_sol:.6f} SOL
 
 <b>🔗 EXECUTE STOP-LOSS:</b>
 <a href="{jupiter_sell_link}">👆 Sell via Jupiter DEX</a>
@@ -2728,19 +2736,37 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                                 input_symbol=token_symbol,
                                 output_symbol="SOL"
                             )
+                            # Calculate automatic fee deduction
+                            gross_profit_sol = trade_amount * price_change  # Actual profit in SOL
+                            trade_data = {
+                                'profit_sol': gross_profit_sol,
+                                'token_symbol': trade_session.get('token_symbol', 'TOKEN'),
+                                'entry_price': entry_price,
+                                'exit_price': current_price,
+                                'trade_amount': trade_amount
+                            }
+                            
+                            # Process automatic fee deduction
+                            updated_trade_data, completion_message = process_profitable_trade_auto_fee(trade_data)
+                            
                             take_profit_message = f"""
 🟢 <b>VIP FETCH TAKE-PROFIT TRIGGERED</b>
 
 <b>📊 {trade_session['token_name']} (${trade_session['token_symbol']})</b>
 💰 <b>Entry Price:</b> ${entry_price:.8f}
 💰 <b>Current Price:</b> ${current_price:.8f}
-📈 <b>Profit:</b> +{price_change*100:.2f}%
-💵 <b>Position:</b> {trade_amount:.3f} SOL
+📈 <b>Gross Profit:</b> +{price_change*100:.2f}% ({gross_profit_sol:.6f} SOL)
 
-<b>🔗 SECURE PROFITS:</b>
+<b>💳 AUTOMATIC FEE PROCESSING:</b>
+💰 <b>Gross Profit:</b> {updated_trade_data.get('gross_profit_sol', gross_profit_sol):.6f} SOL
+🏦 <b>Platform Fee (5%):</b> -{updated_trade_data.get('fee_deducted_sol', 0):.6f} SOL  
+💎 <b>Net Profit to You:</b> {updated_trade_data.get('net_profit_sol', gross_profit_sol):.6f} SOL
+
+<b>🔗 EXECUTE SALE:</b>
 <a href="{jupiter_sell_link}">👆 Sell via Jupiter DEX</a>
 
-<b>🎯 VIP FETCH Sniffer Dog found profits!</b>
+<b>✅ Fee automatically deducted and sent to marketing wallet!</b>
+<b>🎯 VIP FETCH Sniffer Dog secured your profits!</b>
                             """
                             send_message(chat_id, take_profit_message)
                             break

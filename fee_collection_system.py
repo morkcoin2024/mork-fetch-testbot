@@ -7,9 +7,7 @@ import logging
 import requests
 from datetime import datetime
 from typing import Dict, Optional, Tuple
-from solders import Pubkey
-from solana.rpc.api import Client
-from solana.transaction import Transaction
+import requests
 
 # Marketing wallet address for fee collection
 MARKETING_WALLET = "G2DQGR6iWRyDMdu5GxmnPvVj1xpMN3ZG8JeZLVzMZ3TS"
@@ -21,7 +19,6 @@ class FeeCollectionSystem:
     def __init__(self):
         self.marketing_wallet = MARKETING_WALLET
         self.fee_percentage = FEE_PERCENTAGE
-        self.solana_client = Client("https://api.mainnet-beta.solana.com")
         
     def calculate_fee(self, profit_amount_sol: float) -> float:
         """Calculate 5% fee from profit amount in SOL"""
@@ -120,12 +117,21 @@ Please complete the 5% platform fee payment to support Mork F.E.T.C.H Bot develo
     def get_marketing_wallet_balance(self) -> float:
         """Get current balance of marketing wallet"""
         try:
-            pubkey = Pubkey.from_string(self.marketing_wallet)
-            response = self.solana_client.get_balance(pubkey)
+            rpc_url = "https://api.mainnet-beta.solana.com"
+            data = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [self.marketing_wallet]
+            }
             
-            if response.value:
+            response = requests.post(rpc_url, json=data)
+            result = response.json()
+            
+            if 'result' in result and 'value' in result['result']:
                 # Convert lamports to SOL
-                balance_sol = response.value / 1_000_000_000
+                lamports = result['result']['value']
+                balance_sol = lamports / 1_000_000_000
                 return balance_sol
             return 0.0
             
