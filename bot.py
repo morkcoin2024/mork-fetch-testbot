@@ -732,6 +732,9 @@ def execute_auto_trade(chat_id, session):
         execute_live_auto_trade(chat_id, session, 'manual')
     elif tier == 'vip':
         execute_live_auto_trade(chat_id, session, 'vip')
+    else:
+        # Default to checking burner wallet requirements
+        execute_burner_auto_trade(chat_id, session)
         
 def execute_simulation_auto_trade(chat_id, session):
     """Execute automatic simulation trade"""
@@ -905,9 +908,128 @@ def determine_user_tier(chat_id):
     if session.state.startswith('STATE_WAITING') or 'simulation' in session.state.lower():
         return 'simulation'
     
-    # For now, default to simulation unless explicitly in live mode
-    # This can be enhanced with actual MORK token checking later
-    return 'simulation'
+    # Check trading mode from session
+    if hasattr(session, 'trading_mode'):
+        if session.trading_mode == 'fetch':
+            return 'vip'
+        elif session.trading_mode == 'snipe':
+            return 'manual_live'
+    
+    # Default to burner wallet checking
+    return 'burner_wallet'
+
+def execute_burner_auto_trade(chat_id, session):
+    """Execute automatic trading using burner wallet system"""
+    if not BURNER_WALLET_ENABLED:
+        error_message = """
+❌ <b>Burner Wallet System Required</b>
+
+Auto-trading requires burner wallet system which is currently unavailable.
+
+Please try manual trading or contact support.
+        """
+        send_message(chat_id, error_message)
+        return
+        
+    import asyncio
+    
+    async def execute_automated_trade():
+        try:
+            # Check if user has burner wallet and eligibility
+            requirements = await check_trading_eligibility(str(chat_id))
+            
+            if not requirements.get('eligible', False):
+                # Send instructions to create burner wallet
+                wallet_instruction_message = f"""
+💳 <b>BURNER WALLET REQUIRED FOR AUTO-TRADING</b>
+
+<b>🔍 Current Status:</b>
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+• Required: 100,000 MORK tokens minimum
+
+<b>🚀 Ready for fully automated pump.fun trading?</b>
+
+<b>📋 Next Steps:</b>
+1. Create burner wallet: /mywallet
+2. Fund with SOL and 100K MORK tokens
+3. Return here to start auto-trading
+
+<b>💰 Get $MORK tokens:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+
+<b>🤖 Auto-Trading Features:</b>
+• Identifies good tokens automatically
+• Executes buy transactions from burner wallet
+• Monitors prices in real-time
+• Auto-sells at 2x profit or -40% stop-loss
+• Fully automated - no user intervention needed
+                """
+                send_message(chat_id, wallet_instruction_message)
+                return
+                
+            # User is eligible - start automated trading
+            burner_wallet = await get_user_burner_wallet(str(chat_id))
+            trade_amount_sol = session.trade_amount / 100 if session.trade_amount else 0.1  # Convert USD to SOL estimate
+            
+            # Import and start automated trading
+            from automated_pump_trader import start_automated_trading
+            
+            result = await start_automated_trading(str(chat_id), burner_wallet, trade_amount_sol)
+            
+            if result.get('success'):
+                success_message = f"""
+🤖 <b>AUTOMATED TRADING INITIATED!</b>
+
+<b>✅ Burner Wallet Active:</b>
+• Wallet: {burner_wallet['public_key'][:8]}...{burner_wallet['public_key'][-8:]}
+• Trading Amount: {trade_amount_sol:.3f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+
+<b>🚀 Automated Trading Features:</b>
+• Bot identifies good pump.fun tokens
+• Executes buy transactions automatically
+• Real-time price monitoring active
+• Auto-sells at 2x profit target
+• Stop-loss protection at -40%
+
+<b>📊 Trades Executed:</b> {len(result.get('trades', []))}
+
+<b>⚡ System is now fully automated!</b>
+You'll receive notifications when trades complete.
+
+Type /stop to halt automated trading.
+                """
+                send_message(chat_id, success_message)
+            else:
+                error_message = f"""
+❌ <b>Automated Trading Failed</b>
+
+Error: {result.get('error', 'Unknown error')}
+
+Please try again or use manual trading mode.
+                """
+                send_message(chat_id, error_message)
+                
+        except Exception as e:
+            logger.error(f"Automated trade execution failed: {e}")
+            error_message = f"""
+❌ <b>System Error</b>
+
+Automated trading system encountered an error: {str(e)}
+
+Please try again or contact support.
+            """
+            send_message(chat_id, error_message)
+    
+    # Run the automated trading
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(execute_automated_trade())
+    loop.close()
+    
+    # Reset session
+    update_session(chat_id, state=STATE_IDLE)
 
 def handle_confirm_command(chat_id):
     """Handle confirmation for both simulation and live trading"""
@@ -1157,6 +1279,61 @@ Need help? Contact support in our Telegram group!
     """
     
     send_message(chat_id, help_text)
+
+def handle_stop_command(chat_id):
+    """Handle /stop command - stop automated trading"""
+    try:
+        from automated_pump_trader import stop_automated_trading, get_active_trades
+        
+        active_trades = get_active_trades(str(chat_id))
+        
+        if active_trades:
+            stop_automated_trading(str(chat_id))
+            
+            stop_message = f"""
+🛑 <b>AUTOMATED TRADING STOPPED</b>
+
+<b>📊 Trading Summary:</b>
+• Active trades halted: {len(active_trades)}
+• All monitoring stopped
+• Burner wallet remains secure
+
+<b>💼 Your burner wallet is safe and accessible:</b>
+• View wallet: /mywallet
+• Export keys: /exportwallet
+• Trading stats: /walletstats
+
+<b>🔄 To restart automated trading:</b>
+Use /simulate, /snipe, or /fetch commands
+
+Thanks for using MORK F.E.T.C.H Bot! 🐕
+            """
+        else:
+            stop_message = """
+ℹ️ <b>No Active Automated Trading</b>
+
+You don't currently have any automated trading sessions running.
+
+<b>🚀 Start automated trading:</b>
+• /simulate - Practice mode (free)
+• /snipe - Manual live trading 
+• /fetch - VIP automated trading
+
+<b>💼 Manage your burner wallet:</b>
+• /mywallet - View wallet info
+• /exportwallet - Backup keys
+            """
+        
+        send_message(chat_id, stop_message)
+        
+    except Exception as e:
+        logger.error(f"Stop command failed: {e}")
+        error_message = """
+❌ <b>Error Stopping Trading</b>
+
+Please try again or contact support if the issue persists.
+        """
+        send_message(chat_id, error_message)
 
 def handle_cancel_command(chat_id):
     """Handle /cancel command"""
@@ -2582,6 +2759,8 @@ def handle_update(update):
                 handle_confirm_command(chat_id)
             elif command == '/status':
                 handle_status_command(chat_id)
+            elif command == '/stop':
+                handle_stop_command(chat_id)
             elif command == '/help':
                 handle_help_command(chat_id)
             elif command == '/cancel':
