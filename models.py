@@ -22,6 +22,7 @@ class UserSession(db.Model):
     stop_loss = db.Column(db.Float, nullable=True)
     take_profit = db.Column(db.Float, nullable=True)
     sell_percent = db.Column(db.Float, nullable=True)
+    token_count = db.Column(db.Integer, default=1)  # Number of tokens to split SOL across  
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

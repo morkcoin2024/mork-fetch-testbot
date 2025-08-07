@@ -30,6 +30,7 @@ STATE_READY_TO_CONFIRM = "ready_to_confirm"
 STATE_WAITING_WALLET = "waiting_wallet"
 STATE_LIVE_WAITING_CONTRACT = "live_waiting_contract"
 STATE_LIVE_WAITING_AMOUNT = "live_waiting_amount"
+STATE_LIVE_WAITING_TOKEN_COUNT = "live_waiting_token_count"
 STATE_LIVE_WAITING_STOPLOSS = "live_waiting_stoploss"
 STATE_LIVE_WAITING_TAKEPROFIT = "live_waiting_takeprofit"
 STATE_LIVE_WAITING_SELLPERCENT = "live_waiting_sellpercent"
@@ -2379,20 +2380,27 @@ def handle_live_amount_input(chat_id, amount_text):
         
         # Check if this is VIP FETCH auto-trading mode
         if session.trading_mode == 'fetch':
-            # For VIP FETCH, proceed to profit/stop-loss configuration first
-            update_session(chat_id, trade_amount=amount, state=STATE_LIVE_WAITING_STOPLOSS)
+            # For VIP FETCH, ask for token count first
+            update_session(chat_id, trade_amount=amount, state=STATE_LIVE_WAITING_TOKEN_COUNT)
             
-            stoploss_text = f"""
+            token_count_text = f"""
 ✅ <b>VIP FETCH - Trade Amount Set: {amount:.3f} SOL</b>
 
-📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
+🎯 <b>Multi-Token Diversification</b>
 
-<i>Example: Enter "20" for 20% stop-loss</i>
-<i>Recommended: 10-40% for automated trading</i>
+How many different tokens would you like to split your {amount:.3f} SOL across?
 
-<b>🤖 This will be used for automated VIP FETCH trading</b>
+<b>📊 Token Count Options:</b>
+• <b>1 token:</b> All {amount:.3f} SOL in best opportunity
+• <b>3 tokens:</b> {amount/3:.4f} SOL per token
+• <b>5 tokens:</b> {amount/5:.4f} SOL per token  
+• <b>10 tokens:</b> {amount/10:.4f} SOL per token
+
+<b>💡 Recommended: 3-5 tokens for balanced risk/reward</b>
+
+Enter a number from 1 to 10:
             """
-            send_message(chat_id, stoploss_text)
+            send_message(chat_id, token_count_text)
             return
         
         # Regular live trading flow
@@ -2420,6 +2428,61 @@ Type a number between 0-100 or /cancel to abort.
 Please enter a valid amount in SOL (numbers only).
 
 <i>Examples: "0.1", "0.5", "1.0"</i>
+
+Try again or type /cancel to abort.
+        """
+        send_message(chat_id, error_text)
+
+def handle_live_token_count_input(chat_id, count_text):
+    """Handle token count input for VIP FETCH mode"""
+    try:
+        token_count = int(count_text)
+        if token_count < 1 or token_count > 10:
+            raise ValueError("Token count must be between 1 and 10")
+        
+        session = get_or_create_session(chat_id)
+        
+        # Calculate SOL per token
+        sol_per_token = session.trade_amount / token_count
+        
+        # Store token count and proceed to stop-loss
+        update_session(chat_id, token_count=token_count, state=STATE_LIVE_WAITING_STOPLOSS)
+        
+        stoploss_text = f"""
+✅ <b>VIP FETCH - Diversification Set!</b>
+
+<b>📊 Multi-Token Strategy:</b>
+💰 <b>Total Allocation:</b> {session.trade_amount:.3f} SOL
+🎯 <b>Token Count:</b> {token_count} different tokens
+💵 <b>Per Token:</b> {sol_per_token:.4f} SOL each
+
+<b>🤖 The bot will automatically:</b>
+• Find {token_count} different high-potential tokens
+• Allocate {sol_per_token:.4f} SOL to each token
+• Execute all trades with your settings
+• Monitor each position independently
+
+📉 Now enter your <b>Stop-Loss percentage</b> (0-100):
+
+<i>Example: Enter "40" for 40% stop-loss</i>
+<i>Recommended: 20-50% for diversified automated trading</i>
+
+<b>This stop-loss will apply to all {token_count} token positions</b>
+        """
+        send_message(chat_id, stoploss_text)
+        
+    except ValueError:
+        session = get_or_create_session(chat_id)
+        error_text = f"""
+❌ <b>Invalid Token Count</b>
+
+Please enter a number between 1 and 10.
+
+<b>💡 Examples:</b>
+• <b>1</b> - Focus all {session.trade_amount:.3f} SOL on best single token
+• <b>3</b> - Spread across 3 tokens ({session.trade_amount/3:.4f} SOL each)  
+• <b>5</b> - Balanced portfolio (recommended)
+• <b>10</b> - Maximum diversification
 
 Try again or type /cancel to abort.
         """
@@ -2523,13 +2586,28 @@ Enter sell percentage:
     trade_amount_display = f"{session.trade_amount:.3f} SOL" if session.trade_amount else "Not specified"
     
     mode_title = "VIP FETCH TRADING ORDER READY" if is_vip_mode else "LIVE TRADING ORDER READY"
-    mode_features = """
-<b>🎯 VIP Features Active:</b>
-• Priority execution speeds
-• Enhanced risk management
-• Advanced trading analytics
-• Premium customer support
-""" if is_vip_mode else ""
+    
+    if is_vip_mode:
+        # Get token count for VIP FETCH display
+        token_count = getattr(session, 'token_count', 1) or 1
+        sol_per_token = session.trade_amount / token_count if token_count > 1 else session.trade_amount
+        
+        if token_count == 1:
+            diversification_text = f"🎯 <b>Strategy:</b> Focused - All {session.trade_amount:.3f} SOL on best opportunity"
+        else:
+            diversification_text = f"🎯 <b>Strategy:</b> Diversified - {token_count} tokens × {sol_per_token:.4f} SOL each"
+        
+        mode_features = f"""
+<b>⭐ VIP FETCH Features:</b>
+• Automated token discovery
+• Real-time pump.fun monitoring
+• AI-enhanced safety filtering
+• {diversification_text}
+• Independent monitoring per position
+• Automatic 5% fee collection on profits
+"""
+    else:
+        mode_features = ""
     
     confirmation_text = f"""
 ⚠️ <b>{mode_title}</b>
@@ -2713,33 +2791,47 @@ Please try again with /snipe or contact support.
 def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = None, take_profit: float = None, sell_percent: float = None):
     """Start VIP FETCH automated trading with user-configured parameters"""
     try:
+        # Get session to retrieve token count
+        session = get_or_create_session(chat_id)
+        token_count = getattr(session, 'token_count', 1) or 1
+        
         # Use user-configured parameters or defaults
         stop_loss = stop_loss or 40.0
         take_profit = take_profit or 100.0
         sell_percent = sell_percent or 100.0
         
-        # Send initial message with user's custom parameters
+        # Calculate SOL per token
+        sol_per_token = trade_amount / token_count
+        
+        # Send initial message with multi-token strategy details
+        if token_count == 1:
+            strategy_text = f"🎯 <b>Focused Strategy:</b> All {trade_amount:.3f} SOL on best single opportunity"
+        else:
+            strategy_text = f"""🎯 <b>Diversified Strategy:</b> {token_count} different tokens
+💵 <b>Per Token:</b> {sol_per_token:.4f} SOL each"""
+        
         initial_message = f"""
 🚀 <b>VIP FETCH LIVE TRADING INITIATED!</b>
 
 <b>🐕 Sniffer Dog is now hunting for profits!</b>
 
-<b>📊 Live Trading Parameters:</b>
+<b>📊 Multi-Token Trading Parameters:</b>
 💰 <b>Total Allocation:</b> {trade_amount:.3f} SOL
+{strategy_text}
 👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
 🎯 <b>Mode:</b> Automated Live Trading with Jupiter DEX
-📊 <b>Monitoring:</b> Ultra-sensitive 0.3% thresholds
-🎯 <b>P&L Targets:</b> {stop_loss}% stop-loss / {take_profit}% take-profit per trade
+📊 <b>Monitoring:</b> Each position monitored independently
+🎯 <b>P&L Targets:</b> {stop_loss}% stop-loss / {take_profit}% take-profit per token
 💰 <b>Sell Amount:</b> {sell_percent}% of holdings per target
 
 <b>🔍 Scanner Status:</b>
 • Connected to Pump.fun live data feeds
-• Safety filtering algorithms active
+• Safety filtering algorithms active  
 • Market cap and age analysis running
 • Ready to execute real trades via Jupiter DEX
 
 <b>⏱️ Phase 1: Token Discovery</b>
-Scanning for high-potential fresh launches...
+{"Scanning for THE best token launch..." if token_count == 1 else f"Scanning for {token_count} high-potential fresh launches..."}
 
 <b>⚡ LIVE MODE - Real trades will be executed automatically!</b>
         """
@@ -2752,7 +2844,7 @@ Scanning for high-potential fresh launches...
         import threading
         trading_thread = threading.Thread(
             target=run_vip_fetch_trading,
-            args=(chat_id, wallet_address, trade_amount)
+            args=(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent)
         )
         trading_thread.daemon = True
         trading_thread.start()
@@ -3649,6 +3741,9 @@ def handle_update(update):
             elif session.state == STATE_LIVE_WAITING_AMOUNT:
                 logging.info(f"Chat {chat_id}: Processing live amount input")
                 handle_live_amount_input(chat_id, text)
+            elif session.state == STATE_LIVE_WAITING_TOKEN_COUNT:
+                logging.info(f"Chat {chat_id}: Processing token count input")
+                handle_live_token_count_input(chat_id, text)
             elif session.state == STATE_LIVE_WAITING_STOPLOSS:
                 logging.info(f"Chat {chat_id}: Processing live stop-loss input")
                 handle_live_stoploss_input(chat_id, text)
