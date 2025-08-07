@@ -3091,40 +3091,64 @@ def handle_exportwallet_command(chat_id):
         import asyncio
         
         async def export_wallet():
-            wallet_export = await export_user_wallet(str(chat_id))
-            
-            if not wallet_export:
-                return "❌ No wallet found. Use /mywallet to create one first."
+            try:
+                from burner_wallet_system import BurnerWalletManager
+                wallet_manager = BurnerWalletManager()
                 
-            message = f"""
+                # Export wallet using the burner wallet system
+                export_result = wallet_manager.export_wallet_keys(str(chat_id))
+                
+                if not export_result.get('success'):
+                    return f"❌ {export_result.get('error', 'No wallet found. Use /mywallet to create one first.')}"
+                    
+                message = f"""
 🔐 <b>WALLET EXPORT - KEEP SECURE!</b>
 
-⚠️ <b>WARNING:</b> {wallet_export['backup_warning']}
+⚠️ <b>CRITICAL WARNING:</b>
+{export_result['warning']}
 
-<b>📍 Public Key:</b>
-<code>{wallet_export['public_key']}</code>
+<b>📍 Public Key (Wallet Address):</b>
+<code>{export_result['public_key']}</code>
 
 <b>🔑 Private Key:</b>
-<code>{wallet_export['private_key']}</code>
+<code>{export_result['private_key']}</code>
 
-<b>📄 JSON Format:</b>
-<code>{wallet_export['json_format']}</code>
-
-<b>🔒 IMPORTANT SECURITY NOTES:</b>
+<b>🔒 SECURITY NOTES:</b>
 • Save this information in a secure location
 • Never share your private key with anyone
 • If lost, your wallet cannot be recovered
-• Consider using a hardware wallet for large amounts
+• You have complete control over this wallet
 
-<b>💡 How to Import:</b>
-• Phantom: Settings → Import Private Key
-• Solflare: Add Account → Import Private Key
-• Other wallets: Use the private key above
+<b>💡 How to Access Your Funds:</b>
 
-Delete this message after backing up! 🗑️
-            """
-            
-            return message
+<b>📱 Method 1: Import to Phantom Wallet</b>
+1. Open Phantom app
+2. Settings → Import Private Key
+3. Paste your private key above
+4. Access all your SOL/MORK tokens
+
+<b>📱 Method 2: Import to Solflare</b>
+1. Open Solflare app
+2. Add Account → Import Private Key
+3. Use your private key above
+
+<b>🚀 Method 3: Bot Trading</b>
+• /snipe - Manual live trading from this wallet
+• /fetch - Automated VIP trading from this wallet
+• Bot executes trades directly using your keys
+
+<b>💸 To Withdraw Funds:</b>
+1. Import wallet to Phantom/Solflare
+2. Send tokens to your main wallet
+3. Full control - no restrictions
+
+<b>🗑️ Delete this message after backing up!</b>
+                """
+                
+                return message
+                
+            except Exception as e:
+                return f"❌ Export failed: {str(e)}"
             
         # Run async function
         loop = asyncio.new_event_loop()
