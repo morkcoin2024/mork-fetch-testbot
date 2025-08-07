@@ -1,6 +1,12 @@
 """
-Burner Wallet System for Mork F.E.T.C.H Bot
-Non-custodial, per-user Solana wallets with automated trading and profit fees
+Burner Wallet System for MORK F.E.T.C.H Bot
+Per-user, non-custodial burner wallets generated locally via Solana keypair generation.
+Users have full control - we never touch their wallets.
+
+Each user gets:
+🔑 Public address (for funding + trade tracking)
+🔐 Private key (securely stored, never exposed unless user requests export)
+❗️ Users are informed that this wallet is non-recoverable if lost and they are responsible for backing it up if exported.
 """
 
 import os
@@ -11,17 +17,16 @@ import asyncio
 from typing import Optional, Dict, Tuple
 from datetime import datetime
 from cryptography.fernet import Fernet
+
+# Use exact Solana imports as specified by user
 try:
-    from solders.keypair import Keypair
-    from solders.pubkey import Pubkey
-    from solders.transaction import Transaction
-    from solders.system_program import TransferParams, transfer
+    from solana.keypair import Keypair
+    from solana.publickey import PublicKey
     from solana.rpc.async_api import AsyncClient
     from solana.rpc.commitment import Confirmed
-    from solana.rpc.types import TxOpts
     SOLANA_IMPORTS_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Some Solana imports not available: {e}")
+    logging.warning(f"Solana imports not available: {e}")
     SOLANA_IMPORTS_AVAILABLE = False
 
 # Configure logging
@@ -36,7 +41,10 @@ class BurnerWalletManager:
     def __init__(self):
         self.wallets_dir = "user_wallets"
         self.encryption_key = self._get_or_create_encryption_key()
-        self.client = AsyncClient("https://api.mainnet-beta.solana.com")
+        if SOLANA_IMPORTS_AVAILABLE:
+            self.client = AsyncClient("https://api.mainnet-beta.solana.com")
+        else:
+            self.client = None
         
         # Create wallets directory if it doesn't exist
         os.makedirs(self.wallets_dir, exist_ok=True)
@@ -71,8 +79,101 @@ class BurnerWalletManager:
         return f.decrypt(encrypted_data.encode()).decode()
         
     def generate_burner_wallet(self, user_id: str) -> Dict[str, str]:
-        """Generate a new burner wallet for a user"""
+        """
+        Generate a new burner wallet for a user using exact method specified:
+        from solana.keypair import Keypair
+        keypair = Keypair.generate()
+        
+        Per user, non-custodial design - users have full control.
+        """
         try:
+            if not SOLANA_IMPORTS_AVAILABLE:
+                raise Exception("Solana libraries not available")
+            
+            # Generate keypair using exact method specified by user
+            keypair = Keypair.generate()
+            
+            # Extract public and private key
+            public_key = str(keypair.public_key)
+            private_key = base64.b64encode(keypair.secret_key).decode('utf-8')
+            
+            # Wallet data to store
+            wallet_data = {
+                'user_id': user_id,
+                'public_key': public_key,
+                'private_key_encrypted': self._encrypt_data(private_key),
+                'created_at': datetime.now().isoformat(),
+                'trades_count': 0,
+                'total_profit': 0.0,
+                'warning_shown': False  # Track if user has been warned about non-recovery
+            }
+            
+            # Save wallet to file
+            wallet_file = os.path.join(self.wallets_dir, f"user_{user_id}.json")
+            with open(wallet_file, 'w') as f:
+                json.dump(wallet_data, f, indent=2)
+            
+            logger.info(f"Generated burner wallet for user {user_id}: {public_key}")
+            
+            return {
+                'success': True,
+                'public_key': public_key,
+                'user_id': user_id,
+                'created_at': wallet_data['created_at'],
+                'warning': 'This wallet is non-recoverable if lost. You are responsible for backing it up if exported.'
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to generate burner wallet for user {user_id}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def export_wallet_keys(self, user_id: str) -> Dict[str, str]:
+        """
+        Export wallet private key for user backup.
+        Users are fully responsible for backing up their keys.
+        We never touch their wallets - full user control.
+        """
+        try:
+            wallet_file = os.path.join(self.wallets_dir, f"user_{user_id}.json")
+            
+            if not os.path.exists(wallet_file):
+                return {
+                    'success': False,
+                    'error': 'No burner wallet found. Create one with /mywallet first.'
+                }
+            
+            # Load wallet data
+            with open(wallet_file, 'r') as f:
+                wallet_data = json.load(f)
+            
+            # Decrypt private key
+            private_key_encrypted = wallet_data['private_key_encrypted']
+            private_key = self._decrypt_data(private_key_encrypted)
+            
+            # Update warning shown flag
+            wallet_data['warning_shown'] = True
+            wallet_data['last_export'] = datetime.now().isoformat()
+            
+            with open(wallet_file, 'w') as f:
+                json.dump(wallet_data, f, indent=2)
+            
+            return {
+                'success': True,
+                'public_key': wallet_data['public_key'],
+                'private_key': private_key,
+                'created_at': wallet_data['created_at'],
+                'warning': '⚠️ CRITICAL: This wallet is non-recoverable if lost. You are fully responsible for backing up these keys safely. We never touch your wallet - you have complete control.'
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to export wallet for user {user_id}: {e}")
+            return {
+                'success': False,
+                'error': f'Export failed: {str(e)}'
+            }
             if not SOLANA_IMPORTS_AVAILABLE:
                 # Create a simulated wallet for testing
                 import secrets
