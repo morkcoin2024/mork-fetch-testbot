@@ -3069,17 +3069,34 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                 import os
                 import json
                 
-                wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                # Try multiple wallet file formats
+                wallet_files = [
+                    os.path.join("user_wallets", f"user_{chat_id}.json"),
+                    os.path.join("user_wallets", f"wallet_{chat_id}.json")
+                ]
                 wallet_data = None
                 
-                if os.path.exists(wallet_file):
-                    with open(wallet_file, 'r') as f:
-                        wallet_data = json.load(f)
+                for wallet_file in wallet_files:
+                    if os.path.exists(wallet_file):
+                        with open(wallet_file, 'r') as f:
+                            wallet_data = json.load(f)
+                        logging.info(f"Found wallet file: {wallet_file}")
+                        break
+                else:
+                    logging.warning(f"No wallet file found for user {chat_id}. Tried: {wallet_files}")
+                # Check for both encrypted and unencrypted private key formats
+                private_key = None
                 if wallet_data and 'private_key' in wallet_data:
+                    private_key = wallet_data['private_key']
+                elif wallet_data and 'private_key_encrypted' in wallet_data:
+                    private_key = wallet_data['private_key_encrypted']
+                
+                if private_key:
                     
                     # Execute actual automated buy transaction
+                    logging.info(f"Attempting auto-trade for {candidate.get('name', 'Unknown')} with {amount_per_trade} SOL")
                     buy_result = await execute_automatic_buy_trade(
-                        wallet_data['private_key'],
+                        private_key,
                         candidate.get('mint', ''),
                         amount_per_trade,
                         wallet_address
@@ -3140,6 +3157,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                         
                 else:
                     # No wallet available, fallback to manual trading
+                    logging.warning(f"No private key found for user {chat_id} - wallet_data keys: {list(wallet_data.keys()) if wallet_data else 'No wallet data'}")
                     execution_message = f"""
 ⚠️ <b>MANUAL TRADE REQUIRED #{i+1}</b>
 
