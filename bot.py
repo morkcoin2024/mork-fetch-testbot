@@ -1901,26 +1901,41 @@ def handle_fetch_command(chat_id):
                     if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
                         # Ready for VIP automated trading
                         ready_message = f"""
-🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
+<b>VIP FETCH TRADING ORDER READY</b>
 
-<b>✅ Burner Wallet Verified:</b>
-• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
-• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
-• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+🔴 <b>FINAL CONFIRMATION REQUIRED</b>
+This will place a REAL trade with your actual funds!
 
-<b>🤖 VIP FETCH Features:</b>
-• Fully automated token discovery
-• Real-time pump.fun monitoring
-• Automatic buy/sell execution
-• 2x profit targets / -40% stop-loss
-• Hands-off trading experience
+⭐ <b>VIP FETCH Features:</b>
+• Automated token discovery & live screening
+• Real-time pump.fun + Raydium migration monitoring
+• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
+• 🎯 Strategy: Diversified - 3 tokens × 0.0333 SOL each (auto-split for risk management)
+• Independent monitoring & trailing stop-loss per position
+• Automatic 5% fee collection on net profits
 
-<b>💰 Trade Amount:</b>
-How much SOL do you want to allocate for automated trading?
+📊 <b>Order Summary:</b>
+🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
+💲 <b>Entry Price:</b> Auto-detected at execution
+💰 <b>Trade Amount:</b> 0.100 SOL
+👛 <b>Wallet:</b> {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+📉 <b>Stop-Loss:</b> -10.0% (trailing, auto-tighten if profit >30%)
+📈 <b>Take-Profit:</b> +50.0% (auto-scale out 80%, keep 20% moon bag)
+💸 <b>Partial Sell:</b> 80% at target, 20% rides with auto trailing-stop
+🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
 
-Enter amount in SOL (e.g., 0.1, 0.5, 1.0):{TRADING_DISCLAIMER}
+⚠️ <b>RISK WARNING:</b>
+• These are real, non-reversible blockchain trades
+• You can lose ALL your funds
+• Market and contract risks are extreme (including instant rug pulls)
+• Always DYOR, no refunds
+
+💸 <b>FEE NOTICE:</b>
+• By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
+
+Type /confirm to execute this VIP trade or /cancel to abort.{TRADING_DISCLAIMER}
                         """
-                        update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
+                        update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, trading_mode='fetch', wallet_address=wallet_info['public_key'], trade_amount=0.1, stop_loss=10.0, take_profit=50.0, sell_percent=80)
                         send_message(chat_id, ready_message)
                         return
                     else:
