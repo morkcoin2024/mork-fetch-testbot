@@ -3065,11 +3065,16 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             
             # EXECUTE AUTOMATIC TRADE USING BURNER WALLET
             try:
-                from burner_wallet_system import BurnerWalletSystem
-                burner_system = BurnerWalletSystem()
+                # Load the user's burner wallet directly from file
+                import os
+                import json
                 
-                # Get the actual burner wallet for this user
-                wallet_data = burner_system.get_wallet(chat_id)
+                wallet_file = os.path.join("user_wallets", f"user_{chat_id}.json")
+                wallet_data = None
+                
+                if os.path.exists(wallet_file):
+                    with open(wallet_file, 'r') as f:
+                        wallet_data = json.load(f)
                 if wallet_data and 'private_key' in wallet_data:
                     
                     # Execute actual automated buy transaction
@@ -3110,18 +3115,20 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <b>🚀 REAL TRADE COMPLETED - Auto-monitoring active!</b>
                         """
                     else:
-                        # Trade execution failed
+                        # Trade execution failed - provide manual fallback
                         execution_message = f"""
-❌ <b>TRADE EXECUTION FAILED #{i+1}</b>
+❌ <b>AUTOMATIC TRADE ERROR #{i+1}</b>
 
 <b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
 {pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
 
-💰 <b>Attempted Size:</b> {amount_per_trade:.3f} SOL
-❌ <b>Error:</b> {buy_result.get('error', 'Transaction failed')}
+💰 <b>Position Size:</b> {amount_per_trade:.3f} SOL
+✋ <b>Auto-execution failed:</b> {buy_result.get('error', 'Transaction failed')}
 
-<b>💡 Fallback Option:</b>
-<a href="{jupiter_link}">Manual Trade on Jupiter</a>
+<b>🔧 Manual Fallback:</b>
+<a href="{jupiter_link}">👆 Trade DPUMP on Jupiter</a>
+
+<b>💡 Type /executed after completing your manual trade</b>
 
 <b>📋 Trade Details:</b>
 • Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
