@@ -1265,13 +1265,17 @@ Please start over with /fetch and provide all parameters.
             return
         
         # Create Jupiter swap link for immediate purchase
-        from wallet_integration import generate_swap_link, WSOL_ADDRESS
-        jupiter_buy_link = generate_swap_link(
-            input_mint=WSOL_ADDRESS,  # SOL
-            output_mint=session.contract_address,  # User's token
-            input_symbol="SOL",
-            output_symbol=session.token_symbol or "TOKEN"
-        )
+        try:
+            from wallet_integration import generate_swap_link, WSOL_ADDRESS
+            jupiter_buy_link = generate_swap_link(
+                input_mint=WSOL_ADDRESS,  # SOL
+                output_mint=session.contract_address,  # User's token
+                input_symbol="SOL",
+                output_symbol=session.token_symbol or "TOKEN"
+            )
+        except Exception as e:
+            # Fallback to direct Jupiter link
+            jupiter_buy_link = f"https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint={session.contract_address}"
         
         immediate_trade_text = f"""
 🚀 <b>VIP FETCH IMMEDIATE TRADE EXECUTION</b>
@@ -1882,28 +1886,26 @@ def handle_fetch_command(chat_id):
                     }
                     
                     if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
-                        # Ready for VIP automated trading
+                        # Ready for VIP FETCH trading with specific token
                         ready_message = f"""
-🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
+🎯 <b>VIP FETCH TRADING - Ready!</b>
 
 <b>✅ Burner Wallet Verified:</b>
 • Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
 • SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
 • MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-<b>🤖 VIP FETCH Features:</b>
-• Fully automated token discovery
-• Real-time pump.fun monitoring
-• Automatic buy/sell execution
-• 2x profit targets / -40% stop-loss
-• Hands-off trading experience
+<b>🚀 VIP FETCH Features:</b>
+• Instant execution on any Solana token
+• Real-time price monitoring
+• Stop-loss/take-profit automation
+• Automatic 5% fee collection on profits
+• Premium trading speed
 
-<b>💰 Trade Amount:</b>
-How much SOL do you want to allocate for automated trading?
-
-Enter amount in SOL (e.g., 0.1, 0.5, 1.0):
+<b>📝 Enter Token Contract Address:</b>
+Paste the Solana contract address of the token you want to buy:
                         """
-                        update_session(chat_id, state=STATE_LIVE_WAITING_AMOUNT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
+                        update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, trading_mode='fetch', wallet_address=wallet_info['public_key'])
                         send_message(chat_id, ready_message)
                         return
                     else:
