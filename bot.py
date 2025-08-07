@@ -4995,4 +4995,9 @@ def format_enhanced_token_discovery(token: dict, trade_amount: float, jupiter_li
 <i>VIP FETCH Sniffer Dog detected this gem fresh from launch!</i>
     """.strip()
     
+    # Check if token has image and append it
+    token_image_url = token.get('pfp_url') or token.get('image_url') or token.get('image_uri')
+    if token_image_url and token_image_url != "https://pump.fun/logo.png" and "default" not in token_image_url.lower():
+        message += f"\n\n🖼️ <a href='{token_image_url}'>Token Image</a>"
+    
     return message
