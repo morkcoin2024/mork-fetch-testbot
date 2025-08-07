@@ -8,6 +8,7 @@ import base64
 import asyncio
 from datetime import datetime
 from flask import current_app
+from sqlalchemy import func
 
 # Bot configuration
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
@@ -426,7 +427,8 @@ Non-custodial wallets generated locally - YOU control the keys!
 🎯 /fetch - VIP Trading sniffer dog (requires 100K MORK)
 💼 /mywallet - Create or view your burner wallet
 🔓 /exportwallet - Backup your private keys
-📊 /status - Check your current session
+📊 /status - Check active trades and session status
+🚫 /cancel - Cancel current operation at any time
 ❓ /help - Get help and instructions
 
 <b>How to use:</b>
@@ -2939,6 +2941,184 @@ VIP FETCH successfully found and processed Pump.fun tokens!
 Failed to process discovered tokens: {str(e)}
 
 Tokens were found but execution failed. Please try again.
+        """
+        send_message(chat_id, error_message)
+
+def handle_status_command(chat_id):
+    """Handle /status command - show active trades and current session status"""
+    try:
+        from models import ActiveTrade, UserSession, db
+        
+        # Get current session
+        session = get_or_create_session(chat_id)
+        
+        # Get active trades
+        active_trades = ActiveTrade.query.filter_by(chat_id=str(chat_id), status='active').all()
+        
+        # Build status message
+        status_text = f"""
+📊 <b>MORK F.E.T.C.H BOT STATUS</b>
+
+<b>👤 Current Session:</b>
+🔄 <b>State:</b> {session.state.replace('_', ' ').title()}
+🎯 <b>Trading Mode:</b> {session.trading_mode.upper() if session.trading_mode else 'None'}
+"""
+        
+        # Add active trades section
+        if active_trades:
+            status_text += f"""
+⚡ <b>ACTIVE TRADES ({len(active_trades)}):</b>
+"""
+            for i, trade in enumerate(active_trades, 1):
+                pnl_emoji = "🟢" if trade.pnl >= 0 else "🔴"
+                trade_age = (datetime.utcnow() - trade.created_at).seconds // 60
+                
+                status_text += f"""
+<b>#{i} {trade.token_symbol or 'Unknown'}</b>
+💰 Position: {trade.trade_amount:.3f} SOL
+{pnl_emoji} P&L: {trade.pnl_percentage:.2f}% ({trade.pnl:.4f} SOL)
+📈 Stop-Loss: -{trade.stop_loss}% | Take-Profit: +{trade.take_profit}%
+⏱️ Age: {trade_age} minutes
+📄 Contract: <code>{trade.contract_address[:8]}...{trade.contract_address[-4:]}</code>
+"""
+        else:
+            status_text += """
+⚡ <b>ACTIVE TRADES:</b>
+❌ No active trades found
+"""
+        
+        # Add current session details if applicable
+        if session.state != STATE_IDLE:
+            status_text += f"""
+🔧 <b>CURRENT SESSION DETAILS:</b>
+"""
+            if session.contract_address:
+                status_text += f"📄 Contract: <code>{session.contract_address[:8]}...{session.contract_address[-4:]}</code>\n"
+            if session.token_symbol:
+                status_text += f"🏷️ Token: {session.token_name} ({session.token_symbol})\n"
+            if session.trade_amount:
+                status_text += f"💰 Amount: {session.trade_amount:.3f} SOL\n"
+            if session.stop_loss:
+                status_text += f"📉 Stop-Loss: -{session.stop_loss}%\n"
+            if session.take_profit:
+                status_text += f"📈 Take-Profit: +{session.take_profit}%\n"
+            if session.sell_percent:
+                status_text += f"💸 Sell Amount: {session.sell_percent}%\n"
+        
+        # Add wallet info if available
+        if BURNER_WALLET_ENABLED:
+            try:
+                wallet_stats = get_user_wallet_stats(str(chat_id))
+                if wallet_stats:
+                    status_text += f"""
+💼 <b>BURNER WALLET:</b>
+🏦 Address: <code>{wallet_stats['wallet_address'][:8]}...{wallet_stats['wallet_address'][-4:]}</code>
+💰 SOL Balance: {wallet_stats['sol_balance']:.4f} SOL
+🪙 MORK Balance: {wallet_stats['mork_balance']:,.0f} MORK
+"""
+            except Exception as e:
+                logging.warning(f"Failed to get wallet stats: {e}")
+        
+        # Add available commands
+        status_text += f"""
+🎮 <b>AVAILABLE COMMANDS:</b>
+• /simulate - Practice trading (free)
+• /snipe - Manual live trading
+• /fetch - Automated VIP trading  
+• /mywallet - Wallet management
+• /cancel - Cancel current session
+• /help - Full help menu
+"""
+        
+        send_message(chat_id, status_text)
+        
+    except Exception as e:
+        logging.error(f"Status command failed: {e}")
+        error_message = """
+❌ <b>Status Check Failed</b>
+
+Unable to retrieve current status. Please try again.
+        """
+        send_message(chat_id, error_message)
+
+def handle_cancel_command(chat_id):
+    """Handle /cancel command - cancel current session and any active operations"""
+    try:
+        from models import ActiveTrade, db
+        
+        # Get current session
+        session = get_or_create_session(chat_id)
+        
+        # Build cancellation message based on current state
+        if session.state == STATE_IDLE:
+            cancel_message = """
+ℹ️ <b>Nothing to Cancel</b>
+
+You don't have any active trading sessions.
+
+<b>Available Commands:</b>
+• /simulate - Start practice trading
+• /snipe - Start live trading
+• /fetch - Start VIP automated trading
+• /status - Check current status
+            """
+        else:
+            # Determine what was being cancelled
+            mode_name = "Unknown"
+            if session.trading_mode == 'simulate':
+                mode_name = "Simulation"
+            elif session.trading_mode == 'snipe':
+                mode_name = "Live Snipe"
+            elif session.trading_mode == 'fetch':
+                mode_name = "VIP FETCH"
+            
+            cancel_message = f"""
+✅ <b>Session Cancelled</b>
+
+<b>🔄 Cancelled Operation:</b>
+• Mode: {mode_name}
+• State: {session.state.replace('_', ' ').title()}
+"""
+            
+            # Add specific details if available
+            if session.token_symbol:
+                cancel_message += f"• Token: {session.token_name} ({session.token_symbol})\n"
+            if session.trade_amount:
+                cancel_message += f"• Amount: {session.trade_amount:.3f} SOL\n"
+            
+            cancel_message += """
+<b>🧹 Actions Taken:</b>
+• Current session reset to idle
+• All temporary data cleared
+• No trades were executed
+
+<b>💡 What's Next:</b>
+• Use /status to check your current state
+• Use /simulate, /snipe, or /fetch to start trading
+• Use /help for full command list
+            """
+        
+        # Reset session to idle state
+        update_session(chat_id, 
+                      state=STATE_IDLE,
+                      trading_mode=None,
+                      contract_address=None,
+                      token_name=None,
+                      token_symbol=None,
+                      entry_price=None,
+                      trade_amount=None,
+                      stop_loss=None,
+                      take_profit=None,
+                      sell_percent=None)
+        
+        send_message(chat_id, cancel_message)
+        
+    except Exception as e:
+        logging.error(f"Cancel command failed: {e}")
+        error_message = """
+❌ <b>Cancel Failed</b>
+
+Unable to cancel current session. Please try /start to reset completely.
         """
         send_message(chat_id, error_message)
 

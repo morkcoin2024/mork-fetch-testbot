@@ -44,3 +44,31 @@ class TradeSimulation(db.Model):
     
     def __repr__(self):
         return f'<TradeSimulation {self.chat_id}: {self.result_type}>'
+
+class ActiveTrade(db.Model):
+    """Model to store active live trades"""
+    id = db.Column(db.Integer, primary_key=True)
+    chat_id = db.Column(db.String(64), nullable=False, index=True)
+    trade_type = db.Column(db.String(16), nullable=False)  # 'snipe', 'fetch', 'manual'
+    contract_address = db.Column(db.String(64), nullable=False)
+    token_name = db.Column(db.String(128), nullable=True)
+    token_symbol = db.Column(db.String(32), nullable=True)
+    entry_price = db.Column(db.Float, nullable=True)
+    current_price = db.Column(db.Float, nullable=True)
+    trade_amount = db.Column(db.Float, nullable=False)  # Amount in SOL
+    tokens_purchased = db.Column(db.Float, nullable=True)  # Number of tokens bought
+    stop_loss = db.Column(db.Float, nullable=False)
+    take_profit = db.Column(db.Float, nullable=False)
+    sell_percent = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(32), default="active", nullable=False)  # "active", "completed", "cancelled", "stopped"
+    pnl = db.Column(db.Float, default=0.0)  # Current profit/loss in SOL
+    pnl_percentage = db.Column(db.Float, default=0.0)  # Current P&L percentage
+    tx_hash = db.Column(db.String(128), nullable=True)  # Transaction hash for entry
+    exit_tx_hash = db.Column(db.String(128), nullable=True)  # Transaction hash for exit
+    monitoring_active = db.Column(db.Boolean, default=True)  # Whether price monitoring is active
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    
+    def __repr__(self):
+        return f'<ActiveTrade {self.chat_id}: {self.token_symbol} - {self.status}>'
