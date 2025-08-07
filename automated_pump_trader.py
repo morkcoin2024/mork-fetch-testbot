@@ -153,12 +153,13 @@ class AutomatedPumpTrader:
             return False
     
     async def execute_buy_transaction(self, chat_id: str, burner_wallet: Dict, token: Dict, amount_sol: float) -> Dict:
-        """Execute buy transaction using Pump.fun bonding curve (NOT Jupiter)"""
+        """Execute buy transaction using smart platform routing"""
         try:
-            logger.info(f"Executing PUMP.FUN buy for {token.get('symbol', 'TOKEN')} with {amount_sol} SOL")
+            token_symbol = token.get('symbol', 'TOKEN')
+            logger.info(f"Executing smart trade for {token_symbol} with {amount_sol} SOL")
             
-            # Import Pump.fun trading system
-            from pump_fun_trading import buy_pump_fun_token
+            # Import smart trading router
+            from smart_trading_router import smart_trading_router
             
             # Get private key from burner wallet
             private_key = burner_wallet.get('private_key') or burner_wallet.get('private_key_encrypted')
@@ -169,11 +170,13 @@ class AutomatedPumpTrader:
                     'error': 'Private key not found in burner wallet'
                 }
             
-            # Execute Pump.fun buy using bonding curve
-            result = await buy_pump_fun_token(
+            # Execute smart trade (automatically routes to Pump.fun or Jupiter)
+            result = await smart_trading_router.execute_smart_trade(
                 private_key=private_key,
-                token_mint=token.get('mint', ''), 
-                sol_amount=amount_sol
+                token_mint=token.get('mint', ''),
+                token_symbol=token_symbol,
+                sol_amount=amount_sol,
+                trade_type="buy"
             )
             
             if result.get('success'):

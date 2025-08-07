@@ -81,9 +81,9 @@ class TradeExecutor:
             }
     
     async def execute_sell_order(self, trade: ActiveTrade, sell_percentage: float = 100.0) -> Dict:
-        """Execute Pump.fun sell order using bonding curve (NOT Jupiter)"""
+        """Execute sell order using smart platform routing"""
         try:
-            from pump_fun_trading import sell_pump_fun_token
+            from smart_trading_router import smart_trading_router
             
             # Get private key from trade context or burner wallet
             private_key = getattr(trade, 'private_key', None)
@@ -111,13 +111,15 @@ class TradeExecutor:
                     'error': 'Private key not found for sell execution'
                 }
             
-            logger.info(f"Executing PUMP.FUN sell: {sell_percentage}% of {trade.token_symbol}")
+            logger.info(f"Executing smart sell: {sell_percentage}% of {trade.token_symbol}")
             
-            # Execute Pump.fun sell using bonding curve
-            sell_result = await sell_pump_fun_token(
+            # Execute smart sell (automatically routes to Pump.fun or Jupiter)
+            sell_result = await smart_trading_router.execute_smart_trade(
                 private_key=private_key,
                 token_mint=trade.token_mint,
-                percentage=sell_percentage
+                token_symbol=trade.token_symbol,
+                sol_amount=0,  # Not used for sell
+                trade_type="sell"
             )
             
             if sell_result.get('success'):
