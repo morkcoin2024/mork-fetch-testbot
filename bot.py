@@ -2448,9 +2448,9 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         """
         send_message(chat_id, phase1_message)
         
-        # Scan for tokens without safety filters
+        # Scan for tokens with optimized safety filters
         async with PumpFunScanner() as scanner:
-            candidates = await scanner.get_token_candidates(min_safety_score=0)  # Remove safety filter
+            candidates = await scanner.get_token_candidates(min_safety_score=25)  # Optimized threshold
             
             if not candidates:
                 no_candidates_message = """

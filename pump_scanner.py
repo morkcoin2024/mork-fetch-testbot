@@ -52,8 +52,8 @@ class PumpFunScanner:
         self.api_base = "https://frontend-api.pump.fun"
         self.session = None
         self.blacklist_words = [
-            'scam', 'rug', 'honeypot', 'ponzi', 'fake', 'test', 'spam',
-            'bot', 'airdrop', 'free', 'giveaway', 'presale', 'ico'
+            'scam', 'rug', 'honeypot', 'ponzi', 'fake', 'spam',
+            'airdrop', 'presale', 'ico'
         ]
         
     async def __aenter__(self):
@@ -138,7 +138,7 @@ class PumpFunScanner:
                     seen_contracts.add(contract)
                     # Apply safety evaluation
                     safety_score, _ = self.evaluate_token_safety(token)
-                    if safety_score >= 50:  # Lower threshold for recently bonded tokens
+                    if safety_score >= 25:  # Much lower threshold for legitimate pump.fun tokens
                         token['safety_score'] = safety_score
                         safe_tokens.append(token)
             
@@ -525,17 +525,20 @@ class PumpFunScanner:
             score -= 10
             reasons['age'] = 'old'
             
-        # Market cap check (avoid too high or too low)
+        # Market cap check (much more inclusive for pump.fun)
         market_cap = token_data.get('usd_market_cap', 0)
-        if 1000 <= market_cap <= 50000:  # Sweet spot for sniping
+        if 500 <= market_cap <= 100000:  # Expanded range for pump.fun tokens
             score += 15
             reasons['market_cap'] = 'optimal'
-        elif market_cap > 100000:
+        elif market_cap > 500000:
             score -= 20
             reasons['market_cap'] = 'too_high'
-        elif market_cap < 500:
+        elif market_cap < 100:
             score -= 10
             reasons['market_cap'] = 'too_low'
+        else:
+            score += 5  # Give some points for any reasonable market cap
+            reasons['market_cap'] = 'acceptable'
             
         # Basic name/symbol quality check
         if len(name) >= 3 and name.replace(' ', '').isalpha():

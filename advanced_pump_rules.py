@@ -35,7 +35,10 @@ class AdvancedPumpRules:
         self.meme_keywords = [
             'zucked', 'simp', 'backdoor', 'elon', 'trump', 'pepe', 'wojak',
             'chad', 'gigachad', 'based', 'cringe', 'moon', 'diamond', 'hands',
-            'ape', 'degen', 'wagmi', 'ngmi', 'rekt', 'pump', 'lambo', 'rocket'
+            'ape', 'degen', 'wagmi', 'ngmi', 'rekt', 'pump', 'lambo', 'rocket',
+            'bob', 'alice', 'john', 'mike', 'dave', 'tom', 'joe', 'rich', 'poor',
+            'sad', 'happy', 'mad', 'king', 'queen', 'dog', 'cat', 'frog', 'turd',
+            'shit', 'coin', 'token', 'meme', 'doge', 'shib', 'solana', 'sol'
         ]
         
         self.high_value_patterns = [
