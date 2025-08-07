@@ -1721,11 +1721,20 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
             }
             trade_results.append(trade_result)
             
-            # Send individual trade execution notification with REAL data
+            # Get token PFP and pump.fun page for enhanced display
+            pfp_display = ""
+            pump_page_link = f"https://pump.fun/coin/{candidate.get('mint', '')}"
+            
+            if candidate.get('pfp_url') and candidate.get('pfp_url') != 'https://pump.fun/logo.png':
+                pfp_display = f"🖼️ <a href='{candidate['pfp_url']}'>Token Image</a> | "
+            
+            # Send individual trade execution notification with REAL data and PFP
             execution_message = f"""
 ⚡ <b>TRADE EXECUTED #{i+1}</b>
 
 <b>📊 {trade_result['token_name']} (${trade_result['token_symbol']})</b>
+{pfp_display}🎭 <a href="{pump_page_link}">View on Pump.fun</a>
+
 💰 <b>Entry Price:</b> {trade_result['entry_price']:.11f}
 📈 <b>Market Cap:</b> ${trade_result['market_cap']:,.0f}
 ⭐ <b>Safety Score:</b> {trade_result['safety_score']}/100

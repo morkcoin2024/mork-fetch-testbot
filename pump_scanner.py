@@ -35,6 +35,8 @@ class TokenCandidate:
     safety_score: int
     is_renounced: bool
     is_burnt: bool
+    pfp_url: str = None
+    pump_fun_page: str = None
     
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
@@ -579,6 +581,14 @@ class PumpFunScanner:
                     integrator = SolanaWalletIntegrator()
                     real_price = integrator.get_token_price_in_sol(analysis.mint)
                     
+                    # Get token PFP from pump.fun
+                    pfp_url = None
+                    try:
+                        from pump_pfp_fetcher import fetch_pump_fun_pfp
+                        pfp_url = await fetch_pump_fun_pfp(analysis.mint)
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch PFP for {analysis.mint}: {e}")
+                    
                     candidate = TokenCandidate(
                         mint=analysis.mint,
                         name=analysis.name,
@@ -593,7 +603,9 @@ class PumpFunScanner:
                         pump_score=analysis.overall_score,
                         safety_score=min(45, analysis.dev_credibility),  # Cap safety score at 45 for pump.fun
                         is_renounced=original_token.get('is_renounced', False),
-                        is_burnt=original_token.get('is_burnt', False)
+                        is_burnt=original_token.get('is_burnt', False),
+                        pfp_url=pfp_url,  # Add PFP URL
+                        pump_fun_page=f"https://pump.fun/coin/{analysis.mint}"  # Direct pump.fun link
                     )
                     candidates.append(candidate)
             
