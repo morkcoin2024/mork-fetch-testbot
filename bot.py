@@ -2940,13 +2940,16 @@ Please try again with /fetch or contact support.
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Execute the VIP FETCH automated trading process"""
     try:
-        # Import our trading modules
+        # Import our trading modules and setup Flask context
         from pump_scanner import PumpFunScanner
         from trade_executor import trade_executor, ActiveTrade
+        from app import app
         import time
         
-        # Phase 1: Token Discovery
-        phase1_message = """
+        # Create Flask application context for database access
+        with app.app_context():
+            # Phase 1: Token Discovery
+            phase1_message = """
 🔍 <b>PHASE 1: LIVE TOKEN DISCOVERY</b>
 
 🐕 Sniffer Dog actively scanning Pump.fun...
@@ -3252,7 +3255,7 @@ The VIP FETCH scanner successfully:
 
 <i>Try again later for different market conditions!</i>
             """
-            send_message(chat_id, no_results_message)
+                send_message(chat_id, no_results_message)
             
     except Exception as e:
         logging.error(f"VIP FETCH execution failed: {e}")
