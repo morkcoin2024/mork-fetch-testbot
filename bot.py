@@ -32,6 +32,9 @@ STATE_LIVE_WAITING_TAKEPROFIT = "live_waiting_takeprofit"
 STATE_LIVE_WAITING_SELLPERCENT = "live_waiting_sellpercent"
 STATE_LIVE_READY_TO_CONFIRM = "live_ready_to_confirm"
 
+# Auto-trading selection states
+STATE_TRADING_MODE_SELECTION = "trading_mode_selection"
+
 # Mork token contract address
 MORK_TOKEN_CONTRACT = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
 
@@ -70,7 +73,10 @@ def send_message(chat_id, text, reply_markup=None):
         'parse_mode': 'HTML'
     }
     if reply_markup:
-        data['reply_markup'] = reply_markup
+        if isinstance(reply_markup, dict):
+            data['reply_markup'] = json.dumps(reply_markup)
+        else:
+            data['reply_markup'] = reply_markup
     
     try:
         response = requests.post(url, json=data)
@@ -613,7 +619,7 @@ Try again or type /cancel to abort.
         send_message(chat_id, error_text)
         return
     
-    session = update_session(chat_id, sell_percent=sell_percent_value, state=STATE_READY_TO_CONFIRM)
+    session = update_session(chat_id, sell_percent=sell_percent_value, state=STATE_TRADING_MODE_SELECTION)
     
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
     
@@ -642,13 +648,257 @@ Try again or type /cancel to abort.
 📈 <b>Take-Profit:</b> {session.take_profit}%
 💰 <b>Sell Amount:</b> {session.sell_percent}%
 
+<b>🎯 CHOOSE YOUR TRADING MODE:</b>
+1️⃣ <b>AUTO-TRADE</b> - Bot executes automatically
+2️⃣ <b>MANUAL MODE</b> - You control when to buy/sell
+3️⃣ <b>OPT OUT</b> - Cancel this trade setup
+
 <b>⚠️ This is PRACTICE MODE - No real money involved</b>
 Perfect for learning trading strategies risk-free!
 
-Type <b>/confirm</b> to run the simulation or /cancel to abort.
+Reply with: <b>1</b> (Auto), <b>2</b> (Manual), <b>3</b> (Cancel), or /confirm for Auto-Trade
     """
     
-    send_message(chat_id, confirm_text)
+    # Add inline keyboard for better UX
+    keyboard = {
+        'inline_keyboard': [
+            [
+                {'text': '🤖 AUTO-TRADE', 'callback_data': 'auto_trade_sim'},
+                {'text': '👤 MANUAL MODE', 'callback_data': 'manual_trade_sim'},
+                {'text': '❌ OPT OUT', 'callback_data': 'cancel_trade'}
+            ]
+        ]
+    }
+    
+    send_message(chat_id, confirm_text, keyboard)
+
+def handle_trading_mode_selection(chat_id, mode_input):
+    """Handle trading mode selection: auto, manual, or opt out"""
+    session = get_or_create_session(chat_id)
+    
+    # Parse user input
+    if mode_input.lower() in ['1', 'auto', 'auto-trade', '🤖']:
+        mode = 'auto'
+    elif mode_input.lower() in ['2', 'manual', 'manual mode', '👤']:
+        mode = 'manual'
+    elif mode_input.lower() in ['3', 'cancel', 'opt out', 'optout', '❌']:
+        mode = 'cancel'
+    else:
+        error_text = """
+❌ <b>Invalid Selection</b>
+
+Please choose a valid option:
+• <b>1</b> or <b>Auto</b> for Auto-Trade
+• <b>2</b> or <b>Manual</b> for Manual Mode  
+• <b>3</b> or <b>Cancel</b> to Opt Out
+
+Try again or type /cancel to abort.
+        """
+        send_message(chat_id, error_text)
+        return
+    
+    if mode == 'cancel':
+        # User opted out
+        cancel_message = """
+❌ <b>Trading Setup Cancelled</b>
+
+Your trade configuration has been cancelled. No trades will be executed.
+
+• Type /simulate to start a new practice trade
+• Type /snipe for manual live trading
+• Type /fetch for VIP auto-trading
+
+Thanks for using MORK F.E.T.C.H Bot! 🐕
+        """
+        update_session(chat_id, state=STATE_IDLE)
+        send_message(chat_id, cancel_message)
+        return
+    
+    elif mode == 'auto':
+        # Execute auto-trade
+        execute_auto_trade(chat_id, session)
+        
+    elif mode == 'manual':
+        # Set up manual mode
+        setup_manual_mode(chat_id, session)
+
+def execute_auto_trade(chat_id, session):
+    """Execute automatic trading based on user's tier"""
+    tier = determine_user_tier(chat_id)
+    
+    if tier == 'simulation':
+        execute_simulation_auto_trade(chat_id, session)
+    elif tier == 'manual_live':
+        execute_live_auto_trade(chat_id, session, 'manual')
+    elif tier == 'vip':
+        execute_live_auto_trade(chat_id, session, 'vip')
+        
+def execute_simulation_auto_trade(chat_id, session):
+    """Execute automatic simulation trade"""
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    
+    auto_message = f"""
+🤖 <b>AUTO-TRADE SIMULATION EXECUTING</b>
+
+<b>📋 Trade Details:</b>
+🏷️ <b>Token:</b> {token_display}
+💵 <b>Amount:</b> ${session.trade_amount:,.2f} USD
+📉 <b>Stop-Loss:</b> {session.stop_loss}%
+📈 <b>Take-Profit:</b> {session.take_profit}%
+
+<b>🔄 Status:</b> Automatically monitoring price...
+• Bot will execute sells based on your parameters
+• You can relax while the bot handles everything
+• Updates will be sent as trades execute
+
+<b>⚠️ SIMULATION MODE - No real money at risk</b>
+
+Trading session started! The bot is now actively monitoring. 🐕
+    """
+    
+    # Record simulation trade
+    from models import TradeSimulation, db
+    simulation = TradeSimulation()
+    simulation.chat_id = str(chat_id)
+    simulation.contract_address = session.contract_address
+    simulation.trade_amount = session.trade_amount or 100.0
+    simulation.stop_loss = session.stop_loss
+    simulation.take_profit = session.take_profit
+    simulation.sell_percent = session.sell_percent
+    simulation.entry_price = session.entry_price or 0.0
+    simulation.token_name = session.token_name or "Unknown"
+    simulation.token_symbol = session.token_symbol or "TOKEN"
+    simulation.auto_mode = True
+    simulation.status = "auto_active"
+    
+    db.session.add(simulation)
+    db.session.commit()
+    
+    update_session(chat_id, state=STATE_IDLE)
+    send_message(chat_id, auto_message)
+    
+def execute_live_auto_trade(chat_id, session, tier):
+    """Execute automatic live trading"""
+    # Check burner wallet eligibility
+    if not BURNER_WALLET_ENABLED:
+        error_message = """
+❌ <b>Burner Wallet Required</b>
+
+Auto-trading requires a burner wallet system which is currently unavailable.
+
+Please use manual trading or try again later.
+        """
+        send_message(chat_id, error_message)
+        return
+        
+    import asyncio
+    
+    async def check_and_execute():
+        requirements = await check_trading_eligibility(str(chat_id))
+        
+        if not requirements.get('eligible', False):
+            eligibility_message = f"""
+❌ <b>Trading Requirements Not Met</b>
+
+<b>🔍 Current Status:</b>
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+• Required MORK: {requirements.get('min_mork_required', 100000):,} tokens
+
+<b>📋 To Start Auto-Trading:</b>
+1. Get your burner wallet: /mywallet
+2. Fund it with SOL and 100K MORK tokens
+3. Return here to start auto-trading
+
+<b>💰 Get $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+            """
+            send_message(chat_id, eligibility_message)
+            return
+            
+        # User is eligible - start auto-trading
+        auto_message = f"""
+🔥 <b>LIVE AUTO-TRADE INITIATED</b>
+
+<b>✅ Burner Wallet Verified:</b>
+• SOL: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK: {requirements.get('mork_balance', 0):,} tokens
+
+<b>🤖 Auto-Trading Active:</b>
+• Bot will execute real trades automatically
+• 0.5% profit fee on successful trades only
+• Real SOL/tokens will be used
+• Stop-loss and take-profit active
+
+<b>⚡ LIVE MODE - Real money at risk!</b>
+
+Auto-trading session started! Monitor for updates. 🚀
+        """
+        
+        # Execute the actual auto-trade logic here
+        from burner_wallet_system import execute_burner_trade
+        
+        trade_amount_sol = session.trade_amount / 100 if session.trade_amount else 0.1  # Convert USD to SOL estimate
+        result = await execute_burner_trade(str(chat_id), session.contract_address, trade_amount_sol, 'buy')
+        
+        if result.get('success'):
+            update_session(chat_id, state=STATE_IDLE)
+            send_message(chat_id, auto_message)
+        else:
+            error_msg = f"""
+❌ <b>Auto-Trade Failed</b>
+
+Error executing trade: {result.get('error', 'Unknown error')}
+
+Please try manual trading or contact support.
+            """
+            send_message(chat_id, error_msg)
+    
+    # Run async function
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(check_and_execute())
+    loop.close()
+
+def setup_manual_mode(chat_id, session):
+    """Set up manual trading mode"""
+    token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
+    
+    manual_message = f"""
+👤 <b>MANUAL MODE ACTIVATED</b>
+
+<b>📋 Your Trade Setup:</b>
+🏷️ <b>Token:</b> {token_display}
+💵 <b>Amount:</b> ${session.trade_amount:,.2f} USD
+📉 <b>Stop-Loss:</b> {session.stop_loss}%
+📈 <b>Take-Profit:</b> {session.take_profit}%
+
+<b>🎮 Manual Controls:</b>
+• You control when to buy and sell
+• Bot provides price alerts and recommendations
+• Execute trades when you're ready
+• Full control over timing and decisions
+
+<b>⚡ Ready for Manual Trading</b>
+
+Type /confirm when you want to execute the initial buy order.
+Type /cancel to abort this setup.
+    """
+    
+    update_session(chat_id, state=STATE_READY_TO_CONFIRM)
+    send_message(chat_id, manual_message)
+
+def determine_user_tier(chat_id):
+    """Determine user's trading tier based on context"""
+    session = get_or_create_session(chat_id)
+    
+    # Check if this is a simulation based on session state or context
+    if session.state.startswith('STATE_WAITING') or 'simulation' in session.state.lower():
+        return 'simulation'
+    
+    # For now, default to simulation unless explicitly in live mode
+    # This can be enhanced with actual MORK token checking later
+    return 'simulation'
 
 def handle_confirm_command(chat_id):
     """Handle confirmation for both simulation and live trading"""
