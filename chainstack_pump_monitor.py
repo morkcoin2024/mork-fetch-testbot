@@ -89,7 +89,13 @@ class ChainstackPumpMonitor:
                 response_data = json.loads(response)
                 
                 if "result" in response_data:
-                    self.subscription_id = response_data["result"]["subscription"]
+                    # Handle different response formats
+                    if isinstance(response_data["result"], dict):
+                        self.subscription_id = response_data["result"].get("subscription")
+                    else:
+                        # Direct subscription ID
+                        self.subscription_id = response_data["result"]
+                    
                     logger.info(f"Subscription confirmed: {self.subscription_id}")
                 else:
                     logger.error(f"Subscription failed: {response_data}")
