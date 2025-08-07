@@ -1908,12 +1908,16 @@ def handle_fetch_command(chat_id):
 • SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
 • MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-<b>🤖 VIP FETCH Features:</b>
-• Fully automated token discovery
-• Real-time pump.fun monitoring
-• Automatic buy/sell execution
-• AI-enhanced safety filtering
-• Hands-off trading experience
+⭐ <b>VIP FETCH Features:</b>
+• Fully automated token discovery & live screening
+• Real-time pump.fun + Raydium migration monitoring
+• AI-enhanced safety filtering (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
+• Trailing stop-loss activated at +20% profit, chases higher but locks minimum gains
+• Auto emergency exit if dev/marketing wallet dumps >50% supply in one tx
+• Anti-honeypot & contract checks (aborts if blacklisted buyers, trading restrictions, or contract updates detected)
+• Dynamic scaling: if profit exceeds +100%, move trailing stop up to lock at +60%
+• Airdrop sniffer: auto-warn and flag for rug risk if dev airdrops supply to many wallets post-launch
+• Hands-off trading experience with maximum protection
 
 <b>💰 Trade Amount:</b>
 How much SOL do you want to allocate for automated trading?
@@ -2636,8 +2640,12 @@ Enter sell percentage:
 • Real-time pump.fun + Raydium migration monitoring
 • AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
 • {diversification_text} (auto-split for risk management)
-• Independent monitoring & trailing stop-loss per position
-• Automatic 5% fee collection on net profits
+• Trailing stop-loss activated at +20% profit, chases higher but locks minimum gains
+• Auto emergency exit if dev/marketing wallet dumps >50% supply in one tx
+• Anti-honeypot & contract checks (aborts if blacklisted buyers, trading restrictions, or contract updates detected)
+• Dynamic scaling: if profit exceeds +100%, move trailing stop up to lock at +60%
+• Airdrop sniffer: auto-warn and flag for rug risk if dev airdrops supply to many wallets post-launch
+• Automatic 0.5% fee collection on net profits (profit calculated after all fees)
 
 📊 <b>Order Summary:</b>
 🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
@@ -2647,7 +2655,9 @@ Enter sell percentage:
 📉 <b>Stop-Loss:</b> -{session.stop_loss}%
 📈 <b>Take-Profit:</b> +{session.take_profit}%
 💸 <b>Partial Sell:</b> {sell_percent}% at target, {100-sell_percent}% rides with auto trailing-stop
-🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
+🚨 <b>Emergency Exit:</b> Auto-sell if dev dumps >50% supply, contract updates, or honeypot detected
+🔒 <b>Anti-Rug Protection:</b> Trailing stop at +20% profit, dynamic scaling at +100% locks +60% minimum
+🎯 <b>Airdrop Monitor:</b> Auto-flag suspicious dev wallet activity and mass airdrops
 
 ⚠️ <b>RISK WARNING:</b>
 • These are real, non-reversible blockchain trades
@@ -2656,7 +2666,8 @@ Enter sell percentage:
 • Always DYOR, no refunds
 
 💸 <b>FEE NOTICE:</b>
-• By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
+• Profit is calculated after all trading fees; 0.5% of net profit sent automatically to MORK marketing wallet on every successful trade
+• No fees on losing trades - you only pay when the bot makes you money
 
 Type <b>/confirm</b> if you're feeling it to execute this VIP trade or <b>/cancel</b> to abort.
 
