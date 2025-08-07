@@ -2910,14 +2910,18 @@ async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amo
         }
 
 def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
-    """Wrapper function to run VIP FETCH in a new event loop"""
+    """Wrapper function to run VIP FETCH in a new event loop with Flask context"""
     try:
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        from app import app
         
-        # Run the trading function with all parameters
-        loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        # Run within Flask application context
+        with app.app_context():
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Run the trading function with all parameters
+            loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
         
     except Exception as e:
         logging.error(f"VIP FETCH thread execution failed: {e}")
@@ -2946,10 +2950,8 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         from app import app
         import time
         
-        # Create Flask application context for database access
-        with app.app_context():
-            # Phase 1: Token Discovery
-            phase1_message = """
+        # Phase 1: Token Discovery
+        phase1_message = """
 🔍 <b>PHASE 1: LIVE TOKEN DISCOVERY</b>
 
 🐕 Sniffer Dog actively scanning Pump.fun...
