@@ -2671,7 +2671,7 @@ Enter sell percentage:
 
 Type <b>/confirm</b> if you're feeling it to execute this VIP trade or <b>/cancel</b> to abort.
 
-⚠️ <i>By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>{TRADING_DISCLAIMER}
+{TRADING_DISCLAIMER}
         """
     else:
         # For regular live trading, show specific token details
