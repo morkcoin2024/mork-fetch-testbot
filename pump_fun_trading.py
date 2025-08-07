@@ -104,9 +104,11 @@ class PumpFunTrader:
                         with open(key_file, 'rb') as f:
                             key = f.read()
                         fernet = Fernet(key)
-                        decrypted_bytes = fernet.decrypt(private_key.encode())
-                        private_key_bytes = decrypted_bytes
-                        logger.info("✅ Private key decrypted successfully")
+                        decrypted_str = fernet.decrypt(private_key.encode()).decode()
+                        # The private key was stored as base64, decode it
+                        import base64
+                        private_key_bytes = base64.b64decode(decrypted_str)
+                        logger.info(f"✅ Private key decrypted and base64 decoded successfully ({len(decrypted_str)} chars -> {len(private_key_bytes)} bytes)")
                     else:
                         return {"success": False, "error": "Encryption key file not found"}
                         
@@ -118,7 +120,7 @@ class PumpFunTrader:
                 logger.info("Using plain base58 private key...")
                 private_key_bytes = base58.b58decode(private_key)
                 
-            keypair = Keypair.from_secret_key(private_key_bytes)
+            keypair = Keypair.from_bytes(private_key_bytes)
             public_key = str(keypair.public_key)
             
             # CRITICAL: Check wallet balance first (ChatGPT's suggestion)
@@ -221,9 +223,11 @@ class PumpFunTrader:
                         with open(key_file, 'rb') as f:
                             key = f.read()
                         fernet = Fernet(key)
-                        decrypted_bytes = fernet.decrypt(private_key.encode())
-                        private_key_bytes = decrypted_bytes
-                        logger.info("✅ Private key decrypted successfully for sell")
+                        decrypted_str = fernet.decrypt(private_key.encode()).decode()
+                        # The private key was stored as base64, decode it
+                        import base64
+                        private_key_bytes = base64.b64decode(decrypted_str)
+                        logger.info(f"✅ Private key decrypted and base64 decoded successfully for sell ({len(decrypted_str)} chars -> {len(private_key_bytes)} bytes)")
                     else:
                         return {"success": False, "error": "Encryption key file not found"}
                         
@@ -233,7 +237,7 @@ class PumpFunTrader:
             else:
                 private_key_bytes = base58.b58decode(private_key)
                 
-            keypair = Keypair.from_secret_key(private_key_bytes)
+            keypair = Keypair.from_bytes(private_key_bytes)
             public_key = str(keypair.public_key)
             
             logger.info(f"Selling {percentage}% of {token_mint[:8]}...")
