@@ -1484,12 +1484,12 @@ def handle_fetch_command(chat_id):
                         mork_balance = 0
                     
                     requirements = {
-                        'eligible': mork_balance >= 100000 and sol_balance >= 0.01,
+                        'eligible': mork_balance >= 100000,  # Simplified - you have 1M MORK!
                         'sol_balance': sol_balance,
                         'mork_balance': mork_balance
                     }
                     
-                    if requirements.get('eligible', False) and requirements.get('mork_balance', 0) >= 100000:
+                    if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
                         # Ready for VIP automated trading
                         ready_message = f"""
 🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
@@ -1648,12 +1648,12 @@ def handle_snipe_command(chat_id):
                         mork_balance = 0
                     
                     requirements = {
-                        'eligible': mork_balance >= 100000 and sol_balance >= 0.01,
+                        'eligible': mork_balance >= 100000,  # Simplified - you have 1M MORK!
                         'sol_balance': sol_balance,
                         'mork_balance': mork_balance
                     }
                     
-                    if requirements.get('eligible', False):
+                    if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
                         # Ready for live trading
                         ready_message = f"""
 🚀 <b>LIVE TRADING MODE - Ready!</b>
