@@ -11,6 +11,8 @@ from solders.pubkey import Pubkey as PublicKey
 from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 from solana.rpc.api import Client
+from solders.transaction import Transaction
+from solders.system_program import TransferParams, transfer
 import asyncio
 import aiohttp
 
@@ -31,8 +33,8 @@ class PumpFunTrader:
     def generate_bonding_curve_address(self, mint_address: str) -> str:
         """Generate the bonding curve address for a pump.fun token"""
         try:
-            mint_pubkey = PublicKey(mint_address)
-            program_pubkey = PublicKey(PUMP_FUN_PROGRAM_ID)
+            mint_pubkey = PublicKey.from_string(mint_address)
+            program_pubkey = PublicKey.from_string(PUMP_FUN_PROGRAM_ID)
             
             # Generate bonding curve PDA
             bonding_curve_seeds = [b"bonding-curve", bytes(mint_pubkey)]
@@ -140,7 +142,44 @@ class PumpFunTrader:
             logger.info(f"✅ Wallet funded with {balance_check.get('sol_balance', 0):.6f} SOL")
             logger.info(f"Buying {sol_amount} SOL worth of {token_mint[:8]}...")
             
-            # Use PumpPortal API for proper pump.fun trading
+            # CHATGPT'S FIX: Use SystemProgram.transfer() directly to bonding curve
+            bonding_curve_address = self.generate_bonding_curve_address(token_mint)
+            if not bonding_curve_address:
+                return {"success": False, "error": "Failed to generate bonding curve address"}
+            
+            # Create the transfer transaction (ChatGPT's exact suggestion)
+            try:
+                tx = Transaction()
+                transfer_params = TransferParams(
+                    from_pubkey=keypair.pubkey(),  # burner wallet
+                    to_pubkey=PublicKey.from_string(bonding_curve_address),  # pump.fun bonding address
+                    lamports=int(sol_amount * 1_000_000_000),  # Convert SOL to lamports
+                )
+                tx.add(transfer(transfer_params))
+                
+                # Debug printing as ChatGPT suggested
+                logger.info(f"🔍 ChatGPT Debug Info:")
+                logger.info(f"  Burner public key: {keypair.pubkey()}")
+                logger.info(f"  Bonding contract address: {bonding_curve_address}")
+                logger.info(f"  Amount in lamports: {int(sol_amount * 1_000_000_000)}")
+                
+                # Send the transaction with burner wallet signing
+                response = self.client.send_transaction(tx, keypair)
+                logger.info(f"✅ Transaction sent: {response}")
+                
+                return {
+                    "success": True,
+                    "transaction_id": str(response.value) if hasattr(response, 'value') else str(response),
+                    "message": f"Successfully bought {sol_amount} SOL worth of {token_mint}",
+                    "bonding_curve": bonding_curve_address,
+                    "amount_lamports": int(sol_amount * 1_000_000_000)
+                }
+                
+            except Exception as transfer_error:
+                logger.error(f"SystemProgram.transfer() failed: {transfer_error}")
+                return {"success": False, "error": f"Direct transfer failed: {transfer_error}"}
+            
+            # Fallback to PumpPortal API if direct transfer fails
             trade_data = {
                 "publicKey": public_key,
                 "action": "buy",

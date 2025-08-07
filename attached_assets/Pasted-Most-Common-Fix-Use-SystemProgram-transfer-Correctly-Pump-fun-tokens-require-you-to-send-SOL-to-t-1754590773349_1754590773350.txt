@@ -1,0 +1,70 @@
+Most Common Fix: Use SystemProgram.transfer() Correctly
+Pump.fun tokens require you to send SOL to the token’s unique bonding address.
+
+This must come directly from the burner wallet, signed and sent like this:
+
+✅ Minimal Working Code (Paste This):
+python
+Copy
+Edit
+from solana.transaction import Transaction
+from solana.system_program import TransferParams, transfer
+
+tx = Transaction()
+tx.add(
+    transfer(
+        TransferParams(
+            from_pubkey=burner_wallet.public_key,  # burner wallet
+            to_pubkey=bonding_contract_pubkey,     # pump.fun bonding address
+            lamports=int(0.1 * 1e9),               # 0.1 SOL
+        )
+    )
+)
+
+response = client.send_transaction(tx, burner_wallet)
+print(response)
+✔️ Check that:
+
+bonding_contract_pubkey is correct (each token on Pump.fun has a unique one)
+
+burner_wallet is properly loaded from secret key
+
+You’re using client.send_transaction(..., burner_wallet), not a Phantom key
+
+✅ 2. Debug What’s Being Signed and Sent
+Ask your Replit assistant to print this before sending:
+
+python
+Copy
+Edit
+print("Burner public key:", burner_wallet.public_key)
+print("Bonding contract address:", bonding_contract_pubkey)
+print("Amount in lamports:", int(amount * 1e9))
+If the wallet address isn’t correct, or the amount is zero, TX won’t go through.
+
+✅ 3. Ensure Burner Wallet Has Sufficient Funds
+Even if it looks funded, double-check right before TX:
+
+python
+Copy
+Edit
+balance = client.get_balance(burner_wallet.public_key)['result']['value']
+if balance < int(amount * 1e9):
+    print("Insufficient funds in burner wallet")
+    return
+If it's even 1 lamport short, the transaction fails silently.
+
+🧠 Additional Checks to Tell Your Assistant
+Ask them to confirm:
+
+🔲 burner_wallet is loaded as a Keypair, not just public key
+python
+Copy
+Edit
+from solana.keypair import Keypair
+burner_wallet = Keypair.from_secret_key(secret_key_bytes)
+🔲 They're using send_transaction() and not raw request_airdrop() or similar
+🔲 They're not accidentally trying to use Phantom wallet to sign instead of burner
+💥 TL;DR to Give Your Replit Assistant
+“Please ensure the bot is using the SystemProgram.transfer() method to send SOL from the burner wallet directly to the token’s bonding contract address. It must be signed using the burner Keypair, and we should check that the burner has enough SOL before attempting the TX. Print the public key, contract address, and amount just before sending for debugging.”
+
