@@ -2,7 +2,7 @@ modules = ["python-3.11", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["geckodriver", "openssl", "postgresql", "sqlite"]
+packages = ["cargo", "geckodriver", "libiconv", "libxcrypt", "openssl", "pkg-config", "postgresql", "rustc", "sqlite"]
 
 [deployment]
 deploymentTarget = "autoscale"

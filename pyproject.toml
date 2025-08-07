@@ -8,6 +8,7 @@ dependencies = [
     "asyncio>=4.0.0",
     "base58>=2.1.1",
     "beautifulsoup4>=4.13.4",
+    "cryptography>=45.0.6",
     "email-validator>=2.2.0",
     "flask>=3.1.1",
     "flask-sqlalchemy>=3.1.1",

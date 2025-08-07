@@ -46,6 +46,19 @@ from wallet_integration import (
     get_wallet_transaction_history
 )
 
+# Import burner wallet system
+try:
+    from burner_wallet_system import (
+        get_user_burner_wallet, 
+        check_trading_eligibility, 
+        export_user_wallet,
+        get_user_wallet_stats
+    )
+    BURNER_WALLET_ENABLED = True
+except ImportError as e:
+    logging.warning(f"Burner wallet system not available: {e}")
+    BURNER_WALLET_ENABLED = False
+
 
 
 def send_message(chat_id, text, reply_markup=None):
@@ -852,6 +865,9 @@ Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - V
 • <b>/cancel</b> - Cancel current operation
 • <b>/help</b> - Show this help message
 • <b>/whatif</b> - View your simulation performance history
+• <b>/mywallet</b> - View your burner wallet info
+• <b>/exportwallet</b> - Export wallet for backup
+• <b>/walletstats</b> - View trading history & profits
 
 <b>📖 How to Use:</b>
 1. Type /simulate for practice, /snipe for live trading, or /fetch for VIP features
@@ -2228,6 +2244,12 @@ def handle_update(update):
                 handle_autosell_command(chat_id, text)
             elif command == '/autoorders':
                 handle_autoorders_command(chat_id)
+            elif command == '/mywallet':
+                handle_mywallet_command(chat_id)
+            elif command == '/exportwallet':
+                handle_exportwallet_command(chat_id)
+            elif command == '/walletstats':
+                handle_walletstats_command(chat_id)
             else:
                 send_message(chat_id, "Unknown command. Type /help for available commands.")
         else:
@@ -2293,6 +2315,214 @@ def handle_update(update):
         if 'message' in update:
             chat_id = update['message']['chat']['id']
             send_message(chat_id, "Sorry, an error occurred. Please try again or type /start to reset.")
+
+def handle_mywallet_command(chat_id):
+    """Handle /mywallet command - show burner wallet info"""
+    if not BURNER_WALLET_ENABLED:
+        send_message(chat_id, "🔥 Burner wallet system is currently unavailable. Please try again later.")
+        return
+        
+    try:
+        import asyncio
+        
+        async def get_wallet_info():
+            # Get or create user's burner wallet
+            wallet = await get_user_burner_wallet(str(chat_id))
+            
+            if not wallet:
+                return "❌ Failed to create burner wallet. Please try again."
+                
+            # Check wallet requirements
+            requirements = await check_trading_eligibility(str(chat_id))
+            
+            # Format wallet info message
+            status_emoji = "✅" if requirements.get('eligible', False) else "⚠️"
+            eligibility_text = "ELIGIBLE FOR TRADING" if requirements.get('eligible', False) else "NOT ELIGIBLE FOR TRADING"
+            
+            message = f"""
+🔥 <b>YOUR BURNER WALLET</b>
+
+{status_emoji} <b>Status:</b> {eligibility_text}
+
+<b>📍 Wallet Address:</b>
+<code>{wallet['public_key']}</code>
+
+<b>💰 Balances:</b>
+• SOL: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK: {requirements.get('mork_balance', 0):,} tokens
+
+<b>📋 Requirements for Trading:</b>
+• Minimum MORK: {requirements.get('min_mork_required', 100000):,} tokens
+• Has enough MORK: {'✅' if requirements.get('has_min_mork', False) else '❌'}
+• Has enough SOL: {'✅' if requirements.get('has_min_sol', False) else '❌'}
+
+<b>🔒 Security:</b>
+• Non-custodial (you control your keys)
+• Automatic 0.5% fee on profits only
+• Export backup with /exportwallet
+
+<b>💰 Fund Your Wallet:</b>
+Send SOL and MORK tokens to your wallet address above to start trading!
+
+Get $MORK: https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+            """
+            
+            return message
+            
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(get_wallet_info())
+        loop.close()
+        
+        send_message(chat_id, result)
+        
+    except Exception as e:
+        logging.error(f"Error in /mywallet command: {e}")
+        send_message(chat_id, "❌ Error retrieving wallet information. Please try again later.")
+
+def handle_exportwallet_command(chat_id):
+    """Handle /exportwallet command - export private key"""
+    if not BURNER_WALLET_ENABLED:
+        send_message(chat_id, "🔥 Burner wallet system is currently unavailable. Please try again later.")
+        return
+        
+    try:
+        import asyncio
+        
+        async def export_wallet():
+            wallet_export = await export_user_wallet(str(chat_id))
+            
+            if not wallet_export:
+                return "❌ No wallet found. Use /mywallet to create one first."
+                
+            message = f"""
+🔐 <b>WALLET EXPORT - KEEP SECURE!</b>
+
+⚠️ <b>WARNING:</b> {wallet_export['backup_warning']}
+
+<b>📍 Public Key:</b>
+<code>{wallet_export['public_key']}</code>
+
+<b>🔑 Private Key:</b>
+<code>{wallet_export['private_key']}</code>
+
+<b>📄 JSON Format:</b>
+<code>{wallet_export['json_format']}</code>
+
+<b>🔒 IMPORTANT SECURITY NOTES:</b>
+• Save this information in a secure location
+• Never share your private key with anyone
+• If lost, your wallet cannot be recovered
+• Consider using a hardware wallet for large amounts
+
+<b>💡 How to Import:</b>
+• Phantom: Settings → Import Private Key
+• Solflare: Add Account → Import Private Key
+• Other wallets: Use the private key above
+
+Delete this message after backing up! 🗑️
+            """
+            
+            return message
+            
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(export_wallet())
+        loop.close()
+        
+        send_message(chat_id, result)
+        
+    except Exception as e:
+        logging.error(f"Error in /exportwallet command: {e}")
+        send_message(chat_id, "❌ Error exporting wallet. Please try again later.")
+
+def handle_walletstats_command(chat_id):
+    """Handle /walletstats command - show trading history and stats"""
+    if not BURNER_WALLET_ENABLED:
+        send_message(chat_id, "🔥 Burner wallet system is currently unavailable. Please try again later.")
+        return
+        
+    try:
+        import asyncio
+        
+        async def get_wallet_stats():
+            stats = await get_user_wallet_stats(str(chat_id))
+            
+            if 'error' in stats:
+                return f"❌ {stats['error']}"
+                
+            # Format stats message
+            total_profit = stats.get('total_profit', 0)
+            total_fees = stats.get('total_fees_paid', 0)
+            total_trades = stats.get('total_trades', 0)
+            
+            profit_emoji = "📈" if total_profit > 0 else "📉" if total_profit < 0 else "➡️"
+            
+            message = f"""
+📊 <b>WALLET TRADING STATISTICS</b>
+
+<b>💰 Performance:</b>
+{profit_emoji} Total Profit: {total_profit:.4f} SOL
+💸 Total Fees Paid: {total_fees:.4f} SOL
+📈 Net Profit: {(total_profit - total_fees):.4f} SOL
+
+<b>📋 Trading Activity:</b>
+• Total Trades: {total_trades}
+• Wallet Created: {stats.get('created_at', 'Unknown')[:10]}
+
+<b>💰 Current Balances:</b>
+            """
+            
+            # Add current balance info
+            current_balances = stats.get('current_balances', {})
+            if current_balances:
+                message += f"""
+• SOL: {current_balances.get('sol_balance', 0):.4f} SOL
+• MORK: {current_balances.get('mork_balance', 0):,} tokens
+"""
+            
+            # Add recent trades
+            recent_trades = stats.get('recent_trades', [])
+            if recent_trades:
+                message += "\n<b>🔄 Recent Trades:</b>\n"
+                for i, trade in enumerate(recent_trades[-3:], 1):  # Last 3 trades
+                    trade_type = trade.get('type', 'unknown').upper()
+                    profit = trade.get('profit', 0)
+                    timestamp = trade.get('timestamp', '')[:10]
+                    
+                    profit_text = ""
+                    if trade_type == 'SELL' and 'profit' in trade:
+                        profit_text = f" ({profit:+.4f} SOL)"
+                        
+                    message += f"• {trade_type} - {timestamp}{profit_text}\n"
+            else:
+                message += "\n<b>🔄 Recent Trades:</b>\nNo trades yet. Start trading to see history!"
+                
+            message += f"""
+
+<b>🎯 Trading Tips:</b>
+• Profit fees: 0.5% on successful trades only
+• Fund wallet to start trading: /mywallet
+• Export backup: /exportwallet
+
+Keep fetching those profits! 🐕
+            """
+            
+            return message
+            
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(get_wallet_stats())
+        loop.close()
+        
+        send_message(chat_id, result)
+        
+    except Exception as e:
+        logging.error(f"Error in /walletstats command: {e}")
+        send_message(chat_id, "❌ Error retrieving wallet statistics. Please try again later.")
 
 def handle_executed_command(chat_id):
     """Handle /executed command - start monitoring after trade execution"""
