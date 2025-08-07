@@ -153,21 +153,27 @@ class AutomatedPumpTrader:
             return False
     
     async def execute_buy_transaction(self, chat_id: str, burner_wallet: Dict, token: Dict, amount_sol: float) -> Dict:
-        """Execute buy transaction from burner wallet"""
+        """Execute buy transaction using Pump.fun bonding curve (NOT Jupiter)"""
         try:
-            logger.info(f"Executing buy transaction for {token.get('symbol', 'TOKEN')} with {amount_sol} SOL")
+            logger.info(f"Executing PUMP.FUN buy for {token.get('symbol', 'TOKEN')} with {amount_sol} SOL")
             
-            # Import burner wallet system
-            from burner_wallet_system import BurnerWalletSystem
+            # Import Pump.fun trading system
+            from pump_fun_trading import buy_pump_fun_token
             
-            wallet_system = BurnerWalletSystem()
+            # Get private key from burner wallet
+            private_key = burner_wallet.get('private_key') or burner_wallet.get('private_key_encrypted')
             
-            # Execute the buy trade
-            result = await wallet_system.execute_burner_trade(
-                chat_id, 
-                token.get('mint', ''), 
-                amount_sol, 
-                'buy'
+            if not private_key:
+                return {
+                    'success': False,
+                    'error': 'Private key not found in burner wallet'
+                }
+            
+            # Execute Pump.fun buy using bonding curve
+            result = await buy_pump_fun_token(
+                private_key=private_key,
+                token_mint=token.get('mint', ''), 
+                sol_amount=amount_sol
             )
             
             if result.get('success'):

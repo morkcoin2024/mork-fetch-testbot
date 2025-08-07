@@ -81,36 +81,62 @@ class TradeExecutor:
             }
     
     async def execute_sell_order(self, trade: ActiveTrade, sell_percentage: float = 100.0) -> Dict:
-        """Execute a sell order for a trade"""
+        """Execute Pump.fun sell order using bonding curve (NOT Jupiter)"""
         try:
-            # Get current token price
-            current_price = await self._get_token_price(trade.token_mint)
-            if not current_price:
+            from pump_fun_trading import sell_pump_fun_token
+            
+            # Get private key from trade context or burner wallet
+            private_key = getattr(trade, 'private_key', None)
+            
+            if not private_key:
+                # Try to get from burner wallet system
+                import json
+                import os
+                
+                wallet_files = [
+                    os.path.join("user_wallets", f"user_{trade.chat_id}.json"),
+                    os.path.join("user_wallets", f"wallet_{trade.chat_id}.json")
+                ]
+                
+                for wallet_file in wallet_files:
+                    if os.path.exists(wallet_file):
+                        with open(wallet_file, 'r') as f:
+                            wallet_data = json.load(f)
+                        private_key = wallet_data.get('private_key') or wallet_data.get('private_key_encrypted')
+                        break
+            
+            if not private_key:
                 return {
                     'success': False,
-                    'error': 'Unable to fetch current token price'
+                    'error': 'Private key not found for sell execution'
                 }
             
-            # Calculate sell amount
-            tokens_to_sell = (trade.trade_amount / trade.entry_price) * (sell_percentage / 100)
-            sol_received = tokens_to_sell * current_price * 0.98  # 2% slippage
+            logger.info(f"Executing PUMP.FUN sell: {sell_percentage}% of {trade.token_symbol}")
             
-            # Calculate P&L
-            pnl = sol_received - (trade.trade_amount * sell_percentage / 100)
+            # Execute Pump.fun sell using bonding curve
+            sell_result = await sell_pump_fun_token(
+                private_key=private_key,
+                token_mint=trade.token_mint,
+                percentage=sell_percentage
+            )
             
-            # Simulate transaction
-            transaction_id = f"sell_{int(time.time())}_{trade.token_mint[:8]}"
-            
-            logger.info(f"Simulated sell: {tokens_to_sell:.2f} tokens -> {sol_received:.3f} SOL (P&L: {pnl:+.3f})")
-            
-            return {
-                'success': True,
-                'transaction_id': transaction_id,
-                'sol_received': sol_received,
-                'exit_price': current_price,
-                'pnl': pnl,
-                'tokens_sold': tokens_to_sell
-            }
+            if sell_result.get('success'):
+                # Get current price for P&L calculation
+                current_price = await self._get_token_price(trade.token_mint)
+                
+                return {
+                    'success': True,
+                    'transaction_id': sell_result.get('transaction_hash'),
+                    'sol_received': sell_result.get('sol_received', 0),  # Would need to calculate from bonding curve
+                    'exit_price': current_price or trade.entry_price,
+                    'pnl': 0,  # Calculate based on actual sell result
+                    'tokens_sold': sell_result.get('tokens_sold', 0)
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': sell_result.get('error', 'Pump.fun sell failed')
+                }
             
         except Exception as e:
             logger.error(f"Sell order failed: {e}")
