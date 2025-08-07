@@ -123,7 +123,7 @@ class PumpFunTrader:
                 private_key_bytes = base58.b58decode(private_key)
                 
             keypair = Keypair.from_bytes(private_key_bytes)
-            public_key = str(keypair.public_key)
+            public_key = str(keypair.pubkey())
             
             # CRITICAL: Check wallet balance first (ChatGPT's suggestion)
             balance_check = self.check_wallet_balance(public_key)
@@ -277,7 +277,7 @@ class PumpFunTrader:
                 private_key_bytes = base58.b58decode(private_key)
                 
             keypair = Keypair.from_bytes(private_key_bytes)
-            public_key = str(keypair.public_key)
+            public_key = str(keypair.pubkey())
             
             logger.info(f"Selling {percentage}% of {token_mint[:8]}...")
             
