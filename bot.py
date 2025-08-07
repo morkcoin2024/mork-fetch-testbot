@@ -797,23 +797,32 @@ Please use manual trading or try again later.
         requirements = await check_trading_eligibility(str(chat_id))
         
         if not requirements.get('eligible', False):
-            eligibility_message = f"""
-❌ <b>Trading Requirements Not Met</b>
+            # Offer to create burner wallet
+            wallet_offer_message = f"""
+💳 <b>BURNER WALLET REQUIRED FOR AUTO-TRADING</b>
 
 <b>🔍 Current Status:</b>
 • SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
 • MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 • Required MORK: {requirements.get('min_mork_required', 100000):,} tokens
 
-<b>📋 To Start Auto-Trading:</b>
-1. Get your burner wallet: /mywallet
-2. Fund it with SOL and 100K MORK tokens
-3. Return here to start auto-trading
+<b>🔥 MORK F.E.T.C.H Bot can create a secure burner wallet for you!</b>
 
-<b>💰 Get $MORK:</b>
+<b>🛡️ Burner Wallet Benefits:</b>
+• Non-custodial - YOU control the private keys
+• Encrypted storage for maximum security
+• Perfect for automated trading
+• Separate from your main wallet for safety
+• Can export your keys anytime
+
+<b>🚀 Ready to create your burner wallet?</b>
+
+Type <b>/mywallet</b> to create your secure trading wallet now, or continue with manual trading.
+
+<b>💰 After wallet creation, get $MORK:</b>
 https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
             """
-            send_message(chat_id, eligibility_message)
+            send_message(chat_id, wallet_offer_message)
             return
             
         # User is eligible - start auto-trading
@@ -1273,6 +1282,101 @@ Please provide your Solana wallet address to start VIP FETCH Live Trading:
 
 def handle_snipe_command(chat_id):
     """Handle /snipe command - start live trading mode with 0.5% fee"""
+    # Check if user has a burner wallet first
+    if BURNER_WALLET_ENABLED:
+        import asyncio
+        
+        async def check_burner_wallet():
+            try:
+                wallet_info = await get_user_burner_wallet(str(chat_id))
+                if wallet_info and wallet_info.get('public_key'):
+                    # User has burner wallet - check eligibility
+                    requirements = await check_trading_eligibility(str(chat_id))
+                    
+                    if requirements.get('eligible', False):
+                        # Ready for live trading
+                        ready_message = f"""
+🚀 <b>LIVE TRADING MODE - Ready!</b>
+
+<b>✅ Burner Wallet Verified:</b>
+• Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+• SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
+• MORK Balance: {requirements.get('mork_balance', 0):,} tokens
+
+<b>⚡ You're qualified for live trading!</b>
+
+Please enter the Solana token contract address you want to trade:
+                        """
+                        update_session(chat_id, state=STATE_LIVE_WAITING_CONTRACT, trading_mode='snipe', wallet_address=wallet_info['public_key'])
+                        send_message(chat_id, ready_message)
+                        return
+                
+                # User needs burner wallet or funding
+                wallet_setup_message = """
+💳 <b>BURNER WALLET SETUP REQUIRED</b>
+
+<b>🚀 LIVE TRADING MODE - Real Money!</b>
+
+<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+
+<b>⚠️ IMPORTANT NOTICE:</b>
+• This is <b>REAL TRADING</b> with actual funds
+• 0.5% fee charged only on profitable trades (sales value)
+• You need 100K $MORK tokens to access this mode
+• All trades are executed on the Solana blockchain
+• You are responsible for all trading decisions and outcomes
+
+<b>🔥 MORK F.E.T.C.H Bot can create a secure burner wallet for you!</b>
+
+<b>🛡️ Burner Wallet Benefits:</b>
+• Non-custodial - YOU control the private keys
+• Encrypted storage for maximum security
+• Perfect for live trading with automation
+• Separate from your main wallet for safety
+• Export keys anytime with /exportwallet
+
+<b>🚀 Get started:</b>
+Type <b>/mywallet</b> to create your secure trading wallet now!
+
+<b>💰 After wallet creation, get $MORK:</b>
+https://jup.ag/swap?inputMint=So11111111111111111111111111111111111111112&outputMint=ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+                """
+                update_session(chat_id, state=STATE_IDLE)
+                send_message(chat_id, wallet_setup_message)
+                
+            except Exception as e:
+                logging.error(f"Error checking burner wallet: {e}")
+                # Fallback to old method
+                snipe_text = """
+🚀 <b>LIVE TRADING MODE - Real Money!</b>
+
+<b>⚡ Trading Bot with 0.5% fee on all profitable sales value</b>
+
+<b>⚠️ IMPORTANT NOTICE:</b>
+• This is <b>REAL TRADING</b> with actual funds
+• 0.5% fee charged only on profitable trades (sales value)
+• You need 1 SOL worth of $MORK tokens to access this mode
+• All trades are executed on the Solana blockchain
+• You are responsible for all trading decisions and outcomes
+
+<b>🔐 Required for Live Trading:</b>
+• Valid Solana wallet address
+• Minimum 0.1 SOL equivalent in $MORK tokens
+• Sufficient SOL for transaction fees
+
+Please provide your Solana wallet address to verify your $MORK token holdings:
+                """
+                update_session(chat_id, state=STATE_WAITING_WALLET, trading_mode='snipe')
+                send_message(chat_id, snipe_text)
+        
+        # Run async check
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(check_burner_wallet())
+        loop.close()
+        return
+    
+    # Fallback if burner wallet system not available
     snipe_text = """
 🚀 <b>LIVE TRADING MODE - Real Money!</b>
 
