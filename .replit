@@ -2,7 +2,7 @@ modules = ["python-3.11", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "geckodriver", "libiconv", "libxcrypt", "openssl", "pkg-config", "postgresql", "rustc", "sqlite"]
+packages = ["cargo", "geckodriver", "glibcLocales", "libiconv", "libxcrypt", "openssl", "pkg-config", "postgresql", "rustc", "sqlite"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -34,4 +34,4 @@ localPort = 5000
 externalPort = 80
 
 [agent]
-integrations = ["web_scraper==1.0.0", "python_openai==1.0.0"]
+integrations = ["python_database==1.0.0", "python_anthropic==1.0.0", "python_openai==1.0.0", "web_scraper==1.0.0"]

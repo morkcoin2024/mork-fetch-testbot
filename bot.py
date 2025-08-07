@@ -11,6 +11,7 @@ from flask import current_app
 from sqlalchemy import func
 from fee_collection_system import fee_collector, collect_profit_fee
 from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
+from ai_risk_integration import get_ai_trade_recommendation, get_learning_status, should_recommend_trade, record_completed_trade
 
 # Bot configuration
 BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
