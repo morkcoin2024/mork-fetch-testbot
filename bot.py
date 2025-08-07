@@ -2614,12 +2614,12 @@ Enter sell percentage:
         
         mode_features = f"""
 <b>⭐ VIP FETCH Features:</b>
-• Automated token discovery
-• Real-time pump.fun monitoring
-• AI-enhanced safety filtering
-• {diversification_text}
-• Independent monitoring per position
-• Automatic 5% fee collection on profits
+• Automated token discovery & live screening
+• Real-time pump.fun + Raydium migration monitoring  
+• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
+• {diversification_text} (auto-split for risk management)
+• Independent monitoring & trailing stop-loss per position
+• Automatic 5% fee collection on net profits
 """
     else:
         mode_features = ""
@@ -2635,17 +2635,21 @@ This will place a REAL trade with your actual funds!
 💲 <b>Entry Price:</b> {entry_price_display}
 💰 <b>Trade Amount:</b> {trade_amount_display}
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
-📉 <b>Stop-Loss:</b> -{session.stop_loss}%
-📈 <b>Take-Profit:</b> +{session.take_profit}%
-💰 <b>Sell Amount:</b> {sell_percent}%
+📉 <b>Stop-Loss:</b> -{session.stop_loss}% (trailing, auto-tighten if profit >30%)
+📈 <b>Take-Profit:</b> +{session.take_profit}% (auto-scale out 80%, keep 20% moon bag)
+💸 <b>Partial Sell:</b> {sell_percent}% at target, remainder rides with auto trailing-stop
+🚨 <b>Emergency Exit:</b> Auto-sell if dev/wallet rug activity detected or contract changes flagged
 
 <b>⚠️ RISK WARNING:</b>
-• This involves REAL money and blockchain transactions
-• You could lose your entire investment
-• Market conditions can change rapidly
-• No refunds or reversal possible
+• These are real, non-reversible blockchain trades
+• You can lose ALL your funds
+• Market and contract risks are extreme (including instant rug pulls)
+• Always DYOR, no refunds
 
-Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}LIVE trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
+<b>💸 FEE NOTICE:</b>
+• By trading, you agree to a 0.5% fee on all net profits, sent automatically to the MORK marketing wallet.
+
+Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
     """
     
     update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
