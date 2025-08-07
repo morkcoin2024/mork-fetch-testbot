@@ -2515,7 +2515,7 @@ Enter sell percentage:
     session = get_or_create_session(chat_id)
     is_vip_mode = session.trading_mode == 'fetch'
     token_display = f"{session.token_name} (${session.token_symbol})" if session.token_name else "Unknown Token"
-    entry_price_display = f"${session.entry_price:.8f}" if session.entry_price < 1 else f"${session.entry_price:.4f}"
+    entry_price_display = f"${session.entry_price:.8f}" if session.entry_price and session.entry_price < 1 else f"${session.entry_price:.4f}" if session.entry_price else "Not set"
     trade_amount_display = f"{session.trade_amount:.3f} SOL" if session.trade_amount else "Not specified"
     
     mode_title = "VIP FETCH TRADING ORDER READY" if is_vip_mode else "LIVE TRADING ORDER READY"
