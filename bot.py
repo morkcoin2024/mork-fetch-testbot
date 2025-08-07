@@ -1240,45 +1240,181 @@ Type /whatif to see your simulation history or /snipe for another practice round
     send_message(chat_id, simulation_text)
 
 def handle_status_command(chat_id):
-    """Handle /status command"""
-    session = get_or_create_session(chat_id)
-    
-    if session.state == STATE_IDLE:
-        status_text = """
-📊 <b>Session Status</b>
-
-🟢 <b>Status:</b> Ready
-🧪 <b>Mode:</b> Simulation (Free)
-⏰ <b>Last Activity:</b> Ready for new snipe
-
-Type /snipe to start a new simulation!
-        """
-    else:
-        state_descriptions = {
-            STATE_WAITING_CONTRACT: "Waiting for contract address",
-            STATE_WAITING_STOPLOSS: "Waiting for stop-loss percentage", 
-            STATE_WAITING_TAKEPROFIT: "Waiting for take-profit percentage",
-            STATE_WAITING_SELLPERCENT: "Waiting for sell percentage",
-            STATE_READY_TO_CONFIRM: "Ready to confirm simulation"
-        }
+    """Handle /status command - Enhanced with live trading positions"""
+    try:
+        from models import ActiveTrade, db
+        from datetime import datetime
+        import time
         
-        status_text = f"""
-📊 <b>Session Status</b>
+        session = get_or_create_session(chat_id)
+        
+        # Check for active VIP FETCH trades
+        active_trades = db.session.query(ActiveTrade).filter_by(chat_id=str(chat_id), status='active').all()
+        
+        # Get burner wallet info if available
+        wallet_info = None
+        try:
+            from burner_wallet_system import get_wallet_info, get_solana_wallet_balance
+            wallet_info = get_wallet_info(str(chat_id))
+        except:
+            pass
+        
+        # Build comprehensive status message
+        status_text = """
+📊 <b>MORK F.E.T.C.H BOT STATUS</b>
 
-🟡 <b>Status:</b> In Progress
-🧪 <b>Mode:</b> Simulation (Free)
-📝 <b>Current Step:</b> {state_descriptions.get(session.state, "Unknown")}
+"""
+        
+        # Session Status
+        if session.state == STATE_IDLE:
+            status_text += """🟢 <b>Session:</b> Ready for trading
+🧪 <b>Mode:</b> Idle - Ready for commands
 
-<b>Configuration:</b>
+"""
+        else:
+            state_descriptions = {
+                STATE_WAITING_CONTRACT: "Waiting for contract address",
+                STATE_WAITING_STOPLOSS: "Waiting for stop-loss percentage", 
+                STATE_WAITING_TAKEPROFIT: "Waiting for take-profit percentage",
+                STATE_WAITING_SELLPERCENT: "Waiting for sell percentage",
+                STATE_READY_TO_CONFIRM: "Ready to confirm",
+                STATE_LIVE_WAITING_CONTRACT: "Live mode - waiting for contract",
+                STATE_LIVE_WAITING_AMOUNT: "Live mode - waiting for amount"
+            }
+            
+            current_step = state_descriptions.get(session.state, "Unknown")
+            status_text += f"""🟡 <b>Session:</b> In Progress
+📝 <b>Current Step:</b> {current_step}
+
+<b>⚙️ Configuration:</b>
 🎯 <b>Contract:</b> {session.contract_address or "Not set"}
 📉 <b>Stop-Loss:</b> {f"{session.stop_loss}%" if session.stop_loss else "Not set"}
 📈 <b>Take-Profit:</b> {f"{session.take_profit}%" if session.take_profit else "Not set"}
-💰 <b>Sell Amount:</b> {f"{session.sell_percent}%" if session.sell_percent else "Not set"}
+💰 <b>Amount:</b> {f"{session.trade_amount} SOL" if session.trade_amount else "Not set"}
 
-Type /cancel to abort current operation.
+"""
+        
+        # Active Trades Section
+        if active_trades:
+            status_text += f"""<b>🚀 ACTIVE VIP FETCH TRADES ({len(active_trades)}):</b>
+
+"""
+            
+            for trade in active_trades:
+                # Calculate time since trade started
+                try:
+                    time_diff = datetime.now() - trade.created_at
+                    hours = int(time_diff.total_seconds() // 3600)
+                    minutes = int((time_diff.total_seconds() % 3600) // 60)
+                    duration = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+                except:
+                    duration = "Unknown"
+                
+                # Get current P&L if possible
+                try:
+                    from wallet_integration import SolanaWalletIntegrator
+                    integrator = SolanaWalletIntegrator()
+                    current_price = integrator.get_token_price_in_sol(trade.contract_address)
+                    
+                    if current_price and trade.entry_price and current_price > 0 and trade.entry_price > 0:
+                        price_change = ((current_price - trade.entry_price) / trade.entry_price) * 100
+                        profit_loss = trade.trade_amount * (price_change / 100)
+                        
+                        if profit_loss > 0:
+                            pnl_display = f"📈 +{profit_loss:.6f} SOL (+{price_change:.2f}%)"
+                            pnl_emoji = "🟢"
+                        else:
+                            pnl_display = f"📉 {profit_loss:.6f} SOL ({price_change:.2f}%)"
+                            pnl_emoji = "🔴"
+                    else:
+                        pnl_display = "📊 Calculating..."
+                        pnl_emoji = "⚡"
+                except Exception as e:
+                    pnl_display = "📊 Price data unavailable"
+                    pnl_emoji = "⚡"
+                    logging.error(f"P&L calculation error: {e}")
+                
+                status_text += f"""
+{pnl_emoji} <b>{trade.token_name or 'Unknown'} (${trade.token_symbol or 'TOKEN'})</b>
+💰 <b>Position:</b> {trade.trade_amount:.3f} SOL
+📊 <b>Entry:</b> ${trade.entry_price:.8f}
+⏱️ <b>Duration:</b> {duration}
+{pnl_display}
+🔗 <b>Contract:</b> <code>{trade.contract_address[:8]}...{trade.contract_address[-8:]}</code>
+
+"""
+        else:
+            status_text += """<b>📊 ACTIVE TRADES:</b>
+❌ No active VIP FETCH trades
+
+"""
+        
+        # Burner Wallet Status
+        if wallet_info:
+            try:
+                sol_balance = get_solana_wallet_balance(wallet_info['public_key']) or 0
+                mork_balance = get_solana_wallet_balance(wallet_info['public_key'], "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH") or 0
+                
+                status_text += f"""<b>💼 BURNER WALLET:</b>
+📍 <b>Address:</b> {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+💎 <b>SOL Balance:</b> {sol_balance:.4f} SOL
+🪙 <b>MORK Balance:</b> {mork_balance:,.0f} tokens
+
+"""
+            except Exception as e:
+                logging.error(f"Wallet balance error: {e}")
+                status_text += f"""<b>💼 BURNER WALLET:</b>
+📍 <b>Address:</b> {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
+💎 <b>Balance:</b> Checking...
+
+"""
+        else:
+            status_text += """<b>💼 BURNER WALLET:</b>
+❌ Not created - use /mywallet to create
+
+"""
+        
+        # Available Commands
+        status_text += """<b>🎮 AVAILABLE COMMANDS:</b>
+🐶 /simulate - Practice trading (free)
+⚡ /snipe - Manual live trading
+🎯 /fetch - VIP automated trading
+💼 /mywallet - View/create wallet
+🚫 /cancel - Cancel current operation
+
+"""
+        
+        # Trading eligibility
+        if wallet_info:
+            try:
+                mork_balance = get_solana_wallet_balance(wallet_info['public_key'], "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH") or 0
+                if mork_balance >= 100000:
+                    status_text += "✅ <b>VIP FETCH ACCESS:</b> Qualified with MORK tokens!"
+                else:
+                    status_text += f"❌ <b>VIP FETCH ACCESS:</b> Need {100000 - mork_balance:,.0f} more MORK tokens"
+            except:
+                status_text += "⚡ <b>VIP FETCH ACCESS:</b> Checking requirements..."
+        
+        send_message(chat_id, status_text)
+        
+    except Exception as e:
+        logging.error(f"Status command error: {e}")
+        # Fallback to basic status
+        basic_status = """
+📊 <b>MORK F.E.T.C.H BOT STATUS</b>
+
+🔧 <b>System:</b> Operational
+⚡ <b>Status:</b> Ready for trading
+
+<b>Available Commands:</b>
+🐶 /simulate - Practice trading
+⚡ /snipe - Live trading  
+🎯 /fetch - VIP automated trading
+💼 /mywallet - Manage wallet
+
+<i>Status system updating...</i>
         """
-    
-    send_message(chat_id, status_text)
+        send_message(chat_id, basic_status)
 
 def handle_help_command(chat_id):
     """Handle /help command"""
