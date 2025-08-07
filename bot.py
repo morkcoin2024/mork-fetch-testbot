@@ -1100,8 +1100,13 @@ def handle_confirm_command(chat_id):
         # Execute simulation
         execute_simulation(chat_id)
     elif session.state == STATE_LIVE_READY_TO_CONFIRM:
-        # Execute live trade
-        execute_live_trade(chat_id)
+        # Execute ACTUAL live trade with real SOL
+        if session.trading_mode == 'fetch':
+            # VIP FETCH mode - execute immediate trade with user's specified token
+            execute_immediate_vip_trade(chat_id)
+        else:
+            # Regular snipe mode
+            execute_live_trade(chat_id)
     elif session.state not in [STATE_READY_TO_CONFIRM, STATE_LIVE_READY_TO_CONFIRM]:
         error_text = """
 ❌ <b>No Order Ready for Confirmation</b>
@@ -1238,6 +1243,225 @@ Type /whatif to see your simulation history or /snipe for another practice round
                   trade_amount=None)
     
     send_message(chat_id, simulation_text)
+
+def execute_immediate_vip_trade(chat_id):
+    """Execute immediate VIP FETCH trade with user's specified token and amount"""
+    try:
+        from models import ActiveTrade, db
+        from wallet_integration import SolanaWalletIntegrator
+        import datetime
+        
+        session = get_or_create_session(chat_id)
+        
+        # Validate all required parameters
+        if not all([session.contract_address, session.trade_amount, session.stop_loss, session.take_profit]):
+            error_text = """
+❌ <b>Missing Trade Parameters</b>
+
+Cannot execute trade - missing required information.
+Please start over with /fetch and provide all parameters.
+            """
+            send_message(chat_id, error_text)
+            return
+        
+        # Create Jupiter swap link for immediate purchase
+        from wallet_integration import generate_swap_link, WSOL_ADDRESS
+        jupiter_buy_link = generate_swap_link(
+            input_mint=WSOL_ADDRESS,  # SOL
+            output_mint=session.contract_address,  # User's token
+            input_symbol="SOL",
+            output_symbol=session.token_symbol or "TOKEN"
+        )
+        
+        immediate_trade_text = f"""
+🚀 <b>VIP FETCH IMMEDIATE TRADE EXECUTION</b>
+
+<b>📊 Trade Details:</b>
+🏷️ <b>Token:</b> {session.token_name or 'Unknown'} (${session.token_symbol or 'TOKEN'})
+💰 <b>Investment Amount:</b> {session.trade_amount:.3f} SOL
+📊 <b>Entry Price:</b> ${session.entry_price:.8f}
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
+💸 <b>Sell Percentage:</b> {session.sell_percent}%
+
+<b>💳 EXECUTE YOUR TRADE NOW:</b>
+<a href="{jupiter_buy_link}">👆 BUY {session.trade_amount:.3f} SOL → {session.token_symbol or 'TOKEN'}</a>
+
+<b>🎯 STEP-BY-STEP INSTRUCTIONS:</b>
+1. <b>Click the Jupiter link above</b>
+2. <b>Connect your Phantom/Solflare wallet</b>
+3. <b>Verify the swap:</b>
+   • From: {session.trade_amount:.3f} SOL
+   • To: {session.token_symbol or 'TOKEN'} tokens
+4. <b>Set slippage to 3-5%</b> (for new tokens)
+5. <b>Click "Swap" and SIGN in your wallet</b>
+6. <b>After transaction confirms, type /executed</b>
+
+<b>🔥 THIS IS A LIVE TRADE WITH REAL SOL!</b>
+⚠️ <b>Your {session.trade_amount:.3f} SOL will be spent on this token</b>
+
+<b>📊 After Purchase:</b>
+• Type <b>/executed</b> to start monitoring
+• I'll track your stop-loss and take-profit
+• You'll get alerts when targets are hit
+• 5% automatic fee on profitable trades only
+
+<b>⚡ Ready to invest {session.trade_amount:.3f} SOL? Click the Jupiter link!</b>
+        """
+        
+        # Store the trade for monitoring when user types /executed
+        update_session(chat_id, state="awaiting_execution_confirmation")
+        
+        send_message(chat_id, immediate_trade_text)
+        
+    except Exception as e:
+        logging.error(f"Immediate VIP trade execution failed: {e}")
+        error_text = f"""
+❌ <b>Trade Execution Failed</b>
+
+Error setting up your trade: {str(e)}
+
+Please try again with /fetch or contact support.
+        """
+        send_message(chat_id, error_text)
+        update_session(chat_id, state=STATE_IDLE)
+
+def handle_executed_command(chat_id):
+    """Handle /executed command - user confirms they completed the Jupiter swap"""
+    try:
+        from models import ActiveTrade, db
+        import datetime
+        
+        session = get_or_create_session(chat_id)
+        
+        # Check if user is in the right state
+        if session.state != "awaiting_execution_confirmation":
+            error_text = """
+❌ <b>No Trade Execution Pending</b>
+
+You don't have a pending trade execution to confirm.
+
+<b>To execute a trade:</b>
+• Use /fetch to set up VIP trading
+• Configure your parameters and hit /confirm  
+• Complete the Jupiter swap, then type /executed
+
+Type /status to check your current state.
+            """
+            send_message(chat_id, error_text)
+            return
+        
+        # Validate session has complete trade data
+        if not all([session.contract_address, session.trade_amount, session.stop_loss, session.take_profit]):
+            error_text = """
+❌ <b>Incomplete Trade Data</b>
+
+Missing trade parameters. Please start over with /fetch.
+            """
+            send_message(chat_id, error_text)
+            update_session(chat_id, state=STATE_IDLE)
+            return
+        
+        # Create ActiveTrade record for monitoring
+        try:
+            active_trade = ActiveTrade(
+                chat_id=str(chat_id),
+                trade_type="fetch",
+                contract_address=session.contract_address,
+                token_name=session.token_name,
+                token_symbol=session.token_symbol,
+                entry_price=session.entry_price,
+                trade_amount=session.trade_amount,
+                stop_loss=session.stop_loss,
+                take_profit=session.take_profit,
+                sell_percent=session.sell_percent or 100.0,
+                status="active",
+                monitoring_active=True
+            )
+            
+            db.session.add(active_trade)
+            db.session.commit()
+            
+            # Start monitoring thread
+            import threading
+            
+            def start_monitoring():
+                try:
+                    # Create trade session for monitoring
+                    trade_session = {
+                        'chat_id': str(chat_id),
+                        'token_name': session.token_name,
+                        'token_symbol': session.token_symbol,
+                        'entry_price': session.entry_price,
+                        'stop_loss': session.stop_loss,
+                        'take_profit': session.take_profit
+                    }
+                    
+                    # Start VIP monitoring
+                    start_vip_trade_monitoring(trade_session, session.contract_address, session.trade_amount)
+                    
+                except Exception as e:
+                    logging.error(f"Monitoring startup failed: {e}")
+            
+            monitor_thread = threading.Thread(target=start_monitoring)
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            
+            confirmation_text = f"""
+✅ <b>TRADE EXECUTION CONFIRMED!</b>
+
+<b>🎯 Your VIP FETCH Trade is Now Live:</b>
+🏷️ <b>Token:</b> {session.token_name} (${session.token_symbol})
+💰 <b>Amount:</b> {session.trade_amount:.3f} SOL
+📊 <b>Entry Price:</b> ${session.entry_price:.8f}
+📉 <b>Stop-Loss:</b> -{session.stop_loss}%
+📈 <b>Take-Profit:</b> +{session.take_profit}%
+
+<b>🔍 MONITORING ACTIVATED:</b>
+• Ultra-sensitive price tracking started
+• 5-minute monitoring window active
+• Real-time stop-loss/take-profit alerts
+• Automatic fee calculation on profits
+
+<b>📊 What Happens Next:</b>
+• I'll monitor your position every 10 seconds
+• You'll get instant alerts when targets are hit  
+• 5% fee automatically deducted from profits only
+• No fees on losing trades
+
+<b>💎 Your SOL is now invested in {session.token_symbol}!</b>
+Use /status to check your position anytime.
+
+<b>🎯 VIP FETCH monitoring is LIVE!</b>
+            """
+            
+            # Reset session but keep key data for potential reference
+            update_session(chat_id, state=STATE_IDLE)
+            
+            send_message(chat_id, confirmation_text)
+            
+        except Exception as e:
+            logging.error(f"Failed to create ActiveTrade: {e}")
+            error_text = f"""
+❌ <b>Monitoring Setup Failed</b>
+
+Your trade may have been executed, but monitoring setup failed: {str(e)}
+
+Your SOL should be converted to tokens. Check your wallet and try /status.
+            """
+            send_message(chat_id, error_text)
+            update_session(chat_id, state=STATE_IDLE)
+        
+    except Exception as e:
+        logging.error(f"Execute command failed: {e}")
+        error_text = f"""
+❌ <b>Execution Confirmation Failed</b>
+
+Error processing your execution confirmation: {str(e)}
+
+Please try /status or contact support.
+        """
+        send_message(chat_id, error_text)
 
 def handle_status_command(chat_id):
     """Handle /status command - Enhanced with live trading positions"""
