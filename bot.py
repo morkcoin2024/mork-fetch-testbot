@@ -2975,7 +2975,7 @@ def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float
             asyncio.set_event_loop(loop)
             
             # Run the trading function with all parameters
-            loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+            loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent))
         
     except Exception as e:
         logging.error(f"VIP FETCH thread execution failed: {e}")
@@ -2995,7 +2995,7 @@ Please try again with /fetch or contact support.
         except:
             pass
 
-async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
+async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
     """Execute the VIP FETCH automated trading process"""
     try:
         # Import our trading modules and setup Flask context
@@ -3037,7 +3037,7 @@ Testing token discovery without safety filters.
                 send_message(chat_id, no_candidates_message)
                 
                 # Start continuous scanning
-                await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount)
+                await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent)
                 return
             
             # Convert TokenCandidate objects to dictionaries
@@ -3180,9 +3180,9 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <code>{trade_result['tx_hash']}</code>
 
 <b>📋 Trade Details:</b>
-• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
+• Token age: {max(0, ((time.time() - candidate.get('created_timestamp', time.time())) / 60)):.1f} minutes
 • Status: LIVE POSITION ACTIVE
-• Monitoring: 0.5% stop-loss / 0.5% take-profit
+• Monitoring: {stop_loss}% stop-loss / {take_profit}% take-profit
 • Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🚀 REAL TRADE COMPLETED - Auto-monitoring active!</b>
@@ -3204,7 +3204,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <b>💡 Type /executed after completing your manual trade</b>
 
 <b>📋 Trade Details:</b>
-• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
+• Token age: {max(0, ((time.time() - candidate.get('created_timestamp', time.time())) / 60)):.1f} minutes
 • Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🔄 Will retry with next token...</b>
@@ -3271,8 +3271,8 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                     'token_symbol': trade_result['token_symbol'],
                     'entry_price': trade_result['entry_price'],  # Use real entry price
                     'trade_amount': amount_per_trade,
-                    'stop_loss': 0.5,  # 0.5% stop-loss (realistic for pump.fun)
-                    'take_profit': 0.5,  # 0.5% take-profit
+                    'stop_loss': stop_loss,  # User-configured stop-loss
+                    'take_profit': take_profit,  # User-configured take-profit
                     'wallet_address': wallet_address,
                     'state': 'monitoring'
                 }
@@ -3316,7 +3316,7 @@ The system has successfully:
 • Discovered profitable tokens from Pump.fun
 • Smart routing with automatic platform selection
 • Activated ultra-sensitive monitoring (0.3% thresholds)
-• Set optimal P&L targets (0.5% stop-loss/take-profit)
+• Set optimal P&L targets ({stop_loss}% stop-loss/{take_profit}% take-profit)
 
 <b>⚡ Your trades are now being monitored automatically!</b>
 You'll receive instant notifications when price targets are hit.
@@ -3499,7 +3499,7 @@ Your position remains active. You can manually monitor or execute trades as need
         except:
             pass
 
-async def start_continuous_vip_scanning(chat_id: str, wallet_address: str, trade_amount: float):
+async def start_continuous_vip_scanning(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
     """Start continuous VIP FETCH scanning every 1 minute"""
     try:
         from pump_scanner import PumpFunScanner
@@ -3556,7 +3556,7 @@ Found {len(candidates)} tokens in scan #{scan_count}:
                     send_message(chat_id, found_message)
                     
                     # Process the discovered tokens
-                    await process_discovered_tokens(chat_id, wallet_address, trade_amount, candidates)
+                    await process_discovered_tokens(chat_id, wallet_address, trade_amount, candidates, token_count, stop_loss, take_profit, sell_percent)
                     return
                 else:
                     no_tokens_message = f"""
@@ -3597,7 +3597,7 @@ Please try /fetch again or contact support.
         """
         send_message(chat_id, error_message)
 
-async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amount: float, candidates):
+async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amount: float, candidates, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
     """Process tokens discovered during continuous scanning"""
     try:
         # Take top 3 candidates for execution
