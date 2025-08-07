@@ -3440,8 +3440,8 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                                 'trade_amount': trade_amount
                             }
                             
-                            # Process automatic fee deduction
-                            updated_trade_data, completion_message = process_profitable_trade_auto_fee(trade_data)
+                            # Process automatic fee deduction WITH ACTUAL PAYMENT
+                            updated_trade_data, completion_message = process_profitable_trade_auto_fee(trade_data, str(chat_id))
                             
                             take_profit_message = f"""
 🟢 <b>VIP FETCH TAKE-PROFIT TRIGGERED</b>

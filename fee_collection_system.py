@@ -11,7 +11,7 @@ import requests
 
 # Marketing wallet address for fee collection
 MARKETING_WALLET = "G2DQGR6iWRyDMdu5GxmnPvVj1xpMN3ZG8JeZLVzMZ3TS"
-FEE_PERCENTAGE = 0.05  # 5% fee on profitable trades
+FEE_PERCENTAGE = 0.005  # 0.5% fee on profitable trades (corrected from 5% to 0.5%)
 
 class FeeCollectionSystem:
     """Handles fee collection from profitable trades"""
