@@ -2880,11 +2880,11 @@ Please try again with /fetch or contact support.
 async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amount: float, wallet_address: str) -> dict:
     """Execute automatic buy trade using burner wallet"""
     try:
-        from wallet_integration import SolanaWalletIntegrator
-        integrator = SolanaWalletIntegrator()
+        # Import and use the module-level function directly  
+        from wallet_integration import create_jupiter_swap_transaction
         
         # Create Jupiter swap transaction
-        swap_result = integrator.create_jupiter_swap_transaction(
+        swap_result = create_jupiter_swap_transaction(
             private_key=private_key,
             input_mint="So11111111111111111111111111111111111111112",  # SOL mint
             output_mint=token_mint,
@@ -4253,34 +4253,112 @@ Keep fetching those profits! 🐕
         send_message(chat_id, "❌ Error retrieving wallet statistics. Please try again later.")
 
 def handle_executed_command(chat_id):
-    """Handle /executed command - start monitoring after trade execution"""
-    session = get_or_create_session(chat_id)
-    
-    # Check if user has any recent Jupiter transaction or just allow manual setup
-    executed_text = """
-🎯 <b>MANUAL TRADE MONITORING SETUP</b>
+    """Handle /executed command - start automatic sell monitoring for BonkvsPump manual trade"""
+    try:
+        # Check if user has burner wallet for automatic sells
+        import os
+        import json
+        
+        wallet_files = [
+            os.path.join("user_wallets", f"user_{chat_id}.json"),
+            os.path.join("user_wallets", f"wallet_{chat_id}.json")
+        ]
+        
+        wallet_data = None
+        for wallet_file in wallet_files:
+            if os.path.exists(wallet_file):
+                with open(wallet_file, 'r') as f:
+                    wallet_data = json.load(f)
+                logging.info(f"Found wallet file: {wallet_file}")
+                break
+        
+        if not wallet_data:
+            executed_text = """
+❌ <b>No Burner Wallet Found</b>
 
-Since you completed a trade on Jupiter, let's set up monitoring for your MORK position.
+To use automatic sell monitoring, you need a burner wallet.
 
-<b>📊 Please provide your trade details:</b>
+Use /mywallet to create your burner wallet, then try /executed again.
+            """
+            send_message(chat_id, executed_text)
+            return
+        
+        # Get wallet credentials
+        public_key = wallet_data.get('public_key', '')
+        private_key = wallet_data.get('private_key') or wallet_data.get('private_key_encrypted')
+        
+        # Your manual BonkvsPump trade setup
+        token_contract = "6wFm6mTLkum3rKKDWdkVL5XdQeWrkj19ik7Ny3uRpump"
+        
+        executed_text = f"""
+✅ <b>AUTOMATIC SELL MONITORING ACTIVATED</b>
 
-<b>1. Token Contract Address:</b>
-For MORK: ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
+<b>📊 BonkvsPump Manual Trade</b>
+🎭 <b>Contract:</b> <code>{token_contract}</code>
+🏦 <b>Wallet:</b> <code>{public_key[:10]}...{public_key[-10:]}</code>
 
-<b>2. Your Trade Amount (SOL):</b>
-How much SOL did you spend? (e.g., 0.1)
+<b>🤖 Auto-Sell Settings Applied:</b>
+• Stop-Loss: -40% (automatic sell)
+• Take-Profit: +100% (automatic sell)  
+• Real-time price monitoring
 
-<b>3. Stop-Loss Percentage:</b>
-At what % loss should I sell? (e.g., 10)
+<b>🔄 Status: LIVE MONITORING ACTIVE</b>
 
-<b>4. Take-Profit Percentage:</b>
-At what % profit should I sell? (e.g., 10)
+Your manual BonkvsPump trade is now protected with automatic sell orders.
 
-Please provide the contract address first:
-    """
-    
-    update_session(chat_id, state="manual_setup_contract", trading_mode="manual_monitor")
-    send_message(chat_id, executed_text)
+<b>💡 Management:</b>
+• /status - Check position and P&L
+• /stop - Stop all monitoring
+• Manual selling still available
+
+<b>🚨 MONITORING STARTED!</b>
+
+<i>5% fee on profitable trades only.</i>
+        """
+        
+        # Start monitoring 
+        try:
+            from trade_executor import TradeExecutor
+            import threading
+            
+            executor = TradeExecutor(
+                chat_id=str(chat_id),
+                wallet_address=public_key,
+                private_key=private_key,
+                token_contract=token_contract,
+                token_symbol="BONKVSP",
+                entry_price=0.0000000288,  # BonkvsPump current price
+                stop_loss_percent=40.0,
+                take_profit_percent=100.0,
+                sell_percent=100.0
+            )
+            
+            def start_monitoring():
+                try:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(executor.start_trade_monitoring())
+                except Exception as e:
+                    logging.error(f"Monitor thread error: {e}")
+                finally:
+                    if 'loop' in locals():
+                        loop.close()
+            
+            monitor_thread = threading.Thread(target=start_monitoring, daemon=True)
+            monitor_thread.start()
+            
+            logging.info(f"Started BonkvsPump auto-sell monitoring for user {chat_id}")
+            
+        except Exception as monitor_error:
+            logging.error(f"Failed to start monitoring: {monitor_error}")
+            executed_text += f"\n\n⚠️ <b>Monitoring Issue:</b> {str(monitor_error)[:80]}..."
+        
+        send_message(chat_id, executed_text)
+        
+    except Exception as e:
+        logging.error(f"Executed command error: {e}")
+        send_message(chat_id, f"❌ Error setting up automatic monitoring: {str(e)}")
         
     if not all([session.contract_address, session.stop_loss, session.take_profit, 
                 session.trade_amount, session.wallet_address]):
