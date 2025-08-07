@@ -144,39 +144,54 @@ class AdvancedPumpRules:
         return momentum_data, min(score, 100)
 
     def analyze_dev_credibility(self, token_data: Dict) -> Tuple[int, List[str]]:
-        """Analyze developer credibility signals"""
+        """Analyze developer credibility signals with realistic scoring"""
         score = 0
         signals = []
         
         creator = token_data.get('creator', '')
         
-        # Creator wallet analysis
+        # Creator wallet analysis (more conservative)
         if creator and len(creator) == 44:  # Valid Solana address
-            score += 20
+            score += 10  # Reduced from 20
             signals.append("Valid creator address")
             
             # Check if wallet looks established (heuristic)
             if not creator.startswith('11111') and not creator.endswith('11111'):
-                score += 10
+                score += 5  # Reduced from 10
                 signals.append("Non-obvious wallet pattern")
         
-        # Renounced ownership
+        # Renounced ownership (HIGH RISK for pump.fun)
         if token_data.get('is_renounced', False):
-            score += 25
-            signals.append("Ownership renounced")
+            score += 15  # Reduced from 25 - often means abandoned
+            signals.append("Ownership renounced (potential risk)")
+        else:
+            score -= 5  # Penalty for not renounced
+            signals.append("Ownership NOT renounced (dev control)")
         
-        # Burnt liquidity
+        # Burnt liquidity (HIGH RISK for pump.fun) 
         if token_data.get('is_burnt', False):
-            score += 25
-            signals.append("Liquidity burnt")
+            score += 10  # Reduced from 25 - can indicate rug
+            signals.append("Liquidity burnt (locked or rugged)")
         
         # Description quality
         description = token_data.get('description', '')
         if len(description) > 50:
-            score += 15
+            score += 10  # Reduced from 15
             signals.append("Detailed description")
+        elif len(description) < 10:
+            score -= 10  # Penalty for poor description
+            signals.append("Poor/missing description")
         
-        return min(score, 100), signals
+        # Market cap reality check (pump.fun tokens are typically low cap)
+        market_cap = token_data.get('market_cap', 0)
+        if market_cap < 10000:  # Under $10k = very high risk
+            score -= 20
+            signals.append(f"Very low market cap: ${market_cap:,}")
+        elif market_cap < 50000:  # Under $50k = high risk
+            score -= 10
+            signals.append(f"Low market cap: ${market_cap:,}")
+        
+        return max(0, min(score, 100)), signals
 
     def analyze_migration_signals(self, token_data: Dict) -> bool:
         """Check for DEX migration planning signals"""

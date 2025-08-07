@@ -564,25 +564,38 @@ class PumpFunScanner:
             
             logger.info(f"Advanced rules selected {len(top_analyses)} top tokens")
             
-            # Convert analyses back to TokenCandidate objects
+            # Convert analyses back to TokenCandidate objects with REAL data
             for analysis in top_analyses:
-                candidate = TokenCandidate(
-                    mint=analysis.mint,
-                    name=analysis.name,
-                    symbol=analysis.symbol,
-                    description=f"Advanced Analysis: {analysis.recommendation} | Score: {analysis.overall_score}/100 | Risk: {analysis.risk_level}",
-                    created_at=datetime.now(),
-                    market_cap=analysis.bonding_momentum.get('sol_bonded', 1) * 15000,  # Estimate
-                    price=0.00003,  # Default pump.fun price
-                    volume_24h=8000,
-                    holder_count=100,
-                    creator='AdvancedRules',
-                    pump_score=analysis.overall_score,
-                    safety_score=analysis.meme_score,
-                    is_renounced=True,
-                    is_burnt=analysis.migration_signals
-                )
-                candidates.append(candidate)
+                # Find the original token data to get real price/market cap
+                original_token = None
+                for token in recent_tokens:
+                    if token.get('mint') == analysis.mint:
+                        original_token = token
+                        break
+                
+                if original_token:
+                    # Get real price from wallet integrator
+                    from wallet_integration import SolanaWalletIntegrator
+                    integrator = SolanaWalletIntegrator()
+                    real_price = integrator.get_token_price_in_sol(analysis.mint)
+                    
+                    candidate = TokenCandidate(
+                        mint=analysis.mint,
+                        name=analysis.name,
+                        symbol=analysis.symbol,
+                        description=f"Advanced Analysis: {analysis.recommendation} | Score: {analysis.overall_score}/100 | Risk: {analysis.risk_level}",
+                        created_at=datetime.now(),
+                        market_cap=original_token.get('market_cap', original_token.get('usd_market_cap', 0)),  # Use real market cap
+                        price=real_price if real_price else 0.000001,  # Use REAL price from integrator
+                        volume_24h=original_token.get('volume_24h', 8000),
+                        holder_count=original_token.get('holder_count', 100),
+                        creator=original_token.get('creator', 'Unknown'),
+                        pump_score=analysis.overall_score,
+                        safety_score=min(45, analysis.dev_credibility),  # Cap safety score at 45 for pump.fun
+                        is_renounced=original_token.get('is_renounced', False),
+                        is_burnt=original_token.get('is_burnt', False)
+                    )
+                    candidates.append(candidate)
             
             if candidates:
                 return candidates
