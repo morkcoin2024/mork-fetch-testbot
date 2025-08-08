@@ -259,59 +259,8 @@ async def execute_pump_fun_trade(private_key: str, token_contract: str, sol_amou
             logger.info(f"✅ Wallet funded with {balance_check.get('sol_balance', 0):.6f} SOL")
             logger.info(f"Buying {sol_amount} SOL worth of {token_mint[:8]}...")
             
-            # CHATGPT'S BURNER TRADE EXECUTION CODE 
-            bonding_curve_address = self.generate_bonding_curve_address(token_mint)
-            if not bonding_curve_address:
-                return {"success": False, "error": "Failed to generate bonding curve address"}
-            
-            # Execute direct SOL transfer using Solders (simplified approach)
-            try:
-                lamports = int(sol_amount * 1_000_000_000)  # Convert SOL to lamports
-                
-                # Debug printing as ChatGPT suggested
-                logger.info("✅ Preparing to trade from burner wallet")
-                logger.info(f"Burner address: {keypair.pubkey()}")
-                logger.info(f"Bonding contract: {bonding_curve_address}")
-                logger.info(f"Amount (SOL): {sol_amount}")
-                logger.info(f"Amount (lamports): {lamports}")
-
-                # Create direct transfer instruction using Solders
-                transfer_instruction = transfer(
-                    TransferParams(
-                        from_pubkey=keypair.pubkey(),  # burner wallet  
-                        to_pubkey=PublicKey.from_string(bonding_curve_address),  # bonding curve
-                        lamports=lamports,  # amount to transfer
-                    )
-                )
-                
-                # Get recent blockhash for transaction
-                recent_blockhash = self.client.get_latest_blockhash()
-                blockhash = recent_blockhash.value.blockhash
-                
-                # Create transaction with proper parameters
-                from solders.message import Message
-                message = Message.new_with_blockhash([transfer_instruction], keypair.pubkey(), blockhash)
-                tx = Transaction.new_unsigned(message)
-
-                # Sign and execute the trade with proper error handling
-                tx.sign([keypair], blockhash)
-                response = self.client.send_transaction(tx)
-                logger.info(f"✅ Trade executed. TX signature: {response}")
-                
-                return {
-                    "success": True,
-                    "transaction_id": str(response.value if hasattr(response, 'value') else response),
-                    "message": f"Successfully bought {sol_amount} SOL worth of {token_mint}",
-                    "bonding_curve": bonding_curve_address,
-                    "amount_sol": sol_amount,
-                    "amount_lamports": lamports
-                }
-                
-            except Exception as transfer_error:
-                logger.error(f"Direct SOL transfer failed: {transfer_error}")
-                return {"success": False, "error": f"Transfer execution failed: {transfer_error}"}
-            
-            # Fallback to PumpPortal API if direct transfer fails
+            # ALWAYS USE PUMPPORTAL API - ChatGPT's recommendation
+            # This ensures proper token minting instead of just SOL transfers
             trade_data = {
                 "publicKey": public_key,
                 "action": "buy",
@@ -340,34 +289,37 @@ async def execute_pump_fun_trade(private_key: str, token_contract: str, sol_amou
                     
                     # The API returns a serialized transaction
                     if 'transaction' in response_data or isinstance(response_data, str):
-                        # Response is the serialized transaction
-                        transaction_data = response_data if isinstance(response_data, str) else response_data['transaction']
+                        serialized_transaction = response_data.get('transaction') if isinstance(response_data, dict) else response_data
                         
-                        # Deserialize and sign transaction
-                        transaction_bytes = base58.b58decode(transaction_data)
-                        transaction = VersionedTransaction.deserialize(transaction_bytes)
-                        
-                        # Sign with our keypair
-                        transaction.sign([keypair])
-                        
-                        # Send transaction
-                        signature = self.client.send_transaction(transaction)
-                        
-                        logger.info(f"Transaction sent: {signature}")
-                        
-                        # Wait for confirmation
-                        await asyncio.sleep(2)
-                        confirmation = self.client.confirm_transaction(signature.value)
-                        
-                        return {
-                            "success": True,
-                            "transaction_hash": str(signature),
-                            "confirmation": confirmation,
-                            "sol_spent": sol_amount,
-                            "token_mint": token_mint
-                        }
+                        try:
+                            # Decode and sign the transaction
+                            import base64
+                            transaction_bytes = base64.b64decode(serialized_transaction)
+                            versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
+                            
+                            # Sign the transaction with our keypair
+                            versioned_tx.sign([keypair])
+                            
+                            # Send the signed transaction
+                            signature = self.client.send_transaction(versioned_tx)
+                            logger.info(f"✅ ACTUAL TOKEN PURCHASE EXECUTED! TX: {signature.value}")
+                            
+                            return {
+                                "success": True,
+                                "transaction_id": str(signature.value),
+                                "transaction_hash": str(signature.value),
+                                "message": f"Successfully bought {sol_amount} SOL worth of {token_mint} via PumpPortal",
+                                "amount_sol": sol_amount,
+                                "sol_spent": sol_amount,
+                                "platform": "pump_fun_api"
+                            }
+                            
+                        except Exception as sign_error:
+                            logger.error(f"Transaction signing/sending failed: {sign_error}")
+                            return {"success": False, "error": f"Failed to sign/send transaction: {sign_error}"}
                     else:
-                        return {"success": False, "error": "Invalid response format"}
+                        logger.error(f"Unexpected API response format: {response_data}")
+                        return {"success": False, "error": "Invalid API response format"}
                         
         except Exception as e:
             logger.error(f"Pump.fun buy failed: {e}")
