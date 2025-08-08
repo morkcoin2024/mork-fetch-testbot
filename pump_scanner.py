@@ -44,6 +44,45 @@ class TokenCandidate:
         result['created_at'] = self.created_at.isoformat()
         return result
 
+def discover_new_tokens(max_tokens=5):
+    """Simple function to discover new tokens from Pump.fun"""
+    try:
+        # Use the existing scanner logic but return in simple format
+        scanner = PumpFunScanner()
+        
+        # Synchronous version for immediate use
+        import requests
+        
+        # Get latest tokens from Pump.fun API
+        response = requests.get("https://frontend-api.pump.fun/coins?sort=created_timestamp&order=DESC&limit=20")
+        if response.status_code != 200:
+            return []
+            
+        data = response.json()
+        tokens = []
+        
+        for coin in data:
+            if len(tokens) >= max_tokens:
+                break
+                
+            # Basic filtering
+            if coin.get('market_cap', 0) > 1000 and coin.get('market_cap', 0) < 100000:
+                token_data = {
+                    'mint': coin.get('mint', ''),
+                    'name': coin.get('name', 'Unknown'),
+                    'symbol': coin.get('symbol', 'TOKEN'),
+                    'description': coin.get('description', ''),
+                    'market_cap': coin.get('market_cap', 0),
+                    'created_timestamp': coin.get('created_timestamp', 0)
+                }
+                tokens.append(token_data)
+        
+        return tokens
+        
+    except Exception as e:
+        print(f"Token discovery error: {e}")
+        return []
+
 class PumpFunScanner:
     """Scanner for Pump.fun new token launches"""
     

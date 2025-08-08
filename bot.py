@@ -3122,18 +3122,34 @@ def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amo
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Execute the VIP FETCH automated trading process"""
     try:
-        # Skip complex token discovery and go straight to proven Jupiter trading
+        # Execute real token discovery from Pump.fun
         phase1_message = """
 🔍 PHASE 1: LIVE TOKEN DISCOVERY
 
-Sniffer Dog scanning for opportunities...
-• Bypassing complex discovery for immediate execution
-• Using proven Jupiter DEX integration
-• Executing live trade with validated tokens
+Sniffer Dog scanning Pump.fun for fresh opportunities...
+• Scanning latest token launches
+• Evaluating safety and potential
+• Finding profitable entry points
 
-PROCEEDING TO LIVE JUPITER TRADE...
+SCANNING NOW...
         """
         send_message(chat_id, phase1_message)
+        
+        # Import and use the pump scanner
+        from pump_scanner import discover_new_tokens
+        
+        # Discover fresh tokens from Pump.fun
+        discovered_tokens = discover_new_tokens(max_tokens=5)
+        
+        if not discovered_tokens:
+            send_message(chat_id, "❌ No suitable tokens found in current scan. Try again in a few minutes.")
+            return
+            
+        # Select the best token from discovery
+        best_token = discovered_tokens[0]  # Use the top-rated token
+        token_mint = best_token['mint']
+        token_name = best_token.get('name', 'Unknown')
+        token_symbol = best_token.get('symbol', 'TOKEN')
         
         # Import Jupiter trade engine for direct execution
         from jupiter_trade_engine import JupiterTradeEngine
@@ -3147,7 +3163,8 @@ PROCEEDING TO LIVE JUPITER TRADE...
 PHASE 2: EXECUTING LIVE TRADE
 
 Wallet: {public_key[:8]}...{public_key[-8:]} (YOUR WALLET)
-Target: CLIPPY token (proven working)
+Target: {token_name} ({token_symbol})
+Token: {token_mint[:8]}...{token_mint[-8:]}
 Amount: 0.0005 SOL
 Safety: Emergency protection disabled for live trading
 Method: Jupiter DEX integration
@@ -3156,12 +3173,12 @@ Executing trade now...
         """
         send_message(chat_id, phase2_message)
         
-        # Execute the live trade
+        # Execute the live trade with discovered token
         engine = JupiterTradeEngine()
         result = engine.execute_jupiter_trade(
             wallet_pubkey=public_key,
             private_key=private_key,
-            token_mint='7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump',  # CLIPPY token
+            token_mint=token_mint,  # Use discovered token mint
             sol_amount=0.0005,
             slippage_bps=1000,
             emergency_failsafe=False  # Live trading mode
@@ -3174,7 +3191,8 @@ VIP FETCH EXECUTION SUCCESSFUL!
 
 Trade Results:
 • Status: SUCCESS
-• Tokens Delivered: {result.get('actual_tokens', 0):,.0f} CLIPPY
+• Token: {token_name} ({token_symbol})
+• Tokens Delivered: {result.get('actual_tokens', 0):,.0f} {token_symbol}
 • Transaction: {result.get('transaction_hash', 'N/A')}
 • Explorer: {result.get('explorer_url', 'N/A')}
 
