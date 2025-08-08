@@ -1973,36 +1973,45 @@ Contact support to investigate and reset system.
         send_message(chat_id, emergency_message)
         return
     
-    # Check if user has a burner wallet first
-    if BURNER_WALLET_ENABLED:
-        import asyncio
-        asyncio.run(handle_fetch_with_jupiter_engine(chat_id))
+    # Check if we have a test wallet available
+    if os.path.exists('test_wallet_info.txt') or (BURNER_WALLET_ENABLED and os.path.exists('burner_wallet.json')):
+        # Execute Jupiter engine directly (not async to avoid event loop conflicts)
+        handle_fetch_with_jupiter_engine_sync(chat_id)
     else:
         no_wallet_message = """
-❌ <b>No burner wallet found</b>
+❌ <b>No wallet available for testing</b>
 
-Please create a burner wallet first:
-1. Use /setup to create your secure wallet
-2. Fund it with SOL for trading
-3. Try /fetch again
+For testing purposes, we need either:
+1. Test wallet (test_wallet_info.txt)
+2. Burner wallet (burner_wallet.json)
 
-<b>💡 Tip:</b> Start with small amounts for testing
+<b>Status:</b> Jupiter engine ready but no wallet configured
         """
         send_message(chat_id, no_wallet_message)
 
-async def handle_fetch_with_jupiter_engine(chat_id):
-    """Execute FETCH with Jupiter engine and emergency protection"""
+def handle_fetch_with_jupiter_engine_sync(chat_id):
+    """Execute FETCH with Jupiter engine and emergency protection (synchronous)"""
     try:
         from jupiter_trade_engine import JupiterTradeEngine
         
         # Initialize Jupiter engine
         engine = JupiterTradeEngine()
         
-        # Load burner wallet
-        with open('burner_wallet.json', 'r') as f:
-            wallet_data = json.load(f)
-            public_key = wallet_data['public_key']
-            private_key = wallet_data['private_key']
+        # Load wallet (test wallet or burner wallet)
+        if os.path.exists('test_wallet_info.txt'):
+            # Use test wallet
+            with open('test_wallet_info.txt', 'r') as f:
+                lines = f.read().strip().split('\n')
+                public_key = lines[0].split(': ')[1].strip()
+                private_key = lines[1].split(': ')[1].strip()
+        elif os.path.exists('burner_wallet.json'):
+            # Use burner wallet
+            with open('burner_wallet.json', 'r') as f:
+                wallet_data = json.load(f)
+                public_key = wallet_data['public_key']
+                private_key = wallet_data['private_key']
+        else:
+            raise Exception("No wallet file found")
         
         # For testing, use a known working token (CLIPPY)
         test_token = "7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump"  # CLIPPY
