@@ -1,8 +1,8 @@
 {
   "user_id": "controlled_test_user",
-  "public_key": "EFaozTXxM1zvhaX4aXjB49drCPjwYY7G5QaLKYhenBpe",
-  "private_key_encrypted": "gAAAAABollWWCRFDKMA9amOo2zZfY3rcSlzY5iQigIupfDBwD_SvN80gWLLBAOYme9btkuWqZopS29UprrWS-P3FDrvuqWMOwHKSiLyd-bz904sNlXoVzxT1XA7l0va_rsE33wAKXKKtYZwlXZhqoGgWvT_hmR869UcSj0EvnQT8kw7j0msKzvcKmqHwBWMJ0eZQXY20iPoS",
-  "created_at": "2025-08-08T19:52:54.055760",
+  "public_key": "AYjqWpW3FEb1UAPwZvUhpKkBoQpdyToSL5p8KqzGeTYp",
+  "private_key_encrypted": "gAAAAABollZKGEuRDpWKHkVCx0Dyo4kG29tm09p2Azy1YMhmNAgO77uYJUiVQGb4W4Qk6KTLy_FcFDLmKrq2hyhXV4DFzzv2FHtZIEwJfejQBwyP90CvrOAf3WRghAH9unRMtmU_k7S7KljLb1YrjMXo9NtgshdgH8Vkc3E3NI1avZwKdrSNwHAE9tMtaSFaLHZgArBFk8a9",
+  "created_at": "2025-08-08T19:55:54.610015",
   "trades_count": 0,
   "total_profit": 0.0,
   "warning_shown": false
