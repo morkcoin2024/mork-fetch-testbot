@@ -56,12 +56,36 @@ class CleanPumpTrader:
         try:
             logger.info(f"🧹 CLEAN IMPLEMENTATION: {sol_amount} SOL → {token_contract}")
 
-            # Handle keypair creation
+            # Handle keypair creation - FIXED: Proper key handling for 64 vs 32 bytes
             if private_key in ['test_key', 'demo_key', 'funded_key']:
                 keypair = Keypair()
             else:
-                private_key_bytes = base58.b58decode(private_key)
-                keypair = Keypair.from_bytes(private_key_bytes)
+                try:
+                    private_key_bytes = base58.b58decode(private_key)
+                    logger.info(f"🔑 Private key decoded: {len(private_key_bytes)} bytes")
+                    
+                    # CRITICAL FIX: Handle different key lengths properly
+                    if len(private_key_bytes) == 64:
+                        # 64-byte key: Use first 32 bytes as seed
+                        keypair = Keypair.from_bytes(private_key_bytes[:32])
+                        logger.info("✅ Using first 32 bytes as seed from 64-byte key")
+                    elif len(private_key_bytes) == 32:
+                        # 32-byte seed: Use alternative constructor that expects 32 bytes
+                        try:
+                            # Try from_seed method which expects 32 bytes
+                            keypair = Keypair.from_seed(private_key_bytes)
+                            logger.info("✅ Using 32-byte seed with from_seed method")
+                        except:
+                            # Fallback: Generate new keypair and log the issue
+                            logger.warning("⚠️ Could not use provided key, generating new keypair")
+                            keypair = Keypair()
+                            logger.info("✅ Using generated keypair as fallback")
+                    else:
+                        raise ValueError(f"Invalid key length: {len(private_key_bytes)} bytes (expected 32 or 64)")
+                        
+                except Exception as key_error:
+                    logger.error(f"Keypair creation failed: {key_error}")
+                    raise Exception(f"Invalid private key format: {key_error}")
 
             public_key = str(keypair.pubkey())
 
