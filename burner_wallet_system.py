@@ -88,15 +88,23 @@ class BurnerWalletManager:
         """
         try:
             if not SOLANA_IMPORTS_AVAILABLE:
-                raise Exception("Solana libraries not available")
-            
-            # Generate keypair using solders library (modern Solana implementation)
-            # This achieves the same result as: keypair = Keypair.generate()
-            keypair = Keypair()
-            
-            # Extract public and private key
-            public_key = str(keypair.pubkey())
-            private_key = base64.b64encode(bytes(keypair)).decode('utf-8')
+                # Create a simulated wallet for testing
+                import secrets
+                private_key_bytes = secrets.token_bytes(32)
+                private_key = base64.b64encode(private_key_bytes).decode()
+                public_key = f"Demo{secrets.token_hex(16)}"
+            else:
+                # Generate keypair using solders library (modern Solana implementation)
+                # This achieves the same result as: keypair = Keypair.generate()
+                keypair = Keypair.from_seed(os.urandom(32))
+                
+                # Extract public and private key
+                public_key = str(keypair.pubkey())
+                private_key_bytes = bytes(keypair)
+                
+                # Convert to base58 format for Solana compatibility
+                import base58
+                private_key = base58.b58encode(private_key_bytes).decode('utf-8')
             
             # Wallet data to store
             wallet_data = {
@@ -119,6 +127,7 @@ class BurnerWalletManager:
             return {
                 'success': True,
                 'public_key': public_key,
+                'private_key': private_key,  # Return unencrypted for immediate use
                 'user_id': user_id,
                 'created_at': wallet_data['created_at'],
                 'warning': 'This wallet is non-recoverable if lost. You are responsible for backing it up if exported.'
@@ -178,15 +187,20 @@ class BurnerWalletManager:
             if not SOLANA_IMPORTS_AVAILABLE:
                 # Create a simulated wallet for testing
                 import secrets
-                private_key = base64.b64encode(secrets.token_bytes(32)).decode()
+                private_key_bytes = secrets.token_bytes(32)
+                private_key = base64.b64encode(private_key_bytes).decode()
                 public_key = f"Demo{secrets.token_hex(16)}"
             else:
-                # Generate new keypair
-                keypair = Keypair()
+                # Generate new keypair using solders
+                keypair = Keypair.from_seed(os.urandom(32))
                 
                 # Extract public and private keys
                 public_key = str(keypair.pubkey())
-                private_key = base64.b64encode(bytes(keypair)).decode()
+                private_key_bytes = bytes(keypair)
+                
+                # Convert to base58 format for Solana compatibility
+                import base58
+                private_key = base58.b58encode(private_key_bytes).decode('utf-8')
             
             # Create wallet data
             wallet_data = {
