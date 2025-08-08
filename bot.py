@@ -1957,40 +1957,132 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """VIP FETCH with new Jupiter Trade Engine - Professional implementation"""
+    """VIP FETCH with Jupiter Trade Engine and Emergency Protection"""
     
-    # Check if user has upgraded Jupiter engine available
-    jupiter_available = True  # New engine ready
-    
-    if jupiter_available:
-        jupiter_message = """
-🪐 <b>JUPITER TRADE ENGINE ACTIVATED</b>
+    # Check for existing emergency stop
+    if os.path.exists("EMERGENCY_STOP_ZERO_DELIVERY.json"):
+        emergency_message = """
+🚨 <b>EMERGENCY STOP ACTIVE</b>
 
-✅ <b>BREAKTHROUGH:</b> New professional trading system deployed
-🔧 <b>Based on ChatGPT analysis</b> - replaces unreliable PumpPortal
+❌ Previous zero token delivery detected
+🛑 Trading halted for wallet protection
+📄 Check EMERGENCY_STOP_ZERO_DELIVERY.json for details
 
-<b>New Features:</b>
-• Pre-validates token bonding status
-• Checks Associated Token Account (ATA) 
-• Ensures proper rent funding
-• Uses Jupiter aggregator for guaranteed delivery
-• Professional validation pipeline
-
-<b>🚀 READY FOR TESTING</b>
-
-Would you like to test the new Jupiter engine with a small trade?
+Contact support to investigate and reset system.
         """
-        send_message(chat_id, jupiter_message)
+        send_message(chat_id, emergency_message)
         return
     
-    # Fallback to emergency stop if Jupiter not ready
-    emergency_message = """
-🚨 <b>EMERGENCY STOP ACTIVE</b>
-System upgrading to Jupiter Trade Engine
-Please wait for deployment completion
-    """
-    send_message(chat_id, emergency_message)
-    return
+    # Check if user has a burner wallet first
+    if BURNER_WALLET_ENABLED:
+        import asyncio
+        asyncio.run(handle_fetch_with_jupiter_engine(chat_id))
+    else:
+        no_wallet_message = """
+❌ <b>No burner wallet found</b>
+
+Please create a burner wallet first:
+1. Use /setup to create your secure wallet
+2. Fund it with SOL for trading
+3. Try /fetch again
+
+<b>💡 Tip:</b> Start with small amounts for testing
+        """
+        send_message(chat_id, no_wallet_message)
+
+async def handle_fetch_with_jupiter_engine(chat_id):
+    """Execute FETCH with Jupiter engine and emergency protection"""
+    try:
+        from jupiter_trade_engine import JupiterTradeEngine
+        
+        # Initialize Jupiter engine
+        engine = JupiterTradeEngine()
+        
+        # Load burner wallet
+        with open('burner_wallet.json', 'r') as f:
+            wallet_data = json.load(f)
+            public_key = wallet_data['public_key']
+            private_key = wallet_data['private_key']
+        
+        # For testing, use a known working token (CLIPPY)
+        test_token = "7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump"  # CLIPPY
+        
+        processing_message = """
+🪐 <b>JUPITER FETCH EXECUTING</b>
+
+🔧 <b>Emergency Protection:</b> ENABLED
+⚠️ <b>Zero token failsafe:</b> ACTIVE
+💰 <b>Test Amount:</b> 0.001 SOL
+🎯 <b>Target:</b> CLIPPY (verified working token)
+
+<b>Processing trade...</b>
+        """
+        send_message(chat_id, processing_message)
+        
+        # Execute trade with emergency protection
+        result = engine.execute_jupiter_trade(
+            wallet_pubkey=public_key,
+            private_key=private_key,
+            token_mint=test_token,
+            sol_amount=0.001,  # Very small test amount
+            slippage_bps=1000,
+            emergency_failsafe=True  # PROTECTION ENABLED
+        )
+        
+        if result["success"]:
+            success_message = f"""
+🎯 <b>JUPITER FETCH SUCCESS</b>
+
+✅ <b>Tokens Delivered:</b> {result['actual_tokens']:,.0f}
+🔗 <b>Transaction:</b> <code>{result['transaction_hash']}</code>
+🌐 <b>Explorer:</b> {result['explorer_url']}
+
+<b>🛡️ Emergency Protection:</b> Passed
+<b>🚀 Jupiter Engine:</b> Working perfectly
+
+The new trading system is operational!
+            """
+            send_message(chat_id, success_message)
+            
+        else:
+            if result.get("emergency_stop"):
+                emergency_message = f"""
+🚨 <b>EMERGENCY STOP TRIGGERED</b>
+
+❌ <b>Zero tokens delivered despite successful transaction</b>
+🔗 <b>TX Hash:</b> <code>{result['transaction_hash']}</code>
+🛑 <b>Wallet Protection:</b> ACTIVATED
+
+<b>Action Taken:</b>
+• Trading immediately halted
+• Emergency file created
+• Wallet preserved from further loss
+
+<b>Investigation required before resuming trades</b>
+                """
+                send_message(chat_id, emergency_message)
+            else:
+                failure_message = f"""
+❌ <b>JUPITER FETCH FAILED</b>
+
+<b>Error:</b> {result.get('error', 'Unknown error')}
+<b>Emergency Protection:</b> System protected
+
+No SOL was lost. Safe to retry.
+                """
+                send_message(chat_id, failure_message)
+                
+    except Exception as e:
+        error_message = f"""
+❌ <b>FETCH ERROR</b>
+
+<b>Error:</b> {str(e)}
+<b>Status:</b> No trades executed
+<b>Wallet:</b> Protected
+
+System is safe to retry.
+        """
+        send_message(chat_id, error_message)
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio

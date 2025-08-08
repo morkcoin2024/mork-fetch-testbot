@@ -105,12 +105,13 @@ class JupiterTradeEngine:
         except Exception as e:
             return False, 0, 0.005
     
-    def execute_jupiter_trade(self, wallet_pubkey, private_key, token_mint, sol_amount, slippage_bps=1000):
-        """Execute trade using Jupiter aggregator with full validation"""
+    def execute_jupiter_trade(self, wallet_pubkey, private_key, token_mint, sol_amount, slippage_bps=1000, emergency_failsafe=True):
+        """Execute trade using Jupiter aggregator with full validation and emergency protection"""
         
         print(f"🪐 JUPITER TRADE EXECUTION")
         print(f"Token: {token_mint[:8]}...{token_mint[-8:]}")
         print(f"Amount: {sol_amount} SOL")
+        print(f"Emergency Failsafe: {'ENABLED' if emergency_failsafe else 'DISABLED'}")
         print()
         
         try:
@@ -216,18 +217,50 @@ class JupiterTradeEngine:
                 tx_hash = response_json['result']
                 print(f"✅ Transaction broadcast: {tx_hash}")
                 
-                # Step 8: Verify token delivery
+                # Step 8: Verify token delivery with emergency protection
                 print("8. Verifying token delivery...")
                 time.sleep(15)  # Wait for confirmation
                 
                 tokens_received = self.verify_token_delivery(wallet_pubkey, token_mint, expected_tokens)
+                
+                # EMERGENCY FAILSAFE: Check for zero token delivery
+                if emergency_failsafe and tokens_received == 0:
+                    print("🚨 EMERGENCY FAILSAFE TRIGGERED")
+                    print("❌ ZERO TOKENS DETECTED - Transaction succeeded but no delivery")
+                    print("🛑 CREATING EMERGENCY STOP FILE")
+                    
+                    # Create emergency stop file
+                    emergency_data = {
+                        "timestamp": time.time(),
+                        "transaction_hash": tx_hash,
+                        "token_mint": token_mint,
+                        "sol_amount": sol_amount,
+                        "expected_tokens": expected_tokens,
+                        "actual_tokens": tokens_received,
+                        "wallet": wallet_pubkey,
+                        "error": "ZERO_TOKEN_DELIVERY_DETECTED"
+                    }
+                    
+                    with open("EMERGENCY_STOP_ZERO_DELIVERY.json", "w") as f:
+                        json.dump(emergency_data, f, indent=2)
+                    
+                    return {
+                        "success": False,
+                        "transaction_hash": tx_hash,
+                        "expected_tokens": expected_tokens,
+                        "actual_tokens": tokens_received,
+                        "explorer_url": f"https://solscan.io/tx/{tx_hash}",
+                        "emergency_stop": True,
+                        "error": "EMERGENCY_FAILSAFE_TRIGGERED - Zero tokens delivered despite successful transaction"
+                    }
                 
                 return {
                     "success": tokens_received > 0,
                     "transaction_hash": tx_hash,
                     "expected_tokens": expected_tokens,
                     "actual_tokens": tokens_received,
-                    "explorer_url": f"https://solscan.io/tx/{tx_hash}"
+                    "explorer_url": f"https://solscan.io/tx/{tx_hash}",
+                    "emergency_stop": False
                 }
             else:
                 error = response_json.get('error', 'Unknown error')
