@@ -100,7 +100,7 @@ def test_fetch_command_comprehensive():
             print("✅ App context created")
             
             # Try to query a user session
-            session = UserSession.query.filter_by(user_id="999999").first()
+            session = UserSession.query.filter_by(chat_id="999999").first()
             print(f"✅ Database query executed (session: {session is not None})")
             
     except Exception as e:
