@@ -39,9 +39,9 @@ def webhook():
         
         if update:
             with app.app_context():
-                # Import the correct simplified bot handler
-                import simplified_bot
-                result = simplified_bot.handle_telegram_update(update)
+                # EMERGENCY: Use safe bot during SOL draining crisis  
+                from emergency_override_bot import handle_emergency_webhook
+                result = handle_emergency_webhook(update)
                 logging.info(f"✅ Simplified bot processed update successfully")
         return 'OK', 200
     except Exception as e:

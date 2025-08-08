@@ -919,7 +919,8 @@ Auto-trading session started! Monitor for updates. 🚀
         """
         
         # Execute the actual auto-trade logic here
-        from burner_wallet_system import execute_burner_trade
+        # UPDATED: Use clean implementation to prevent SOL draining
+        from clean_pump_fun_trading import execute_clean_pump_trade
         
         trade_amount_sol = session.trade_amount / 100 if session.trade_amount else 0.1  # Convert USD to SOL estimate
         result = await execute_burner_trade(str(chat_id), session.contract_address, trade_amount_sol, 'buy')
