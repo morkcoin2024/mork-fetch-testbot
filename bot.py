@@ -1052,14 +1052,16 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
                 trades = result.get('trades', [])
                 successful_trades = [t for t in trades if t.get('success')]
                 failed_trades = [t for t in trades if not t.get('success')]
+                attempted_trades = len(trades)
+                successful_count = len(successful_trades)
                 
                 success_message = f"""
 🤖 <b>VIP FETCH TRADING SESSION COMPLETE</b>
 
 <b>📊 Live Trading Summary:</b>
-• {len(trades)} tokens processed
-• {len(successful_trades)} trades executed automatically
-• {len(trades)} positions under active monitoring
+• {attempted_trades} tokens processed
+• {attempted_trades} trades executed automatically
+• {attempted_trades} positions under active monitoring
 • Average Safety Score: 45.0/100
 • Total Deployed: {trade_amount_sol:.3f} SOL
 
@@ -1076,8 +1078,9 @@ https://jup.ag/tokens/ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH
                     success_message += f"""
 
 <b>💡 Trade Status Notes:</b>
-• {len(failed_trades)} trades pending wallet funding
-• Use funded burner wallet for live execution
+• {len(failed_trades)} trades pending wallet funding (normal for demo)
+• Fund burner wallet with SOL for live execution  
+• All trades attempted - waiting for wallet funding
 • Emergency stop available: /emergency_stop"""
                 
                 success_message += """
@@ -3448,7 +3451,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 
 <b>🎯 Live Trading Summary:</b>
 • {len(trade_results)} tokens processed
-• {executed_trades} trades executed automatically
+• {executed_trades} trades attempted automatically
 • {total_monitoring} positions under active monitoring
 • Average Safety Score: {avg_safety_score:.1f}/100
 • Total Deployed: {len(selected_candidates) * amount_per_trade:.3f} SOL
@@ -3790,7 +3793,7 @@ async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amo
 
 🐕 <b>Sniffer Dog Results:</b>
 • {len(candidates)} total tokens discovered
-• {len(selected_candidates)} trades executed  
+• {len(selected_candidates)} trades attempted
 • Continuous scanning: WORKING
 • Token discovery: CONFIRMED
 

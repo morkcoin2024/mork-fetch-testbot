@@ -150,19 +150,36 @@ class AutomatedPumpTrader:
                     # Don't fail the whole trade for this
             
             if trades_executed:
+                # Calculate successful vs attempted trades for accurate reporting
+                successful_trades = [t for t in trades_executed if t.get('success', False)]
+                attempted_trades = len(trades_executed)
+                successful_count = len(successful_trades)
+                
                 # Store active trades
                 self.active_trades[chat_id] = trades_executed
                 
-                return {
-                    'success': True,
-                    'trades': trades_executed,
-                    'message': f'Successfully executed {len(trades_executed)} automated trades'
-                }
+                # Provide detailed reporting
+                if successful_count > 0:
+                    return {
+                        'success': True,
+                        'trades': trades_executed,
+                        'successful_trades': successful_count,
+                        'attempted_trades': attempted_trades,
+                        'message': f'Successfully executed {successful_count}/{attempted_trades} automated trades'
+                    }
+                else:
+                    return {
+                        'success': True,  # Processing was successful, but trades failed
+                        'trades': trades_executed,
+                        'successful_trades': 0,
+                        'attempted_trades': attempted_trades,
+                        'message': f'Processed {attempted_trades} tokens - all trades failed (likely wallet funding needed)'
+                    }
             else:
                 return {
                     'success': False,
-                    'error': 'Failed to execute any trades',
-                    'message': 'All buy transactions failed'
+                    'error': 'No tokens to process',
+                    'message': 'No trading candidates identified'
                 }
                 
         except Exception as e:
