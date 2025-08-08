@@ -83,10 +83,13 @@ TRADING_DISCLAIMER = "\n\n<i>⚠️ By using this bot you are doing so entirely 
 def send_message(chat_id, text, reply_markup=None):
     """Send a message to a Telegram chat"""
     url = f"{TELEGRAM_API_URL}/sendMessage"
+    
+    # Clean text to avoid HTML parsing issues
+    clean_text = str(text).strip()
+    
     data = {
         'chat_id': chat_id,
-        'text': text,
-        'parse_mode': 'HTML'
+        'text': clean_text
     }
     if reply_markup:
         if isinstance(reply_markup, dict):
@@ -96,6 +99,16 @@ def send_message(chat_id, text, reply_markup=None):
     
     try:
         response = requests.post(url, json=data)
+        if response.status_code != 200:
+            logging.error(f"Telegram API error {response.status_code}: {response.text}")
+            
+            # Try without parse_mode if HTML parsing failed
+            simple_data = {
+                'chat_id': chat_id,
+                'text': clean_text.replace('<b>', '').replace('</b>', '').replace('<code>', '').replace('</code>', '').replace('<i>', '').replace('</i>', '')
+            }
+            response = requests.post(url, json=simple_data)
+            
         return response.json()
     except Exception as e:
         logging.error(f"Error sending message: {e}")
@@ -2016,16 +2029,14 @@ def handle_fetch_with_jupiter_engine_sync(chat_id):
         # For testing, use a known working token (CLIPPY)
         test_token = "7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump"  # CLIPPY
         
-        processing_message = """
-🪐 <b>JUPITER FETCH EXECUTING</b>
+        processing_message = """🪐 JUPITER FETCH EXECUTING
 
-🔧 <b>Emergency Protection:</b> ENABLED
-⚠️ <b>Zero token failsafe:</b> ACTIVE
-💰 <b>Test Amount:</b> 0.001 SOL
-🎯 <b>Target:</b> CLIPPY (verified working token)
+🔧 Emergency Protection: ENABLED
+⚠️ Zero token failsafe: ACTIVE
+💰 Test Amount: 0.001 SOL
+🎯 Target: CLIPPY (verified working token)
 
-<b>Processing trade...</b>
-        """
+Processing trade..."""
         send_message(chat_id, processing_message)
         
         # Execute trade with emergency protection
@@ -2039,58 +2050,50 @@ def handle_fetch_with_jupiter_engine_sync(chat_id):
         )
         
         if result["success"]:
-            success_message = f"""
-🎯 <b>JUPITER FETCH SUCCESS</b>
+            success_message = f"""🎯 JUPITER FETCH SUCCESS
 
-✅ <b>Tokens Delivered:</b> {result['actual_tokens']:,.0f}
-🔗 <b>Transaction:</b> <code>{result['transaction_hash']}</code>
-🌐 <b>Explorer:</b> {result['explorer_url']}
+✅ Tokens Delivered: {result['actual_tokens']:,.0f}
+🔗 Transaction: {result['transaction_hash']}
+🌐 Explorer: {result['explorer_url']}
 
-<b>🛡️ Emergency Protection:</b> Passed
-<b>🚀 Jupiter Engine:</b> Working perfectly
+🛡️ Emergency Protection: Passed
+🚀 Jupiter Engine: Working perfectly
 
-The new trading system is operational!
-            """
+The new trading system is operational!"""
             send_message(chat_id, success_message)
             
         else:
             if result.get("emergency_stop"):
-                emergency_message = f"""
-🚨 <b>EMERGENCY STOP TRIGGERED</b>
+                emergency_message = f"""🚨 EMERGENCY STOP TRIGGERED
 
-❌ <b>Zero tokens delivered despite successful transaction</b>
-🔗 <b>TX Hash:</b> <code>{result['transaction_hash']}</code>
-🛑 <b>Wallet Protection:</b> ACTIVATED
+❌ Zero tokens delivered despite successful transaction
+🔗 TX Hash: {result['transaction_hash']}
+🛑 Wallet Protection: ACTIVATED
 
-<b>Action Taken:</b>
+Action Taken:
 • Trading immediately halted
 • Emergency file created
 • Wallet preserved from further loss
 
-<b>Investigation required before resuming trades</b>
-                """
+Investigation required before resuming trades"""
                 send_message(chat_id, emergency_message)
             else:
-                failure_message = f"""
-❌ <b>JUPITER FETCH FAILED</b>
+                failure_message = f"""❌ JUPITER FETCH FAILED
 
-<b>Error:</b> {result.get('error', 'Unknown error')}
-<b>Emergency Protection:</b> System protected
+Error: {result.get('error', 'Unknown error')}
+Emergency Protection: System protected
 
-No SOL was lost. Safe to retry.
-                """
+No SOL was lost. Safe to retry."""
                 send_message(chat_id, failure_message)
                 
     except Exception as e:
-        error_message = f"""
-❌ <b>FETCH ERROR</b>
+        error_message = f"""❌ FETCH ERROR
 
-<b>Error:</b> {str(e)}
-<b>Status:</b> No trades executed
-<b>Wallet:</b> Protected
+Error: {str(e)}
+Status: No trades executed
+Wallet: Protected
 
-System is safe to retry.
-        """
+System is safe to retry."""
         send_message(chat_id, error_message)
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
