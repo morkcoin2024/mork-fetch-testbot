@@ -69,6 +69,131 @@ class SmartTradingRouter:
                 "error": str(e)
             }
     
+    async def execute_smart_trade(self, private_key: str, token_mint: str, token_symbol: str, 
+                                sol_amount: float, trade_type: str) -> Dict:
+        """Execute a smart trade using optimal platform routing"""
+        try:
+            logger.info(f"Executing {trade_type} trade for {token_symbol} ({sol_amount} SOL)")
+            
+            # Analyze best platform for this token
+            platform_analysis = self.analyze_token_platform(token_mint, token_symbol)
+            
+            if not platform_analysis.get("success"):
+                logger.error(f"Platform analysis failed: {platform_analysis.get('error')}")
+                return {
+                    'success': False,
+                    'error': f"Platform routing failed: {platform_analysis.get('error')}"
+                }
+            
+            optimal_platform = platform_analysis.get("platform")
+            logger.info(f"Routing {trade_type} trade to {optimal_platform}: {platform_analysis.get('reason')}")
+            
+            # Route to appropriate trading platform
+            if optimal_platform == "pump_fun":
+                return await self._execute_pump_fun_trade(private_key, token_mint, token_symbol, sol_amount, trade_type)
+            elif optimal_platform == "jupiter":
+                return await self._execute_jupiter_trade(private_key, token_mint, token_symbol, sol_amount, trade_type)
+            else:
+                return {
+                    'success': False,
+                    'error': f"Unknown platform: {optimal_platform}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Smart trade execution failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    async def _execute_pump_fun_trade(self, private_key: str, token_mint: str, token_symbol: str, 
+                                    sol_amount: float, trade_type: str) -> Dict:
+        """Execute trade on Pump.fun bonding curve"""
+        try:
+            logger.info(f"Executing {trade_type} on Pump.fun for {token_symbol}")
+            
+            # Import and use pump.fun trading system
+            from pump_fun_trading import execute_pump_fun_trade
+            
+            result = await execute_pump_fun_trade(
+                private_key=private_key,
+                token_contract=token_mint,
+                sol_amount=sol_amount,
+                action=trade_type
+            )
+            
+            if result.get('success'):
+                logger.info(f"✅ Pump.fun {trade_type} successful: {result.get('transaction_hash', 'No hash')}")
+                return {
+                    'success': True,
+                    'transaction_hash': result.get('transaction_hash'),
+                    'sol_spent': result.get('sol_spent', sol_amount),
+                    'tokens_received': result.get('tokens_received', 0),
+                    'platform': 'pump_fun'
+                }
+            else:
+                logger.error(f"❌ Pump.fun {trade_type} failed: {result.get('error')}")
+                return {
+                    'success': False,
+                    'error': f"Pump.fun trade failed: {result.get('error')}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Pump.fun trade execution failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    async def _execute_jupiter_trade(self, private_key: str, token_mint: str, token_symbol: str, 
+                                   sol_amount: float, trade_type: str) -> Dict:
+        """Execute trade on Jupiter DEX"""
+        try:
+            logger.info(f"Executing {trade_type} on Jupiter for {token_symbol}")
+            
+            # Import Jupiter integration
+            from wallet_integration import create_jupiter_swap_transaction
+            
+            if trade_type == "buy":
+                # SOL → Token
+                result = create_jupiter_swap_transaction(
+                    private_key=private_key,
+                    input_mint="So11111111111111111111111111111111111111112",  # SOL
+                    output_mint=token_mint,
+                    amount=int(sol_amount * 1_000_000_000)  # Convert SOL to lamports
+                )
+            else:  # sell
+                # Token → SOL
+                result = create_jupiter_swap_transaction(
+                    private_key=private_key,
+                    input_mint=token_mint,
+                    output_mint="So11111111111111111111111111111111111111112",  # SOL
+                    amount=0  # Need to calculate token balance
+                )
+            
+            if result.get('success'):
+                logger.info(f"✅ Jupiter {trade_type} successful: {result.get('transaction_hash', 'No hash')}")
+                return {
+                    'success': True,
+                    'transaction_hash': result.get('transaction_hash'),
+                    'sol_spent': result.get('sol_spent', sol_amount),
+                    'tokens_received': result.get('tokens_received', 0),
+                    'platform': 'jupiter'
+                }
+            else:
+                logger.error(f"❌ Jupiter {trade_type} failed: {result.get('error')}")
+                return {
+                    'success': False,
+                    'error': f"Jupiter trade failed: {result.get('error')}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Jupiter trade execution failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
     def _check_bonding_curve_status(self, token_mint: str) -> Dict:
         """
         Check if a pump token has graduated from bonding curve to DEX
@@ -142,74 +267,7 @@ class SmartTradingRouter:
                 "error": str(e)
             }
     
-    async def execute_smart_trade(self, 
-                                private_key: str,
-                                token_mint: str, 
-                                token_symbol: str,
-                                sol_amount: float,
-                                trade_type: str = "buy") -> Dict:
-        """
-        Execute trade using optimal platform based on token analysis
-        """
-        try:
-            # Analyze optimal platform
-            platform_analysis = self.analyze_token_platform(token_mint, token_symbol)
-            platform = platform_analysis.get("platform", "jupiter")
-            
-            logger.info(f"Executing {trade_type} via {platform}: {platform_analysis.get('reason', '')}")
-            
-            if platform == "pump_fun":
-                # Use Pump.fun bonding curve trading
-                from pump_fun_trading import buy_pump_fun_token, sell_pump_fun_token
-                
-                if trade_type == "buy":
-                    result = await buy_pump_fun_token(
-                        private_key=private_key,
-                        token_mint=token_mint,
-                        sol_amount=sol_amount
-                    )
-                else:  # sell
-                    result = await sell_pump_fun_token(
-                        private_key=private_key,
-                        token_mint=token_mint,
-                        percentage=100.0  # Default to sell all
-                    )
-                
-            else:  # platform == "jupiter"
-                # Use Jupiter DEX trading
-                from wallet_integration import create_buy_transaction, create_sell_transaction
-                
-                if trade_type == "buy":
-                    # Jupiter buy logic (existing system)
-                    result = create_buy_transaction(
-                        private_key=private_key,
-                        token_contract=token_mint,
-                        sol_amount=sol_amount,
-                        wallet_address=""  # Will be derived from private_key
-                    )
-                else:  # sell
-                    result = create_sell_transaction(
-                        wallet_address="",  # Will be derived from private_key
-                        token_mint=token_mint,
-                        token_amount=0,  # Will calculate from balance
-                        slippage=0.5
-                    )
-            
-            # Add platform info to result
-            if isinstance(result, dict):
-                result['trading_platform'] = platform
-                result['platform_reason'] = platform_analysis.get('reason', '')
-                result['platform_analysis'] = platform_analysis
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Smart trade execution failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "trading_platform": "unknown"
-            }
+
 
 # Global smart router instance
 smart_trading_router = SmartTradingRouter()

@@ -3124,8 +3124,10 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                     # Execute actual automated buy transaction using smart router
                     logging.info(f"Attempting smart auto-trade for {candidate.get('name', 'Unknown')} with {amount_per_trade} SOL")
                     
-                    from smart_trading_router import smart_trading_router
-                    buy_result = await smart_trading_router.execute_smart_trade(
+                    from smart_trading_router import SmartTradingRouter
+                    router = SmartTradingRouter()
+                    
+                    buy_result = await router.execute_smart_trade(
                         private_key=private_key,
                         token_mint=candidate.get('mint', ''),
                         token_symbol=candidate.get('symbol', 'TOKEN'),
@@ -3133,11 +3135,12 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                         trade_type="buy"
                     )
                     
-                    if buy_result['success']:
+                    if buy_result and buy_result.get('success'):
                         # Successful automatic trade execution
-                        trade_result['tx_hash'] = buy_result.get('tx_hash', '')
+                        trade_result['tx_hash'] = buy_result.get('transaction_hash', buy_result.get('tx_hash', ''))
                         trade_result['tokens_received'] = buy_result.get('tokens_received', 0)
                         trade_result['actual_sol_spent'] = buy_result.get('sol_spent', amount_per_trade)
+                        trade_result['status'] = 'EXECUTED'  # Mark as executed
                         
                         execution_message = f"""
 ✅ <b>AUTOMATIC TRADE EXECUTED #{i+1}</b>
