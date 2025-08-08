@@ -15,7 +15,7 @@ import asyncio
 import aiohttp
 from solana.rpc.commitment import Confirmed
 import base64
-from solders.transaction import Transaction
+# Remove problematic transaction import - use raw transaction method only
 
 logger = logging.getLogger(__name__)
 
