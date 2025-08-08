@@ -1,0 +1,138 @@
+You’ve almost got it, but the root problem remains:
+You are still trying a manual SystemProgram.transfer as your “real trade” first, THEN using the PumpPortal API as a fallback.
+The manual transfer will NEVER mint you tokens on pump.fun!
+This is why SOL leaves your wallet but no tokens show up.
+
+Why This Fails (Again):
+Manual SystemProgram.transfer (sending SOL to the bonding curve) ≠ contract buy.
+
+Only the PumpPortal API (or a direct programmatic contract call with the proper instruction data, which is a pain to hand-code) will actually mint you tokens.
+
+Your Current Logic (Simplified)
+Check if wallet has SOL
+
+Try manual transfer:
+
+Always “succeeds” by sending SOL away, but never mints tokens!
+
+If/when manual transfer fails, try PumpPortal API (which is the only correct path!)
+
+How To Fix For Real:
+Delete ALL of this code from your buy method:
+
+python
+Copy
+Edit
+# IMPLEMENT CHATGPT'S SOLUTION: Direct SystemProgram.transfer()
+# Generate bonding curve address for this token
+bonding_curve_address = self.generate_bonding_curve_address(token_contract)
+if not bonding_curve_address:
+    raise Exception("Failed to generate bonding curve address")
+bonding_pubkey = PublicKey.from_string(bonding_curve_address)
+from_pubkey = keypair.pubkey()
+# Create the transfer transaction (ChatGPT's exact method)
+tx = Transaction()
+tx.add(
+    transfer(
+        TransferParams(
+            from_pubkey=from_pubkey,        # burner wallet
+            to_pubkey=bonding_pubkey,       # pump.fun bonding address
+            lamports=lamports,              # SOL amount
+        )
+    )
+)
+# Send transaction signed with burner wallet (ChatGPT's recommendation)
+logger.info(f"🚀 Sending SystemProgram.transfer() to bonding curve...")
+logger.info(f"  From: {from_pubkey}")
+logger.info(f"  To: {bonding_pubkey}")
+logger.info(f"  Amount: {lamports} lamports ({sol_amount} SOL)")
+response = self.client.send_transaction(tx, keypair)
+if response.value:
+    tx_hash = response.value
+    logger.info(f"✅ REAL TRADE SUCCESS: TX {tx_hash}")
+    return {
+        "success": True,
+        "transaction_hash": tx_hash,
+        "method": "SystemProgram_Transfer",
+        "tokens_purchased": int(sol_amount * 1000000),  # Estimated
+        "bonding_address": bonding_curve_address
+    }
+else:
+    raise Exception(f"Transaction failed: {response}")
+Then Make Your Buy Function Do ONLY This:
+Every real trade goes through PumpPortal API, with all your retry/backoff logic.
+
+python
+Copy
+Edit
+trade_data = {
+    "publicKey": public_key,
+    "action": "buy",
+    "mint": token_contract,
+    "denominatedInSol": "true",
+    "amount": sol_amount,  # Or int(sol_amount * 1e9), check PumpPortal docs!
+    "slippage": slippage_percent,
+    "priorityFee": 0.0001,
+    "pool": "pump"
+}
+
+# ...your retry/backoff logic as you have it...
+
+for attempt in range(MAX_RETRIES):
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+            async with session.post(PUMPPORTAL_API, json=trade_data) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+                    # handle transaction: decode, sign, send
+                    # ...your signing logic...
+                    # ...return transaction hash on success...
+                else:
+                    # retry/backoff/error handling
+    except aiohttp.ClientError as e:
+        # retry/backoff/error handling
+TL;DR — Your Buy Method Must Be:
+Only use PumpPortal API.
+
+Do not attempt SystemProgram.transfer. It will send SOL, but never mint tokens.
+
+Keep your retries, error handling, and timeouts.
+
+Make sure you’re passing the correct amount value. (Some APIs want lamports, some want SOL as float—test with a tiny amount first!)
+
+Minimal “SAFE” Buy Function
+python
+Copy
+Edit
+async def buy_pump_token(self, private_key: str, token_contract: str, sol_amount: float, slippage_percent: float = 1.0) -> Dict:
+    # ...private key stuff, balance check, etc...
+    trade_data = {
+        "publicKey": public_key,
+        "action": "buy",
+        "mint": token_contract,
+        "denominatedInSol": "true",
+        "amount": sol_amount,  # try with float first; if fails, try int(sol_amount * 1e9)
+        "slippage": slippage_percent,
+        "priorityFee": 0.0001,
+        "pool": "pump"
+    }
+    for attempt in range(MAX_RETRIES):
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+                async with session.post(PUMPPORTAL_API, json=trade_data) as response:
+                    if response.status == 200:
+                        response_data = await response.json()
+                        # decode, sign, send tx
+                        # ...rest of code...
+        # ...error handling...
+NO SystemProgram.transfer. None. Ever.
+
+Last Notes:
+If you want to try a direct on-chain buy (not via API), you need to use pump.fun’s Anchor/IDL program and its actual buy instruction, which is not as simple as a transfer.
+
+You can keep the generate_bonding_curve_address only for info display, never for trading logic.
+
+Your sell function can use the same PumpPortal API logic.
+
+Patch that, and your bot will finally buy tokens, not just throw SOL into the abyss.
+Want the exact minimal function code to paste? Just ask!
