@@ -1488,8 +1488,11 @@ def handle_status_command(chat_id):
         
         session = get_or_create_session(chat_id)
         
-        # Check for active VIP FETCH trades
-        active_trades = db.session.query(ActiveTrade).filter_by(chat_id=str(chat_id), status='active').all()
+        # Check for active VIP FETCH trades (include both 'active' and monitoring states)
+        active_trades = db.session.query(ActiveTrade).filter(
+            ActiveTrade.chat_id == str(chat_id),
+            ActiveTrade.status.in_(['active', 'monitoring', 'executed'])
+        ).order_by(ActiveTrade.created_at.desc()).all()
         
         # Get burner wallet info if available
         wallet_info = None
@@ -1585,7 +1588,10 @@ def handle_status_command(chat_id):
 """
         else:
             status_text += """<b>📊 ACTIVE TRADES:</b>
-❌ No active VIP FETCH trades
+❌ No active trades found
+
+<b>💡 Recent Activity:</b>
+Use /fetch to start automated trading or check if trades completed.
 
 """
         
@@ -3141,6 +3147,37 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                         trade_result['tokens_received'] = buy_result.get('tokens_received', 0)
                         trade_result['actual_sol_spent'] = buy_result.get('sol_spent', amount_per_trade)
                         trade_result['status'] = 'EXECUTED'  # Mark as executed
+                        
+                        # Store trade in database for status tracking
+                        try:
+                            from models import ActiveTrade, db
+                            from datetime import datetime
+                            
+                            active_trade = ActiveTrade(
+                                chat_id=str(chat_id),
+                                trade_type='fetch',
+                                contract_address=candidate.get('mint', ''),
+                                token_name=trade_result['token_name'],
+                                token_symbol=trade_result['token_symbol'],
+                                entry_price=trade_result['entry_price'],
+                                trade_amount=trade_result['actual_sol_spent'],
+                                tokens_purchased=trade_result['tokens_received'],
+                                stop_loss=0.5,  # 0.5% stop-loss
+                                take_profit=0.5,  # 0.5% take-profit 
+                                sell_percent=100.0,
+                                status='active',
+                                tx_hash=trade_result['tx_hash'],
+                                monitoring_active=True,
+                                created_at=datetime.utcnow()
+                            )
+                            
+                            db.session.add(active_trade)
+                            db.session.commit()
+                            logging.info(f"✅ Stored FETCH trade in database: {trade_result['token_symbol']}")
+                            
+                        except Exception as e:
+                            logging.error(f"Failed to store trade in database: {e}")
+                            # Don't fail the whole trade for this
                         
                         execution_message = f"""
 ✅ <b>AUTOMATIC TRADE EXECUTED #{i+1}</b>
