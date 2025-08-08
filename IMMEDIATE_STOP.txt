@@ -1,0 +1,16 @@
+🚨 IMMEDIATE EMERGENCY STOP ACTIVATED 🚨
+
+DATE: 2025-08-08 19:27 UTC
+REASON: User reports bot is STILL taking funds from account
+
+STATUS: ALL TRADING OPERATIONS HALTED GLOBALLY
+
+ISSUE: Despite applying the "pool" parameter fix, the bot is continuing to drain SOL without purchasing tokens.
+
+NEXT STEPS REQUIRED:
+1. Complete investigation of PumpPortal API implementation
+2. Verify transaction structure and signing process
+3. Test with minimal amounts only
+4. User approval required before any resumption
+
+⚠️ NO TRADING OPERATIONS UNTIL FURTHER NOTICE ⚠️
