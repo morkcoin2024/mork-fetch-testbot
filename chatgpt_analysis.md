@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-"""
-ChatGPT Analysis Request - Complete Problem Description
-For consultation on Solana pump.fun trading bot implementation
-"""
 
-CHATGPT_ANALYSIS_REQUEST = """
 # Solana Pump.fun Trading Bot - Implementation Challenge
 
 ## PROJECT OVERVIEW
@@ -131,25 +125,3 @@ A reliable, consistent method to:
 4. **Hybrid approach** - different methods for different token types
 
 Please analyze this implementation challenge and suggest reliable solutions for consistent token acquisition on Solana/pump.fun.
-"""
-
-def save_analysis_request():
-    """Save the ChatGPT analysis request to file"""
-    with open("chatgpt_analysis.md", "w") as f:
-        f.write(CHATGPT_ANALYSIS_REQUEST)
-    
-    print("📝 CHATGPT ANALYSIS REQUEST SAVED")
-    print("=" * 60)
-    print("File: chatgpt_analysis.md")
-    print("Ready to paste into ChatGPT for consultation")
-    print()
-    print("The analysis covers:")
-    print("✓ Complete problem description")
-    print("✓ Current implementation details") 
-    print("✓ Specific failure patterns")
-    print("✓ Test results with transaction hashes")
-    print("✓ Technical constraints")
-    print("✓ Alternative approaches to explore")
-
-if __name__ == "__main__":
-    save_analysis_request()
