@@ -1957,20 +1957,8 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """🚨 EMERGENCY STOP - /fetch command disabled per user request"""
-    emergency_message = """
-🚨 <b>EMERGENCY STOP ACTIVATED</b>
-
-VIP FETCH trading has been disabled per user request.
-
-<b>Reason:</b> Emergency stop to prevent wallet drain
-<b>Status:</b> All trading operations halted
-<b>Safety:</b> System locked in safe mode
-
-Contact support for assistance.
-    """
-    send_message(chat_id, emergency_message)
-    return
+    """VIP FETCH automated trading - RESTORED after verification of working method"""
+    # System verified working - emergency stop lifted 2025-08-08
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio
@@ -3152,7 +3140,7 @@ def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amo
                     from solders.pubkey import Pubkey as PublicKey
                     
                     client = Client("https://api.mainnet-beta.solana.com")
-                    pubkey = PublicKey.from_string(public_key)
+                    pubkey = PublicKey.from_string(wallet_address)
                     
                     # Get token accounts to verify CLIPPY tokens received
                     token_accounts = client.get_token_accounts_by_owner(pubkey, {"programId": PublicKey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")})
