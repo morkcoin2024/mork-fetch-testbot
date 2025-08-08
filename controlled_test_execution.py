@@ -1,169 +1,235 @@
 #!/usr/bin/env python3
 """
-CONTROLLED TEST EXECUTION
-Your parameters: 0.1 SOL, 10 tokens, 10% loss, 10% profit, 100% take
-SUCCESS CRITERIA: Token value must be > 0 or EMERGENCY STOP
+Controlled Test Execution for Whale Token
+Testing different approaches to understand token delivery failures
 """
-import asyncio
-import logging
+import requests
 import json
-from datetime import datetime
+import logging
+from solders.transaction import VersionedTransaction
+from solders.keypair import Keypair
+from solders.commitment_config import CommitmentLevel
+from solders.rpc.requests import SendVersionedTransaction
+from solders.rpc.config import RpcSendTransactionConfig
 
-logging.basicConfig(level=logging.INFO)
-
-async def execute_controlled_test():
-    """Execute controlled test with your exact parameters"""
-    print("🧪 CONTROLLED TEST EXECUTION STARTING...")
-    print(f"Time: {datetime.now()}")
-    print("Parameters: 0.1 SOL, 10 tokens, 10% loss, 10% profit, 100% take")
-    print("SUCCESS CRITERIA: Token value > 0 or EMERGENCY STOP")
+def test_whale_token_approaches():
+    """Test multiple approaches with Whale token to identify working method"""
+    
+    whale_mint = "G4irCda4dFsePvSrhc1H1u9uZUR2TSUiUCsHm661pump"
+    
+    print("🐋 TESTING WHALE TOKEN - CONTROLLED EXECUTION")
     print("=" * 60)
+    print(f"Token: It's just a whale")
+    print(f"Contract: {whale_mint}")
+    print(f"Market Cap: $11.6K")
+    print(f"Age: 28 minutes")
+    print()
     
     try:
-        # Step 1: Import clean implementation
-        from clean_pump_fun_trading import execute_clean_pump_trade
-        from burner_wallet_system import BurnerWalletManager
-        print("✅ Clean implementation imported")
+        # Load test wallet
+        with open('test_wallet_info.txt', 'r') as f:
+            lines = f.read().strip().split('\n')
+            public_key = lines[0].split(': ')[1].strip()
+            private_key = lines[1].split(': ')[1].strip()
         
-        # Step 2: Check emergency stop
-        import os
-        if os.path.exists('EMERGENCY_STOP.flag'):
-            print("🚨 EMERGENCY STOP ACTIVE - Test will proceed with safety measures")
+        print(f"Wallet: {public_key}")
+        print()
+        
+        # Test 1: Small amount using EXACT CLIPPY parameters (what worked)
+        print("TEST 1: Using exact CLIPPY parameters")
+        print("-" * 40)
+        
+        result1 = test_pumpportal_trade(
+            public_key=public_key,
+            private_key=private_key,
+            token_mint=whale_mint,
+            amount=100,  # Very small amount
+            denominated_in_sol="false",
+            slippage=10,
+            priority_fee=0.005,
+            pool="auto"
+        )
+        
+        print(f"Result 1: {result1}")
+        print()
+        
+        # Test 2: SOL-denominated approach
+        print("TEST 2: Using SOL-denominated approach")
+        print("-" * 40)
+        
+        result2 = test_pumpportal_trade(
+            public_key=public_key,
+            private_key=private_key,
+            token_mint=whale_mint,
+            amount=0.001,  # 0.001 SOL
+            denominated_in_sol="true",
+            slippage=15,
+            priority_fee=0.01,
+            pool="pump"
+        )
+        
+        print(f"Result 2: {result2}")
+        print()
+        
+        # Test 3: Higher slippage for newer token
+        print("TEST 3: Higher slippage for newer token")
+        print("-" * 40)
+        
+        result3 = test_pumpportal_trade(
+            public_key=public_key,
+            private_key=private_key,
+            token_mint=whale_mint,
+            amount=50,
+            denominated_in_sol="false",
+            slippage=25,  # Higher slippage
+            priority_fee=0.02,  # Higher priority fee
+            pool="pump"
+        )
+        
+        print(f"Result 3: {result3}")
+        
+        # Summary
+        print("\n" + "=" * 60)
+        print("TEST SUMMARY")
+        print("=" * 60)
+        
+        working_tests = []
+        if result1.get('success'): working_tests.append("Test 1 (CLIPPY params)")
+        if result2.get('success'): working_tests.append("Test 2 (SOL-denominated)")
+        if result3.get('success'): working_tests.append("Test 3 (High slippage)")
+        
+        if working_tests:
+            print(f"✅ WORKING METHODS: {', '.join(working_tests)}")
         else:
-            print("⚠️ Emergency stop not active - proceeding with caution")
-        
-        # Step 3: Get wallet (simulating /fetch command)
-        print("🔍 Getting user wallet...")
-        manager = BurnerWalletManager()
-        # Using a test chat_id for this controlled test
-        test_chat_id = "controlled_test_user"
-        wallet = manager.get_user_wallet(test_chat_id)
-        
-        if not wallet:
-            print("❌ No wallet found - creating test wallet")
-            wallet = manager.create_wallet(test_chat_id)
-        
-        print(f"💰 Wallet Address: {wallet.get('public_key', 'N/A')}")
-        print(f"💰 SOL Balance: {wallet.get('sol_balance', 0):.6f}")
-        
-        # Step 4: Execute controlled trade
-        print("\n🎯 EXECUTING CONTROLLED TRADE...")
-        print("Amount: 0.1 SOL")
-        print("Target: Test token (controlled environment)")
-        
-        private_key = wallet.get('private_key', 'test_key')
-        test_token = "ControlledTestToken123456789"
-        trade_amount = 0.1
-        
-        # Execute the clean trade
-        result = await execute_clean_pump_trade(private_key, test_token, trade_amount)
-        
-        print("\n📊 TRADE EXECUTION RESULTS:")
-        print("=" * 40)
-        
-        if result.get('success'):
-            sol_spent = result.get('sol_actually_spent', 0)
-            tokens_acquired = result.get('tokens_acquired', False)
-            tx_hash = result.get('transaction_hash', 'N/A')
+            print("❌ ALL TESTS FAILED - Systematic issue confirmed")
             
-            print(f"Status: SUCCESS")
-            print(f"SOL Spent: {sol_spent:.6f}")
-            print(f"Tokens Acquired: {tokens_acquired}")
-            print(f"Transaction: {tx_hash}")
-            print(f"Method: {result.get('method', 'Unknown')}")
-            
-            # CRITICAL CHECK: Token value verification
-            if tokens_acquired and sol_spent > 0:
-                print("\n🎉 SUCCESS CRITERIA MET:")
-                print("✅ Tokens acquired with SOL spent")
-                print("✅ Real value transfer detected")
-                print("✅ No SOL draining")
-                
-                return {
-                    'test_result': 'SUCCESS',
-                    'tokens_acquired': True,
-                    'sol_spent': sol_spent,
-                    'action': 'CONTINUE_TRADING'
-                }
-            else:
-                print("\n⚠️ PARTIAL SUCCESS:")
-                print("✅ Transaction executed")
-                print("❌ No tokens acquired or SOL spent")
-                print("🛡️ Clean implementation prevented SOL drainage")
-                
-                return {
-                    'test_result': 'SAFE_FAILURE',
-                    'tokens_acquired': False,
-                    'sol_spent': sol_spent,
-                    'action': 'KEEP_EMERGENCY_STOP'
-                }
-        else:
-            error = result.get('error', 'Unknown error')
-            method = result.get('method', 'Unknown')
-            
-            print(f"Status: FAILED")
-            print(f"Error: {error}")
-            print(f"Method: {method}")
-            
-            # Check if this is expected safe failure
-            if "Insufficient funds" in error:
-                print("\n✅ EXPECTED SAFE FAILURE:")
-                print("🛡️ Clean implementation correctly prevented trade")
-                print("💰 No SOL drainage (insufficient funds)")
-                print("🔒 Emergency safety measures working")
-                
-                return {
-                    'test_result': 'EXPECTED_SAFE_FAILURE',
-                    'tokens_acquired': False,
-                    'sol_spent': 0,
-                    'action': 'EMERGENCY_STOP_WORKING'
-                }
-            else:
-                print("\n🚨 UNEXPECTED FAILURE:")
-                print("❌ Unknown error occurred")
-                print("🛑 RECOMMEND EMERGENCY STOP")
-                
-                return {
-                    'test_result': 'UNEXPECTED_FAILURE',
-                    'tokens_acquired': False,
-                    'sol_spent': 0,
-                    'action': 'EMERGENCY_STOP_RECOMMENDED'
-                }
-                
     except Exception as e:
-        print(f"\n💥 CRITICAL ERROR: {e}")
-        print("🛑 IMMEDIATE EMERGENCY STOP REQUIRED")
+        print(f"❌ Testing failed: {e}")
+
+def test_pumpportal_trade(public_key, private_key, token_mint, amount, denominated_in_sol, slippage, priority_fee, pool):
+    """Test single PumpPortal trade with specific parameters"""
+    try:
+        # Step 1: Get transaction from PumpPortal
+        response = requests.post(
+            url="https://pumpportal.fun/api/trade-local", 
+            data={
+                "publicKey": public_key,
+                "action": "buy",
+                "mint": token_mint,
+                "amount": amount,
+                "denominatedInSol": denominated_in_sol,
+                "slippage": slippage,
+                "priorityFee": priority_fee,
+                "pool": pool
+            }
+        )
         
+        if response.status_code != 200:
+            return {
+                'success': False,
+                'error': f"PumpPortal API failed: {response.text}",
+                'stage': 'api_call'
+            }
+        
+        print(f"✅ PumpPortal API response received")
+        
+        # Step 2: Sign transaction
+        try:
+            keypair = Keypair.from_base58_string(private_key)
+        except:
+            import base58
+            decoded_key = base58.b58decode(private_key)
+            keypair = Keypair.from_seed(decoded_key)
+            
+        tx = VersionedTransaction(VersionedTransaction.from_bytes(response.content).message, [keypair])
+        print(f"✅ Transaction signed")
+        
+        # Step 3: Broadcast (but wait to verify)
+        commitment = CommitmentLevel.Confirmed
+        config = RpcSendTransactionConfig(preflight_commitment=commitment)
+        
+        send_response = requests.post(
+            url="https://api.mainnet-beta.solana.com/",
+            headers={"Content-Type": "application/json"},
+            data=SendVersionedTransaction(tx, config).to_json()
+        )
+        
+        if send_response.status_code != 200:
+            return {
+                'success': False,
+                'error': f"Broadcast failed: {send_response.text}",
+                'stage': 'broadcast'
+            }
+        
+        response_json = send_response.json()
+        
+        if 'result' in response_json:
+            tx_hash = response_json['result']
+            print(f"✅ Transaction broadcast: {tx_hash}")
+            
+            # Step 4: Verify token delivery
+            import time
+            time.sleep(10)  # Wait longer for confirmation
+            
+            token_delivered = verify_token_delivery(public_key, token_mint)
+            
+            return {
+                'success': token_delivered,
+                'transaction_hash': tx_hash,
+                'tokens_verified': token_delivered,
+                'explorer_url': f'https://solscan.io/tx/{tx_hash}'
+            }
+        else:
+            error = response_json.get('error', 'Unknown error')
+            return {
+                'success': False,
+                'error': f"Transaction failed: {error}",
+                'stage': 'execution'
+            }
+            
+    except Exception as e:
         return {
-            'test_result': 'CRITICAL_ERROR',
-            'tokens_acquired': False,
-            'sol_spent': 0,
-            'action': 'IMMEDIATE_EMERGENCY_STOP',
-            'error': str(e)
+            'success': False,
+            'error': str(e),
+            'stage': 'general_error'
         }
 
-async def main():
-    print("🎯 STARTING CONTROLLED TEST EXECUTION")
-    print("User parameters: 0.1 SOL, 10 tokens, 10% loss, 10% profit, 100% take")
-    print("Critical check: Token value > 0 or EMERGENCY STOP")
-    print("")
-    
-    result = await execute_controlled_test()
-    
-    print("\n" + "=" * 60)
-    print("🏁 FINAL TEST RESULTS:")
-    print(f"Result: {result['test_result']}")
-    print(f"Tokens Acquired: {result['tokens_acquired']}")
-    print(f"SOL Spent: {result['sol_spent']}")
-    print(f"Recommended Action: {result['action']}")
-    
-    # Decision logic based on your criteria
-    if result['tokens_acquired'] and result['sol_spent'] > 0:
-        print("\n🟢 PROCEED: Token value detected, system working")
-    else:
-        print("\n🔴 EMERGENCY STOP: No token value detected")
+def verify_token_delivery(wallet_address, token_mint):
+    """Verify if tokens were actually delivered to wallet"""
+    try:
+        payload = {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'getTokenAccountsByOwner',
+            'params': [
+                wallet_address,
+                {'programId': 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'},
+                {'encoding': 'jsonParsed'}
+            ]
+        }
+
+        response = requests.post('https://api.mainnet-beta.solana.com/', json=payload)
+        data = response.json()
+
+        if 'result' in data and data['result']['value']:
+            accounts = data['result']['value']
+            
+            for account in accounts:
+                parsed = account['account']['data']['parsed']
+                if parsed and 'info' in parsed:
+                    mint = parsed['info']['mint']
+                    balance = float(parsed['info']['tokenAmount']['uiAmount'])
+                    
+                    if mint == token_mint and balance > 0:
+                        print(f"🎯 TOKENS FOUND: {balance:,.0f} tokens in wallet")
+                        return True
         
-    return result
+        print(f"❌ NO TOKENS FOUND for mint {token_mint}")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Token verification failed: {e}")
+        return False
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    test_whale_token_approaches()
