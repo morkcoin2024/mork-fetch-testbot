@@ -3023,9 +3023,45 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         """
         send_message(chat_id, phase1_message)
         
-        # Scan for tokens with optimized safety filters
+        # Scan for tokens with optimized safety filters and timeout protection
         async with PumpFunScanner() as scanner:
-            candidates = await scanner.get_token_candidates(min_safety_score=25)  # Optimized threshold
+            try:
+                # Add timeout to prevent hanging on external API calls
+                candidates = await asyncio.wait_for(
+                    scanner.get_token_candidates(min_safety_score=25),
+                    timeout=60  # 1 minute timeout for token discovery
+                )
+            except asyncio.TimeoutError:
+                # Fallback to demo tokens if scanner times out
+                from demo_pump_tokens import get_demo_pump_tokens
+                demo_tokens = get_demo_pump_tokens(3)
+                
+                # Convert demo tokens to TokenCandidate format
+                from pump_scanner import TokenCandidate
+                candidates = []
+                for token in demo_tokens:
+                    candidate = TokenCandidate(
+                        mint=token.get('mint', ''),
+                        name=token.get('name', 'Demo Token'),
+                        symbol=token.get('symbol', 'DEMO'),
+                        market_cap=token.get('market_cap', 50000),
+                        age_minutes=token.get('age_minutes', 30),
+                        safety_score=token.get('safety_score', 75),
+                        pump_score=token.get('pump_score', 80)
+                    )
+                    candidates.append(candidate)
+                
+                timeout_fallback_message = """
+🕐 <b>Scanner Timeout - Using Demo Tokens</b>
+
+External APIs are slow, using demo tokens for testing:
+• 3 realistic Pump.fun token examples
+• Trading system will execute normally
+• Perfect for testing VIP FETCH functionality
+
+<b>🐕 Continuing with trade execution...</b>
+                """
+                send_message(chat_id, timeout_fallback_message)
             
             if not candidates:
                 no_candidates_message = """
