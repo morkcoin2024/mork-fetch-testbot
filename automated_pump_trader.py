@@ -24,9 +24,20 @@ class AutomatedPumpTrader:
         self.monitoring_tasks = {}  # chat_id -> asyncio tasks
         
     async def execute_automated_trading(self, chat_id: str, burner_wallet: Dict, trade_amount_sol: float) -> Dict:
-        """Execute fully automated pump.fun trading"""
+        """Execute fully automated pump.fun trading with emergency stop protection"""
         try:
             logger.info(f"Starting automated trading for user {chat_id} with {trade_amount_sol} SOL")
+            
+            # EMERGENCY STOP CHECK - First priority
+            from emergency_stop import check_emergency_stop
+            if check_emergency_stop(chat_id):
+                logger.warning(f"🚨 EMERGENCY STOP ACTIVE - Halting trading for {chat_id}")
+                return {
+                    'success': False,
+                    'error': 'Emergency stop is active - trading halted for safety',
+                    'emergency_stop': True,
+                    'message': 'All trading operations have been stopped. Use /emergency_resume to restart.'
+                }
             
             # Step 1: Identify good tokens with emergency bypass
             try:
@@ -48,6 +59,11 @@ class AutomatedPumpTrader:
             trades_executed = []
             
             for i, token in enumerate(good_tokens[:3]):  # Process top 3 tokens
+                # EMERGENCY STOP CHECK before each trade
+                if check_emergency_stop(chat_id):
+                    logger.warning(f"🚨 EMERGENCY STOP - Cancelling remaining trades for {chat_id}")
+                    break
+                
                 # Execute REAL token purchase using PumpPortal API
                 try:
                     from pump_fun_trading import PumpFunTrader

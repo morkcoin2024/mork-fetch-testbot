@@ -1667,6 +1667,53 @@ Use /fetch for new trades with proper tracking.
         """
         send_message(chat_id, basic_status)
 
+def handle_emergency_stop_command(chat_id):
+    """Handle /emergency_stop command to immediately halt all trading"""
+    try:
+        from emergency_stop import activate_emergency_stop
+        result = activate_emergency_stop(chat_id, "User requested emergency stop")
+        
+        if result.get('success'):
+            message = """
+🚨 <b>EMERGENCY STOP ACTIVATED</b>
+
+✅ All trading operations have been <b>immediately halted</b>
+✅ No new trades will execute
+✅ Your funds are protected
+
+To resume trading when ready:
+• Use /emergency_resume
+• Or restart with /fetch
+            """
+            send_message(chat_id, message)
+        else:
+            send_message(chat_id, "❌ Failed to activate emergency stop")
+            
+    except Exception as e:
+        logging.error(f"Emergency stop command failed: {e}")
+        send_message(chat_id, "❌ Emergency stop system error")
+
+def handle_emergency_resume_command(chat_id):
+    """Handle /emergency_resume command to reactivate trading"""
+    try:
+        from emergency_stop import emergency_stop
+        result = emergency_stop.deactivate_user_stop(chat_id)
+        
+        if result.get('success'):
+            message = """
+✅ <b>EMERGENCY STOP DEACTIVATED</b>
+
+Trading can now resume normally.
+Use /fetch to start automated trading.
+            """
+            send_message(chat_id, message)
+        else:
+            send_message(chat_id, "❌ Failed to deactivate emergency stop")
+            
+    except Exception as e:
+        logging.error(f"Emergency resume command failed: {e}")
+        send_message(chat_id, "❌ Emergency resume system error")
+
 def handle_help_command(chat_id):
     """Handle /help command"""
     help_text = """
@@ -1689,6 +1736,8 @@ Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - V
 • <b>/fetch</b> - VIP automated Pump.fun scanner (requires $MORK)
 • <b>/confirm</b> - Execute the order (simulation or live)
 • <b>/stopfetch</b> - Stop VIP automated trading
+• <b>/emergency_stop</b> - IMMEDIATELY HALT all trading
+• <b>/emergency_resume</b> - Resume trading after emergency stop
 • <b>/cancel</b> - Cancel current operation
 • <b>/help</b> - Show this help message
 • <b>/whatif</b> - View your simulation performance history
@@ -1704,6 +1753,9 @@ Automated trading for users with 1 SOL worth of $MORK tokens in their wallet - V
 5. Set your take-profit percentage (0-1000%)
 6. Set what percentage to sell (1-100%)
 7. Type /confirm to execute
+
+<b>🚨 EMERGENCY CONTROLS:</b>
+If you need to stop trading immediately (like if trades are burning SOL), use /emergency_stop to halt all operations instantly.
 
 <b>🎯 What is Token Sniping?</b>
 Strategic buying and selling of tokens based on predefined profit/loss targets and market conditions with fast execution.
@@ -3944,6 +3996,10 @@ def handle_update(update):
                 handle_stop_command(chat_id)
             elif command == '/help':
                 handle_help_command(chat_id)
+            elif command == '/emergency_stop':
+                handle_emergency_stop_command(chat_id)
+            elif command == '/emergency_resume':
+                handle_emergency_resume_command(chat_id)
             elif command == '/cancel':
                 handle_cancel_command(chat_id)
             elif command == '/whatif':

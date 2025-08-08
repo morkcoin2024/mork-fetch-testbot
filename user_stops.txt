@@ -1,0 +1,1 @@
+test_user_123:2025-08-08T16:43:50.156890:User lost 0.5 SOL - emergency halt
