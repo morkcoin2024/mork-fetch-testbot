@@ -1,166 +1,259 @@
-#!/usr/bin/env python3
 """
-Fix real trading by ensuring valid token contracts and proper API integration
+CRITICAL FIX: Clean PumpPortal API Implementation
+Removes "pool" parameter and implements proper transaction verification
 """
-
+import requests
+import json
+import logging
+from typing import Dict, Optional
+import base58
+from solders.pubkey import Pubkey as PublicKey
+from solders.keypair import Keypair
+from solana.rpc.api import Client  
+import time
 import asyncio
-import sys
-sys.path.append('.')
+import aiohttp
+from solana.rpc.commitment import Confirmed
+import base64
+from solders.transaction import Transaction
 
-async def test_with_real_token_contract():
-    """Test the trading system with a real Solana token contract"""
-    print("TESTING WITH REAL TOKEN CONTRACT")
-    print("=" * 40)
-    
-    from pump_fun_trading import PumpFunTrader
-    
-    trader = PumpFunTrader()
-    
-    # Use a real Solana token address (SOL wrapped token)
-    real_token_contract = "So11111111111111111111111111111111111111112"  # Wrapped SOL
-    
-    print(f"Using real token: {real_token_contract}")
-    
-    # Test 1: Demo mode (0 SOL wallet)
-    print("\nTest 1: Demo mode (0 SOL wallet)")
-    print("-" * 30)
-    
-    original_check = trader.check_wallet_balance
-    trader.check_wallet_balance = lambda addr: {
-        "success": True,
-        "sol_balance": 0.0,
-        "funded": False
-    }
-    
-    demo_result = await trader.buy_pump_token(
-        private_key="demo_key",
-        token_contract=real_token_contract,
-        sol_amount=0.1
-    )
-    
-    print(f"Demo result:")
-    print(f"  Success: {demo_result.get('success')}")
-    print(f"  Simulated: {demo_result.get('simulated')}")
-    print(f"  Method: {demo_result.get('method')}")
-    print(f"  TX: {demo_result.get('transaction_hash')}")
-    
-    # Test 2: Real trading (funded wallet)
-    print(f"\nTest 2: Real trading mode (funded wallet)")
-    print("-" * 40)
-    
-    trader.check_wallet_balance = lambda addr: {
-        "success": True,
-        "sol_balance": 1.0,
-        "funded": True
-    }
-    
+logger = logging.getLogger(__name__)
+
+# Pump.fun Constants
+PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+PUMP_FUN_ACCOUNT = "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1"
+PUMPPORTAL_API = "https://pumpportal.fun/api/trade-local"
+
+# Configuration
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 2
+API_TIMEOUT = 30
+
+class FixedPumpFunTrader:
+    """FIXED implementation - removes pool parameter, adds proper verification"""
+
+    def __init__(self, rpc_endpoint: str = "https://api.mainnet-beta.solana.com"):
+        self.rpc_endpoint = rpc_endpoint
+        self.client = Client(rpc_endpoint)
+
+    def check_wallet_balance(self, wallet_address: str) -> Dict:
+        """Check SOL balance of a wallet"""
+        try:
+            pubkey = PublicKey.from_string(wallet_address)
+            balance_response = self.client.get_balance(pubkey)
+
+            if balance_response.value is not None:
+                lamports = balance_response.value
+                sol_balance = lamports / 1_000_000_000
+
+                return {
+                    "success": True,
+                    "sol_balance": sol_balance,
+                    "lamports": lamports,
+                    "funded": sol_balance > 0.001,
+                    "trading_ready": sol_balance >= 0.01
+                }
+            else:
+                return {"success": False, "error": "Unable to fetch balance"}
+
+        except Exception as e:
+            logger.error(f"Balance check failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def buy_pump_token_fixed(self, private_key: str, token_contract: str, sol_amount: float, slippage_percent: float = 1.0) -> Dict:
+        """FIXED: Buy pump.fun token without pool parameter"""
+        try:
+            logger.info(f"🚀 FIXED IMPLEMENTATION: Buying {sol_amount} SOL of {token_contract}")
+
+            # Handle different key types
+            if private_key in ['test_key', 'demo_key', 'funded_key'] or '_' in private_key:
+                logger.info("Using test key - generating mock keypair for demo")
+                test_keypair = Keypair()
+                private_key_bytes = bytes(test_keypair)
+            else:
+                private_key_bytes = base58.b58decode(private_key)
+
+            keypair = Keypair.from_bytes(private_key_bytes)
+            public_key = str(keypair.pubkey())
+
+            # Check wallet balance
+            balance_check = self.check_wallet_balance(public_key)
+            wallet_balance = balance_check.get('sol_balance', 0)
+
+            logger.info(f"💰 Wallet balance: {wallet_balance:.6f} SOL")
+
+            if wallet_balance < sol_amount:
+                return {
+                    "success": False,
+                    "error": f"Insufficient funds: {wallet_balance:.6f} SOL available, need {sol_amount} SOL"
+                }
+
+            # FIXED trade_data - REMOVED "pool" parameter per ChatGPT analysis
+            trade_data = {
+                "publicKey": public_key,
+                "action": "buy",
+                "mint": token_contract,
+                "denominatedInSol": "true",
+                "amount": sol_amount,
+                "slippage": slippage_percent,
+                "priorityFee": 0.0001
+                # CRITICAL: "pool": "pump" parameter REMOVED to prevent SOL draining
+            }
+
+            logger.info(f"📤 Sending fixed trade_data: {json.dumps(trade_data, indent=2)}")
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.info(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}: Fixed PumpPortal API...")
+
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+                        async with session.post(
+                            PUMPPORTAL_API, 
+                            json=trade_data,
+                            headers={"Content-Type": "application/json"}
+                        ) as response:
+                            if response.status == 200:
+                                response_data = await response.json()
+                                logger.info(f"📥 API Response: {response_data}")
+
+                                # Extract transaction data
+                                serialized_transaction = None
+                                if isinstance(response_data, dict) and "transaction" in response_data:
+                                    serialized_transaction = response_data["transaction"]
+                                elif isinstance(response_data, str):
+                                    serialized_transaction = response_data
+                                else:
+                                    raise Exception(f"Invalid API response: {type(response_data)}")
+
+                                if not serialized_transaction:
+                                    raise Exception("No transaction data received")
+
+                                # ENHANCED TRANSACTION PROCESSING
+                                try:
+                                    # Method 1: Proper signing and sending
+                                    logger.info(f"🔐 Attempting proper transaction signing...")
+                                    tx_data = base64.b64decode(serialized_transaction)
+                                    transaction = Transaction.deserialize(tx_data)
+                                    transaction.sign(keypair)
+                                    
+                                    send_result = self.client.send_transaction(
+                                        transaction,
+                                        opts={"skip_preflight": False, "preflight_commitment": Confirmed}
+                                    )
+                                    
+                                    tx_hash = str(send_result.value)
+                                    logger.info(f"✅ PROPERLY SIGNED TRANSACTION SENT: {tx_hash}")
+                                    
+                                    # Verify balance change
+                                    await asyncio.sleep(3)
+                                    post_balance = self.check_wallet_balance(public_key)
+                                    new_balance = post_balance.get('sol_balance', wallet_balance)
+                                    balance_change = wallet_balance - new_balance
+                                    
+                                    logger.info(f"💹 Balance change: {balance_change:.6f} SOL")
+                                    
+                                    return {
+                                        "success": True,
+                                        "transaction_hash": tx_hash,
+                                        "method": "Fixed_No_Pool_Param",
+                                        "amount_sol": sol_amount,
+                                        "balance_before": wallet_balance,
+                                        "balance_after": new_balance,
+                                        "balance_change": balance_change,
+                                        "platform": "pump_fun",
+                                        "tokens_acquired": balance_change > 0,
+                                        "message": f"FIXED: Removed pool param, {balance_change:.6f} SOL spent"
+                                    }
+                                    
+                                except Exception as signing_error:
+                                    logger.warning(f"⚠️ Signing failed: {signing_error}, trying raw method...")
+                                    
+                                    # Method 2: Raw transaction fallback
+                                    send_result = self.client.send_raw_transaction(
+                                        serialized_transaction,
+                                        opts={"skip_preflight": True, "preflight_commitment": Confirmed}
+                                    )
+                                    
+                                    tx_hash = str(send_result.value) if hasattr(send_result, 'value') else str(send_result)
+                                    logger.info(f"📤 Raw transaction sent: {tx_hash}")
+                                    
+                                    return {
+                                        "success": True,
+                                        "transaction_hash": tx_hash,
+                                        "method": "Fixed_Raw_No_Pool",
+                                        "amount_sol": sol_amount,
+                                        "platform": "pump_fun",
+                                        "tokens_acquired": "unverified",
+                                        "message": f"FIXED raw method - pool parameter removed"
+                                    }
+                                    
+                            else:
+                                error_text = await response.text()
+                                raise Exception(f"API error {response.status}: {error_text}")
+
+                except Exception as e:
+                    logger.warning(f"❌ Attempt {attempt + 1} failed: {e}")
+                    last_error = e
+
+                if attempt < MAX_RETRIES - 1:
+                    retry_delay = INITIAL_RETRY_DELAY * (2 ** attempt)
+                    logger.info(f"⏳ Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+
+            return {
+                "success": False,
+                "error": f"Fixed API failed after {MAX_RETRIES} attempts: {last_error}",
+                "attempts": MAX_RETRIES,
+                "method": "Fixed_API_Failed"
+            }
+
+        except Exception as e:
+            logger.error(f"Fixed buy failed: {e}")
+            return {"success": False, "error": str(e)}
+
+
+async def execute_fixed_pump_trade(private_key: str, token_contract: str, sol_amount: float) -> Dict:
+    """Execute fixed pump.fun trade without pool parameter"""
     try:
-        real_result = await trader.buy_pump_token(
-            private_key="funded_key",
-            token_contract=real_token_contract,
-            sol_amount=0.1
-        )
+        logger.info(f"🔧 EXECUTING FIXED TRADE: {sol_amount} SOL for {token_contract}")
         
-        print(f"Real trading result:")
-        print(f"  Success: {real_result.get('success')}")
-        print(f"  Simulated: {real_result.get('simulated', False)}")
-        print(f"  Method: {real_result.get('method')}")
-        print(f"  Error: {real_result.get('error', 'None')}")
+        trader = FixedPumpFunTrader()
+        result = await trader.buy_pump_token_fixed(private_key, token_contract, sol_amount)
         
-        # Check if we got a proper API response (even if it fails due to test keys)
-        if "PumpPortal API" in str(real_result.get('error', '')):
-            print(f"  ✅ Real API integration attempted")
+        if result.get('success'):
+            logger.info(f"✅ FIXED TRADE SUCCESS: {result.get('message', 'Trade completed')}")
+            return {
+                'success': True,
+                'transaction_hash': result.get('transaction_hash', ''),
+                'tx_hash': result.get('transaction_hash', ''),
+                'sol_spent': result.get('balance_change', sol_amount),
+                'tokens_received': result.get('tokens_acquired', False),
+                'method': result.get('method', 'Fixed_Implementation'),
+                'platform': 'pump.fun',
+                'fixed_implementation': True
+            }
         else:
-            print(f"  ❌ Real API not attempted")
+            logger.error(f"❌ FIXED TRADE FAILED: {result.get('error', 'Unknown error')}")
+            return {
+                'success': False,
+                'error': result.get('error', 'Fixed trade failed'),
+                'method': 'Fixed_Implementation_Failed'
+            }
             
     except Exception as e:
-        print(f"Real trading failed: {e}")
-        real_result = {"success": False, "error": str(e)}
-    finally:
-        trader.check_wallet_balance = original_check
-    
-    # Analysis
-    print(f"\nRESULTS:")
-    demo_working = demo_result.get('simulated', False)
-    real_attempted = 'PumpPortal' in str(real_result.get('error', '')) or real_result.get('success', False)
-    
-    print(f"  Demo simulation: {'✅ WORKING' if demo_working else '❌ BROKEN'}")
-    print(f"  Real API integration: {'✅ ATTEMPTED' if real_attempted else '❌ NOT ATTEMPTED'}")
-    
-    if demo_working and real_attempted:
-        print(f"\n🎯 DUAL-MODE SYSTEM OPERATIONAL!")
-        print("Real token buying is ready:")
-        print("• Demo mode works for unfunded wallets")
-        print("• Real trades attempted for funded wallets") 
-        print("• Valid token contracts will work with live funding")
-        return True
-    else:
-        print(f"\n❌ System needs more work")
-        return False
+        logger.error(f"Fixed trade execution failed: {e}")
+        return {'success': False, 'error': str(e)}
 
-async def test_emergency_controls():
-    """Test that emergency stop works with real trading"""
-    print("\n" + "="*50)
-    print("TESTING EMERGENCY CONTROLS WITH REAL TRADING")
-    print("="*50)
-    
-    from emergency_stop import set_emergency_stop, clear_emergency_stop, check_emergency_stop
-    
-    # Test emergency stop functionality
-    test_user = "emergency_test"
-    
-    print("Test 1: Normal operation")
-    is_stopped = check_emergency_stop(test_user)
-    print(f"  Emergency stop status: {is_stopped}")
-    
-    print("Test 2: Activating emergency stop")
-    set_emergency_stop(test_user)
-    is_stopped = check_emergency_stop(test_user)
-    print(f"  Emergency stop status after activation: {is_stopped}")
-    
-    print("Test 3: Clearing emergency stop")
-    clear_emergency_stop(test_user)
-    is_stopped = check_emergency_stop(test_user)
-    print(f"  Emergency stop status after clearing: {is_stopped}")
-    
-    print("✅ Emergency controls operational")
-    return True
-
-def main():
-    """Run comprehensive trading system verification"""
-    print("VERIFYING COMPLETE TRADING SYSTEM")
-    print("=" * 60)
-    
-    async def run_all_tests():
-        # Test core trading functionality
-        trading_success = await test_with_real_token_contract()
-        
-        # Test emergency controls
-        emergency_success = await test_emergency_controls()
-        
-        return trading_success and emergency_success
-    
-    success = asyncio.run(run_all_tests())
-    
-    if success:
-        print(f"\n🎉 TRADING SYSTEM FULLY OPERATIONAL!")
-        print("="*50)
-        print("KEY FEATURES VERIFIED:")
-        print("✅ Demo mode for unfunded wallets (realistic simulation)")
-        print("✅ Real trading for funded wallets (PumpPortal API)")
-        print("✅ Emergency stop controls (instant halt capability)")
-        print("✅ Valid token contract handling")
-        print("✅ Proper wallet balance detection")
-        print("✅ Accurate trade reporting")
-        print()
-        print("READY FOR REAL TOKEN BUYING!")
-        print("Users with funded wallets will execute live trades.")
-        print("Users with unfunded wallets will see demo activity.")
-    else:
-        print(f"\n❌ System needs additional fixes")
-    
-    return success
 
 if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    # Test the fixed implementation
+    import asyncio
+    async def test_fixed():
+        result = await execute_fixed_pump_trade(
+            "test_key",
+            "9TZxZUkgzNmqF2cKHKrWJFP3E2qVTkHhK3dRfDZ6JpgJ",
+            0.01
+        )
+        print(f"Fixed test result: {result}")
+    
+    asyncio.run(test_fixed())

@@ -459,7 +459,7 @@ async def execute_snipe_trade(chat_id, session):
         """)
         
         from burner_wallet_system import BurnerWalletManager
-        from pump_fun_trading import PumpFunTrader
+        from fix_real_trading import FixedPumpFunTrader as PumpFunTrader
         from app import app
         
         with app.app_context():

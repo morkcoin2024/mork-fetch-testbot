@@ -86,6 +86,7 @@ class PumpFunTrader:
                     "error": f"Insufficient funds: {wallet_balance:.6f} SOL available, need {sol_amount} SOL"
                 }
 
+            # CRITICAL FIX: Removed "pool" parameter per ChatGPT analysis to prevent SOL draining
             trade_data = {
                 "publicKey": public_key,
                 "action": "buy",
@@ -93,9 +94,11 @@ class PumpFunTrader:
                 "denominatedInSol": "true",
                 "amount": sol_amount,
                 "slippage": slippage_percent,
-                "priorityFee": 0.0001,
-                "pool": "pump"
+                "priorityFee": 0.0001
+                # "pool": "pump" parameter REMOVED - was causing SOL drainage without token minting
             }
+            
+            logger.info(f"📤 FIXED trade_data (no pool param): {json.dumps(trade_data, indent=2)}")
 
             for attempt in range(MAX_RETRIES):
                 try:
