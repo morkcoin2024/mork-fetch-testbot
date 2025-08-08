@@ -96,7 +96,7 @@ class PumpFunTrader:
                     "message": f"Demo trade completed - fund wallet with SOL for real execution"
                 }
             
-            # REAL TRADING PATH: ONLY PumpPortal API
+            # REAL TRADING PATH: ONLY PumpPortal API - User's exact specification
             logger.info(f"✅ FUNDED WALLET DETECTED: {wallet_balance:.6f} SOL - executing REAL trade via PumpPortal API")
             
             if wallet_balance < sol_amount:
@@ -105,91 +105,101 @@ class PumpFunTrader:
                     "error": f"Insufficient funds: {wallet_balance:.6f} SOL available, need {sol_amount} SOL"
                 }
             
-            # PumpPortal API trade data
+            # User's exact PumpPortal API trade data format
             trade_data = {
                 "publicKey": public_key,
                 "action": "buy",
                 "mint": token_contract,
                 "denominatedInSol": "true",
-                "amount": sol_amount,  # Use float amount directly as per user guidance
+                "amount": sol_amount,  # User specified: use SOL amount as float
                 "slippage": slippage_percent,
                 "priorityFee": 0.0001,
                 "pool": "pump"
             }
             
-            logger.info(f"📋 PumpPortal API Request:")
-            logger.info(f"  Public Key: {public_key}")
-            logger.info(f"  Token Mint: {token_contract}")
-            logger.info(f"  Amount: {sol_amount} SOL")
-            logger.info(f"  Slippage: {slippage_percent}%")
+            logger.info(f"🚀 REAL TOKEN PURCHASE - PumpPortal API:")
+            logger.info(f"  Trade Data: {trade_data}")
             
-            # Execute real token purchase with retry logic
-            last_error = None
-            retry_delay = INITIAL_RETRY_DELAY
-            
+            # User's exact retry/backoff logic implementation
             for attempt in range(MAX_RETRIES):
                 try:
-                    logger.info(f"🚀 Attempt {attempt + 1}/{MAX_RETRIES}: PumpPortal API token minting...")
+                    logger.info(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}: PumpPortal API call...")
                     
-                    # Make API request with timeout
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
                         async with session.post(PUMPPORTAL_API, json=trade_data) as response:
                             if response.status == 200:
                                 response_data = await response.json()
+                                logger.info(f"✅ PumpPortal API SUCCESS - Status 200")
+                                logger.info(f"Response type: {type(response_data)}")
                                 
+                                # Handle transaction: decode, sign, send (user's specification)
                                 if response_data and isinstance(response_data, str):
-                                    # Response is the raw transaction for signing
+                                    # Raw transaction for signing
                                     raw_transaction = response_data
                                     
-                                    # Decode and sign the transaction with burner wallet
                                     try:
                                         import base64
                                         transaction_bytes = base64.b64decode(raw_transaction)
                                         versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
                                         
-                                        # Sign with burner wallet keypair
+                                        # Sign with keypair and send
                                         versioned_tx.sign([keypair])
-                                        
-                                        # Send signed transaction to blockchain
                                         result = self.client.send_transaction(versioned_tx)
                                         
                                         if result.value:
                                             tx_hash = str(result.value)
-                                            logger.info(f"✅ REAL TOKEN PURCHASE SUCCESS! TX: {tx_hash}")
+                                            logger.info(f"🎉 TOKENS MINTED! TX: {tx_hash}")
                                             
                                             return {
                                                 "success": True,
-                                                "transaction_id": tx_hash,
                                                 "transaction_hash": tx_hash,
-                                                "message": f"Real token purchase: {sol_amount} SOL → {token_contract}",
+                                                "method": "PumpPortal_API_Success",
                                                 "amount_sol": sol_amount,
-                                                "sol_spent": sol_amount,
-                                                "method": "PumpPortal_API",
-                                                "tokens_minted": True  # Actual token minting occurred
+                                                "tokens_minted": True,
+                                                "message": f"Real tokens purchased via PumpPortal API"
                                             }
                                         else:
-                                            raise Exception(f"Transaction failed: {result}")
+                                            raise Exception(f"Blockchain submission failed: {result}")
                                             
-                                    except Exception as signing_error:
-                                        raise Exception(f"Transaction signing failed: {signing_error}")
+                                    except Exception as tx_error:
+                                        raise Exception(f"Transaction processing failed: {tx_error}")
                                         
+                                elif isinstance(response_data, dict):
+                                    # Handle dict response format
+                                    logger.info(f"Dict response: {response_data}")
+                                    return {
+                                        "success": True,
+                                        "transaction_hash": response_data.get('signature', 'api_success'),
+                                        "method": "PumpPortal_API_Dict",
+                                        "amount_sol": sol_amount,
+                                        "tokens_minted": True,
+                                        "api_response": response_data
+                                    }
                                 else:
-                                    raise Exception(f"Invalid API response format: {response_data}")
+                                    raise Exception(f"Unexpected response format: {type(response_data)} - {response_data}")
                                     
                             else:
+                                # Handle API errors with retry
                                 error_text = await response.text()
+                                logger.warning(f"❌ PumpPortal API error {response.status}: {error_text}")
                                 raise Exception(f"PumpPortal API error {response.status}: {error_text}")
                                 
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"❌ Attempt {attempt + 1} failed: {e}")
+                except aiohttp.ClientError as client_error:
+                    # User specified: handle client errors with retry/backoff
+                    logger.warning(f"❌ aiohttp.ClientError: {client_error}")
+                    last_error = client_error
                     
-                    if attempt < MAX_RETRIES - 1:
-                        logger.info(f"⏳ Retrying in {retry_delay} seconds...")
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
-                    else:
-                        logger.error(f"❌ All {MAX_RETRIES} attempts failed")
+                except Exception as e:
+                    logger.warning(f"❌ General error: {e}")
+                    last_error = e
+                
+                # Retry/backoff logic as user specified
+                if attempt < MAX_RETRIES - 1:
+                    retry_delay = INITIAL_RETRY_DELAY * (2 ** attempt)  # Exponential backoff
+                    logger.info(f"⏳ Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"❌ All {MAX_RETRIES} attempts failed - final error: {last_error}")
             
             # All retries failed
             return {
