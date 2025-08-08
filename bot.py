@@ -9,16 +9,12 @@ import asyncio
 from datetime import datetime
 from flask import current_app
 from sqlalchemy import func
-# Production imports for full functionality
 from fee_collection_system import fee_collector, collect_profit_fee
 from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
 from ai_risk_integration import get_ai_trade_recommendation, get_learning_status, should_recommend_trade, record_completed_trade
 
-# Production trading disclaimer
-TRADING_DISCLAIMER = "\n\n<i>⚠️ Live trading involves real money and risk. Trade responsibly.</i>"
-
-# Bot configuration - Production Mork F.E.T.C.H Bot
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# Bot configuration
+BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 BOT_USERNAME = "@MorkSniperBot"
 
@@ -71,7 +67,7 @@ except ImportError as e:
     logging.warning(f"Burner wallet system not available: {e}")
     BURNER_WALLET_ENABLED = False
 
-# Production risk disclaimer and fee agreement (override previous disclaimer)
+# Risk disclaimer and fee agreement for trading functions
 TRADING_DISCLAIMER = "\n\n<i>⚠️ By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>"
 
 
@@ -1905,23 +1901,19 @@ def handle_fetch_command(chat_id):
                     if mork_balance >= 100000:  # Direct check - you qualify with 1M MORK!
                         # Ready for VIP automated trading
                         ready_message = f"""
-🎯 <b>VIP F.E.T.C.H AUTOMATED TRADING - Ready!</b>
+🎯 <b>VIP FETCH AUTOMATED TRADING - Ready!</b>
 
 <b>✅ Burner Wallet Verified:</b>
 • Wallet: {wallet_info['public_key'][:8]}...{wallet_info['public_key'][-8:]}
 • SOL Balance: {requirements.get('sol_balance', 0):.4f} SOL
 • MORK Balance: {requirements.get('mork_balance', 0):,} tokens
 
-⭐ <b>VIP FETCH Features:</b>
-• Fully automated token discovery & live screening
-• Real-time pump.fun + Raydium migration monitoring
-• AI-enhanced safety filtering (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
-• Trailing stop-loss activated at +20% profit, chases higher but locks minimum gains
-• Auto emergency exit if dev/marketing wallet dumps >50% supply in one tx
-• Anti-honeypot & contract checks (aborts if blacklisted buyers, trading restrictions, or contract updates detected)
-• Dynamic scaling: if profit exceeds +100%, move trailing stop up to lock at +60%
-• Airdrop sniffer: auto-warn and flag for rug risk if dev airdrops supply to many wallets post-launch
-• Hands-off trading experience with maximum protection
+<b>🤖 VIP FETCH Features:</b>
+• Fully automated token discovery
+• Real-time pump.fun monitoring
+• Automatic buy/sell execution
+• 2x profit targets / -40% stop-loss
+• Hands-off trading experience
 
 <b>💰 Trade Amount:</b>
 How much SOL do you want to allocate for automated trading?
@@ -2620,66 +2612,20 @@ Enter sell percentage:
         else:
             diversification_text = f"🎯 <b>Strategy:</b> Diversified - {token_count} tokens × {sol_per_token:.4f} SOL each"
         
-        mode_features = f"""⭐ VIP FETCH Features:
-• Automated token discovery & live screening
-• Real-time pump.fun + Raydium migration monitoring
-• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
-• {diversification_text} (auto-split for risk management)
-• Independent monitoring & trailing stop-loss per position
-• Automatic 5% fee collection on net profits
-
+        mode_features = f"""
+<b>⭐ VIP FETCH Features:</b>
+• Automated token discovery
+• Real-time pump.fun monitoring
+• AI-enhanced safety filtering
+• {diversification_text}
+• Independent monitoring per position
+• Automatic 5% fee collection on profits
 """
     else:
         mode_features = ""
     
-    if is_vip_mode:
-        # For VIP FETCH, show auto-discovery format
-        confirmation_text = f"""<b>VIP F.E.T.C.H TRADING ORDER READY</b>
-
-🔴 <b>FINAL CONFIRMATION REQUIRED FROM YOU DEGEN</b>
-• This will place a REAL trade with your actual funds!
-
-⭐ <b>VIP FETCH Features:</b>
-• Automated token discovery & live screening
-• Real-time pump.fun + Raydium migration monitoring
-• AI-enhanced safety (ownership renounced, mint burned, LP >3 SOL, holders >200, dev wallet scan)
-• {diversification_text} (auto-split for risk management)
-• Trailing stop-loss activated at +20% profit, chases higher but locks minimum gains
-• Auto emergency exit if dev/marketing wallet dumps >50% supply in one tx
-• Anti-honeypot & contract checks (aborts if blacklisted buyers, trading restrictions, or contract updates detected)
-• Dynamic scaling: if profit exceeds +100%, move trailing stop up to lock at +60%
-• Airdrop sniffer: auto-warn and flag for rug risk if dev airdrops supply to many wallets post-launch
-• Automatic 0.5% fee collection on net profits (profit calculated after all fees)
-
-📊 <b>Order Summary:</b>
-🏷️ <b>Token:</b> (Auto-discovered, AI safety filtered)
-💲 <b>Entry Price:</b> Auto-detected at execution
-💰 <b>Trade Amount:</b> {trade_amount_display}
-👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
-📉 <b>Stop-Loss:</b> -{session.stop_loss}%
-📈 <b>Take-Profit:</b> +{session.take_profit}%
-💸 <b>Partial Sell:</b> {sell_percent}% at target, {100-sell_percent}% rides with auto trailing-stop
-🚨 <b>Emergency Exit:</b> Auto-sell if dev dumps >50% supply, contract updates, or honeypot detected
-🔒 <b>Anti-Rug Protection:</b> Trailing stop at +20% profit, dynamic scaling at +100% locks +60% minimum
-🎯 <b>Airdrop Monitor:</b> Auto-flag suspicious dev wallet activity and mass airdrops
-
-⚠️ <b>RISK WARNING:</b>
-• These are real, non-reversible blockchain trades
-• You can lose ALL your funds
-• Market and contract risks are extreme (including instant rug pulls)
-• Always DYOR, no refunds
-
-💸 <b>FEE NOTICE:</b>
-• Profit is calculated after all trading fees; 0.5% of net profit sent automatically to MORK marketing wallet on every successful trade
-• No fees on losing trades - you only pay when the bot makes you money
-
-Type <b>/confirm</b> if you're feeling it to execute this VIP trade or <b>/cancel</b> to abort.
-
-{TRADING_DISCLAIMER}
-        """
-    else:
-        # For regular live trading, show specific token details
-        confirmation_text = f"""⚠️ <b>{mode_title}</b>
+    confirmation_text = f"""
+⚠️ <b>{mode_title}</b>
 
 <b>🔴 FINAL CONFIRMATION REQUIRED</b>
 This will place a REAL trade with your actual funds!
@@ -2691,16 +2637,16 @@ This will place a REAL trade with your actual funds!
 👛 <b>Wallet:</b> {session.wallet_address[:8]}...{session.wallet_address[-8:]}
 📉 <b>Stop-Loss:</b> -{session.stop_loss}%
 📈 <b>Take-Profit:</b> +{session.take_profit}%
-💸 <b>Partial Sell:</b> {sell_percent}% at target
+💰 <b>Sell Amount:</b> {sell_percent}%
 
 <b>⚠️ RISK WARNING:</b>
-• These are real, non-reversible blockchain trades
-• You can lose ALL your funds
-• Market and contract risks are extreme (including instant rug pulls)
-• Always DYOR, no refunds
+• This involves REAL money and blockchain transactions
+• You could lose your entire investment
+• Market conditions can change rapidly
+• No refunds or reversal possible
 
-Type <b>/confirm</b> to execute this trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
-        """
+Type <b>/confirm</b> to execute this {"VIP " if is_vip_mode else ""}LIVE trade or <b>/cancel</b> to abort.{TRADING_DISCLAIMER}
+    """
     
     update_session(chat_id, state=STATE_LIVE_READY_TO_CONFIRM, sell_percent=sell_percent)
     send_message(chat_id, confirmation_text)
@@ -2979,14 +2925,12 @@ def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float
             asyncio.set_event_loop(loop)
             
             # Run the trading function with all parameters
-            loop.run_until_complete(
-                execute_vip_fetch_trading(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent)
-            )
+            loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
         
     except Exception as e:
-        logging.error(f"VIP FETCH trading failed: {e}")
+        logging.error(f"VIP FETCH thread execution failed: {e}")
         error_message = f"""
-❌ <b>VIP FETCH Trading Error</b>
+❌ <b>VIP FETCH System Error</b>
 
 Automated trading system encountered an error: {str(e)}
 
@@ -3001,7 +2945,7 @@ Please try again with /fetch or contact support.
         except:
             pass
 
-async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
+async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Execute the VIP FETCH automated trading process"""
     try:
         # Import our trading modules and setup Flask context
@@ -3023,45 +2967,9 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         """
         send_message(chat_id, phase1_message)
         
-        # Scan for tokens with optimized safety filters and timeout protection
+        # Scan for tokens with optimized safety filters
         async with PumpFunScanner() as scanner:
-            try:
-                # Add timeout to prevent hanging on external API calls
-                candidates = await asyncio.wait_for(
-                    scanner.get_token_candidates(min_safety_score=25),
-                    timeout=60  # 1 minute timeout for token discovery
-                )
-            except asyncio.TimeoutError:
-                # Fallback to demo tokens if scanner times out
-                from demo_pump_tokens import get_demo_pump_tokens
-                demo_tokens = get_demo_pump_tokens(3)
-                
-                # Convert demo tokens to TokenCandidate format
-                from pump_scanner import TokenCandidate
-                candidates = []
-                for token in demo_tokens:
-                    candidate = TokenCandidate(
-                        mint=token.get('mint', ''),
-                        name=token.get('name', 'Demo Token'),
-                        symbol=token.get('symbol', 'DEMO'),
-                        market_cap=token.get('market_cap', 50000),
-                        age_minutes=token.get('age_minutes', 30),
-                        safety_score=token.get('safety_score', 75),
-                        pump_score=token.get('pump_score', 80)
-                    )
-                    candidates.append(candidate)
-                
-                timeout_fallback_message = """
-🕐 <b>Scanner Timeout - Using Demo Tokens</b>
-
-External APIs are slow, using demo tokens for testing:
-• 3 realistic Pump.fun token examples
-• Trading system will execute normally
-• Perfect for testing VIP FETCH functionality
-
-<b>🐕 Continuing with trade execution...</b>
-                """
-                send_message(chat_id, timeout_fallback_message)
+            candidates = await scanner.get_token_candidates(min_safety_score=25)  # Optimized threshold
             
             if not candidates:
                 no_candidates_message = """
@@ -3079,7 +2987,7 @@ Testing token discovery without safety filters.
                 send_message(chat_id, no_candidates_message)
                 
                 # Start continuous scanning
-                await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent)
+                await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount)
                 return
             
             # Convert TokenCandidate objects to dictionaries
@@ -3222,9 +3130,9 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <code>{trade_result['tx_hash']}</code>
 
 <b>📋 Trade Details:</b>
-• Token age: {max(0, ((time.time() - candidate.get('created_timestamp', time.time())) / 60)):.1f} minutes
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
 • Status: LIVE POSITION ACTIVE
-• Monitoring: {stop_loss}% stop-loss / {take_profit}% take-profit
+• Monitoring: 0.5% stop-loss / 0.5% take-profit
 • Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🚀 REAL TRADE COMPLETED - Auto-monitoring active!</b>
@@ -3246,7 +3154,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
 <b>💡 Type /executed after completing your manual trade</b>
 
 <b>📋 Trade Details:</b>
-• Token age: {max(0, ((time.time() - candidate.get('created_timestamp', time.time())) / 60)):.1f} minutes
+• Token age: {((time.time() - candidate.get('created_timestamp', time.time())) / 60):.1f} minutes
 • Contract: <code>{candidate.get('mint', '')}</code>
 
 <b>🔄 Will retry with next token...</b>
@@ -3313,8 +3221,8 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
                     'token_symbol': trade_result['token_symbol'],
                     'entry_price': trade_result['entry_price'],  # Use real entry price
                     'trade_amount': amount_per_trade,
-                    'stop_loss': stop_loss,  # User-configured stop-loss
-                    'take_profit': take_profit,  # User-configured take-profit
+                    'stop_loss': 0.5,  # 0.5% stop-loss (realistic for pump.fun)
+                    'take_profit': 0.5,  # 0.5% take-profit
                     'wallet_address': wallet_address,
                     'state': 'monitoring'
                 }
@@ -3358,7 +3266,7 @@ The system has successfully:
 • Discovered profitable tokens from Pump.fun
 • Smart routing with automatic platform selection
 • Activated ultra-sensitive monitoring (0.3% thresholds)
-• Set optimal P&L targets ({stop_loss}% stop-loss/{take_profit}% take-profit)
+• Set optimal P&L targets (0.5% stop-loss/take-profit)
 
 <b>⚡ Your trades are now being monitored automatically!</b>
 You'll receive instant notifications when price targets are hit.
@@ -3482,8 +3390,8 @@ def start_vip_trade_monitoring(trade_session, token_contract, trade_amount):
                                 'trade_amount': trade_amount
                             }
                             
-                            # Process automatic fee deduction WITH ACTUAL PAYMENT
-                            updated_trade_data, completion_message = process_profitable_trade_auto_fee(trade_data, str(chat_id))
+                            # Process automatic fee deduction
+                            updated_trade_data, completion_message = process_profitable_trade_auto_fee(trade_data)
                             
                             take_profit_message = f"""
 🟢 <b>VIP FETCH TAKE-PROFIT TRIGGERED</b>
@@ -3541,7 +3449,7 @@ Your position remains active. You can manually monitor or execute trades as need
         except:
             pass
 
-async def start_continuous_vip_scanning(chat_id: str, wallet_address: str, trade_amount: float, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
+async def start_continuous_vip_scanning(chat_id: str, wallet_address: str, trade_amount: float):
     """Start continuous VIP FETCH scanning every 1 minute"""
     try:
         from pump_scanner import PumpFunScanner
@@ -3598,7 +3506,7 @@ Found {len(candidates)} tokens in scan #{scan_count}:
                     send_message(chat_id, found_message)
                     
                     # Process the discovered tokens
-                    await process_discovered_tokens(chat_id, wallet_address, trade_amount, candidates, token_count, stop_loss, take_profit, sell_percent)
+                    await process_discovered_tokens(chat_id, wallet_address, trade_amount, candidates)
                     return
                 else:
                     no_tokens_message = f"""
@@ -3639,7 +3547,7 @@ Please try /fetch again or contact support.
         """
         send_message(chat_id, error_message)
 
-async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amount: float, candidates, token_count: int = 1, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
+async def process_discovered_tokens(chat_id: str, wallet_address: str, trade_amount: float, candidates):
     """Process tokens discovered during continuous scanning"""
     try:
         # Take top 3 candidates for execution
