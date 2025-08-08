@@ -1957,7 +1957,20 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """Handle /fetch command - VIP automated trading using WORKING CLIPPY trade"""
+    """🚨 EMERGENCY STOP - /fetch command disabled per user request"""
+    emergency_message = """
+🚨 <b>EMERGENCY STOP ACTIVATED</b>
+
+VIP FETCH trading has been disabled per user request.
+
+<b>Reason:</b> Emergency stop to prevent wallet drain
+<b>Status:</b> All trading operations halted
+<b>Safety:</b> System locked in safe mode
+
+Contact support for assistance.
+    """
+    send_message(chat_id, emergency_message)
+    return
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio
@@ -2766,17 +2779,21 @@ def execute_live_trade(chat_id):
     """Execute a live trading order"""
     session = get_or_create_session(chat_id)
     
-    # Check if this is VIP FETCH mode - execute WORKING CLIPPY trade
-    if session.trading_mode == 'fetch':
-        # Execute proven working CLIPPY trade 
-        import threading
-        trading_thread = threading.Thread(
-            target=execute_working_clippy_trade,
-            args=(chat_id, session.wallet_address, session.trade_amount, session.stop_loss, session.take_profit, session.sell_percent)
-        )
-        trading_thread.daemon = True
-        trading_thread.start()
-        return
+    # 🚨 EMERGENCY STOP - ALL TRADING DISABLED
+    emergency_message = """
+🚨 <b>EMERGENCY STOP ACTIVATED</b>
+
+All trading operations have been halted per user request.
+
+<b>Status:</b> System in safe mode only
+<b>Trading:</b> Disabled
+<b>VIP FETCH:</b> Halted
+
+Contact support for assistance.
+    """
+    send_message(chat_id, emergency_message)
+    update_session(chat_id, state=STATE_IDLE)
+    return
     
     # Verify all required information is present for regular live trading
     if not all([session.wallet_address, session.contract_address, session.stop_loss, 
