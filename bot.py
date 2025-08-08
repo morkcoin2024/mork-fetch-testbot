@@ -66,6 +66,15 @@ except ImportError as e:
     logging.warning(f"Burner wallet system not available: {e}")
     BURNER_WALLET_ENABLED = False
 
+# Import live trading integration
+from live_trading_integration import (
+    execute_live_trade,
+    validate_token_address,
+    check_wallet_balance,
+    format_trade_success_message,
+    format_trade_error_message
+)
+
 # Risk disclaimer and fee agreement for trading functions
 TRADING_DISCLAIMER = "\n\n<i>⚠️ By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>"
 
