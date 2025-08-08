@@ -187,11 +187,17 @@ class JupiterTradeEngine:
             transaction_bytes = base64.b64decode(swap_transaction)
             transaction = VersionedTransaction.from_bytes(transaction_bytes)
             
+            # Handle both base58 and base64 encoded private keys
             try:
-                keypair = Keypair.from_base58_string(private_key)
-            except:
-                decoded_key = base58.b58decode(private_key)
-                keypair = Keypair.from_seed(decoded_key)
+                # First try as base64 (your format)
+                if '/' in private_key or '+' in private_key or '=' in private_key:
+                    decoded_key = base64.b64decode(private_key)
+                    keypair = Keypair.from_seed(decoded_key[:32])  # Take first 32 bytes as seed
+                else:
+                    # Try as base58
+                    keypair = Keypair.from_base58_string(private_key)
+            except Exception as key_error:
+                return {"success": False, "error": f"Invalid private key format: {key_error}"}
             
             signed_tx = VersionedTransaction(transaction.message, [keypair])
             print("✅ Transaction signed")
