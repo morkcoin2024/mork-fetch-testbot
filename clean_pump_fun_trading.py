@@ -103,15 +103,16 @@ class CleanPumpTrader:
                     "error": f"Insufficient funds: {initial_sol:.6f} SOL available, need {sol_amount} SOL"
                 }
 
-            # CLEAN trade_data - NO pool parameter, minimal structure
+            # FIXED trade_data - Correct format per PumpPortal docs
             trade_data = {
                 "publicKey": public_key,
                 "action": "buy",
                 "mint": token_contract,
                 "denominatedInSol": "true",
                 "amount": sol_amount,
-                "slippage": 1.0,
-                "priorityFee": 0.0001
+                "slippage": 10,  # Higher slippage for testing
+                "priorityFee": 0.00005,  # Standard priority fee
+                "pool": "pump"  # Specify pump.fun pool
             }
 
             logger.info(f"📤 Clean trade request: {json.dumps(trade_data, indent=2)}")
@@ -125,8 +126,8 @@ class CleanPumpTrader:
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
                         async with session.post(
                             PUMPPORTAL_API, 
-                            json=trade_data,
-                            headers={"Content-Type": "application/json"}
+                            data=trade_data,  # Use data instead of json per PumpPortal docs
+                            headers={"Content-Type": "application/x-www-form-urlencoded"}
                         ) as response:
                             
                             response_text = await response.text()
