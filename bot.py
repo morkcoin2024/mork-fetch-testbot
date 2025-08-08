@@ -4058,7 +4058,7 @@ def handle_update(update):
             
             if command == '/start':
                 handle_start_command(chat_id, user_first_name)
-            elif command == '/simulate':
+            elif command == '/removed_simulate':
                 handle_simulate_command(chat_id)
             elif command == '/snipe':
                 handle_snipe_command(chat_id)
