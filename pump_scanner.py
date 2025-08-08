@@ -233,14 +233,16 @@ class PumpFunScanner:
                         'is_currently_live': True
                     })
                 
-                # Use Chainstack for 10 seconds to catch real tokens
+                # Use Chainstack for 5 seconds to catch real tokens (reduced timeout)
                 monitor = ChainstackPumpMonitor()
                 monitor.add_callback(chainstack_callback)
                 
                 try:
-                    await asyncio.wait_for(monitor.start_monitoring(), timeout=10)
+                    await asyncio.wait_for(monitor.start_monitoring(), timeout=5)
                 except asyncio.TimeoutError:
-                    pass
+                    logger.debug("Chainstack monitoring timed out after 5 seconds")
+                except Exception as e:
+                    logger.debug(f"Chainstack monitoring failed: {e}")
                 
                 if detected_tokens:
                     logger.info(f"🎯 Chainstack detected {len(detected_tokens)} REAL pump.fun tokens!")

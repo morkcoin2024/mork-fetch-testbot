@@ -28,8 +28,14 @@ class AutomatedPumpTrader:
         try:
             logger.info(f"Starting automated trading for user {chat_id} with {trade_amount_sol} SOL")
             
-            # Step 1: Identify good tokens
-            good_tokens = await self.identify_good_tokens()
+            # Step 1: Identify good tokens with emergency bypass
+            try:
+                token_task = asyncio.create_task(self.identify_good_tokens())
+                good_tokens = await asyncio.wait_for(token_task, timeout=25.0)  # 25 second total timeout
+            except asyncio.TimeoutError:
+                logger.warning("Token identification timed out - using emergency bypass tokens")
+                from quick_discovery_bypass import get_emergency_tokens
+                good_tokens = get_emergency_tokens()
             
             if not good_tokens:
                 return {
@@ -120,9 +126,16 @@ class AutomatedPumpTrader:
             
             good_tokens = []
             
-            # Scan for fresh tokens
-            async with PumpFunScanner() as scanner:
-                candidates = await scanner.get_token_candidates(min_safety_score=35)
+            # Scan for fresh tokens with emergency bypass fallback
+            try:
+                async with PumpFunScanner() as scanner:
+                    # Add timeout to prevent hanging at token discovery
+                    scan_task = asyncio.create_task(scanner.get_token_candidates(min_safety_score=35))
+                    candidates = await asyncio.wait_for(scan_task, timeout=20.0)  # 20 second timeout
+            except asyncio.TimeoutError:
+                logger.warning("Main token discovery timed out - activating emergency bypass")
+                from quick_discovery_bypass import QuickDiscoveryBypass
+                candidates = await QuickDiscoveryBypass.get_bypass_candidates(min_safety_score=35)
                 
                 if candidates:
                     # Apply advanced rules
