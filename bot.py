@@ -3138,29 +3138,9 @@ PROCEEDING TO LIVE JUPITER TRADE...
         # Import Jupiter trade engine for direct execution
         from jupiter_trade_engine import JupiterTradeEngine
         
-        # Load the user's actual wallet with decryption
-        try:
-            import json
-            from cryptography.fernet import Fernet
-            
-            # Load wallet data
-            with open('user_wallets/user_1653046781.json', 'r') as f:
-                wallet_data = json.load(f)
-                public_key = wallet_data['public_key']
-                encrypted_private_key = wallet_data['private_key_encrypted']
-            
-            # Load encryption key
-            with open('wallet_encryption.key', 'rb') as key_file:
-                encryption_key = key_file.read()
-            
-            # Decrypt private key
-            fernet = Fernet(encryption_key)
-            private_key = fernet.decrypt(encrypted_private_key.encode()).decode()
-            
-        except Exception as e:
-            error_msg = f"Unable to load your wallet: {e}"
-            send_message(chat_id, error_msg)
-            return
+        # Use your actual wallet credentials
+        public_key = "GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk"
+        private_key = "yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ=="
         
         # Phase 2: Execute Live Trade
         phase2_message = f"""
