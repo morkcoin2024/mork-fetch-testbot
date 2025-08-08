@@ -1,6 +1,10 @@
 """
-Pump.fun Trading System - Correct Bonding Curve Implementation
-Uses PumpPortal API and proper bonding curve contracts instead of Jupiter
+Pump.fun Trading System - Production-Ready PumpPortal API Integration
+Uses PumpPortal API for proper token minting with robustness features:
+- 3-attempt retry logic with exponential backoff
+- 30-second timeout protection  
+- Graceful PumpPortal API downtime handling
+- Proper transaction signing and blockchain submission
 """
 import requests
 import json
@@ -24,6 +28,11 @@ PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMP_FUN_ACCOUNT = "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1"
 PUMPPORTAL_API = "https://pumpportal.fun/api/trade-local"
 
+# Robustness Configuration
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 2  # seconds
+API_TIMEOUT = 30  # seconds
+
 class PumpFunTrader:
     """Handles Pump.fun trading using bonding curve contracts"""
     
@@ -32,7 +41,7 @@ class PumpFunTrader:
         self.client = Client(rpc_endpoint)
         
     def generate_bonding_curve_address(self, mint_address: str) -> str:
-        """Generate the bonding curve address for a pump.fun token"""
+        """Generate the bonding curve address for a pump.fun token (for reference only)"""
         try:
             mint_pubkey = PublicKey.from_string(mint_address)
             program_pubkey = PublicKey.from_string(PUMP_FUN_PROGRAM_ID)
@@ -44,7 +53,7 @@ class PumpFunTrader:
                 program_pubkey
             )
             
-            logger.info(f"Generated bonding curve: {bonding_curve_address} for mint: {mint_address}")
+            logger.info(f"Bonding curve reference: {bonding_curve_address} for mint: {mint_address}")
             return str(bonding_curve_address)
             
         except Exception as e:
@@ -273,53 +282,73 @@ async def execute_pump_fun_trade(private_key: str, token_contract: str, sol_amou
             
             logger.info(f"Sending buy request: {trade_data}")
             
-            # Make the API call
-            async with aiohttp.ClientSession() as session:
-                async with session.post(PUMPPORTAL_API, 
-                                      json=trade_data,
-                                      headers={"Content-Type": "application/json"}) as response:
-                    
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"PumpPortal API error: {error_text}")
-                        return {"success": False, "error": f"API error: {error_text}"}
-                    
-                    response_data = await response.json()
-                    logger.info(f"PumpPortal response: {response_data}")
-                    
-                    # The API returns a serialized transaction
-                    if 'transaction' in response_data or isinstance(response_data, str):
-                        serialized_transaction = response_data.get('transaction') if isinstance(response_data, dict) else response_data
-                        
-                        try:
-                            # Decode and sign the transaction
-                            import base64
-                            transaction_bytes = base64.b64decode(serialized_transaction)
-                            versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
+            # Make the API call with production-grade retry logic
+            max_retries = MAX_RETRIES
+            retry_delay = INITIAL_RETRY_DELAY
+            
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+                        async with session.post(PUMPPORTAL_API, 
+                                              json=trade_data,
+                                              headers={"Content-Type": "application/json"}) as response:
                             
-                            # Sign the transaction with our keypair
-                            versioned_tx.sign([keypair])
+                            if response.status == 200:
+                                response_data = await response.json()
+                                logger.info(f"PumpPortal response (attempt {attempt + 1}): {response_data}")
+                                
+                                # The API returns a serialized transaction
+                                if 'transaction' in response_data or isinstance(response_data, str):
+                                    serialized_transaction = response_data.get('transaction') if isinstance(response_data, dict) else response_data
+                                    
+                                    try:
+                                        # Decode and sign the transaction
+                                        import base64
+                                        transaction_bytes = base64.b64decode(serialized_transaction)
+                                        versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
+                                        
+                                        # Sign the transaction with our keypair
+                                        versioned_tx.sign([keypair])
+                                        
+                                        # Send the signed transaction
+                                        signature = self.client.send_transaction(versioned_tx)
+                                        logger.info(f"✅ TOKEN PURCHASE EXECUTED! TX: {signature.value}")
+                                        
+                                        return {
+                                            "success": True,
+                                            "transaction_id": str(signature.value),
+                                            "transaction_hash": str(signature.value),
+                                            "message": f"Successfully bought {sol_amount} SOL worth of {token_mint} via PumpPortal",
+                                            "amount_sol": sol_amount,
+                                            "sol_spent": sol_amount,
+                                            "platform": "pump_fun_api"
+                                        }
+                                        
+                                    except Exception as sign_error:
+                                        logger.error(f"Transaction signing/sending failed: {sign_error}")
+                                        return {"success": False, "error": f"Failed to sign/send transaction: {sign_error}"}
+                                else:
+                                    logger.error(f"Unexpected API response format: {response_data}")
+                                    return {"success": False, "error": "Invalid API response format"}
                             
-                            # Send the signed transaction
-                            signature = self.client.send_transaction(versioned_tx)
-                            logger.info(f"✅ ACTUAL TOKEN PURCHASE EXECUTED! TX: {signature.value}")
-                            
-                            return {
-                                "success": True,
-                                "transaction_id": str(signature.value),
-                                "transaction_hash": str(signature.value),
-                                "message": f"Successfully bought {sol_amount} SOL worth of {token_mint} via PumpPortal",
-                                "amount_sol": sol_amount,
-                                "sol_spent": sol_amount,
-                                "platform": "pump_fun_api"
-                            }
-                            
-                        except Exception as sign_error:
-                            logger.error(f"Transaction signing/sending failed: {sign_error}")
-                            return {"success": False, "error": f"Failed to sign/send transaction: {sign_error}"}
-                    else:
-                        logger.error(f"Unexpected API response format: {response_data}")
-                        return {"success": False, "error": "Invalid API response format"}
+                            else:
+                                # Non-200 status - log and potentially retry
+                                error_text = await response.text()
+                                logger.error(f"PumpPortal API error (attempt {attempt + 1}): Status {response.status}, {error_text}")
+                                
+                                if attempt == max_retries - 1:
+                                    return {"success": False, "error": f"API error after {max_retries} attempts: {error_text}"}
+                                
+                                # Wait before retry
+                                await asyncio.sleep(retry_delay)
+                                retry_delay *= 2  # Exponential backoff
+                                
+                except aiohttp.ClientError as e:
+                    logger.error(f"Network error (attempt {attempt + 1}): {e}")
+                    if attempt == max_retries - 1:
+                        return {"success": False, "error": f"Network error after {max_retries} attempts: {e}"}
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
                         
         except Exception as e:
             logger.error(f"Pump.fun buy failed: {e}")
@@ -385,42 +414,62 @@ async def execute_pump_fun_trade(private_key: str, token_contract: str, sol_amou
             
             logger.info(f"Sending sell request: {trade_data}")
             
-            # Make the API call
-            async with aiohttp.ClientSession() as session:
-                async with session.post(PUMPPORTAL_API, 
-                                      json=trade_data,
-                                      headers={"Content-Type": "application/json"}) as response:
-                    
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"PumpPortal sell API error: {error_text}")
-                        return {"success": False, "error": f"API error: {error_text}"}
-                    
-                    response_data = await response.json()
-                    
-                    # Handle transaction signing and sending (same as buy)
-                    if 'transaction' in response_data or isinstance(response_data, str):
-                        transaction_data = response_data if isinstance(response_data, str) else response_data['transaction']
-                        
-                        transaction_bytes = base58.b58decode(transaction_data)
-                        transaction = VersionedTransaction.deserialize(transaction_bytes)
-                        transaction.sign([keypair])
-                        
-                        signature = self.client.send_transaction(transaction)
-                        logger.info(f"Sell transaction sent: {signature}")
-                        
-                        await asyncio.sleep(2)
-                        confirmation = self.client.confirm_transaction(signature.value)
-                        
-                        return {
-                            "success": True,
-                            "transaction_hash": str(signature),
-                            "confirmation": confirmation,
-                            "tokens_sold": sell_amount,
-                            "percentage_sold": percentage
-                        }
-                    else:
-                        return {"success": False, "error": "Invalid sell response format"}
+            # Make the API call with production-grade retry logic  
+            max_retries = MAX_RETRIES
+            retry_delay = INITIAL_RETRY_DELAY
+            
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+                        async with session.post(PUMPPORTAL_API, 
+                                              json=trade_data,
+                                              headers={"Content-Type": "application/json"}) as response:
+                            
+                            if response.status == 200:
+                                response_data = await response.json()
+                                logger.info(f"PumpPortal sell response (attempt {attempt + 1}): {response_data}")
+                                
+                                # Handle transaction signing and sending
+                                if 'transaction' in response_data or isinstance(response_data, str):
+                                    transaction_data = response_data if isinstance(response_data, str) else response_data['transaction']
+                                    
+                                    import base64
+                                    transaction_bytes = base64.b64decode(transaction_data)
+                                    transaction = VersionedTransaction.from_bytes(transaction_bytes)
+                                    transaction.sign([keypair])
+                                    
+                                    signature = self.client.send_transaction(transaction)
+                                    logger.info(f"✅ SELL TRANSACTION EXECUTED! TX: {signature.value}")
+                                    
+                                    await asyncio.sleep(2)
+                                    confirmation = self.client.confirm_transaction(signature.value)
+                                    
+                                    return {
+                                        "success": True,
+                                        "transaction_hash": str(signature.value),
+                                        "confirmation": confirmation,
+                                        "tokens_sold": sell_amount,
+                                        "percentage_sold": percentage
+                                    }
+                                else:
+                                    return {"success": False, "error": "Invalid sell response format"}
+                            else:
+                                # Non-200 status for sell - retry logic
+                                error_text = await response.text()
+                                logger.error(f"PumpPortal sell API error (attempt {attempt + 1}): Status {response.status}, {error_text}")
+                                
+                                if attempt == max_retries - 1:
+                                    return {"success": False, "error": f"Sell API error after {max_retries} attempts: {error_text}"}
+                                
+                                await asyncio.sleep(retry_delay)
+                                retry_delay *= 2
+                                
+                except aiohttp.ClientError as e:
+                    logger.error(f"Sell network error (attempt {attempt + 1}): {e}")
+                    if attempt == max_retries - 1:
+                        return {"success": False, "error": f"Sell network error after {max_retries} attempts: {e}"}
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
                         
         except Exception as e:
             logger.error(f"Pump.fun sell failed: {e}")
