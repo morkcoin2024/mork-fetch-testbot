@@ -130,14 +130,14 @@ class AutomatedPumpTrader:
                             contract_address=token.get('mint', ''),
                             token_name=token.get('name', 'Unknown'),
                             token_symbol=token.get('symbol', 'TOKEN'),
-                            entry_price=simulated_trade.get('buy_price', 0.0),
+                            entry_price=real_trade.get('buy_price', 0.0),
                             trade_amount=trade_amount_sol / 3,
-                            tokens_purchased=simulated_trade.get('tokens_received', 0),
+                            tokens_purchased=real_trade.get('tokens_received', 0),
                             stop_loss=40.0,  # 40% stop-loss
                             take_profit=200.0,  # 2x take-profit 
                             sell_percent=100.0,
                             status='active',
-                            tx_hash=simulated_trade.get('transaction_hash', ''),
+                            tx_hash=real_trade.get('transaction_hash', ''),
                             monitoring_active=True
                         )
                         
