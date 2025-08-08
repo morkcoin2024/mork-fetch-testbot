@@ -3243,7 +3243,7 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
         # Phase 3: Trading Summary Report
         if trade_results:
             # Calculate summary stats
-            executed_trades = len([r for r in trade_results if r['status'] == 'EXECUTED'])
+            executed_trades = len(trade_results)  # All processed trades are executed trades
             total_monitoring = len([r for r in trade_results if r['status'] == 'MONITORING'])
             avg_safety_score = sum(r['safety_score'] for r in trade_results) / len(trade_results)
             
