@@ -9,29 +9,18 @@ import asyncio
 from datetime import datetime
 from flask import current_app
 from sqlalchemy import func
-# Test environment imports - simplified for testing
-try:
-    from fee_collection_system import fee_collector, collect_profit_fee
-    from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
-except ImportError:
-    # Fallback functions for test environment
-    def collect_profit_fee(*args): return "Test fee collection", 0.0
-    def process_profitable_trade_auto_fee(*args): return "Test fee processing", 0.0
-    def calculate_net_amount_after_fees(amount): return amount * 0.995, amount * 0.005
+# Production imports for full functionality
+from fee_collection_system import fee_collector, collect_profit_fee
+from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
+from ai_risk_integration import get_ai_trade_recommendation, get_learning_status, should_recommend_trade, record_completed_trade
 
-# AI features disabled in test environment - using fallbacks
-def get_ai_trade_recommendation(*args): return {"recommendation": "test_mode", "confidence": 0.5}
-def get_learning_status(*args): return "Test learning status"
-def should_recommend_trade(*args): return False
-def record_completed_trade(*args): pass
+# Production trading disclaimer
+TRADING_DISCLAIMER = "\n\n<i>⚠️ Live trading involves real money and risk. Trade responsibly.</i>"
 
-# Test environment disclaimer
-TRADING_DISCLAIMER = "\n\n<i>🧪 TEST ENVIRONMENT: This is the test bot. No real trades will be executed. Use for testing only.</i>"
-
-# Bot configuration - USES ENVIRONMENT VARIABLE FOR TEST BOT
+# Bot configuration - Production Mork F.E.T.C.H Bot
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-BOT_USERNAME = "@MorkSniperTestBot"  # Test bot username
+BOT_USERNAME = "@MorkSniperBot"
 
 # Command states - Simulation mode
 STATE_IDLE = "idle"
@@ -82,7 +71,7 @@ except ImportError as e:
     logging.warning(f"Burner wallet system not available: {e}")
     BURNER_WALLET_ENABLED = False
 
-# Risk disclaimer and fee agreement for trading functions
+# Production risk disclaimer and fee agreement (override previous disclaimer)
 TRADING_DISCLAIMER = "\n\n<i>⚠️ By using this bot you are doing so entirely at your own risk. You also agree to the terms set out where you agree to a 0.5% fee on all profit generated for you by the snipe or fetch bot.</i>"
 
 
