@@ -2991,10 +2991,10 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
         # Update session to completed state
         update_session(chat_id, state=STATE_IDLE, trade_amount=trade_amount)
         
-        # Execute WORKING CLIPPY trade using proven code
+        # Execute trade using EXACT PumpPortal documentation approach
         import threading
         trading_thread = threading.Thread(
-            target=execute_working_clippy_trade,
+            target=execute_simple_documented_trade,
             args=(chat_id, wallet_address, trade_amount, stop_loss, take_profit, sell_percent)
         )
         trading_thread.daemon = True
@@ -3046,111 +3046,93 @@ async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amo
             'error': str(e)
         }
 
-def execute_working_clippy_trade(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
-    """Execute the proven CLIPPY trade using exact working code from comprehensive_live_test.py"""
+def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
+    """Execute trade using EXACT PumpPortal documentation approach"""
     try:
         import time
         import requests
-        import base58
         import json
         
-        # Phase 1: Token Discovery
+        # Phase 1: Setup
         time.sleep(2)
         phase1_update = """
-🔍 <b>PHASE 1: LIVE TOKEN DISCOVERY</b>
+🔍 <b>PHASE 1: PREPARING TRADE</b>
 
-🐕 Sniffer Dog actively scanning Pump.fun...
-• Fetching real-time token launch data
-• Target identified: CLIPPY PFP Cult
-• Excellent safety profile confirmed
+🐕 Using proven PumpPortal documentation method...
+• Target: CLIPPY PFP Cult  
+• Method: Lightning Transaction API
         """
         send_message(chat_id, phase1_update)
         
-        # Use the exact working parameters from comprehensive_live_test.py
         target_token = "7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump"  # CLIPPY
-        tokens_to_buy = max(1000, int(trade_amount * 5000))  # Reasonable token amount
+        tokens_to_buy = max(500, int(trade_amount * 2000))  # Conservative amount
         
-        time.sleep(3)
-        
-        # Phase 2: Token Selection
-        phase2_update = f"""
-🎯 <b>PHASE 2: TOKEN SELECTED</b>
-
-✅ <b>Target:</b> CLIPPY PFP Cult (PROVEN WORKING)
-📄 <b>Contract:</b> {target_token[:8]}...{target_token[-8:]}
-💰 <b>Allocation:</b> {tokens_to_buy:,} tokens
-📊 <b>Safety:</b> Previously successful transaction confirmed
-
-<b>🚀 EXECUTING REAL TRADE NOW...</b>
-        """
-        send_message(chat_id, phase2_update)
         time.sleep(2)
         
-        # Phase 3: Execute using EXACT working code from comprehensive_live_test.py
-        phase3_update = """
-⚡ <b>PHASE 3: EXECUTING LIVE TRADE</b>
+        # Phase 2: Execute using EXACT documentation approach
+        phase2_update = f"""
+⚡ <b>PHASE 2: EXECUTING TRADE</b>
 
-🔥 Using proven PumpPortal parameters...
-📡 Broadcasting to Solana mainnet...
+📡 Using PumpPortal Lightning Transaction API...
+💰 Amount: {tokens_to_buy:,} CLIPPY tokens
+🚀 Processing transaction...
         """
-        send_message(chat_id, phase3_update)
+        send_message(chat_id, phase2_update)
         
         # Load wallet data
         wallet_file = f"user_wallets/{chat_id}_wallet.json"
         with open(wallet_file, 'r') as f:
             wallet_data = json.load(f)
         private_key = wallet_data['private_key']
-        public_key = wallet_address
         
-        # EXACT working parameters from comprehensive_live_test.py
-        trade_params = {
-            "publicKey": public_key,
-            "action": "buy", 
-            "mint": target_token,
-            "amount": tokens_to_buy,
-            "denominatedInSol": "false",  # Key format from successful test
-            "slippage": 15,
-            "priorityFee": 0.001,
-            "pool": "auto"
-        }
-        
-        logging.info(f"Executing with exact working params: {trade_params}")
-        
-        # Step 1: Generate transaction (EXACT CODE)
-        api_response = requests.post(
-            url="https://pumpportal.fun/api/trade-local",
-            data=trade_params,
-            timeout=30
+        # EXACT PumpPortal documentation parameters
+        response = requests.post(
+            url="https://pumpportal.fun/api/trade-local", 
+            data={
+                "publicKey": wallet_address,
+                "action": "buy",
+                "mint": target_token,
+                "amount": tokens_to_buy,
+                "denominatedInSol": "false",  # amount is number of tokens
+                "slippage": 10,
+                "priorityFee": 0.005,
+                "pool": "auto"
+            }
         )
         
-        if api_response.status_code != 200:
-            error_msg = f"❌ PumpPortal API failed: {api_response.text}"
+        if response.status_code != 200:
+            error_msg = f"❌ PumpPortal API failed: {response.text}"
             send_message(chat_id, error_msg)
             return
-            
-        # Step 2: Sign and broadcast (EXACT CODE from comprehensive_live_test.py)
-        from solders.keypair import Keypair
+        
+        logging.info("✅ PumpPortal transaction received")
+        
+        # EXACT documentation signing approach
         from solders.transaction import VersionedTransaction
+        from solders.keypair import Keypair
         from solders.commitment_config import CommitmentLevel
         from solders.rpc.requests import SendVersionedTransaction
         from solders.rpc.config import RpcSendTransactionConfig
         
-        # Create keypair - EXACT working method
-        decoded_key = base58.b58decode(private_key)
-        keypair = Keypair.from_seed(decoded_key)
+        # Handle key format (documentation vs our format)
+        try:
+            keypair = Keypair.from_base58_string(private_key)
+        except:
+            import base58
+            decoded_key = base58.b58decode(private_key)
+            keypair = Keypair.from_seed(decoded_key)
+            
+        tx = VersionedTransaction(VersionedTransaction.from_bytes(response.content).message, [keypair])
+        logging.info("✅ Transaction signed")
         
-        # Create transaction - EXACT working method
-        tx = VersionedTransaction(VersionedTransaction.from_bytes(api_response.content).message, [keypair])
-        
-        # Broadcast - EXACT working method
+        # EXACT documentation broadcast approach
         commitment = CommitmentLevel.Confirmed
         config = RpcSendTransactionConfig(preflight_commitment=commitment)
         
         send_response = requests.post(
             url="https://api.mainnet-beta.solana.com/",
             headers={"Content-Type": "application/json"},
-            data=SendVersionedTransaction(tx, config).to_json(),
-            timeout=60
+            data=SendVersionedTransaction(tx, config).to_json()
         )
         
         if send_response.status_code == 200:
