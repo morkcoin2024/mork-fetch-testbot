@@ -4012,6 +4012,12 @@ def handle_update(update):
             elif session.state == STATE_LIVE_WAITING_SELLPERCENT:
                 logging.info(f"Chat {chat_id}: Processing live sell percent input")
                 handle_live_sellpercent_input(chat_id, text)
+            elif session.state == STATE_LIVE_READY_TO_CONFIRM:
+                if text.upper() == "CONFIRM":
+                    logging.info(f"Chat {chat_id}: Processing CONFIRM for live trading")
+                    handle_confirm_command(chat_id)
+                else:
+                    send_message(chat_id, "Type CONFIRM to execute your VIP FETCH trading or /cancel to abort.")
             # Manual monitoring setup states
             elif session.state == "manual_setup_contract":
                 logging.info(f"Chat {chat_id}: Processing manual setup contract")

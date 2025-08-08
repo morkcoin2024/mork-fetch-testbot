@@ -63,7 +63,7 @@ class AutomatedPumpTrader:
                                 token_name=token.get('name', 'Unknown'),
                                 token_symbol=token.get('symbol', 'TOKEN'),
                                 entry_price=trade_result.get('buy_price', 0.0),
-                                trade_amount=amount_sol,
+                                trade_amount=trade_amount_sol / 3,  # Fixed variable name
                                 tokens_purchased=trade_result.get('tokens_received', 0),
                                 stop_loss=40.0,  # 40% stop-loss
                                 take_profit=200.0,  # 2x take-profit 
