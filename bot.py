@@ -1588,10 +1588,15 @@ def handle_status_command(chat_id):
 """
         else:
             status_text += """<b>📊 ACTIVE TRADES:</b>
-❌ No active trades found
+❌ No active trades found in database
 
-<b>💡 Recent Activity:</b>
-Use /fetch to start automated trading or check if trades completed.
+<b>💡 If you have trades running:</b>
+• Trades executed before recent fix aren't tracked in database
+• New /fetch trades will show here with full monitoring
+• Your existing trades are still live and being monitored
+
+<b>🔄 Next Steps:</b>
+Use /fetch for new trades with proper tracking.
 
 """
         
