@@ -113,53 +113,71 @@ class PumpFunTrader:
                     logger.info(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}: PumpPortal API...")
                     
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
-                        async with session.post(PUMPPORTAL_API, json=trade_data) as response:
+                        async with session.post(
+                            PUMPPORTAL_API, 
+                            json=trade_data,
+                            headers={"Content-Type": "application/json"}  # ChatGPT explicit headers
+                        ) as response:
                             if response.status == 200:
                                 response_data = await response.json()
                                 logger.info(f"✅ PumpPortal API SUCCESS - Status 200")
                                 
-                                # Handle transaction: decode, sign, send (USER'S SPECIFICATION)
-                                if response_data and isinstance(response_data, str):
-                                    # Raw transaction for signing
-                                    raw_transaction = response_data
+                                # ENHANCED: Handle returned serialized transaction (ChatGPT improvement)
+                                logger.info(f"PumpPortal response type: {type(response_data)}")
+                                logger.info(f"PumpPortal response: {str(response_data)[:200]}...")
+                                
+                                # ChatGPT's improved response handling
+                                serialized_transaction = None
+                                if isinstance(response_data, dict) and "transaction" in response_data:
+                                    # Look for "transaction" field in dict response
+                                    serialized_transaction = response_data["transaction"]
+                                    logger.info("✅ Found 'transaction' field in dict response")
+                                elif isinstance(response_data, str):
+                                    # Raw string response
+                                    serialized_transaction = response_data
+                                    logger.info("✅ Using raw string response as transaction")
+                                else:
+                                    logger.error(f"❌ Invalid API response format: {response_data}")
+                                    raise Exception(f"Invalid API response from PumpPortal: {type(response_data)}")
+                                
+                                if not serialized_transaction:
+                                    raise Exception("No transaction data received from PumpPortal")
+                                
+                                # Decode, sign, and send transaction (ChatGPT's approach)
+                                try:
+                                    import base64
+                                    transaction_bytes = base64.b64decode(serialized_transaction)
+                                    versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
                                     
-                                    try:
-                                        import base64
-                                        transaction_bytes = base64.b64decode(raw_transaction)
-                                        versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
-                                        
-                                        # Sign with keypair and send to blockchain
-                                        versioned_tx.sign([keypair])
-                                        result = self.client.send_transaction(versioned_tx)
-                                        
-                                        if result.value:
-                                            tx_hash = str(result.value)
-                                            logger.info(f"🎉 REAL TOKENS MINTED! TX: {tx_hash}")
-                                            
-                                            return {
-                                                "success": True,
-                                                "transaction_hash": tx_hash,
-                                                "method": "PumpPortal_API_Success",
-                                                "amount_sol": sol_amount,
-                                                "tokens_minted": True,
-                                                "message": f"Tokens purchased via PumpPortal API"
-                                            }
-                                        else:
-                                            raise Exception(f"Transaction submission failed")
-                                            
-                                    except Exception as signing_error:
-                                        raise Exception(f"Transaction decode/sign/send failed: {signing_error}")
-                                        
-                                elif isinstance(response_data, dict):
-                                    # Handle dict response
+                                    # Sign with keypair and send to blockchain
+                                    versioned_tx.sign([keypair])
+                                    send_result = self.client.send_transaction(versioned_tx)
+                                    
+                                    # Handle different result formats
+                                    tx_hash = None
+                                    if hasattr(send_result, 'value') and send_result.value:
+                                        tx_hash = str(send_result.value)
+                                    elif send_result:
+                                        tx_hash = str(send_result)
+                                    else:
+                                        raise Exception("Transaction submission returned no hash")
+                                    
+                                    logger.info(f"🎉 TOKEN PURCHASE COMPLETED! TX: {tx_hash}")
+                                    
                                     return {
                                         "success": True,
-                                        "transaction_hash": response_data.get('signature', 'dict_response'),
-                                        "method": "PumpPortal_API_Dict",
+                                        "transaction_hash": tx_hash,
+                                        "transaction_id": tx_hash,  # ChatGPT includes both
+                                        "method": "PumpPortal_Enhanced",
                                         "amount_sol": sol_amount,
+                                        "platform": "pump_fun",
                                         "tokens_minted": True,
-                                        "api_response": response_data
+                                        "message": f"Successfully bought {sol_amount} SOL worth of tokens"
                                     }
+                                    
+                                except Exception as tx_error:
+                                    logger.error(f"❌ Transaction signing/sending failed: {tx_error}")
+                                    raise Exception(f"Failed to sign/send transaction: {tx_error}")
                                 else:
                                     raise Exception(f"Unexpected response format: {response_data}")
                                     
