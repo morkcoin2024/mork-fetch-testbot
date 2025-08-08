@@ -3061,79 +3061,15 @@ Please try again with /snipe or contact support.
         send_message(chat_id, error_text)
 
 def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = None, take_profit: float = None, sell_percent: float = None):
-    """Start VIP FETCH automated trading with user-configured parameters"""
+    """Start VIP FETCH automated trading - REDIRECTED to simplified version"""
+    # Redirect to the working simplified version
+    import asyncio
     try:
-        # Get session to retrieve token count (safe access)
-        session = get_or_create_session(chat_id)
-        try:
-            token_count = getattr(session, 'token_count', 1) or 1
-        except:
-            token_count = 1  # Fallback if column doesn't exist yet
-        
-        # Use user-configured parameters or defaults
-        stop_loss = stop_loss or 40.0
-        take_profit = take_profit or 100.0
-        sell_percent = sell_percent or 100.0
-        
-        # Calculate SOL per token
-        sol_per_token = trade_amount / token_count
-        
-        # Send initial message with multi-token strategy details
-        if token_count == 1:
-            strategy_text = f"🎯 <b>Focused Strategy:</b> All {trade_amount:.3f} SOL on best single opportunity"
-        else:
-            strategy_text = f"""🎯 <b>Diversified Strategy:</b> {token_count} different tokens
-💵 <b>Per Token:</b> {sol_per_token:.4f} SOL each"""
-        
-        initial_message = f"""
-🚀 <b>VIP FETCH LIVE TRADING INITIATED!</b>
-
-<b>🐕 Sniffer Dog is now hunting for profits!</b>
-
-<b>📊 Multi-Token Trading Parameters:</b>
-💰 <b>Total Allocation:</b> {trade_amount:.3f} SOL
-{strategy_text}
-👛 <b>Wallet:</b> {wallet_address[:8]}...{wallet_address[-8:]}
-🎯 <b>Mode:</b> Smart Platform Trading (Pump.fun + Jupiter)
-📊 <b>Monitoring:</b> Each position monitored independently
-🎯 <b>P&L Targets:</b> {stop_loss}% stop-loss / {take_profit}% take-profit per token
-💰 <b>Sell Amount:</b> {sell_percent}% of holdings per target
-
-<b>🔍 Scanner Status:</b>
-• Connected to Pump.fun live data feeds
-• Safety filtering algorithms active  
-• Market cap and age analysis running
-• Smart routing: Pump tokens → Pump.fun, Others → Jupiter
-
-<b>⏱️ Phase 1: Token Discovery</b>
-{"Scanning for THE best token launch..." if token_count == 1 else f"Scanning for {token_count} high-potential fresh launches..."}
-
-<b>⚡ LIVE MODE - Real trades will be executed automatically!</b>
-        """
-        send_message(chat_id, initial_message)
-        
-        # Update session to completed state
-        update_session(chat_id, state=STATE_IDLE, trade_amount=trade_amount)
-        
-        # Execute trade using EXACT PumpPortal documentation approach
-        import threading
-        trading_thread = threading.Thread(
-            target=execute_simple_documented_trade,
-            args=(chat_id, wallet_address, trade_amount, stop_loss, take_profit, sell_percent)
-        )
-        trading_thread.daemon = True
-        trading_thread.start()
-        
+        asyncio.run(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
     except Exception as e:
-        logging.error(f"VIP FETCH trading failed to start: {e}")
-        error_message = f"""
-❌ <b>VIP FETCH Trading Error</b>
-
-Failed to start automated trading: {str(e)}
-
-Please try again with /fetch or contact support.
-        """
-        send_message(chat_id, error_message)
+        logging.error(f"VIP FETCH redirect error: {e}")
+        send_message(chat_id, f"VIP FETCH error: {str(e)}")
+    return
 
 async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amount: float, wallet_address: str) -> dict:
     """Execute automatic buy trade using burner wallet"""
