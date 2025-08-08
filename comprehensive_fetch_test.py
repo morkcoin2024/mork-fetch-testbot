@@ -1,161 +1,156 @@
 #!/usr/bin/env python3
 """
-Comprehensive test of the fixed /fetch command
+Comprehensive /fetch command diagnostic for ChatGPT analysis
 """
 
+import traceback
 import asyncio
-import time
-import sys
-sys.path.append('.')
+from datetime import datetime
 
-async def test_complete_fixed_fetch():
-    """Test the complete /fetch flow with timeout fixes"""
-    print("🚀 TESTING COMPLETE FIXED /fetch FLOW")
-    print("=" * 45)
+def test_fetch_command_comprehensive():
+    """Comprehensive test of /fetch command flow"""
     
-    from bot import execute_vip_fetch_trading
-    from burner_wallet_system import BurnerWalletManager  
-    from app import app
+    print("🔍 COMPREHENSIVE /FETCH DIAGNOSTIC REPORT")
+    print("=" * 60)
+    print(f"Test Date: {datetime.now()}")
+    print()
     
-    # Test parameters
-    test_chat_id = "fixed_fetch_test"
-    test_wallet_address = "TestWallet123456"
-    test_trade_amount = 0.1
+    # Test 1: Import Chain
+    print("TEST 1: Import Chain Analysis")
+    print("-" * 30)
     
-    with app.app_context():
-        print("Step 1: Testing VIP FETCH execution with timeout protection...")
-        print(f"Time started: {time.strftime('%H:%M:%S')}")
-        
-        try:
-            # Test with reasonable timeout
-            await asyncio.wait_for(
-                execute_vip_fetch_trading(test_chat_id, test_wallet_address, test_trade_amount),
-                timeout=30.0  # 30 second max
-            )
+    try:
+        print("Testing simplified_bot import...")
+        import simplified_bot
+        print("✅ simplified_bot imported successfully")
+    except Exception as e:
+        print(f"❌ simplified_bot import failed: {e}")
+        traceback.print_exc()
+        return
+    
+    try:
+        print("Testing pump_fun_trading import...")
+        from pump_fun_trading import PumpFunTrader
+        print("✅ pump_fun_trading imported successfully")
+    except Exception as e:
+        print(f"❌ pump_fun_trading import failed: {e}")
+        traceback.print_exc()
+    
+    try:
+        print("Testing automated_pump_trader import...")
+        from automated_pump_trader import AutomatedPumpTrader
+        print("✅ automated_pump_trader imported successfully")
+    except Exception as e:
+        print(f"❌ automated_pump_trader import failed: {e}")
+        traceback.print_exc()
+    
+    print()
+    
+    # Test 2: /fetch Handler Function
+    print("TEST 2: /fetch Handler Function Analysis")
+    print("-" * 30)
+    
+    try:
+        # Check if handle_fetch_command exists
+        if hasattr(simplified_bot, 'handle_fetch_command'):
+            print("✅ handle_fetch_command function found")
             
-            print(f"✅ VIP FETCH completed successfully")
-            print(f"Time finished: {time.strftime('%H:%M:%S')}")
-            return True
+            # Try to call it with a test chat_id
+            print("Testing handle_fetch_command execution...")
+            simplified_bot.handle_fetch_command(999999)  # Test chat ID
+            print("✅ handle_fetch_command executed without errors")
             
-        except asyncio.TimeoutError:
-            print(f"❌ VIP FETCH still hanging after 30 seconds")
-            print(f"Time failed: {time.strftime('%H:%M:%S')}")
-            return False
-        except Exception as e:
-            print(f"✅ VIP FETCH completed with expected error: {e}")
-            print(f"Time finished: {time.strftime('%H:%M:%S')}")
-            return True  # Errors are OK, hanging is not
-
-async def test_burner_wallet_integration():
-    """Test burner wallet integration with trading"""
-    print("\n🔑 TESTING BURNER WALLET INTEGRATION")
-    print("=" * 42)
-    
-    from burner_wallet_system import BurnerWalletManager
-    from automated_pump_trader import start_automated_trading
-    
-    manager = BurnerWalletManager()
-    test_user = "wallet_integration_test"
-    
-    print("Creating burner wallet...")
-    wallet = manager.get_user_wallet(test_user)
-    
-    if wallet and 'private_key' in wallet:
-        print(f"✅ Wallet ready: {wallet['public_key'][:10]}...")
-        print(f"   Private key length: {len(wallet['private_key'])} chars")
-        
-        print("Testing automated trading...")
-        try:
-            result = await asyncio.wait_for(
-                start_automated_trading(test_user, wallet, 0.05),
-                timeout=20.0
-            )
-            
-            print(f"✅ Trading completed")
-            print(f"   Success: {result.get('success')}")
-            print(f"   Trades: {len(result.get('trades', []))}")
-            return True
-            
-        except asyncio.TimeoutError:
-            print("❌ Trading hung - still has timeout issues")
-            return False
-        except Exception as e:
-            print(f"✅ Trading completed with error: {e}")
-            return True
-    else:
-        print("❌ Failed to create wallet with private key")
-        return False
-
-def test_emergency_controls():
-    """Test emergency stop/resume functionality"""
-    print("\n🛑 TESTING EMERGENCY CONTROLS")
-    print("=" * 33)
-    
-    from emergency_stop import emergency_stop_trading, emergency_resume_trading, check_emergency_stop
-    
-    test_user = "emergency_test"
-    
-    print("Testing emergency stop...")
-    emergency_stop_trading(test_user)
-    
-    if check_emergency_stop(test_user):
-        print("✅ Emergency stop activated")
-        
-        print("Testing emergency resume...")
-        emergency_resume_trading(test_user)
-        
-        if not check_emergency_stop(test_user):
-            print("✅ Emergency resume successful")
-            return True
         else:
-            print("❌ Emergency resume failed")
-            return False
-    else:
-        print("❌ Emergency stop failed")
-        return False
-
-async def main():
-    """Run comprehensive tests"""
-    print("🧪 COMPREHENSIVE /fetch SYSTEM TESTING")
-    print("=" * 50)
+            print("❌ handle_fetch_command function NOT FOUND")
+            
+    except Exception as e:
+        print(f"❌ handle_fetch_command execution failed: {e}")
+        traceback.print_exc()
     
-    # Test 1: Fixed VIP FETCH flow
-    fetch_success = await test_complete_fixed_fetch()
+    print()
     
-    # Test 2: Burner wallet integration
-    wallet_success = await test_burner_wallet_integration()
+    # Test 3: Core Trading System
+    print("TEST 3: Core Trading System Analysis")
+    print("-" * 30)
     
-    # Test 3: Emergency controls
-    emergency_success = test_emergency_controls()
+    try:
+        from pump_fun_trading import PumpFunTrader
+        trader = PumpFunTrader()
+        print("✅ PumpFunTrader initialized")
+        
+        # Test balance check
+        result = trader.check_wallet_balance("So11111111111111111111111111111111111111112")
+        print(f"✅ Balance check result: {result.get('success', False)}")
+        
+    except Exception as e:
+        print(f"❌ Core trading system test failed: {e}")
+        traceback.print_exc()
     
-    print(f"\n🎯 COMPREHENSIVE TEST RESULTS:")
-    print(f"VIP FETCH Flow: {'PASS' if fetch_success else 'FAIL'}")
-    print(f"Wallet Integration: {'PASS' if wallet_success else 'FAIL'}")
-    print(f"Emergency Controls: {'PASS' if emergency_success else 'FAIL'}")
+    print()
     
-    overall_success = fetch_success and wallet_success and emergency_success
+    # Test 4: Database Connection
+    print("TEST 4: Database Connection Analysis")
+    print("-" * 30)
     
-    if overall_success:
-        print(f"\n✅ ALL SYSTEMS OPERATIONAL!")
-        print("The /fetch freeze issue has been resolved:")
-        print("• 15-second timeout prevents hanging at PHASE 1")
-        print("• Bypass mode activates when token scanning fails")
-        print("• Real trading executes with proper error handling")
-        print("• Emergency stops provide safety controls")
-        print("• Burner wallets work correctly with private keys")
-        print("\n🚀 Ready for live user testing!")
-    else:
-        print(f"\n❌ ISSUES REMAINING:")
-        if not fetch_success:
-            print("• VIP FETCH flow needs more fixes")
-        if not wallet_success:
-            print("• Wallet integration needs debugging")
-        if not emergency_success:
-            print("• Emergency controls need fixing")
+    try:
+        from app import app
+        from models import UserSession
+        
+        with app.app_context():
+            print("✅ App context created")
+            
+            # Try to query a user session
+            session = UserSession.query.filter_by(user_id="999999").first()
+            print(f"✅ Database query executed (session: {session is not None})")
+            
+    except Exception as e:
+        print(f"❌ Database connection test failed: {e}")
+        traceback.print_exc()
     
-    return overall_success
+    print()
+    
+    # Test 5: Webhook Integration
+    print("TEST 5: Webhook Integration Analysis")  
+    print("-" * 30)
+    
+    try:
+        # Test webhook processing
+        test_update = {
+            "update_id": 999999,
+            "message": {
+                "chat": {"id": 999999},
+                "from": {"first_name": "TestUser"},
+                "text": "/fetch"
+            }
+        }
+        
+        result = simplified_bot.handle_telegram_update(test_update)
+        print("✅ Webhook processing test completed")
+        
+    except Exception as e:
+        print(f"❌ Webhook integration test failed: {e}")
+        traceback.print_exc()
+    
+    print()
+    
+    # Summary for ChatGPT
+    print("SUMMARY FOR CHATGPT ANALYSIS")
+    print("=" * 40)
+    print("PROBLEM: /fetch command not executing properly")
+    print()
+    print("POTENTIAL ISSUES TO INVESTIGATE:")
+    print("1. Import chain failures preventing module loading")
+    print("2. Missing or corrupted handle_fetch_command function")
+    print("3. Database connection issues preventing user state management")
+    print("4. Webhook processing errors blocking command execution")
+    print("5. Trading system initialization failures")
+    print()
+    print("CHATGPT SHOULD FOCUS ON:")
+    print("• Function definition completeness in simplified_bot.py")
+    print("• Error handling in command processing")
+    print("• Async/sync compatibility issues")
+    print("• Database session management")
+    print("• Import dependency resolution")
 
 if __name__ == "__main__":
-    success = asyncio.run(main())
-    print(f"\n🏁 FINAL RESULT: {'SUCCESS' if success else 'NEEDS MORE WORK'}")
-    exit(0 if success else 1)
+    test_fetch_command_comprehensive()
