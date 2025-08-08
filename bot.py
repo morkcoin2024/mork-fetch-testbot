@@ -2972,6 +2972,10 @@ def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float
     try:
         from app import app
         
+        # Debug logging
+        logging.info(f"VIP FETCH thread started for user {chat_id}")
+        send_message(chat_id, "🔄 <b>Starting token discovery...</b>")
+        
         # Run within Flask application context
         with app.app_context():
             # Create new event loop for this thread
