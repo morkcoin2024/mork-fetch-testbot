@@ -49,6 +49,39 @@ class AutomatedPumpTrader:
                 if trade_result['success']:
                     trades_executed.append(trade_result)
                     
+                    # Store trade in database for status tracking
+                    try:
+                        from models import ActiveTrade, db
+                        from app import app
+                        from datetime import datetime
+                        
+                        with app.app_context():
+                            active_trade = ActiveTrade(
+                                chat_id=str(chat_id),
+                                trade_type='fetch',
+                                contract_address=token.get('mint', ''),
+                                token_name=token.get('name', 'Unknown'),
+                                token_symbol=token.get('symbol', 'TOKEN'),
+                                entry_price=trade_result.get('buy_price', 0.0),
+                                trade_amount=amount_sol,
+                                tokens_purchased=trade_result.get('tokens_received', 0),
+                                stop_loss=40.0,  # 40% stop-loss
+                                take_profit=200.0,  # 2x take-profit 
+                                sell_percent=100.0,
+                                status='active',
+                                tx_hash=trade_result.get('transaction_hash', ''),
+                                monitoring_active=True,
+                                created_at=datetime.utcnow()
+                            )
+                            
+                            db.session.add(active_trade)
+                            db.session.commit()
+                            logger.info(f"✅ Stored automated trade in database: {token.get('symbol', 'TOKEN')}")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to store automated trade in database: {e}")
+                        # Don't fail the whole trade for this
+                    
                     # Step 3: Start real-time monitoring
                     await self.start_trade_monitoring(chat_id, trade_result)
             
