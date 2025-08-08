@@ -3141,26 +3141,76 @@ def execute_working_clippy_trade(chat_id: str, wallet_address: str, trade_amount
             
             if 'result' in response_json:
                 tx_hash = response_json['result']
+                logging.info(f"Transaction broadcast: {tx_hash}")
                 
-                # SUCCESS! Real transaction completed
-                success_message = f"""
+                # CRITICAL: Verify tokens actually received before declaring success
+                import time
+                time.sleep(5)  # Wait for blockchain confirmation
+                
+                try:
+                    # Check if tokens actually arrived in wallet
+                    from solana.rpc.api import Client
+                    from solders.pubkey import Pubkey as PublicKey
+                    
+                    client = Client("https://api.mainnet-beta.solana.com")
+                    pubkey = PublicKey.from_string(public_key)
+                    
+                    # Get token accounts to verify CLIPPY tokens received
+                    token_accounts = client.get_token_accounts_by_owner(pubkey, {"programId": PublicKey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")})
+                    
+                    clippy_tokens_found = 0
+                    for account in token_accounts.value:
+                        if target_token in str(account.account.data):
+                            clippy_tokens_found += 1
+                    
+                    # ZERO TOKEN DETECTION - IMMEDIATE STOP
+                    if clippy_tokens_found == 0:
+                        emergency_stop_msg = f"""
+🚨 <b>EMERGENCY STOP - 0 TOKENS DETECTED</b>
+
+❌ <b>CRITICAL FAILURE:</b> Transaction completed but 0 tokens received
+🔗 <b>TX Hash:</b> `{tx_hash}`
+💸 <b>SOL SPENT:</b> But no tokens acquired
+🛑 <b>TRADING HALTED:</b> Process stopped immediately
+
+<b>WALLET PROTECTION ACTIVATED</b>
+No further trades will execute.
+                        """
+                        send_message(chat_id, emergency_stop_msg)
+                        logging.error(f"🚨 EMERGENCY STOP: 0 tokens received for TX {tx_hash}")
+                        
+                        # Create emergency stop file
+                        with open("EMERGENCY_STOP_ZERO_TOKENS.md", "w") as f:
+                            f.write(f"# EMERGENCY STOP - ZERO TOKENS\n\nDate: {time.ctime()}\nReason: 0 tokens received\nTX: {tx_hash}\n")
+                        return
+                    
+                    # Tokens verified - real success
+                    success_message = f"""
 🎉 <b>VIP FETCH TRADE EXECUTED!</b>
 
-✅ <b>REAL TRANSACTION COMPLETED</b>
+✅ <b>TOKENS VERIFIED IN WALLET</b>
 🔗 <b>Hash:</b> `{tx_hash}`
-💰 <b>Tokens Purchased:</b> {tokens_to_buy:,} CLIPPY
+💰 <b>Tokens Confirmed:</b> {clippy_tokens_found} CLIPPY accounts found
 🪙 <b>Token:</b> CLIPPY PFP Cult
 📊 <b>Explorer:</b> https://solscan.io/tx/{tx_hash}
 
-<b>🎯 MONITORING ACTIVATED:</b>
-• Stop-loss: -{stop_loss}%
-• Take-profit: +{take_profit}%
-• Real tokens now in your wallet!
+<b>🎯 REAL SUCCESS - TOKENS IN WALLET!</b>
+                    """
+                    send_message(chat_id, success_message)
+                    logging.info(f"✅ VERIFIED SUCCESS: {clippy_tokens_found} CLIPPY tokens confirmed")
+                    
+                except Exception as verify_error:
+                    logging.error(f"Token verification failed: {verify_error}")
+                    warning_msg = f"""
+⚠️ <b>TRANSACTION COMPLETED</b>
 
-<b>🐕 VIP FETCH COMPLETE - WORKING SYSTEM!</b>
-                """
-                send_message(chat_id, success_message)
-                logging.info(f"✅ SUCCESSFUL TRADE: {tx_hash}")
+🔗 <b>Hash:</b> `{tx_hash}`
+❓ <b>Verification:</b> Unable to confirm token receipt
+📊 <b>Check manually:</b> https://solscan.io/tx/{tx_hash}
+
+Please verify tokens in your wallet manually.
+                    """
+                    send_message(chat_id, warning_msg)
                 
             else:
                 error = response_json.get('error', {})
