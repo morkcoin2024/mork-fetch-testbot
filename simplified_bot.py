@@ -110,9 +110,9 @@ Send SOL to your wallet address above to get started.
             
             # Set user state for manual token entry
             from models import UserSession
-            session = UserSession.query.filter_by(user_id=str(chat_id)).first()
+            session = UserSession.query.filter_by(chat_id=str(chat_id)).first()
             if not session:
-                session = UserSession(user_id=str(chat_id))
+                session = UserSession(chat_id=str(chat_id))
                 from app import db
                 db.session.add(session)
             
@@ -334,7 +334,7 @@ def handle_user_message(chat_id, text):
         from app import app
         
         with app.app_context():
-            session = UserSession.query.filter_by(user_id=str(chat_id)).first()
+            session = UserSession.query.filter_by(chat_id=str(chat_id)).first()
             if not session:
                 send_message(chat_id, "Please use /start to initialize your wallet first.")
                 return
