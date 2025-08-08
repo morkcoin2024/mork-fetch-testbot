@@ -1957,8 +1957,25 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """VIP FETCH automated trading - RESTORED after verification of working method"""
-    # System verified working - emergency stop lifted 2025-08-08
+    """🚨 EMERGENCY STOP REACTIVATED - 0 tokens delivered again"""
+    emergency_message = """
+🚨 <b>EMERGENCY STOP REACTIVATED</b>
+
+❌ <b>CRITICAL FAILURE DETECTED:</b> ESPURR trade completed but delivered 0 tokens
+
+<b>Pattern Confirmed:</b>
+• Transaction succeeds ✅
+• SOL gets spent ✅  
+• Zero tokens delivered ❌
+
+<b>Status:</b> All trading halted immediately
+<b>Reason:</b> Systematic token delivery failure
+<b>Action:</b> Investigating root cause
+
+<b>🛑 NO TRADES WILL EXECUTE</b>
+    """
+    send_message(chat_id, emergency_message)
+    return
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio
