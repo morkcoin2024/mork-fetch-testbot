@@ -39,6 +39,10 @@ class TradeSimulation(db.Model):
     stop_loss = db.Column(db.Float, nullable=False)
     take_profit = db.Column(db.Float, nullable=False)
     sell_percent = db.Column(db.Float, nullable=False)
+    token_name = db.Column(db.String(128), nullable=True)  # Added for compatibility
+    token_symbol = db.Column(db.String(32), nullable=True)  # Added for compatibility
+    auto_mode = db.Column(db.Boolean, default=False)  # Added for compatibility
+    status = db.Column(db.String(32), default="pending", nullable=False)  # Added for compatibility
     result_type = db.Column(db.String(32), default="pending", nullable=False)  # "profit", "loss", "partial_profit"
     profit_loss = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
