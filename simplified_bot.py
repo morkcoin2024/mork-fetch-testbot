@@ -178,8 +178,19 @@ VIP FETCH mode requires significant funding for automated trading.
 Scanning for 10 high-potential fresh launches...
             """)
             
-            # Execute automated trading in background
-            asyncio.create_task(execute_fetch_trading(chat_id, wallet))
+            # Execute automated trading in background - fix async execution
+            import threading
+            
+            def run_fetch_trading():
+                """Run fetch trading in a separate thread with its own event loop"""
+                try:
+                    asyncio.run(execute_fetch_trading(chat_id, wallet))
+                except Exception as e:
+                    logging.error(f"Background fetch trading failed: {e}")
+                    send_message(chat_id, f"❌ Background trading failed: {str(e)}")
+            
+            # Start trading in background thread
+            threading.Thread(target=run_fetch_trading, daemon=True).start()
             
     except Exception as e:
         logging.error(f"Fetch command failed: {e}")

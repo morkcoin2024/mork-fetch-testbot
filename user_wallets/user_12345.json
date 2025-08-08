@@ -1,8 +1,8 @@
 {
   "user_id": "12345",
-  "public_key": "8iUvkpGJquP7627Z1GqkvmqUoTYhmLDyaEcwkCxCjmpP",
-  "private_key_encrypted": "gAAAAABolktQ8C5cCXc7fiPbuKsnQVCFc_E_emyZCy1jiBlH5a8DzhbpKU8ZrFq9pUxjoAAH8QhO96sED8q48jXbNZMNz9lAxl04uXvhJZMawLvOIBGKAFHvnCWy-H3f1zJS0pixmnBE8gJ4n6alYLq_h-iTzhLlj8JtZMTwsjVQKGx_dVubgAPUkNPtcN3F3RyylRzUSjhB",
-  "created_at": "2025-08-08T19:09:04.263719",
+  "public_key": "4wtWDG8WY69zpMGX7XyukgSRbshrgnj7uHdmDazrNo2S",
+  "private_key_encrypted": "gAAAAABolkxQuqArxPjs4yx1fhsd6Bz2NViLx5_gBNWzqSif_S9dgT1htdJTOVHbj8PPIWLnJgvVB5hLAhm0n8cfBJxqXOnRsZcUMzyF3UhI8MPCB5bWOj0R9ffwaplFFw8ubaMQG4K82aRyR05O1rPStnFgO65BYNnr6CIcES2kWcml3L4AWRe6sOCZRUVEx4bIWUuJQ6UD",
+  "created_at": "2025-08-08T19:13:20.997033",
   "trades_count": 0,
   "total_profit": 0.0,
   "warning_shown": false
