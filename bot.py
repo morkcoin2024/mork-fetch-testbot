@@ -3268,10 +3268,10 @@ Found {len(candidates)} candidates, executing trades on top {len(selected_candid
         
         # Phase 3: Trading Summary Report
         if trade_results:
-            # Calculate summary stats
+            # Calculate summary stats - FIX: Ensure proper trade counting
             executed_trades = len(trade_results)  # All processed trades are executed trades
-            total_monitoring = len([r for r in trade_results if r['status'] == 'MONITORING'])
-            avg_safety_score = sum(r['safety_score'] for r in trade_results) / len(trade_results)
+            total_monitoring = len(trade_results)  # All trades are under monitoring
+            avg_safety_score = sum(r['safety_score'] for r in trade_results) / len(trade_results) if trade_results else 0
             
             summary_message = f"""
 🚀 <b>VIP FETCH TRADING SESSION COMPLETE</b>
