@@ -3138,21 +3138,35 @@ PROCEEDING TO LIVE JUPITER TRADE...
         # Import Jupiter trade engine for direct execution
         from jupiter_trade_engine import JupiterTradeEngine
         
-        # Load the test wallet (in real deployment, this would be user's wallet)
+        # Load the user's actual wallet with decryption
         try:
-            with open('test_wallet_info.txt', 'r') as f:
-                lines = f.read().strip().split('\n')
-                public_key = lines[0].split(': ')[1].strip()
-                private_key = lines[1].split(': ')[1].strip()
+            import json
+            from cryptography.fernet import Fernet
+            
+            # Load wallet data
+            with open('user_wallets/user_1653046781.json', 'r') as f:
+                wallet_data = json.load(f)
+                public_key = wallet_data['public_key']
+                encrypted_private_key = wallet_data['private_key_encrypted']
+            
+            # Load encryption key
+            with open('wallet_encryption.key', 'rb') as key_file:
+                encryption_key = key_file.read()
+            
+            # Decrypt private key
+            fernet = Fernet(encryption_key)
+            private_key = fernet.decrypt(encrypted_private_key.encode()).decode()
+            
         except Exception as e:
-            error_msg = f"Unable to load wallet: {e}"
+            error_msg = f"Unable to load your wallet: {e}"
             send_message(chat_id, error_msg)
             return
         
         # Phase 2: Execute Live Trade
-        phase2_message = """
+        phase2_message = f"""
 PHASE 2: EXECUTING LIVE TRADE
 
+Wallet: {public_key[:8]}...{public_key[-8:]} (YOUR WALLET)
 Target: CLIPPY token (proven working)
 Amount: 0.0005 SOL
 Safety: Emergency protection disabled for live trading
