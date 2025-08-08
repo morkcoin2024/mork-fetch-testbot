@@ -2039,14 +2039,14 @@ def handle_fetch_with_jupiter_engine_sync(chat_id):
 Processing trade..."""
         send_message(chat_id, processing_message)
         
-        # Execute trade with emergency protection
+        # Execute trade with emergency protection DISABLED for live testing
         result = engine.execute_jupiter_trade(
             wallet_pubkey=public_key,
             private_key=private_key,
             token_mint=test_token,
-            sol_amount=0.001,  # Very small test amount
+            sol_amount=0.0005,  # Reduced amount for low balance wallet
             slippage_bps=1000,
-            emergency_failsafe=True  # PROTECTION ENABLED
+            emergency_failsafe=False  # LIVE TESTING MODE
         )
         
         if result["success"]:
