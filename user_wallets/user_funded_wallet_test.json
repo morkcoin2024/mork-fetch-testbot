@@ -1,0 +1,9 @@
+{
+  "user_id": "funded_wallet_test",
+  "public_key": "G1ogEZDXCjYtUcejXXKdYBhLsMpy7wqZrxMVskgLfo1X",
+  "private_key_encrypted": "gAAAAABoljLxqS8hFqqm7GyBgvDCPfrGWMNeBVZTAjTN8h9Eg_deAMnRX_hmSqahL7qIUs1pHFjyQrbqqfLvemXnAS036eFKvlp_5lRXMC9BH0u0QcSnt_4Vbs8Fvm-fvnDOXsYQB82PmPvalhIK5uhvEl2886E0_zJ_siZtMIlt-DwG48shQSdrRR-zWJ5W1Bx-pYjyaEOh",
+  "created_at": "2025-08-08T17:25:05.498944",
+  "trades_count": 0,
+  "total_profit": 0.0,
+  "warning_shown": false
+}

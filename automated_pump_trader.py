@@ -73,6 +73,13 @@ class AutomatedPumpTrader:
                     private_key = burner_wallet.get('private_key', 'test_key')
                     contract_address = token.get('mint', token.get('contract_address', ''))
                     
+                    # Add debug logging for real trade execution
+                    logger.info(f"🚀 ATTEMPTING REAL TOKEN PURCHASE:")
+                    logger.info(f"   Token: {token.get('symbol', 'UNKNOWN')}")
+                    logger.info(f"   Contract: {contract_address}")
+                    logger.info(f"   Amount: {trade_amount_sol / 3} SOL")
+                    logger.info(f"   Wallet: {burner_wallet.get('public_key', 'Unknown')[:10]}...")
+                    
                     # Execute real trade
                     trade_result = await trader.buy_pump_token(
                         private_key=private_key,

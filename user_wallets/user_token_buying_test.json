@@ -1,0 +1,9 @@
+{
+  "user_id": "token_buying_test",
+  "public_key": "9FrV9NndMS8tvhpw58hmwwS6Pjv3sAtSjCtguvmSWC9H",
+  "private_key_encrypted": "gAAAAABoljNxAqHd0cjmRP_-CcEcSRZN7sK3YDttxWWkta3uT2ex4dDez_HFZbtwxIPTlcswgE52d0Di6DAfQDsDcvXwEvK7ss1DR47-x1vMgoUxMQoOeJo4OfYUxKvFK7W_HeqpJkTJXvJwIh3bshxwFQNzQ6NnT8Fl5b9AAiKHhSC5ua8l4xbbvfkUt2vw5CHd16v5rOJG",
+  "created_at": "2025-08-08T17:27:13.617720",
+  "trades_count": 0,
+  "total_profit": 0.0,
+  "warning_shown": false
+}
