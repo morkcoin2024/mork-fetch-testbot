@@ -632,18 +632,33 @@ class PumpFunScanner:
         
         logger.info(f"Processing {len(recent_tokens)} tokens for candidates")
         
-        # Enhance tokens with Advanced AI analysis
+        # Enhance tokens with AI analysis (with timeout protection to prevent hanging)
+        enhanced_tokens = recent_tokens  # Default fallback
         try:
             from ai_enhanced_pump_rules import AIEnhancedPumpRules
             ai_engine = AIEnhancedPumpRules()
-            enhanced_tokens = await ai_engine.enhance_token_scoring(recent_tokens)
+            
+            # Add timeout protection to prevent freezing
+            ai_task = asyncio.create_task(ai_engine.enhance_token_scoring(recent_tokens))
+            enhanced_tokens = await asyncio.wait_for(ai_task, timeout=30.0)  # 30 second timeout
             logger.info(f"Tokens enhanced with advanced AI analysis - {len(enhanced_tokens)} tokens processed")
+            
+        except asyncio.TimeoutError:
+            logger.warning("AI enhancement timed out after 30 seconds - using tokens without AI enhancement")
+            enhanced_tokens = recent_tokens  # Use original tokens
         except Exception as e:
             logger.debug(f"Advanced AI enhancement failed, trying basic AI: {e}")
             try:
                 from openai_token_analyzer import enhance_tokens_with_ai
-                enhanced_tokens = await enhance_tokens_with_ai(recent_tokens)
+                
+                # Add timeout for basic AI too
+                basic_ai_task = asyncio.create_task(enhance_tokens_with_ai(recent_tokens))
+                enhanced_tokens = await asyncio.wait_for(basic_ai_task, timeout=20.0)  # 20 second timeout
                 logger.info("Tokens enhanced with basic AI analysis")
+                
+            except asyncio.TimeoutError:
+                logger.warning("Basic AI enhancement timed out - using tokens without AI enhancement")
+                enhanced_tokens = recent_tokens
             except Exception as e2:
                 logger.debug(f"All AI enhancement failed, using basic analysis: {e2}")
                 enhanced_tokens = recent_tokens
