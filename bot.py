@@ -1957,7 +1957,20 @@ Ready for more practice? Type /simulate to run another simulation!
     send_message(chat_id, whatif_text)
 
 def handle_fetch_command(chat_id):
-    """Handle /fetch command - start VIP automated trading mode with burner wallet"""
+    """🚨 EMERGENCY STOP - /fetch command disabled"""
+    emergency_message = """
+🚨 <b>EMERGENCY STOP - TRADING DISABLED</b>
+
+VIP FETCH automated trading has been disabled for safety.
+
+<b>Reason:</b> Emergency stop activated
+<b>Status:</b> All trading operations halted
+<b>Safety:</b> System locked in safe mode
+
+Contact support for assistance.
+    """
+    send_message(chat_id, emergency_message)
+    return
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio
@@ -2121,7 +2134,20 @@ Burner wallet system is currently unavailable. Please try again later.
         send_message(chat_id, fetch_text)
 
 def handle_snipe_command(chat_id):
-    """Handle /snipe command - start live trading mode with 0.5% fee"""
+    """🚨 EMERGENCY STOP - /snipe command disabled"""
+    emergency_message = """
+🚨 <b>EMERGENCY STOP - TRADING DISABLED</b>
+
+Live trading has been disabled for safety.
+
+<b>Reason:</b> Emergency stop activated
+<b>Status:</b> All trading operations halted
+<b>Safety:</b> System locked in safe mode
+
+Contact support for assistance.
+    """
+    send_message(chat_id, emergency_message)
+    return
     # Check if user has a burner wallet first
     if BURNER_WALLET_ENABLED:
         import asyncio
@@ -2753,17 +2779,21 @@ def execute_live_trade(chat_id):
     """Execute a live trading order"""
     session = get_or_create_session(chat_id)
     
-    # Check if this is VIP FETCH mode - start automated trading
-    if session.trading_mode == 'fetch':
-        # Execute simplified VIP FETCH with direct trading
-        import threading
-        trading_thread = threading.Thread(
-            target=execute_simplified_vip_fetch,
-            args=(chat_id, session.wallet_address, session.trade_amount, session.stop_loss, session.take_profit, session.sell_percent)
-        )
-        trading_thread.daemon = True
-        trading_thread.start()
-        return
+    # 🚨 EMERGENCY STOP - ALL TRADING DISABLED
+    emergency_message = """
+🚨 <b>EMERGENCY STOP ACTIVATED</b>
+
+All trading operations have been halted for safety.
+
+<b>Status:</b> System in safe mode only
+<b>Trading:</b> Disabled
+<b>VIP FETCH:</b> Halted
+
+Contact support for assistance.
+    """
+    send_message(chat_id, emergency_message)
+    update_session(chat_id, state=STATE_IDLE)
+    return
     
     # Verify all required information is present for regular live trading
     if not all([session.wallet_address, session.contract_address, session.stop_loss, 
