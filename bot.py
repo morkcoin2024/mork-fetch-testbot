@@ -9,14 +9,29 @@ import asyncio
 from datetime import datetime
 from flask import current_app
 from sqlalchemy import func
-from fee_collection_system import fee_collector, collect_profit_fee
-from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
-from ai_risk_integration import get_ai_trade_recommendation, get_learning_status, should_recommend_trade, record_completed_trade
+# Test environment imports - simplified for testing
+try:
+    from fee_collection_system import fee_collector, collect_profit_fee
+    from automatic_fee_deduction import process_profitable_trade_auto_fee, calculate_net_amount_after_fees
+except ImportError:
+    # Fallback functions for test environment
+    def collect_profit_fee(*args): return "Test fee collection", 0.0
+    def process_profitable_trade_auto_fee(*args): return "Test fee processing", 0.0
+    def calculate_net_amount_after_fees(amount): return amount * 0.995, amount * 0.005
 
-# Bot configuration
-BOT_TOKEN = "8133024100:AAGQpJYAKK352Dkx93feKfbC0pM_bTVU824"
+# AI features disabled in test environment - using fallbacks
+def get_ai_trade_recommendation(*args): return {"recommendation": "test_mode", "confidence": 0.5}
+def get_learning_status(*args): return "Test learning status"
+def should_recommend_trade(*args): return False
+def record_completed_trade(*args): pass
+
+# Test environment disclaimer
+TRADING_DISCLAIMER = "\n\n<i>🧪 TEST ENVIRONMENT: This is the test bot. No real trades will be executed. Use for testing only.</i>"
+
+# Bot configuration - USES ENVIRONMENT VARIABLE FOR TEST BOT
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-BOT_USERNAME = "@MorkSniperBot"
+BOT_USERNAME = "@MorkSniperTestBot"  # Test bot username
 
 # Command states - Simulation mode
 STATE_IDLE = "idle"
