@@ -1,87 +1,153 @@
 #!/usr/bin/env python3
 """
-Test Real Trading System - Verify actual token purchasing capability
+Test the exact user flow that causes the freeze
 """
 
 import asyncio
-import logging
-from pump_fun_trading import PumpFunTrader
+import sys
+import time
+sys.path.append('.')
 
-logging.basicConfig(level=logging.INFO)
-
-async def test_real_pumpportal_integration():
-    """Test the real PumpPortal API integration with proper error diagnosis"""
-    print("🧪 TESTING REAL PUMPPORTAL API INTEGRATION")
-    print("=" * 50)
+def test_real_user_fetch_flow():
+    """Test exactly what happens when a user runs /fetch"""
+    print("🧪 TESTING REAL USER /fetch FLOW")
+    print("=" * 40)
     
-    trader = PumpFunTrader()
+    from bot import handle_fetch_command, handle_message, get_or_create_session, update_session
+    from models import UserSession, db
+    from app import app
     
-    # Test parameters (these will fail with test data, but show us the API flow)
-    test_params = {
-        'private_key': 'demo_private_key_base58_format',
-        'token_contract': 'BYPASS1TestToken123456789',
-        'sol_amount': 0.01,
-        'slippage_percent': 1.0
-    }
+    test_chat_id = "real_user_test"
     
-    print(f"Testing with parameters:")
-    print(f"  Token Contract: {test_params['token_contract']}")
-    print(f"  SOL Amount: {test_params['sol_amount']}")
-    print(f"  Private Key Format: {test_params['private_key'][:10]}...")
-    
-    try:
-        result = await trader.buy_pump_token(
-            private_key=test_params['private_key'],
-            token_contract=test_params['token_contract'], 
-            sol_amount=test_params['sol_amount'],
-            slippage_percent=test_params['slippage_percent']
-        )
+    with app.app_context():
+        print("Step 1: Setting up fresh user session...")
+        # Clean slate
+        existing = UserSession.query.filter_by(chat_id=test_chat_id).first()
+        if existing:
+            db.session.delete(existing)
+            db.session.commit()
         
-        print(f"\n📊 RESULT ANALYSIS:")
-        print(f"Success: {result.get('success')}")
+        # Create wallet first (like a real user would)
+        print("Step 2: Creating burner wallet...")
+        from burner_wallet_system import BurnerWalletManager
+        wallet_manager = BurnerWalletManager()
+        wallet = wallet_manager.get_user_wallet(test_chat_id)
         
-        if result.get('success'):
-            print(f"✅ Transaction Hash: {result.get('transaction_hash')}")
-            print(f"✅ Method Used: {result.get('method')}")
-            print(f"✅ SOL Spent: {result.get('sol_spent')}")
-        else:
-            error = result.get('error', 'No error message')
-            print(f"❌ Error: {error}")
+        if wallet:
+            print(f"✅ Wallet created: {wallet['public_key'][:10]}...")
             
-            # Diagnose common error types
-            if 'Invalid character' in error:
-                print("🔍 DIAGNOSIS: Private key format issue - needs real base58 key")
-            elif 'API' in error:
-                print("🔍 DIAGNOSIS: PumpPortal API communication issue")
-            elif 'balance' in error.lower():
-                print("🔍 DIAGNOSIS: Wallet funding issue")
-            elif 'timeout' in error.lower():
-                print("🔍 DIAGNOSIS: Network/timeout issue")
-            else:
-                print("🔍 DIAGNOSIS: Unknown error type")
-        
-        return result
-        
-    except Exception as e:
-        print(f"❌ SYSTEM EXCEPTION: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+            print("Step 3: Running /fetch command...")
+            try:
+                # This is what happens when user types /fetch
+                handle_fetch_command(test_chat_id)
+                print("✅ /fetch command executed")
+                
+                # Check session state
+                session = get_or_create_session(test_chat_id)
+                print(f"Session state: {session.state}")
+                print(f"Trading mode: {getattr(session, 'trading_mode', 'Not set')}")
+                
+                # Now simulate entering an amount (like user would)
+                print("Step 4: Simulating user entering SOL amount...")
+                message_text = "0.1"  # User enters 0.1 SOL
+                
+                result = handle_message(test_chat_id, message_text)
+                print(f"✅ Amount processing result: {result}")
+                
+                # Check what happens next
+                session = get_or_create_session(test_chat_id)
+                print(f"Updated state: {session.state}")
+                
+                return True
+                
+            except Exception as e:
+                print(f"❌ Error in flow: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
+        else:
+            print("❌ Failed to create wallet")
+            return False
 
-async def main():
-    result = await test_real_pumpportal_integration()
+async def test_automated_trading_trigger():
+    """Test the specific automated trading trigger"""
+    print("\n🤖 TESTING AUTOMATED TRADING TRIGGER")
+    print("=" * 42)
     
-    print(f"\n🎯 SUMMARY:")
-    if result and result.get('success'):
-        print("✅ Real token purchasing system is working!")
-        print("Ready for live trading with funded wallets")
-    elif result and not result.get('success'):
-        print("⚠️  System is functional but requires real funded wallets")
-        print("Test failures are expected with demo data")
+    from automated_pump_trader import AutomatedPumpTrader
+    from burner_wallet_system import BurnerWalletManager
+    
+    trader = AutomatedPumpTrader()
+    wallet_manager = BurnerWalletManager()
+    
+    test_user = "trigger_test"
+    
+    # Create wallet
+    wallet = wallet_manager.get_user_wallet(test_user)
+    
+    if wallet:
+        print(f"Testing automated trading with wallet: {wallet['public_key'][:10]}...")
+        
+        # Test with timeout to catch hangs
+        try:
+            print("Starting automated trading with timeout...")
+            print("Time:", time.strftime("%H:%M:%S"))
+            
+            # This is the exact call that happens after user enters amount
+            result = await asyncio.wait_for(
+                trader.execute_automated_trading(test_user, wallet, 0.1),
+                timeout=30.0  # 30 second timeout
+            )
+            
+            print("✅ Automated trading completed")
+            print("Time:", time.strftime("%H:%M:%S"))
+            print(f"Success: {result.get('success')}")
+            print(f"Message: {result.get('message', 'No message')}")
+            
+            trades = result.get('trades', [])
+            print(f"Trades executed: {len(trades)}")
+            
+            return True
+            
+        except asyncio.TimeoutError:
+            print("⏰ TIMEOUT: Automated trading hung!")
+            print("Time:", time.strftime("%H:%M:%S"))
+            print("This is likely where the freeze occurs")
+            return False
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            print("Time:", time.strftime("%H:%M:%S"))
+            import traceback
+            traceback.print_exc()
+            return False
     else:
-        print("❌ System has critical errors that need fixing")
+        print("❌ Failed to create wallet")
+        return False
+
+def main():
+    """Run the real user flow tests"""
+    print("🚀 TESTING REAL USER /fetch FLOW")
+    print("=" * 45)
     
-    return result
+    # Test 1: Full user flow
+    flow_success = test_real_user_fetch_flow()
+    
+    # Test 2: Automated trading trigger
+    trading_success = asyncio.run(test_automated_trading_trigger())
+    
+    print(f"\n🎯 REAL FLOW TEST RESULTS:")
+    print(f"User Flow: {'PASS' if flow_success else 'FAIL'}")
+    print(f"Trading Trigger: {'PASS' if trading_success else 'HANG/FAIL'}")
+    
+    if not flow_success:
+        print("\n🔍 ISSUE: User flow is broken")
+    elif not trading_success:
+        print("\n🔍 ISSUE: Automated trading hangs during execution")
+        print("This explains the 'PHASE 1' freeze users experience")
+    else:
+        print("\n✅ SYSTEM WORKING: No hang detected")
+    
+    return flow_success and trading_success
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    success = main()

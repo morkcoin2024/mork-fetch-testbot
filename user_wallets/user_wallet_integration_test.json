@@ -1,0 +1,9 @@
+{
+  "user_id": "wallet_integration_test",
+  "public_key": "C2wmVFEDNXdi3eK2L49Uv44PaSrZ68WGHUffUg6sR4PE",
+  "private_key_encrypted": "gAAAAABoli79GRcl6_OblxwAS_tbbufkf2qSykLu_O7TaDdbDzyF9XoLoET1Wxv0DE9a9Fn1n50Hp2lkoqzXmQFIUVt8ESjnV5aIau0R-ZsZ42XeweGt8HZpX-0-crN1cwkTZYOVHfiN0H2Xm9QjIBqp2cjV2gmYjDaF0tLRTybbMPoSEjJggnMLQouirTVWM9PKUsa1MeHi",
+  "created_at": "2025-08-08T17:08:13.926590",
+  "trades_count": 0,
+  "total_profit": 0.0,
+  "warning_shown": false
+}

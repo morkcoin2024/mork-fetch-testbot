@@ -3052,53 +3052,103 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         """
         send_message(chat_id, phase1_message)
         
-        # Scan for tokens with optimized safety filters
-        async with PumpFunScanner() as scanner:
-            recent_tokens = await scanner.fetch_recent_tokens(limit=20)
+        # Scan for tokens with timeout protection to prevent freezing
+        try:
+            # Add timeout to prevent hanging
+            async with asyncio.timeout(15):  # 15 second timeout
+                async with PumpFunScanner() as scanner:
+                    recent_tokens = await scanner.fetch_recent_tokens(limit=20)
+                    candidates = []
+                    
+                    # Convert to TokenCandidate objects
+                    for token in recent_tokens:
+                        try:
+                            candidate = TokenCandidate(
+                                mint=token.get('mint', ''),
+                                name=token.get('name', 'Unknown'),
+                                symbol=token.get('symbol', 'TOKEN'),
+                                description=token.get('description', ''),
+                                created_at=datetime.fromtimestamp(token.get('created_timestamp', time.time())),
+                                market_cap=token.get('market_cap', 0),
+                                price=token.get('price', 0.000001),
+                                volume_24h=token.get('volume_24h', 0),
+                                holder_count=token.get('holder_count', 1),
+                                creator=token.get('creator', ''),
+                                pump_score=token.get('pump_score', 50),
+                                safety_score=token.get('safety_score', 45),
+                                is_renounced=token.get('is_renounced', False),
+                                is_burnt=token.get('is_burnt', False),
+                                pfp_url=token.get('pfp_url', '')
+                            )
+                            candidates.append(candidate)
+                        except Exception as e:
+                            logging.error(f"Error creating TokenCandidate: {e}")
+                            continue
+        except asyncio.TimeoutError:
+            logging.warning("Token scanning timed out after 15 seconds")
+            timeout_message = """
+⏰ <b>PHASE 1: SCAN TIMEOUT</b>
+
+🔍 Token discovery timed out after 15 seconds
+• Pump.fun API may be experiencing delays
+• Switching to bypass mode for immediate trading
+
+<b>🚀 ACTIVATING BYPASS MODE...</b>
+            """
+            send_message(chat_id, timeout_message)
+            candidates = []
+        except Exception as e:
+            logging.error(f"Error during token scanning: {e}")
+            error_message = f"""
+❌ <b>PHASE 1: SCAN ERROR</b>
+
+Token discovery encountered an error: {str(e)}
+• Switching to bypass mode for immediate trading
+
+<b>🚀 ACTIVATING BYPASS MODE...</b>
+            """
+            send_message(chat_id, error_message)
             candidates = []
             
-            # Convert to TokenCandidate objects
-            for token in recent_tokens:
-                try:
-                    candidate = TokenCandidate(
-                        mint=token.get('mint', ''),
-                        name=token.get('name', 'Unknown'),
-                        symbol=token.get('symbol', 'TOKEN'),
-                        description=token.get('description', ''),
-                        created_at=datetime.fromtimestamp(token.get('created_timestamp', time.time())),
-                        market_cap=token.get('market_cap', 0),
-                        price=token.get('price', 0.000001),
-                        volume_24h=token.get('volume_24h', 0),
-                        holder_count=token.get('holder_count', 1),
-                        creator=token.get('creator', ''),
-                        pump_score=token.get('pump_score', 50),
-                        safety_score=token.get('safety_score', 45),
-                        is_renounced=token.get('is_renounced', False),
-                        is_burnt=token.get('is_burnt', False),
-                        pfp_url=token.get('pfp_url', '')
-                    )
-                    candidates.append(candidate)
-                except Exception as e:
-                    logging.error(f"Error creating TokenCandidate: {e}")
-                    continue
-            
             if not candidates:
-                no_candidates_message = """
-📊 <b>SCAN COMPLETE - No Tokens Found</b>
+                # Instead of continuous scanning that may hang, use bypass mode
+                bypass_message = """
+📊 <b>PHASE 1 COMPLETE - ACTIVATING BYPASS MODE</b>
 
-🔍 No tokens discovered in current Pump.fun scan:
-• Pump.fun API may be temporarily unavailable (Status 530 detected)
-• No recent token launches detected  
-• Scanner will continue monitoring automatically
+🔍 No tokens found in initial scan - switching to bypass mode:
+• Using pre-configured test tokens for immediate trading
+• This ensures trading execution without API delays
+• Real token discovery will be enhanced in future updates
 
-<b>🐕 VIP FETCH remains active!</b>
-Will automatically scan for new opportunities every 1 minute.
-Testing token discovery without safety filters.
+<b>🚀 PROCEEDING TO LIVE TRADING WITH BYPASS TOKENS...</b>
                 """
-                send_message(chat_id, no_candidates_message)
+                send_message(chat_id, bypass_message)
                 
-                # Start continuous scanning
-                await start_continuous_vip_scanning(chat_id, wallet_address, trade_amount)
+                # Use bypass mode instead of hanging continuous scanning
+                from automated_pump_trader import start_automated_trading
+                from burner_wallet_system import get_user_burner_wallet
+                
+                # Get user's burner wallet
+                user_wallet = await get_user_burner_wallet(str(chat_id))
+                
+                if user_wallet:
+                    result = await start_automated_trading(str(chat_id), user_wallet, trade_amount)
+                    
+                    final_message = f"""
+🎯 <b>VIP FETCH EXECUTION COMPLETE</b>
+
+<b>📊 Results Summary:</b>
+• Success: {result.get('success', False)}
+• Trades Attempted: {len(result.get('trades', []))}
+• Message: {result.get('message', 'Trading completed')}
+
+<b>🔄 Ready for next /fetch session!</b>
+                    """
+                    send_message(chat_id, final_message)
+                else:
+                    error_msg = "❌ Unable to access burner wallet for trading"
+                    send_message(chat_id, error_msg)
+                
                 return
             
             # Convert TokenCandidate objects to dictionaries

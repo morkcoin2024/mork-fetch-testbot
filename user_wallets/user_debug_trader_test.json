@@ -1,0 +1,9 @@
+{
+  "user_id": "debug_trader_test",
+  "public_key": "7jGovz6JVj7XMDVPDnUNHr9dVcHi9Mbm3P5Wx6A4Gr23",
+  "private_key_encrypted": "gAAAAABoli5qDzOIxb0Pa9RYXBQtkA4Tms7T8Ueyv7fa7uYBdWcNErnJkfgq0jwwtYQXSFFMJUlEgG1k8AT2XynVlJbiBFz2ySK6m5l1wpSneoDC2jcXd50-opnZKW9KRd7h6CucoFr5hWP1K1CH0MWW8jlVKbQEmxfsJMvH0GP6qdE8D2Db7JBsPtdBp2g8kPjB2vzInogj",
+  "created_at": "2025-08-08T17:05:46.976068",
+  "trades_count": 0,
+  "total_profit": 0.0,
+  "warning_shown": false
+}
