@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+.pytest_cache/
+venv/
+env/
+
+# Secrets and sensitive files
+*.key
+.env
+.env.local
+instance/
+user_wallets/
+attached_assets/
+
+# Replit specific
+.replit
+uv.lock
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Test files (keep these local)
+testbot_*
+setup_test_bot.py
+
+# ChatGPT analysis folder
+chatgpt_analysis/
