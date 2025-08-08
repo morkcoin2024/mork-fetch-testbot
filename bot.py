@@ -2948,10 +2948,10 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
     """Execute the VIP FETCH automated trading process"""
     try:
         # Import our trading modules and setup Flask context
-        from pump_scanner import PumpFunScanner
-        from trade_executor import trade_executor, ActiveTrade
+        from pump_scanner import PumpFunScanner, TokenCandidate
         from app import app
         import time
+        from datetime import datetime
         
         # Phase 1: Token Discovery
         phase1_message = """
@@ -2968,7 +2968,33 @@ async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amo
         
         # Scan for tokens with optimized safety filters
         async with PumpFunScanner() as scanner:
-            candidates = await scanner.get_token_candidates(min_safety_score=25)  # Optimized threshold
+            recent_tokens = await scanner.fetch_recent_tokens(limit=20)
+            candidates = []
+            
+            # Convert to TokenCandidate objects
+            for token in recent_tokens:
+                try:
+                    candidate = TokenCandidate(
+                        mint=token.get('mint', ''),
+                        name=token.get('name', 'Unknown'),
+                        symbol=token.get('symbol', 'TOKEN'),
+                        description=token.get('description', ''),
+                        created_at=datetime.fromtimestamp(token.get('created_timestamp', time.time())),
+                        market_cap=token.get('market_cap', 0),
+                        price=token.get('price', 0.000001),
+                        volume_24h=token.get('volume_24h', 0),
+                        holder_count=token.get('holder_count', 1),
+                        creator=token.get('creator', ''),
+                        pump_score=token.get('pump_score', 50),
+                        safety_score=token.get('safety_score', 45),
+                        is_renounced=token.get('is_renounced', False),
+                        is_burnt=token.get('is_burnt', False),
+                        pfp_url=token.get('pfp_url', '')
+                    )
+                    candidates.append(candidate)
+                except Exception as e:
+                    logging.error(f"Error creating TokenCandidate: {e}")
+                    continue
             
             if not candidates:
                 no_candidates_message = """
