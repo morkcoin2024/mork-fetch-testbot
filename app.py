@@ -32,18 +32,20 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Handle incoming Telegram webhook updates"""
+    """Handle incoming Telegram webhook updates - FIXED"""
     try:
         update = request.get_json()
-        logging.info(f"Received webhook update: {update}")
+        logging.info(f"📨 Webhook received update: {update.get('update_id', 'unknown') if update else 'None'}")
+        
         if update:
             with app.app_context():
-                import bot
-                result = bot.handle_update(update)
-                logging.info(f"Bot handled update successfully")
+                # Import the correct simplified bot handler
+                import simplified_bot
+                result = simplified_bot.handle_telegram_update(update)
+                logging.info(f"✅ Simplified bot processed update successfully")
         return 'OK', 200
     except Exception as e:
-        logging.error(f"Webhook error: {e}")
+        logging.error(f"❌ Webhook error: {e}")
         import traceback
         traceback.print_exc()
         return 'OK', 200  # Return 200 to prevent retry loops
