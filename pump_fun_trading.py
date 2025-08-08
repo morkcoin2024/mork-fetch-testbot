@@ -140,19 +140,101 @@ class PumpFunTrader:
             
             logger.info(f"✅ Wallet funded with {balance_check.get('sol_balance', 0):.6f} SOL")
             
-            # Generate transaction hash for tracking
-            import time
-            import hashlib
-            tx_data = f"{public_key}{token_contract}{sol_amount}{time.time()}"
-            mock_tx_hash = hashlib.sha256(tx_data.encode()).hexdigest()[:32]
+            # EXECUTE REAL TOKEN PURCHASE using PumpPortal API (ChatGPT's recommendation)
+            lamports = int(sol_amount * 1e9)
             
+            # Debug info before transaction (ChatGPT's suggestion)
+            logger.info(f"🔍 Transaction Debug Info:")
+            logger.info(f"  Burner public key: {public_key}")
+            logger.info(f"  Token contract: {token_contract}")  
+            logger.info(f"  Amount in lamports: {lamports}")
+            logger.info(f"  Amount in SOL: {sol_amount}")
+            
+            # Use PumpPortal API for real token purchase with retries
+            success = False
+            last_error = None
+            retry_delay = INITIAL_RETRY_DELAY
+            
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.info(f"🚀 Attempt {attempt + 1}/{MAX_RETRIES}: PumpPortal API token purchase...")
+                    
+                    # PumpPortal API payload for token purchase
+                    payload = {
+                        "publicKey": public_key,
+                        "action": "buy",
+                        "mint": token_contract,
+                        "denominatedInSol": "true",
+                        "amount": sol_amount,
+                        "slippage": slippage_percent,
+                        "priorityFee": 0.0001,
+                        "pool": "pump"
+                    }
+                    
+                    # Make API request with timeout
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)) as session:
+                        async with session.post(PUMPPORTAL_API, json=payload) as response:
+                            if response.status == 200:
+                                response_data = await response.json()
+                                
+                                if response_data and isinstance(response_data, str):
+                                    # Response is the raw transaction for signing
+                                    raw_transaction = response_data
+                                    
+                                    # Decode and sign the transaction with burner wallet
+                                    try:
+                                        import base64
+                                        transaction_bytes = base64.b64decode(raw_transaction)
+                                        versioned_tx = VersionedTransaction.from_bytes(transaction_bytes)
+                                        
+                                        # Sign with burner wallet keypair
+                                        versioned_tx.sign([keypair])
+                                        
+                                        # Send signed transaction to blockchain
+                                        result = self.client.send_transaction(versioned_tx)
+                                        
+                                        if result.value:
+                                            tx_hash = str(result.value)
+                                            logger.info(f"✅ REAL TOKEN PURCHASE SUCCESS! TX: {tx_hash}")
+                                            
+                                            return {
+                                                "success": True,
+                                                "transaction_id": tx_hash,
+                                                "transaction_hash": tx_hash,
+                                                "message": f"Real token purchase: {sol_amount} SOL → {token_contract}",
+                                                "amount_sol": sol_amount,
+                                                "sol_spent": sol_amount,
+                                                "method": "PumpPortal_API"
+                                            }
+                                        else:
+                                            raise Exception(f"Transaction failed: {result}")
+                                            
+                                    except Exception as signing_error:
+                                        raise Exception(f"Transaction signing failed: {signing_error}")
+                                        
+                                else:
+                                    raise Exception(f"Invalid API response format: {response_data}")
+                                    
+                            else:
+                                error_text = await response.text()
+                                raise Exception(f"PumpPortal API error {response.status}: {error_text}")
+                                
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"❌ Attempt {attempt + 1} failed: {e}")
+                    
+                    if attempt < MAX_RETRIES - 1:
+                        logger.info(f"⏳ Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"❌ All {MAX_RETRIES} attempts failed")
+            
+            # All retries failed
             return {
-                "success": True,
-                "transaction_id": mock_tx_hash,
-                "transaction_hash": mock_tx_hash,
-                "message": f"Successfully bought {sol_amount} SOL worth of token",
-                "amount_sol": sol_amount,
-                "sol_spent": sol_amount
+                "success": False,
+                "error": f"PumpPortal API failed after {MAX_RETRIES} attempts: {last_error}",
+                "attempts": MAX_RETRIES
             }
             
         except Exception as e:

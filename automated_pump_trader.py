@@ -48,18 +48,58 @@ class AutomatedPumpTrader:
             trades_executed = []
             
             for i, token in enumerate(good_tokens[:3]):  # Process top 3 tokens
-                # Create simulated successful trade for testing
-                simulated_trade = {
-                    'success': True,
-                    'token_symbol': token.get('symbol', f'TOKEN_{i}'),
-                    'transaction_hash': f'simulated_tx_{int(time.time())}_{i}',
-                    'buy_price': token.get('entry_price', 0.001),
-                    'tokens_received': 1000000,  # Simulated tokens received
-                    'amount_sol': trade_amount_sol / 3,
-                    'platform': 'pump_fun_simulated'
-                }
+                # Execute REAL token purchase using PumpPortal API
+                try:
+                    from pump_fun_trading import PumpFunTrader
+                    trader = PumpFunTrader()
+                    
+                    # Use real burner wallet private key for actual purchase
+                    private_key = burner_wallet.get('private_key', 'test_key')
+                    contract_address = token.get('mint', token.get('contract_address', ''))
+                    
+                    # Execute real trade
+                    trade_result = await trader.buy_pump_token(
+                        private_key=private_key,
+                        token_contract=contract_address,
+                        sol_amount=trade_amount_sol / 3,
+                        slippage_percent=1.0
+                    )
+                    
+                    if trade_result.get('success'):
+                        real_trade = {
+                            'success': True,
+                            'token_symbol': token.get('symbol', f'TOKEN_{i}'),
+                            'transaction_hash': trade_result.get('transaction_hash'),
+                            'buy_price': token.get('entry_price', 0.001),
+                            'tokens_received': 1000000,  # Will be calculated from actual trade
+                            'amount_sol': trade_amount_sol / 3,
+                            'platform': 'pump_fun_live',
+                            'method': trade_result.get('method', 'PumpPortal_API')
+                        }
+                        logger.info(f"✅ REAL TRADE SUCCESS: {token.get('symbol')} - TX: {trade_result.get('transaction_hash')}")
+                    else:
+                        # Fallback to simulation if real trade fails
+                        real_trade = {
+                            'success': False,
+                            'token_symbol': token.get('symbol', f'TOKEN_{i}'),
+                            'error': trade_result.get('error', 'Unknown error'),
+                            'amount_sol': trade_amount_sol / 3,
+                            'platform': 'pump_fun_failed'
+                        }
+                        logger.warning(f"❌ REAL TRADE FAILED: {token.get('symbol')} - {trade_result.get('error')}")
+                        
+                except Exception as trade_error:
+                    logger.error(f"❌ Trade execution error: {trade_error}")
+                    # Fallback simulation
+                    real_trade = {
+                        'success': False,
+                        'token_symbol': token.get('symbol', f'TOKEN_{i}'),
+                        'error': str(trade_error),
+                        'amount_sol': trade_amount_sol / 3,
+                        'platform': 'pump_fun_error'
+                    }
                 
-                trades_executed.append(simulated_trade)
+                trades_executed.append(real_trade)
                 
                 # Store simulated trade in database for status tracking
                 try:
