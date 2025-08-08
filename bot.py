@@ -2978,8 +2978,26 @@ def run_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
-            # Run the trading function with all parameters
-            loop.run_until_complete(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent))
+            # Run the trading function with all parameters - using timeout to prevent hanging
+            try:
+                task = asyncio.wait_for(
+                    execute_vip_fetch_trading(chat_id, wallet_address, trade_amount, token_count, stop_loss, take_profit, sell_percent),
+                    timeout=300  # 5 minute timeout
+                )
+                loop.run_until_complete(task)
+            except asyncio.TimeoutError:
+                logging.error("VIP FETCH execution timed out after 5 minutes")
+                timeout_message = """
+🕐 <b>VIP FETCH TIMEOUT</b>
+
+The automated trading session timed out after 5 minutes.
+This can happen when:
+• Network connectivity issues occur
+• External APIs are slow to respond
+
+Use /fetch to start a new VIP FETCH session.
+                """
+                send_message(chat_id, timeout_message)
         
     except Exception as e:
         logging.error(f"VIP FETCH thread execution failed: {e}")
