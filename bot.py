@@ -2755,9 +2755,14 @@ def execute_live_trade(chat_id):
     
     # Check if this is VIP FETCH mode - start automated trading
     if session.trading_mode == 'fetch':
-        # Start automated pump.fun discovery and trading
-        start_vip_fetch_trading(chat_id, session.wallet_address, session.trade_amount, 
-                               session.stop_loss, session.take_profit, session.sell_percent)
+        # Execute simplified VIP FETCH with direct trading
+        import threading
+        trading_thread = threading.Thread(
+            target=execute_simplified_vip_fetch,
+            args=(chat_id, session.wallet_address, session.trade_amount, session.stop_loss, session.take_profit, session.sell_percent)
+        )
+        trading_thread.daemon = True
+        trading_thread.start()
         return
     
     # Verify all required information is present for regular live trading
