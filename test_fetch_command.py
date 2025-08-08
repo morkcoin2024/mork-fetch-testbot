@@ -1,58 +1,48 @@
 #!/usr/bin/env python3
 """
-Test /fetch command end-to-end to verify real trading functionality
+Test /fetch command with main bot handler
 """
-
-import asyncio
+import requests
 import json
-import sys
-import os
-sys.path.append('.')
+import time
 
 def test_fetch_command():
-    """Test the complete /fetch command flow"""
-    print("🧪 TESTING /fetch COMMAND END-TO-END")
-    print("=" * 50)
+    """Test the /fetch command flow"""
+    print("🧪 TESTING /fetch COMMAND WITH MAIN BOT")
+    print("="*50)
     
-    # Import bot functions
-    from bot import handle_fetch_command, get_or_create_session, update_session
-    from models import UserSession, db
-    from app import app
+    # Simulate /fetch command
+    test_webhook = {
+        "update_id": 888888888,
+        "message": {
+            "message_id": 3001,
+            "from": {"id": 88888, "first_name": "FetchTest", "username": "fetchtest"},
+            "chat": {"id": 88888, "first_name": "FetchTest", "type": "private"},
+            "date": int(time.time()),
+            "text": "/fetch"
+        }
+    }
     
-    # Create test user session
-    test_chat_id = "test_fetch_user_123"
-    
-    with app.app_context():
-        # Clean up any existing session
-        existing_session = UserSession.query.filter_by(chat_id=test_chat_id).first()
-        if existing_session:
-            db.session.delete(existing_session)
-            db.session.commit()
+    try:
+        response = requests.post("http://0.0.0.0:5000/webhook", json=test_webhook, timeout=10)
+        print(f"Bot response: {response.status_code}")
         
-        # Create fresh session
-        session = get_or_create_session(test_chat_id)
-        
-        print(f"✅ Created test session for user: {test_chat_id}")
-        print(f"Initial state: {session.state}")
-        
-        # Test /fetch command
-        print("\n🚀 EXECUTING /fetch COMMAND...")
-        try:
-            handle_fetch_command(test_chat_id)
-            print("✅ /fetch command executed without crashes")
-            
-            # Check session state after command
-            updated_session = get_or_create_session(test_chat_id)
-            print(f"Final state: {updated_session.state}")
-            
+        if response.status_code == 200:
+            print("✅ /fetch command processed successfully")
             return True
-            
-        except Exception as e:
-            print(f"❌ /fetch command failed: {e}")
-            import traceback
-            traceback.print_exc()
+        else:
+            print(f"❌ Bot response failed: {response.text}")
             return False
+            
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        return False
 
 if __name__ == "__main__":
     success = test_fetch_command()
-    print(f"\n🎯 TEST RESULT: {'PASS' if success else 'FAIL'}")
+    
+    if success:
+        print("\n✅ Main bot handler is now active")
+        print("🚀 /fetch command should work properly now")
+    else:
+        print("\n❌ Still having issues with /fetch")

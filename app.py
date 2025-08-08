@@ -39,9 +39,9 @@ def webhook():
         
         if update:
             with app.app_context():
-                # EMERGENCY: Use safe bot during SOL draining crisis  
-                from emergency_override_bot import handle_emergency_webhook
-                result = handle_emergency_webhook(update)
+                # Use main bot for live trading
+                from bot import handle_update
+                result = handle_update(update)
                 logging.info(f"✅ Simplified bot processed update successfully")
         return 'OK', 200
     except Exception as e:
