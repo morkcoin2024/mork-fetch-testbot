@@ -431,12 +431,24 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
         # Apply diffs
         apply_res = apply_unified_diffs(diffs)
 
+        # Extract backup info from stdout if present
+        backup_name = None
+        if "Created backup:" in apply_res.stdout:
+            for line in apply_res.stdout.split("\n"):
+                if "Created backup:" in line:
+                    backup_name = line.replace("Created backup:", "").strip()
+                    break
+
         # Maybe run commands
         cmd_out = maybe_run_commands(commands)
 
         # Log the execution results
         from assistant_dev import audit_log
         audit_log(f"EXECUTION: user_id:{user_id} applied:{len(apply_res.applied_files)} failed:{len(apply_res.failed_files)} commands:{len(commands)} restart:{restart}")
+        
+        # Log backup if created
+        if backup_name:
+            audit_log(f"ASSISTANT_BACKUP: user_id:{user_id} auto-backup {backup_name}")
         
         # Handle oversized diffs with helpful message
         if any("exceeds" in f for f in apply_res.failed_files):
@@ -451,6 +463,15 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
             (f"🔧 Commands run:\n{cmd_out[:1500]}..." if cmd_out else "🔧 Commands: none"),
             f"♻️ Restart: {restart}",
         ]
+        
+        # Add backup information to summary
+        if backup_name:
+            summary.append(f"💾 Backup: {backup_name}")
+        elif apply_res.dry_run:
+            from config import ASSISTANT_WRITE_GUARD
+            if ASSISTANT_WRITE_GUARD.upper() == "OFF":
+                summary.append("🧪 Dry-run only. No backup created. Toggle ASSISTANT_WRITE_GUARD=ON to write & auto-backup.")
+        
         await update.message.reply_text("\n\n".join(summary)[:4000])
 
         # Optional preview of first diff
