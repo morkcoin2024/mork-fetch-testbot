@@ -68,6 +68,7 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
+        self.app.add_handler(CommandHandler("assistant_toggle", self.assistant_toggle_command))
         
         # Additional backup handlers as standalone functions
         from alerts.telegram import cmd_assistant_list_backups, cmd_assistant_revert
@@ -487,6 +488,27 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
 
         # Restart if requested
         safe_restart_if_needed(restart)
+    
+    async def assistant_toggle_command(self, update, context):
+        """Handle /assistant_toggle ON|OFF command"""
+        user_id = update.effective_user.id
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
+            return
+        
+        arg = update.message.text.split(maxsplit=1)
+        if len(arg) != 2 or arg[1].strip().upper() not in {"ON", "OFF"}:
+            await update.message.reply_text("Usage: /assistant_toggle ON|OFF")
+            return
+        
+        mode = arg[1].strip().upper()
+        import os
+        os.environ["ASSISTANT_FAILSAFE"] = mode
+        await update.message.reply_text(f"🔄 Failsafe set to {mode}.")
+        
+        from assistant_dev import audit_log
+        audit_log(f"FAILSAFE_TOGGLE: user_id:{user_id} set to {mode}")
+        # Optional: persist to .env or your secrets store here
     
     async def assistant_diff_command(self, update, context):
         """Handle /assistant_diff <path> command"""

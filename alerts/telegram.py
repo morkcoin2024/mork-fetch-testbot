@@ -3,6 +3,7 @@ Telegram Alert Handlers for Mork F.E.T.C.H Bot
 Standalone command functions for easy integration
 """
 
+import os
 from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH  
 from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge, revert_to_backup
 from backup_manager import create_backup, list_backups, restore_backup, prune_backups
@@ -89,6 +90,26 @@ def cmd_assistant(update, context):
 
     # Restart if requested
     safe_restart_if_needed(restart)
+
+def cmd_assistant_toggle(update, context):
+    """Toggle ASSISTANT_FAILSAFE on/off at runtime"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    arg = update.message.text.split(maxsplit=1)
+    if len(arg) != 2 or arg[1].strip().upper() not in {"ON", "OFF"}:
+        update.message.reply_text("Usage: /assistant_toggle ON|OFF")
+        return
+    
+    mode = arg[1].strip().upper()
+    os.environ["ASSISTANT_FAILSAFE"] = mode
+    update.message.reply_text(f"🔄 Failsafe set to {mode}.")
+    
+    from assistant_dev import audit_log
+    audit_log(f"FAILSAFE_TOGGLE: user_id:{user_id} set to {mode}")
+    # Optional: persist to .env or your secrets store here
 
 def cmd_assistant_diff(update, context):
     """Standalone assistant_diff command handler"""
