@@ -13,6 +13,7 @@ ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-4o")  # Latest available mod
 ASSISTANT_ADMIN_TELEGRAM_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
 ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF")  # "OFF" = dry-run; "ON" = actually write
 ASSISTANT_GIT_BRANCH = os.getenv("ASSISTANT_GIT_BRANCH", "")  # If set, stage changes on this branch
+ASSISTANT_FAILSAFE = os.getenv("ASSISTANT_FAILSAFE", "OFF")  # Additional safety mechanism
 
 # Bot Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
