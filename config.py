@@ -7,7 +7,7 @@ import os
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-4o")  # Latest available model - update when gpt-5-thinking is available
+ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-5-thinking")  # AI model for assistant code generation
 
 # Assistant Configuration  
 ASSISTANT_ADMIN_TELEGRAM_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))

@@ -111,6 +111,60 @@ def cmd_assistant_toggle(update, context):
     audit_log(f"FAILSAFE_TOGGLE: user_id:{user_id} set to {mode}")
     # Optional: persist to .env or your secrets store here
 
+def cmd_assistant(update, context):
+    """Lightweight assistant command handler"""
+    from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_WRITE_GUARD, ASSISTANT_FAILSAFE
+    from assistant_dev_lite import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, audit_log
+    
+    uid = update.effective_user.id
+    if uid != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+        
+    if ASSISTANT_FAILSAFE == "ON":
+        update.message.reply_text("🚫 Assistant patching DISABLED (failsafe ON).")
+        return
+
+    req = update.message.text.partition(" ")[2].strip()
+    if not req:
+        update.message.reply_text("Usage: /assistant <change request>")
+        return
+
+    update.message.reply_text("🤔 Thinking… generating patch.")
+    
+    try:
+        result = assistant_codegen(req)
+        plan = result.get("plan", "(no plan)")
+        diffs = result.get("diffs", [])
+        commands = result.get("commands", [])
+        restart = result.get("restart", "none")
+
+        apply_res = apply_unified_diffs(diffs)
+        cmd_out = maybe_run_commands(commands)
+
+        summary = [
+            f"✅ Plan:\n{plan}",
+            f"✍️ Mode: {'WRITE' if ASSISTANT_WRITE_GUARD=='ON' else 'DRY-RUN'}",
+            f"📝 Applied: {len(apply_res.applied_files)} | Failed: {len(apply_res.failed_files)}",
+            ("❌ " + ", ".join(apply_res.failed_files)) if apply_res.failed_files else "✅ No failures",
+            f"🔧 Commands: {'ran' if ASSISTANT_WRITE_GUARD=='ON' else 'skipped (dry-run)'}",
+            f"♻️ Restart: {restart}",
+        ]
+        
+        response = "\n\n".join(summary)[:4000]
+        update.message.reply_text(response)
+        
+        if diffs:
+            diff_preview = f"📋 Diff preview:\n```\n{diffs[0][:3500]}\n```"
+            update.message.reply_text(diff_preview, parse_mode='Markdown')
+        
+        safe_restart_if_needed(restart)
+        audit_log(f"ASSISTANT: user_id:{uid} request:'{req[:100]}' applied:{len(apply_res.applied_files)}")
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Assistant error: {str(e)}")
+        audit_log(f"ASSISTANT_ERROR: user_id:{uid} error:'{str(e)}'")
+
 def cmd_rules_show(update, context):
     """Show current rules configuration"""
     user_id = update.effective_user.id

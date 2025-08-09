@@ -64,7 +64,9 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("fetch", self.fetch_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("emergency", self.emergency_command))
-        self.app.add_handler(CommandHandler("assistant", self.assistant_command))
+        # Lightweight assistant command
+        from alerts.telegram import cmd_assistant
+        self.app.add_handler(CommandHandler("assistant", cmd_assistant))
         self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
