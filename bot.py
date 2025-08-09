@@ -3108,54 +3108,31 @@ async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amo
             'error': str(e)
         }
 
-def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
-    """Execute trade - DIRECT Jupiter engine (no phases)"""
+def execute_simplified_fetch(chat_id: str):
+    """Simplified /fetch: Find 1 token, buy 0.05 SOL, show results with BUY MORE/SELL"""
     try:
-        from telegram_token_monitor import get_latest_telegram_token, simulate_telegram_token_discovery
-        from jupiter_trade_engine import JupiterTradeEngine
+        from simplified_fetch_system import simplified_fetch_execution
         
-        # Get token directly
-        latest_token = get_latest_telegram_token() or simulate_telegram_token_discovery()
+        # Execute the simplified fetch
+        result_message = simplified_fetch_execution()
         
-        if latest_token:
-            send_message(chat_id, f"🚀 Trading {latest_token['symbol']} directly...")
-            
-            engine = JupiterTradeEngine()
-            result = engine.execute_jupiter_trade(
-                wallet_pubkey="GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
-                private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
-                token_mint=latest_token['mint'],
-                sol_amount=0.01,
-                slippage_bps=1500,
-                emergency_failsafe=False
-            )
-            
-            # Enhanced success reporting with proper token amounts
-            if result.get('success'):
-                tokens_received = result.get('actual_tokens', 0)
-                tx_hash = result.get('transaction_hash', 'N/A')
-                
-                success_msg = f"""✅ VIP FETCH COMPLETE!
-
-• Token: {latest_token['symbol']} ({latest_token['name']})
-• Received: {tokens_received:,.0f} tokens
-• Transaction: {tx_hash[:20]}...
-• Status: SUCCESS
-
-/fetch ready for next execution!"""
-                send_message(chat_id, success_msg)
-            else:
-                error_msg = f"""❌ Trade Failed
-
-• Token: {latest_token['symbol']}
-• Error: {result.get('error', 'Unknown error')}
-• Please try again with /fetch"""
-                send_message(chat_id, error_msg)
-        else:
-            send_message(chat_id, "❌ No tokens available for trading")
+        # Send the formatted result
+        send_message(chat_id, result_message)
+        
+        # Add BUY MORE/SELL buttons if trade was successful
+        if "✅ AUTOMATIC TRADE EXECUTED" in result_message:
+            send_message(chat_id, "Choose your next action:", reply_markup={
+                'inline_keyboard': [
+                    [
+                        {'text': '💰 BUY MORE', 'callback_data': 'buy_more'},
+                        {'text': '💸 SELL ALL', 'callback_data': 'sell_all'}
+                    ]
+                ]
+            })
+        
     except Exception as e:
-        logging.error(f"Direct trade error: {e}")
-        send_message(chat_id, f"❌ Trade error: {str(e)}")
+        logging.error(f"Simplified fetch error: {e}")
+        send_message(chat_id, f"❌ Fetch failed: {str(e)}")
     return
 
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
@@ -3318,68 +3295,40 @@ def handle_update(update):
         
         # Handle /fetch command directly
         if text == "/fetch":
-            send_message(chat_id, "🚀 VIP FETCH INITIATED - Executing immediate token discovery and trading...")
-            
-            # Execute direct token discovery and trading
+            # Execute simplified fetch system - Find 1 token, buy 0.05 SOL, show results
             try:
-                from telegram_token_monitor import get_latest_telegram_token, simulate_telegram_token_discovery
-                from jupiter_trade_engine import JupiterTradeEngine
+                from simplified_fetch_system import SimplifiedFetchSystem
                 
-                # Get discovered token
-                latest_token = get_latest_telegram_token()
-                if not latest_token:
-                    # Use proven working tokens when no discoveries
-                    latest_token = simulate_telegram_token_discovery()
+                # Use the simplified system
+                fetch_system = SimplifiedFetchSystem()
                 
-                if latest_token:
-                    token_mint = latest_token['mint']
-                    token_name = latest_token['name']
-                    token_symbol = latest_token['symbol']
-                    
-                    # Immediate trade execution message
-                    trade_message = f"""
-🎯 TOKEN DISCOVERED & TRADING NOW!
-
-Token: {token_name} ({token_symbol})
-Mint: {token_mint[:8]}...{token_mint[-8:]}
-Amount: 0.0005 SOL
-Status: EXECUTING...
-                    """
-                    send_message(chat_id, trade_message)
-                    
-                    # Execute trade immediately
-                    engine = JupiterTradeEngine()
-                    result = engine.execute_jupiter_trade(
-                        wallet_pubkey="GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
-                        private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
-                        token_mint=token_mint,
-                        sol_amount=0.01,  # Increased to 0.01 SOL (~$2) for better gains
-                        slippage_bps=1500,  # Increased slippage for pump tokens
-                        emergency_failsafe=False
-                    )
-                    
-                    # Report results
-                    if result.get('success'):
-                        success_msg = f"""
-✅ VIP FETCH COMPLETE!
-
-• Token: {token_name} ({token_symbol})
-• Received: {result.get('tokens_received', 'Unknown')} tokens
-• Transaction: {result.get('signature', 'N/A')[:12]}...
-• Status: SUCCESS
-
-/fetch ready for next execution!
-                        """
-                        send_message(chat_id, success_msg)
-                    else:
-                        error_msg = f"❌ Trade failed: {result.get('error', 'Unknown')}"
-                        send_message(chat_id, error_msg)
-                else:
-                    send_message(chat_id, "❌ No tokens discovered. Send a token mint address to discover!")
+                # Step 1: Find single token from Pump.fun
+                token = fetch_system.find_single_pump_token()
+                if not token:
+                    send_message(chat_id, "❌ No suitable tokens found on Pump.fun")
+                    return
+                
+                # Step 2: Execute single 0.05 SOL trade
+                trade_result = fetch_system.execute_single_trade(token)
+                
+                # Step 3: Send formatted results
+                result_message = fetch_system.format_trade_result(trade_result)
+                send_message(chat_id, result_message)
+                
+                # Step 4: Add BUY MORE/SELL buttons if successful
+                if trade_result.get('success'):
+                    send_message(chat_id, "Choose your next action:", reply_markup={
+                        'inline_keyboard': [
+                            [
+                                {'text': '💰 BUY MORE', 'callback_data': 'buy_more'},
+                                {'text': '💸 SELL ALL', 'callback_data': 'sell_all'}
+                            ]
+                        ]
+                    })
                     
             except Exception as e:
-                logging.error(f"Direct VIP FETCH error: {e}")
-                send_message(chat_id, f"❌ VIP FETCH error: {str(e)}")
+                logging.error(f"Simplified FETCH error: {e}")
+                send_message(chat_id, f"❌ FETCH error: {str(e)}")
             return
         
         # Process any message for token discovery FIRST
