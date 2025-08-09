@@ -4,5 +4,11 @@
     "enc_privkey": "gAAAAABol0tsOJwFeTqGWeT0hvwGqwee4sQLCFBOQQDRr5WMu4kP4_dd5MnGfMJJ09Rk0kCboCXiaS5F4VOAPSCx2jgPN1GL3-St9Bow5vto6K6AhyUBvOgr-yMpU9XjE5rxgqadmsMe7sxayHDqgjR7y1h4IOXJHzMGiRaLmu7UUYzFEt0bSMrkhjQMlVQMIEEh9tWiT8Mh",
     "label": "Main",
     "created_at": 1754745708
+  },
+  "production_test_user": {
+    "pubkey": "keKcrqPht8mpZoSYvHmtTrHCxFthCXwURaUEaCq6KWL",
+    "enc_privkey": "gAAAAABol009RPt6mu_jX6Iv5s9GQGRSxfBNTpISjvutCVGrJ7SK1_gPQv0hnzBgI2jaT_BWtknXs4CJQ51oOY4Z07wzAUqExwdlWzQgkT-eVhtihp4-pu8X4B441bLAJB88Bt0XKberqnYLeOAKlOO2usQWYVT_cbPKUk0Iiaf7ok6_upSzQnsrLcSzF4IcaMm7YfGXEP_w",
+    "label": "Production Test Wallet",
+    "created_at": 1754746173
   }
 }
