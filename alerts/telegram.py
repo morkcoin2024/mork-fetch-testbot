@@ -4,112 +4,9 @@ Standalone command functions for easy integration
 """
 
 import os
-from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH  
-from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge, revert_to_backup
-from backup_manager import create_backup, list_backups, restore_backup, prune_backups
+from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
-def cmd_assistant(update, context):
-    """Standalone assistant command handler for dispatcher integration"""
-    user_id = update.effective_user.id
-    
-    # Strict admin-only access control
-    if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
-        update.message.reply_text("❌ Access denied. Admin privileges required.")
-        from assistant_dev import audit_log
-        audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
-        return
-    
-    # Check failsafe toggle
-    from config import ASSISTANT_FAILSAFE
-    if ASSISTANT_FAILSAFE == "ON":
-        update.message.reply_text("🚫 Assistant patching is currently DISABLED via failsafe toggle.")
-        return
 
-    request_text = update.message.text.partition(" ")[2].strip()
-    if not request_text:
-        update.message.reply_text("Usage: /assistant <what you want changed>")
-        return
-
-    update.message.reply_text("🤖 Thinking… generating patch.")
-    result = assistant_codegen(request_text, user_id)
-    plan = result.get("plan","(no plan)")
-    diffs = result.get("diffs", [])
-    commands = result.get("commands", [])
-    restart = result.get("restart", "none")
-
-    # Apply diffs
-    apply_res = apply_unified_diffs(diffs)
-
-    # Extract backup info from stdout if present
-    backup_name = None
-    if "Created backup:" in apply_res.stdout:
-        for line in apply_res.stdout.split("\n"):
-            if "Created backup:" in line:
-                backup_name = line.replace("Created backup:", "").strip()
-                break
-
-    # Maybe run commands
-    cmd_out = maybe_run_commands(commands)
-    
-    # Log the execution results
-    from assistant_dev import audit_log
-    audit_log(f"EXECUTION: user_id:{user_id} applied:{len(apply_res.applied_files)} failed:{len(apply_res.failed_files)} commands:{len(commands)} restart:{restart}")
-    
-    # Log backup if created
-    if backup_name:
-        audit_log(f"ASSISTANT_BACKUP: user_id:{user_id} auto-backup {backup_name}")
-    
-    # Handle oversized diffs with helpful message
-    if any("exceeds" in f for f in apply_res.failed_files):
-        update.message.reply_text("⚠️ **Size Limit Exceeded**\n\nSome diffs were too large (>50KB per diff, max 2 diffs). Please break your request into smaller, more focused changes.")
-
-    # Summarize
-    summary = [
-        "✅ Plan:\n" + plan,
-        f"✍️ Write mode: {'ON' if not apply_res.dry_run else 'DRY-RUN (no files written)'}",
-        f"📝 Applied: {len(apply_res.applied_files)} files",
-        (("❌ Failed: " + ", ".join(apply_res.failed_files)) if apply_res.failed_files else "❌ Failed: none"),
-        (f"🔧 Commands run:\n{cmd_out[:1500]}..." if cmd_out else "🔧 Commands: none"),
-        f"♻️ Restart: {restart}",
-    ]
-    
-    # Add backup information to summary
-    if backup_name:
-        summary.append(f"💾 Backup: {backup_name}")
-    elif apply_res.dry_run:
-        from config import ASSISTANT_WRITE_GUARD
-        if ASSISTANT_WRITE_GUARD.upper() == "OFF":
-            summary.append("🧪 Dry-run only. No backup created. Toggle ASSISTANT_WRITE_GUARD=ON to write & auto-backup.")
-    
-    update.message.reply_text("\n\n".join(summary)[:4000])
-
-    # Optional preview of first diff
-    if diffs:
-        preview = diffs[0]
-        update.message.reply_text("Diff preview (first patch):\n\n" + preview[:3500])
-
-    # Restart if requested
-    safe_restart_if_needed(restart)
-
-def cmd_assistant_toggle(update, context):
-    """Toggle ASSISTANT_FAILSAFE on/off at runtime"""
-    user_id = update.effective_user.id
-    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
-        update.message.reply_text("❌ Not authorized.")
-        return
-    
-    arg = update.message.text.split(maxsplit=1)
-    if len(arg) != 2 or arg[1].strip().upper() not in {"ON", "OFF"}:
-        update.message.reply_text("Usage: /assistant_toggle ON|OFF")
-        return
-    
-    mode = arg[1].strip().upper()
-    os.environ["ASSISTANT_FAILSAFE"] = mode
-    update.message.reply_text(f"🔄 Failsafe set to {mode}.")
-    
-    from assistant_dev import audit_log
-    audit_log(f"FAILSAFE_TOGGLE: user_id:{user_id} set to {mode}")
-    # Optional: persist to .env or your secrets store here
 
 def cmd_assistant(update, context):
     """Lightweight assistant command handler"""
@@ -164,6 +61,8 @@ def cmd_assistant(update, context):
     except Exception as e:
         update.message.reply_text(f"❌ Assistant error: {str(e)}")
         audit_log(f"ASSISTANT_ERROR: user_id:{uid} error:'{str(e)}'")
+
+
 
 def cmd_assistant_toggle(update, context):
     """Toggle assistant failsafe ON/OFF"""
