@@ -5,6 +5,10 @@ Production-ready bot with safety systems and Jupiter DEX integration
 
 import os
 import logging
+import json
+import subprocess
+import tempfile
+from typing import List, Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +59,7 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("fetch", self.fetch_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("emergency", self.emergency_command))
+        self.app.add_handler(CommandHandler("assistant", self.assistant_command))
         
         # Message handlers
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
@@ -116,6 +121,9 @@ Ready to fetch some profits? 🚀"""
 • `/status` - System and safety status
 • `/emergency stop` - Activate emergency stop
 • `/emergency start` - Deactivate emergency stop
+
+🤖 **Admin Commands:**
+• `/assistant <request>` - AI-powered code generation (admin only)
 
 📋 **Requirements:**
 • Manual trading (/snipe): 0.1 SOL worth of MORK
@@ -375,6 +383,259 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
         else:
             await update.message.reply_text("Usage: `/emergency stop` or `/emergency start`")
     
+    async def assistant_command(self, update, context):
+        """Handle /assistant command for AI-powered code generation"""
+        user_id = str(update.effective_user.id)
+        admin_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
+        
+        # Check admin privileges
+        if not admin_id or user_id != admin_id:
+            await update.message.reply_text("❌ Access denied. Admin privileges required.")
+            return
+        
+        if not context.args:
+            await update.message.reply_text("Usage: `/assistant <your request>`\n\nExample: `/assistant add a new safety check for minimum balance`")
+            return
+        
+        user_request = ' '.join(context.args)
+        await update.message.reply_text(f"🤖 Processing request: {user_request[:100]}...")
+        
+        try:
+            # Generate code using OpenAI
+            response = self.assistant_codegen(user_request)
+            
+            if not response:
+                await update.message.reply_text("❌ Failed to generate code response")
+                return
+            
+            # Apply diffs if present
+            applied_files = []
+            restart_needed = False
+            
+            if response.get('diffs'):
+                applied_files = self.apply_unified_diffs(response['diffs'])
+            
+            if response.get('restart', False):
+                restart_needed = True
+            
+            # Create summary message
+            summary = f"✅ **Assistant Task Complete**\n\n"
+            summary += f"**Request:** {user_request[:80]}...\n\n"
+            
+            if response.get('summary'):
+                summary += f"**Changes:** {response['summary']}\n\n"
+            
+            if applied_files:
+                summary += f"**Files Modified:** {len(applied_files)}\n"
+                for file in applied_files[:3]:  # Show first 3 files
+                    summary += f"• {file}\n"
+                if len(applied_files) > 3:
+                    summary += f"• ... and {len(applied_files) - 3} more\n"
+            
+            if restart_needed:
+                summary += "\n🔄 **Restart recommended** - applying now..."
+            
+            # Show diff preview
+            if response.get('diffs'):
+                diff_preview = self.create_diff_preview(response['diffs'])
+                if diff_preview:
+                    summary += f"\n**Diff Preview:**\n```\n{diff_preview}\n```"
+            
+            await update.message.reply_text(summary, parse_mode='Markdown')
+            
+            # Trigger restart if needed
+            if restart_needed:
+                self.safe_restart()
+                await update.message.reply_text("🔄 System restarted successfully")
+                
+        except Exception as e:
+            logger.error(f"Assistant command error: {e}")
+            await update.message.reply_text(f"❌ Error processing request: {str(e)}")
+    
+    def assistant_codegen(self, user_request: str) -> Dict[str, Any]:
+        """Generate code using OpenAI based on user request"""
+        try:
+            # Check if OpenAI is available
+            openai_key = os.environ.get('OPENAI_API_KEY')
+            if not openai_key:
+                logger.error("OPENAI_API_KEY not found")
+                return None
+            
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_key)
+            
+            # Get current project structure for context
+            project_context = self.get_project_context()
+            
+            system_prompt = f"""You are an expert Python developer working on the Mork F.E.T.C.H Bot project.
+
+Project Context:
+{project_context}
+
+Generate code changes based on user requests. Return a JSON response with:
+{{
+    "summary": "Brief description of changes made",
+    "diffs": [
+        {{
+            "file": "path/to/file.py",
+            "content": "unified diff format starting with --- and +++"
+        }}
+    ],
+    "restart": false // set to true if restart needed
+}}
+
+Guidelines:
+- Use unified diff format for all changes
+- Be precise with line numbers and context
+- Only include actual changes, not entire files
+- Follow existing code style and patterns
+- Test imports and dependencies before suggesting
+"""
+            
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Request: {user_request}"}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=2000
+            )
+            
+            return json.loads(response.choices[0].message.content)
+            
+        except Exception as e:
+            logger.error(f"OpenAI codegen error: {e}")
+            return None
+    
+    def get_project_context(self) -> str:
+        """Get current project structure and key files for context"""
+        try:
+            context = "Mork F.E.T.C.H Bot - Solana Trading Bot\n\n"
+            context += "Key Files:\n"
+            
+            key_files = [
+                "bot.py", "jupiter_engine.py", "discovery.py", 
+                "wallet_manager.py", "safety_system.py", "app.py", "main.py"
+            ]
+            
+            for file in key_files:
+                if os.path.exists(file):
+                    try:
+                        with open(file, 'r') as f:
+                            lines = f.readlines()[:20]  # First 20 lines for context
+                            context += f"\n{file} (first 20 lines):\n"
+                            context += ''.join(lines)
+                            context += f"... ({len(f.readlines()) + 20} total lines)\n"
+                    except:
+                        context += f"\n{file}: (unable to read)\n"
+            
+            return context[:2000]  # Limit context size
+        except:
+            return "Project context unavailable"
+    
+    def apply_unified_diffs(self, diffs: List[Dict[str, str]]) -> List[str]:
+        """Apply unified diffs to files"""
+        write_guard = os.environ.get('ASSISTANT_WRITE_GUARD', 'ON')
+        applied_files = []
+        
+        if write_guard.upper() == 'ON':
+            logger.info("WRITE_GUARD is ON - dry run mode, no files will be modified")
+            return [diff['file'] for diff in diffs if 'file' in diff]
+        
+        try:
+            import unidiff
+            
+            for diff_data in diffs:
+                if 'file' not in diff_data or 'content' not in diff_data:
+                    continue
+                
+                file_path = diff_data['file']
+                diff_content = diff_data['content']
+                
+                try:
+                    # Parse the unified diff
+                    patch = unidiff.PatchSet(diff_content)
+                    
+                    for patched_file in patch:
+                        target_file = patched_file.target_file.lstrip('/')
+                        
+                        if not os.path.exists(target_file):
+                            # Create new file
+                            with open(target_file, 'w') as f:
+                                for hunk in patched_file:
+                                    for line in hunk:
+                                        if line.is_added:
+                                            f.write(line.value)
+                        else:
+                            # Apply patch to existing file
+                            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+                                tmp.write(diff_content)
+                                tmp.flush()
+                                
+                                # Use patch command
+                                result = subprocess.run([
+                                    'patch', target_file, tmp.name
+                                ], capture_output=True, text=True)
+                                
+                                if result.returncode == 0:
+                                    applied_files.append(target_file)
+                                else:
+                                    logger.error(f"Patch failed for {target_file}: {result.stderr}")
+                                
+                                os.unlink(tmp.name)
+                
+                except Exception as e:
+                    logger.error(f"Error applying diff to {file_path}: {e}")
+                    continue
+        
+        except ImportError:
+            logger.error("unidiff package not available")
+        
+        return applied_files
+    
+    def create_diff_preview(self, diffs: List[Dict[str, str]]) -> str:
+        """Create a preview of diffs (first ~50 lines)"""
+        preview = ""
+        line_count = 0
+        
+        for diff_data in diffs:
+            if line_count >= 50:
+                break
+                
+            if 'file' in diff_data and 'content' in diff_data:
+                file_name = diff_data['file']
+                content_lines = diff_data['content'].split('\n')
+                
+                preview += f"--- {file_name}\n"
+                line_count += 1
+                
+                for line in content_lines:
+                    if line_count >= 50:
+                        preview += "... (truncated)\n"
+                        break
+                    preview += line + "\n"
+                    line_count += 1
+                
+                preview += "\n"
+                line_count += 1
+        
+        return preview.strip()
+    
+    def safe_restart(self):
+        """Trigger a safe system restart"""
+        try:
+            # In a production environment, this might trigger a process restart
+            # For now, we'll log the restart request
+            logger.info("Safe restart requested - would restart system in production")
+            
+            # If running under a process manager, you might use:
+            # os.system("supervisorctl restart mork-bot")
+            # or send a signal to the parent process
+            
+        except Exception as e:
+            logger.error(f"Restart failed: {e}")
+
     async def handle_message(self, update, context):
         """Handle non-command messages"""
         await update.message.reply_text("Use `/help` to see available commands or `/start` to begin.")

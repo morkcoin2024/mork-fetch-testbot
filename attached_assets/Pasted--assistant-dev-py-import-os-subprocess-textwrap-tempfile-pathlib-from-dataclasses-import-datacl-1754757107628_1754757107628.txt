@@ -1,0 +1,128 @@
+# assistant_dev.py
+import os, subprocess, textwrap, tempfile, pathlib
+from dataclasses import dataclass
+from typing import List, Optional
+from unidiff import PatchSet
+from openai import OpenAI
+from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+ASSISTANT_SYSTEM_PROMPT = """You are the in-repo developer assistant for the Mork fetch bot running on Replit.
+- Output ONLY JSON with keys: "plan", "diffs", "commands", "restart".
+- "diffs" must be a list of unified diffs (git-style) that apply cleanly to the current working directory.
+- Keep changes minimal and cohesive. Include new files via unified diff with proper headers.
+- If migrations/installs needed, put shell commands in "commands".
+- Set "restart" to "safe" if a restart is recommended, otherwise "none".
+- Never include secrets. Always produce valid unified diff format.
+"""
+
+def assistant_codegen(user_request: str) -> dict:
+    prompt = f"""User request for repository update:
+
+{user_request}
+
+Environment:
+- Python project on Replit
+- Telegram bot + Flask (webhooks)
+- Goal: modify files directly via unified diffs.
+
+Return JSON with keys plan/diffs/commands/restart as specified."""
+    resp = client.chat.completions.create(
+        model=ASSISTANT_MODEL,
+        messages=[
+            {"role":"system","content":ASSISTANT_SYSTEM_PROMPT},
+            {"role":"user","content":prompt},
+        ],
+        temperature=0.2,
+    )
+    import json
+    content = resp.choices[0].message.content
+    try:
+        data = json.loads(content)
+    except Exception as e:
+        data = {"plan":"(failed to parse)", "diffs":[], "commands":[], "restart":"none", "raw":content}
+    return data
+
+@dataclass
+class ApplyResult:
+    applied_files: List[str]
+    failed_files: List[str]
+    dry_run: bool
+    stdout: str
+
+def apply_unified_diffs(diffs: List[str]) -> ApplyResult:
+    applied, failed = [], []
+    dry_run = (ASSISTANT_WRITE_GUARD.upper() != "ON")
+    stdout_lines = []
+
+    for idx, diff in enumerate(diffs):
+        try:
+            patch = PatchSet(diff.splitlines(True))
+        except Exception as e:
+            failed.append(f"diff[{idx}] parse error: {e}")
+            continue
+        for patched_file in patch:
+            target = patched_file.target_file
+            # Handle "a/..." "b/..." headers:
+            if target.startswith("b/"): target = target[2:]
+            path = pathlib.Path(target)
+            # Ensure directories exist
+            if not dry_run:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            # Read original
+            original = ""
+            if path.exists():
+                original = path.read_text(encoding="utf-8")
+            # Apply hunks manually (simple approach)
+            new_content = _apply_single_file_patch(original, patched_file)
+            if new_content is None:
+                failed.append(str(path))
+            else:
+                applied.append(str(path))
+                if not dry_run:
+                    path.write_text(new_content, encoding="utf-8")
+    return ApplyResult(applied, failed, dry_run, "\n".join(stdout_lines))
+
+def _apply_single_file_patch(original_text: str, patched_file) -> Optional[str]:
+    # Minimal in-memory unified patch apply (no external 'patch' binary)
+    # We rely on the hunks' target lines to reconstruct file
+    # If complexity is high, return None to fail safe.
+    try:
+        lines = original_text.splitlines(True)
+        out = []
+        cursor = 0
+        for hunk in patched_file:
+            # Copy unchanged prefix
+            src_start = hunk.source_start - 1
+            out.extend(lines[cursor:src_start])
+            cursor = hunk.source_start - 1 + hunk.source_length
+            # Apply hunk:
+            for line in hunk:
+                text = line.value
+                if line.is_added:
+                    out.append(text)
+                elif line.is_context:
+                    out.append(text)
+                # removed lines are skipped
+        out.extend(lines[cursor:])
+        return "".join(out)
+    except Exception:
+        return None
+
+def maybe_run_commands(cmds: List[str]) -> str:
+    if not cmds:
+        return ""
+    if ASSISTANT_WRITE_GUARD.upper() != "ON":
+        return "(dry-run) would run:\n" + "\n".join(cmds)
+    out = []
+    for c in cmds:
+        proc = subprocess.run(c, shell=True, capture_output=True, text=True)
+        out.append(f"$ {c}\n{proc.stdout}\n{proc.stderr}")
+    return "\n".join(out)
+
+def safe_restart_if_needed(mode: str):
+    if mode != "safe":
+        return
+    # In Replit Reserved VM, the supervisor will restart the process when it exits.
+    os._exit(0)
