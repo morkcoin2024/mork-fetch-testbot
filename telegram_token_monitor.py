@@ -24,7 +24,8 @@ class TelegramTokenMonitor:
     def extract_token_from_message(self, message_text):
         """Extract token information from Telegram message"""
         # Look for Solana mint addresses (base58, 32-44 characters)
-        mint_pattern = r'\b[1-9A-HJ-NP-Za-km-z]{32,44}\b'
+        # Use simpler pattern without word boundaries which can interfere with emoji-adjacent text
+        mint_pattern = r'[1-9A-HJ-NP-Za-km-z]{32,44}'
         mints = re.findall(mint_pattern, message_text)
         
         # Filter out common false positives
@@ -34,8 +35,10 @@ class TelegramTokenMonitor:
             if (len(mint) >= 32 and 
                 not mint.startswith('So1111') and  # SOL mint
                 not mint.startswith('EPjFWdd') and  # USDC
+                not mint.startswith('Es9vM') and   # USDT
                 ('pump' in mint.lower() or len(mint) == 44)):  # Likely pump.fun token or standard mint
                 filtered_mints.append(mint)
+                print(f"DEBUG: Found valid mint: {mint}")
         
         if filtered_mints:
             # Use first valid mint found

@@ -3311,6 +3311,7 @@ def handle_update(update):
                 # Get discovered token
                 latest_token = get_latest_telegram_token()
                 if not latest_token:
+                    # Use proven working tokens when no discoveries
                     latest_token = simulate_telegram_token_discovery()
                 
                 if latest_token:
@@ -3363,6 +3364,22 @@ Status: EXECUTING...
                 logging.error(f"Direct VIP FETCH error: {e}")
                 send_message(chat_id, f"❌ VIP FETCH error: {str(e)}")
             return
+        
+        # Process any message for token discovery FIRST
+        if text and not text.startswith('/'):
+            # Check for token extraction from regular messages
+            try:
+                from telegram_token_monitor import add_telegram_message_for_analysis
+                token_discovery = add_telegram_message_for_analysis(text)
+                if token_discovery:
+                    logging.info(f"Token discovered from message: {token_discovery['symbol']} - {token_discovery['mint']}")
+                    # Acknowledge discovery
+                    discovery_ack = f"🎯 Token discovered: {token_discovery['symbol']} ({token_discovery['mint'][:8]}...) - Use /fetch to trade!"
+                    send_message(chat_id, discovery_ack)
+                    return  # Stop processing after discovery
+            except Exception as e:
+                logging.warning(f"Token discovery error: {e}")
+                pass
         
         # Handle other commands
         if text == "/help":
