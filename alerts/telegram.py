@@ -165,6 +165,35 @@ def cmd_assistant(update, context):
         update.message.reply_text(f"❌ Assistant error: {str(e)}")
         audit_log(f"ASSISTANT_ERROR: user_id:{uid} error:'{str(e)}'")
 
+def cmd_assistant_toggle(update, context):
+    """Toggle assistant failsafe ON/OFF"""
+    from config import ASSISTANT_ADMIN_TELEGRAM_ID
+    from assistant_dev_lite import audit_log
+    
+    uid = update.effective_user.id
+    if uid != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    args = update.message.text.split()
+    if len(args) != 2:
+        update.message.reply_text("Usage: /assistant_toggle ON|OFF")
+        return
+    
+    mode = args[1].upper()
+    if mode not in ["ON", "OFF"]:
+        update.message.reply_text("Mode must be ON or OFF")
+        return
+    
+    # Update environment variable (this affects runtime behavior)
+    import os
+    os.environ["ASSISTANT_FAILSAFE"] = mode
+    
+    status_msg = "🚫 DISABLED" if mode == "ON" else "✅ ENABLED"
+    update.message.reply_text(f"🔧 Assistant failsafe: {status_msg}")
+    
+    audit_log(f"FAILSAFE_TOGGLE: user_id:{uid} set to {mode}")
+
 def cmd_rules_show(update, context):
     """Show current rules configuration"""
     user_id = update.effective_user.id
