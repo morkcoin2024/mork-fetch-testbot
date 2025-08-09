@@ -1,79 +1,129 @@
+"""
+models.py - Database Models
+SQLAlchemy models for user data, wallets, positions, and trade logs
+"""
 from datetime import datetime
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base()
 
-db = SQLAlchemy(model_class=Base)
-
-class UserSession(db.Model):
-    """Model to store user session data for multi-step interactions"""
-    id = db.Column(db.Integer, primary_key=True)
-    chat_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
-    state = db.Column(db.String(32), default="idle", nullable=False)
-    trading_mode = db.Column(db.String(16), nullable=True)  # 'snipe' or 'fetch' for VIP mode
-    wallet_address = db.Column(db.String(64), nullable=True)
-    contract_address = db.Column(db.String(64), nullable=True)
-    token_name = db.Column(db.String(128), nullable=True)
-    token_symbol = db.Column(db.String(32), nullable=True)
-    entry_price = db.Column(db.Float, nullable=True)
-    trade_amount = db.Column(db.Float, nullable=True)  # Amount in SOL or USD to trade
-    stop_loss = db.Column(db.Float, nullable=True)
-    take_profit = db.Column(db.Float, nullable=True)
-    sell_percent = db.Column(db.Float, nullable=True)
-    token_count = db.Column(db.Integer, default=1)  # Number of tokens to split SOL across  
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+class User(Base):
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(String(50), unique=True, nullable=False)
+    username = Column(String(100))
+    first_name = Column(String(100))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    wallets = relationship("Wallet", back_populates="user")
+    positions = relationship("Position", back_populates="user")
+    trade_logs = relationship("TradeLog", back_populates="user")
+    settings = relationship("Settings", back_populates="user", uselist=False)
     
     def __repr__(self):
-        return f'<UserSession {self.chat_id}>'
+        return f"<User(chat_id='{self.chat_id}', username='{self.username}')>"
 
-class TradeSimulation(db.Model):
-    """Model to store simulation trade history"""
-    id = db.Column(db.Integer, primary_key=True)
-    chat_id = db.Column(db.String(64), nullable=False, index=True)
-    contract_address = db.Column(db.String(64), nullable=False)
-    entry_price = db.Column(db.Float, nullable=True)
-    trade_amount = db.Column(db.Float, nullable=True)  # Amount traded in simulation
-    stop_loss = db.Column(db.Float, nullable=False)
-    take_profit = db.Column(db.Float, nullable=False)
-    sell_percent = db.Column(db.Float, nullable=False)
-    token_name = db.Column(db.String(128), nullable=True)  # Added for compatibility
-    token_symbol = db.Column(db.String(32), nullable=True)  # Added for compatibility
-    auto_mode = db.Column(db.Boolean, default=False)  # Added for compatibility
-    status = db.Column(db.String(32), default="pending", nullable=False)  # Added for compatibility
-    result_type = db.Column(db.String(32), default="pending", nullable=False)  # "profit", "loss", "partial_profit"
-    profit_loss = db.Column(db.Float, default=0.0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Wallet(Base):
+    __tablename__ = 'wallets'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    label = Column(String(100), default='Main')
+    pubkey = Column(String(44), nullable=False)  # Base58 encoded
+    enc_privkey = Column(Text, nullable=False)   # Encrypted private key
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="wallets")
     
     def __repr__(self):
-        return f'<TradeSimulation {self.chat_id}: {self.result_type}>'
+        return f"<Wallet(pubkey='{self.pubkey[:8]}...', label='{self.label}')>"
 
-class ActiveTrade(db.Model):
-    """Model to store active live trades"""
-    id = db.Column(db.Integer, primary_key=True)
-    chat_id = db.Column(db.String(64), nullable=False, index=True)
-    trade_type = db.Column(db.String(16), nullable=False)  # 'snipe', 'fetch', 'manual'
-    contract_address = db.Column(db.String(64), nullable=False)
-    token_name = db.Column(db.String(128), nullable=True)
-    token_symbol = db.Column(db.String(32), nullable=True)
-    entry_price = db.Column(db.Float, nullable=True)
-    current_price = db.Column(db.Float, nullable=True)
-    trade_amount = db.Column(db.Float, nullable=False)  # Amount in SOL
-    tokens_purchased = db.Column(db.Float, nullable=True)  # Number of tokens bought
-    stop_loss = db.Column(db.Float, nullable=False)
-    take_profit = db.Column(db.Float, nullable=False)
-    sell_percent = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(32), default="active", nullable=False)  # "active", "completed", "cancelled", "stopped"
-    pnl = db.Column(db.Float, default=0.0)  # Current profit/loss in SOL
-    pnl_percentage = db.Column(db.Float, default=0.0)  # Current P&L percentage
-    tx_hash = db.Column(db.String(128), nullable=True)  # Transaction hash for entry
-    exit_tx_hash = db.Column(db.String(128), nullable=True)  # Transaction hash for exit
-    monitoring_active = db.Column(db.Boolean, default=True)  # Whether price monitoring is active
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    completed_at = db.Column(db.DateTime, nullable=True)
+class Position(Base):
+    __tablename__ = 'positions'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    mint = Column(String(44), nullable=False)
+    symbol = Column(String(20))
+    amount_raw = Column(String(50))  # Store as string to handle large numbers
+    avg_price_sol = Column(Float)    # Average entry price in SOL
+    status = Column(String(20), default='active')  # active, closed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="positions")
     
     def __repr__(self):
-        return f'<ActiveTrade {self.chat_id}: {self.token_symbol} - {self.status}>'
+        return f"<Position(symbol='{self.symbol}', amount='{self.amount_raw}')>"
+
+class TradeLog(Base):
+    __tablename__ = 'trade_logs'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    mint = Column(String(44), nullable=False)
+    symbol = Column(String(20))
+    side = Column(String(10), nullable=False)  # 'buy' or 'sell'
+    sol_amount = Column(Float, nullable=False)
+    signature = Column(String(88))  # Transaction signature
+    status = Column(String(20), nullable=False)  # 'success', 'failed', 'pending'
+    pre_balance_raw = Column(String(50))  # Token balance before trade
+    post_balance_raw = Column(String(50)) # Token balance after trade
+    delta_raw = Column(String(50))        # Tokens received/sold
+    error_message = Column(Text)          # Error details if failed
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="trade_logs")
+    
+    def __repr__(self):
+        return f"<TradeLog(side='{self.side}', symbol='{self.symbol}', status='{self.status}')>"
+
+class Settings(Base):
+    __tablename__ = 'settings'
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    
+    # Trading settings
+    slippage_bps = Column(Integer, default=150)           # 1.5% default
+    priority_microlamports = Column(Integer, default=2000000)  # Priority fee
+    spend_cap_sol = Column(Float, default=0.1)            # Max SOL per trade
+    
+    # Auto trading settings
+    auto_tpsl = Column(Boolean, default=False)            # Auto take profit / stop loss
+    stop_loss_pct = Column(Float, default=50.0)           # 50% stop loss
+    take_profit_pct = Column(Float, default=200.0)        # 200% take profit
+    
+    # MORK holder requirements
+    mork_min_snipe = Column(Float, default=0.1)           # 0.1 SOL worth of MORK for /snipe
+    mork_min_fetch = Column(Float, default=1.0)           # 1.0 SOL worth of MORK for /fetch
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="settings")
+    
+    def __repr__(self):
+        return f"<Settings(user_id={self.user_id}, slippage={self.slippage_bps}bps)>"
+
+class GlobalSettings(Base):
+    __tablename__ = 'global_settings'
+    
+    id = Column(Integer, primary_key=True)
+    key = Column(String(50), unique=True, nullable=False)
+    value = Column(String(200), nullable=False)
+    description = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<GlobalSettings(key='{self.key}', value='{self.value}')>"

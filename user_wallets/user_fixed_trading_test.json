@@ -1,9 +1,0 @@
-{
-  "user_id": "fixed_trading_test",
-  "public_key": "8FHNVatv2v2ToDsDk6YSUEdDVCBoq2MnqjxcnYQtifd4",
-  "private_key_encrypted": "gAAAAABolizZXVwzsSp-oqoOuKlVBLLsii5HYKBAQ9NVf2vnTiyCzb6t5ZBYDKVmRg8aSsEAXkVay6xr8ohLjnICJEnzCD5M4DK0lkiuHC9PinR-KeTbs9dnTs80pefuqbz9b2JXTS9uMy-HJ1hvDAYfZTT8FFyD4La258_ZzjdGILPnb2-o6e45xhtTEc1Btmf3AIoPittq",
-  "created_at": "2025-08-08T16:59:05.887318",
-  "trades_count": 0,
-  "total_profit": 0.0,
-  "warning_shown": false
-}

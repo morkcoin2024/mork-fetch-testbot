@@ -1,55 +1,65 @@
+"""
+app.py - Flask Application
+Webhook endpoint for Telegram bot
+"""
 import os
 import logging
-from flask import Flask, request, render_template
-from werkzeug.middleware.proxy_fix import ProxyFix
-from models import db
+from flask import Flask, request, jsonify
+from bot import bot_application, process_update
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Create the app
+# Create Flask app
 app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "mork-sniper-bot-secret-key")
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-
-# Configure the database
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///mork_bot.db")
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "pool_recycle": 300,
-    "pool_pre_ping": True,
-}
-
-# Initialize the app with the extension
-db.init_app(app)
-
-with app.app_context():
-    from models import UserSession, TradeSimulation  # Import models here
-    db.create_all()
+app.secret_key = os.environ.get("SESSION_SECRET", "dev-secret-key")
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "online",
+        "bot": "Mork F.E.T.C.H Bot",
+        "description": "Degens' Best Friend"
+    })
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Handle incoming Telegram webhook updates - FIXED"""
+    """Telegram webhook endpoint"""
     try:
-        update = request.get_json()
-        logging.info(f"📨 Webhook received update: {update.get('update_id', 'unknown') if update else 'None'}")
+        update_data = request.get_json()
         
-        if update:
-            with app.app_context():
-                # Use main bot for live trading
-                from bot import handle_update
-                result = handle_update(update)
-                logging.info(f"✅ Simplified bot processed update successfully")
-        return 'OK', 200
+        if not update_data:
+            logger.warning("Received empty webhook data")
+            return jsonify({"error": "No data"}), 400
+        
+        logger.info(f"📨 Webhook received update: {update_data.get('update_id', 'unknown')}")
+        
+        # Process update with bot
+        success = process_update(update_data)
+        
+        if success:
+            return jsonify({"status": "ok"})
+        else:
+            return jsonify({"error": "Processing failed"}), 500
+            
     except Exception as e:
-        logging.error(f"❌ Webhook error: {e}")
-        import traceback
-        traceback.print_exc()
-        return 'OK', 200  # Return 200 to prevent retry loops
+        logger.exception(f"Webhook error: {e}")
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/health')
-def health():
-    return {'status': 'healthy', 'service': 'Mork F.E.T.C.H Bot'}, 200
+@app.route('/status')
+def status():
+    """Bot status endpoint"""
+    return jsonify({
+        "bot_status": "running",
+        "safe_mode": os.getenv("SAFE_MODE", "0") == "1",
+        "emergency_stop": os.path.exists("EMERGENCY_STOP")
+    })
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)

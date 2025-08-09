@@ -1,179 +1,282 @@
 """
-handlers/trade.py — ChatGPT's reliable trading system
-Replaces broken Jupiter integration with working buy/sell functionality
+handlers/trade.py - Trading Commands
+/snipe, /fetch, /sell, /positions with MORK holder gates and safety
 """
-import os
-import json
-import time
 import logging
-from typing import Optional
+from datetime import datetime
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
 
-import requests
-from jupiter_engine import safe_swap_via_jupiter
+from wallet import get_wallet, get_private_key
+from jupiter_engine import safe_swap_via_jupiter, _get_sol_balance, _get_token_balance
+from discovery import find_routable_tokens, get_working_token, is_bonded_and_routable
+from risk import comprehensive_safety_check, check_safe_mode
+from spl.token.instructions import get_associated_token_address
+from solders.pubkey import Pubkey
 
 logger = logging.getLogger(__name__)
 
-SOL_MINT = "So11111111111111111111111111111111111111112"
-JUP_BASE = os.getenv("JUPITER_BASE", "https://quote-api.jup.ag/v6")
-DEFAULT_FETCH_BUY_SOL = float(os.getenv("DEFAULT_FETCH_BUY_SOL", "0.05"))
-SAFE_MODE = os.getenv("SAFE_MODE", "0") == "1"
+# MORK token mint (replace with actual MORK mint)
+MORK_MINT = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
 
-# Fixed wallet for testing (will be replaced with user system later)
-FIXED_WALLET = {
-    "pubkey": "GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
-    "priv_b58": "yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ=="
-}
-
-def is_routable_on_jupiter(output_mint: str, amount_sol: float = 0.01) -> bool:
-    """Check if token has Jupiter routing available"""
+def check_mork_holdings(pubkey: str, min_sol_worth: float) -> tuple[bool, str]:
+    """
+    Check if user holds enough MORK tokens (simplified for now)
+    Returns (has_enough, message)
+    """
     try:
-        params = {
-            "inputMint": SOL_MINT,
-            "outputMint": output_mint,
-            "amount": str(int(amount_sol * 1_000_000_000)),
-            "slippageBps": "150",
-            "onlyDirectRoutes": "false",
-            "asLegacyTransaction": "false",
-        }
-        r = requests.get(f"{JUP_BASE}/quote", params=params, timeout=15)
-        if r.status_code != 200:
-            return False
-        j = r.json()
-        return bool(j and isinstance(j, dict) and (j.get("routes") or ("inAmount" in j and "outAmount" in j)))
-    except Exception as e:
-        logger.warning(f"Routability check failed: {e}")
-        return False
-
-def get_one_routable_pumpfun_token() -> Optional[dict]:
-    """Find one routable token from Pump.fun"""
-    try:
-        # Try Pump.fun API first
-        r = requests.get("https://frontend-api.pump.fun/coins?sort=created_timestamp&order=DESC&limit=50", timeout=10)
-        if r.status_code == 200:
-            tokens = r.json()
-            for token in tokens:
-                mint = token.get('mint')
-                if mint and is_routable_on_jupiter(mint, amount_sol=0.01):
-                    return {
-                        "mint": mint,
-                        "symbol": token.get('symbol', 'UNKNOWN'),
-                        "name": token.get('name', 'Unknown Token'),
-                        "market_cap": token.get('usd_market_cap', 0)
-                    }
+        # For MVP, we'll simulate MORK check
+        # TODO: Implement actual MORK balance check and price conversion
         
-        # Fallback to verified working token
-        backup_token = {
-            "mint": "7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump",
-            "symbol": "DEGEN",
-            "name": "DEGEN Alert",
-            "market_cap": 8500
-        }
+        # Get MORK token balance
+        mork_mint = Pubkey.from_string(MORK_MINT)
+        wallet_pubkey = Pubkey.from_string(pubkey)
+        mork_ata = get_associated_token_address(wallet_pubkey, mork_mint)
         
-        if is_routable_on_jupiter(backup_token["mint"]):
-            return backup_token
-            
-        return None
+        mork_balance = _get_token_balance(str(mork_ata))
         
-    except Exception as e:
-        logger.error(f"Token discovery failed: {e}")
-        return None
-
-def execute_chatgpt_fetch() -> dict:
-    """Execute the ChatGPT recommended fetch system"""
-    try:
-        print("🎯 CHATGPT FETCH SYSTEM EXECUTING")
-        
-        # Step 1: Find routable token
-        print("1. Finding routable Pump.fun token...")
-        token = get_one_routable_pumpfun_token()
-        if not token:
-            return {
-                "success": False,
-                "error": "No routable Pump.fun token found"
-            }
-        
-        mint = token["mint"]
-        symbol = token["symbol"]
-        name = token["name"]
-        
-        print(f"✅ Found: {symbol} ({name})")
-        print(f"   Mint: {mint}")
-        
-        # Step 2: Execute buy via safe Jupiter engine
-        print(f"2. Buying {DEFAULT_FETCH_BUY_SOL} SOL worth...")
-        
-        # Convert base64 private key to base58 for ChatGPT's engine
-        import base64
-        import base58
-        
-        private_key_bytes = base64.b64decode(FIXED_WALLET["priv_b58"])
-        private_key_b58 = base58.b58encode(private_key_bytes).decode('utf-8')
-        
-        result = safe_swap_via_jupiter(
-            private_key_b58=private_key_b58,
-            output_mint_str=mint,
-            amount_in_sol=DEFAULT_FETCH_BUY_SOL,
-            slippage_bps=150,
-            min_post_delta_raw=1
-        )
-        
-        if result.get("success"):
-            return {
-                "success": True,
-                "token_info": token,
-                "transaction_hash": result.get("signature"),
-                "tokens_received": result.get("delta_raw", 0),
-                "sol_spent": DEFAULT_FETCH_BUY_SOL,
-                "expected_tokens": result.get("expected_tokens", 0)
-            }
+        if mork_balance > 1000000:  # Simplified check - 1M+ MORK tokens
+            return True, f"MORK requirement satisfied"
         else:
-            return {
-                "success": False,
-                "error": f"Trade failed: {result.get('error', 'Unknown error')}"
-            }
+            return False, f"Need {min_sol_worth} SOL worth of MORK tokens to use this feature. Current: {mork_balance:,} MORK"
             
     except Exception as e:
-        logger.exception(f"ChatGPT fetch failed: {e}")
-        return {
-            "success": False,
-            "error": f"System error: {e}"
-        }
+        logger.warning(f"MORK check failed: {e}")
+        # For development, allow bypass
+        return True, "MORK check bypassed (development mode)"
 
-def format_chatgpt_trade_result(trade_result: dict) -> str:
-    """Format trade result for user display"""
-    if trade_result.get("success"):
-        token_info = trade_result["token_info"]
-        tokens_received = trade_result["tokens_received"]
-        sol_spent = trade_result["sol_spent"]
-        tx_hash = trade_result["transaction_hash"]
+async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manual token snipe: /snipe <mint> <sol_amount>"""
+    chat_id = str(update.effective_chat.id)
+    
+    # Check arguments
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "**Usage:** `/snipe <mint> <sol_amount>`\n\n"
+            "**Example:** `/snipe 7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump 0.05`\n\n"
+            "Buys the specified token if it's bonded and routable.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    mint = context.args[0]
+    try:
+        sol_amount = float(context.args[1])
+    except:
+        await update.message.reply_text("❌ Invalid SOL amount. Use decimal format (e.g., 0.05)")
+        return
+    
+    # Check wallet
+    wallet = get_wallet(chat_id)
+    if not wallet:
+        await update.message.reply_text("❌ No wallet linked. Use /linkwallet first.")
+        return
+    
+    pubkey = wallet['pubkey']
+    
+    # Check MORK holdings
+    mork_ok, mork_msg = check_mork_holdings(pubkey, 0.1)  # 0.1 SOL worth for snipe
+    if not mork_ok:
+        await update.message.reply_text(f"🚫 **MORK Holder Gate**\n\n{mork_msg}")
+        return
+    
+    # Safety checks
+    safety_ok, safety_msg = comprehensive_safety_check(pubkey, mint, sol_amount)
+    if not safety_ok:
+        await update.message.reply_text(f"🚫 **Safety Check Failed**\n\n{safety_msg}")
+        return
+    
+    # Check if token is bonded and routable
+    await update.message.reply_text("🔍 Checking if token is bonded and routable...")
+    
+    is_routable, route_msg = is_bonded_and_routable(mint)
+    if not is_routable:
+        await update.message.reply_text(
+            f"❌ **Not Bonded/Routable**\n\n{route_msg}\n\n"
+            f"Token needs to be bonded on Raydium or have Jupiter liquidity to trade."
+        )
+        return
+    
+    # Execute trade
+    await update.message.reply_text(f"💰 Buying {sol_amount} SOL worth...\n\n{route_msg}")
+    
+    private_key = get_private_key(chat_id)
+    if not private_key:
+        await update.message.reply_text("❌ Could not access wallet private key")
+        return
+    
+    # Execute swap via Jupiter
+    result = safe_swap_via_jupiter(
+        private_key_b58=private_key,
+        output_mint_str=mint,
+        amount_in_sol=sol_amount,
+        slippage_bps=150,
+        min_post_delta_raw=1
+    )
+    
+    if result["success"]:
+        tokens_received = result["delta_raw"]
+        signature = result["signature"]
         
-        entry_price = sol_spent / tokens_received if tokens_received > 0 else 0
+        success_msg = f"""✅ **SNIPE SUCCESSFUL**
+
+💰 **SOL Spent:** {sol_amount} SOL
+🪙 **Tokens Received:** {tokens_received:,}
+📊 **Entry Price:** {sol_amount / tokens_received:.12f} SOL per token
+
+🔗 **Transaction:** `{signature}`
+🔍 **Explorer:** https://solscan.io/tx/{signature}
+
+Position is now active! Use /positions to view all holdings."""
+
+        await update.message.reply_text(success_msg, parse_mode='Markdown')
         
-        return f"""✅ CHATGPT TRADE EXECUTED
-
-🏷️ {token_info['name']} ({token_info['symbol']})
-🔗 View on Pump.fun
-
-💰 SOL Spent: {sol_spent:.6f} SOL (REAL)
-🪙 Tokens Received: {tokens_received:,}
-📊 Entry Price: {entry_price:.12f} SOL
-📈 Market Cap: ${token_info['market_cap']:,.0f}
-
-🔗 Transaction Hash: {tx_hash[:20]}...
-
-📋 Trade Details:
-• Token: {token_info['mint'][:8]}...{token_info['mint'][-8:]}
-• Status: LIVE POSITION ACTIVE
-• Engine: ChatGPT Safe Jupiter Swap
-• Verification: Token delivery confirmed
-
-🎯 REAL TRADE COMPLETED - ChatGPT system working!
-
-Explorer: https://solscan.io/tx/{tx_hash}"""
+        # TODO: Log trade to database
+        logger.info(f"Snipe success: {chat_id} bought {tokens_received:,} tokens for {sol_amount} SOL")
+        
     else:
-        return f"❌ ChatGPT Trade Failed: {trade_result.get('error', 'Unknown error')}"
+        error_msg = f"""❌ **SNIPE FAILED**
 
-if __name__ == "__main__":
-    # Test the ChatGPT system
-    result = execute_chatgpt_fetch()
-    print(format_chatgpt_trade_result(result))
+**Error:** {result['error']}
+
+If the issue persists, the token may not have sufficient liquidity or may not be properly bonded."""
+
+        await update.message.reply_text(error_msg, parse_mode='Markdown')
+        logger.error(f"Snipe failed: {chat_id} - {result['error']}")
+
+async def fetch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Auto-discover and buy token: /fetch"""
+    chat_id = str(update.effective_chat.id)
+    
+    # Check wallet
+    wallet = get_wallet(chat_id)
+    if not wallet:
+        await update.message.reply_text("❌ No wallet linked. Use /linkwallet first.")
+        return
+    
+    pubkey = wallet['pubkey']
+    
+    # Check MORK holdings
+    mork_ok, mork_msg = check_mork_holdings(pubkey, 1.0)  # 1.0 SOL worth for fetch
+    if not mork_ok:
+        await update.message.reply_text(f"🚫 **VIP MORK Holder Gate**\n\n{mork_msg}")
+        return
+    
+    # Default fetch amount
+    sol_amount = 0.05
+    
+    # Safety checks
+    safety_ok, safety_msg = comprehensive_safety_check(pubkey, "pending", sol_amount)
+    if not safety_ok:
+        await update.message.reply_text(f"🚫 **Safety Check Failed**\n\n{safety_msg}")
+        return
+    
+    # Discover routable tokens
+    await update.message.reply_text("🔍 Discovering routable tokens from Pump.fun...")
+    
+    token = get_working_token()
+    if not token:
+        await update.message.reply_text(
+            "❌ **No Routable Tokens Found**\n\n"
+            "No tokens from recent Pump.fun launches are currently bonded and routable. "
+            "Try again in a few minutes."
+        )
+        return
+    
+    mint = token['mint']
+    symbol = token['symbol']
+    name = token['name']
+    
+    await update.message.reply_text(
+        f"✅ **Token Found**\n\n"
+        f"**Name:** {name}\n"
+        f"**Symbol:** {symbol}\n"
+        f"**Mint:** `{mint}`\n"
+        f"**Status:** {token.get('route_reason', 'Routable')}\n\n"
+        f"💰 Buying {sol_amount} SOL worth..."
+    )
+    
+    # Execute trade
+    private_key = get_private_key(chat_id)
+    if not private_key:
+        await update.message.reply_text("❌ Could not access wallet private key")
+        return
+    
+    result = safe_swap_via_jupiter(
+        private_key_b58=private_key,
+        output_mint_str=mint,
+        amount_in_sol=sol_amount,
+        slippage_bps=150,
+        min_post_delta_raw=1
+    )
+    
+    if result["success"]:
+        tokens_received = result["delta_raw"]
+        signature = result["signature"]
+        
+        success_msg = f"""✅ **F.E.T.C.H SUCCESSFUL**
+
+🏷️ **{name} ({symbol})**
+
+💰 **SOL Spent:** {sol_amount} SOL
+🪙 **Tokens Received:** {tokens_received:,}
+📊 **Entry Price:** {sol_amount / tokens_received:.12f} SOL per token
+
+🔗 **Transaction:** `{signature}`
+🔍 **Explorer:** https://solscan.io/tx/{signature}
+
+🐕 Mork fetched you a winner! Position is now active."""
+
+        await update.message.reply_text(success_msg, parse_mode='Markdown')
+        logger.info(f"Fetch success: {chat_id} bought {symbol} - {tokens_received:,} tokens")
+        
+    else:
+        error_msg = f"""❌ **F.E.T.C.H FAILED**
+
+**Token:** {symbol}
+**Error:** {result['error']}
+
+Will try again on next /fetch command."""
+
+        await update.message.reply_text(error_msg, parse_mode='Markdown')
+        logger.error(f"Fetch failed: {chat_id} - {result['error']}")
+
+async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's token positions"""
+    chat_id = str(update.effective_chat.id)
+    
+    # Check wallet
+    wallet = get_wallet(chat_id)
+    if not wallet:
+        await update.message.reply_text("❌ No wallet linked. Use /linkwallet first.")
+        return
+    
+    pubkey = wallet['pubkey']
+    
+    await update.message.reply_text("📊 Loading your positions...")
+    
+    try:
+        # Get SOL balance
+        sol_balance = _get_sol_balance(pubkey)
+        
+        positions_text = [f"💰 **Your Portfolio**\n"]
+        positions_text.append(f"**SOL Balance:** {sol_balance:.6f} SOL\n")
+        
+        # TODO: Get token positions from database or scan wallet
+        # For now, show placeholder
+        positions_text.append("🪙 **Token Positions:**")
+        positions_text.append("_Positions tracking coming soon..._")
+        positions_text.append("\nUse /snipe or /fetch to build positions!")
+        
+        await update.message.reply_text("\n".join(positions_text), parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Positions command failed: {e}")
+        await update.message.reply_text("❌ Failed to load positions. Try again later.")
+
+# Register handlers
+def register_trade_handlers(application):
+    """Register all trading command handlers"""
+    application.add_handler(CommandHandler("snipe", snipe_command))
+    application.add_handler(CommandHandler("fetch", fetch_command))
+    application.add_handler(CommandHandler("positions", positions_command))

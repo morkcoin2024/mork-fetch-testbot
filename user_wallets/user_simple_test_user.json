@@ -1,9 +1,0 @@
-{
-  "user_id": "simple_test_user",
-  "public_key": "C73dswaU18rFzxCi3KHcDfQqJpwuJ9VoBTQ5XYndnECn",
-  "private_key_encrypted": "gAAAAABoliypThiqmJsgso-xzhLQRPkzRXVRv7UrKDdWK99ZznutPNw2kG8lDjR2GdKoEwnDDqkWdoLi6v6WieenEMNVzfF3emAzay259BW2YHSyJtUTc-9VELAa99n6jXinCfIEYeD06uisZOAnA_tyY2jISXFLClFBVr1NwUBmQXK33ej-lU16vI5rchdzBsD9JAxthzoY",
-  "created_at": "2025-08-08T16:58:17.729055",
-  "trades_count": 0,
-  "total_profit": 0.0,
-  "warning_shown": false
-}
