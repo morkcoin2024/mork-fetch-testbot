@@ -69,7 +69,8 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("assistant", cmd_assistant))
         
         # Helper command to get Telegram user ID
-        self.app.add_handler(CommandHandler("whoami", self.whoami_command))
+        from alerts.telegram import cmd_whoami
+        self.app.add_handler(CommandHandler("whoami", cmd_whoami))
         
         # Assistant toggle command
         from alerts.telegram import cmd_assistant_toggle

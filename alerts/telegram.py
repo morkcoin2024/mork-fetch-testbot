@@ -194,6 +194,12 @@ def cmd_assistant_toggle(update, context):
     
     audit_log(f"FAILSAFE_TOGGLE: user_id:{uid} set to {mode}")
 
+def cmd_whoami(update, context):
+    """Simple command to get user's Telegram ID and username"""
+    uid = update.effective_user.id if update.effective_user else "unknown"
+    uname = update.effective_user.username if update.effective_user else "unknown"
+    update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
+
 def cmd_rules_show(update, context):
     """Show current rules configuration"""
     user_id = update.effective_user.id
