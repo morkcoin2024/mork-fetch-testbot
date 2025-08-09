@@ -20,7 +20,7 @@ def setup_dispatcher_example():
     from config import TELEGRAM_BOT_TOKEN
     from alerts.telegram import (
         cmd_assistant, cmd_assistant_backup_standalone, cmd_assistant_list_backups, 
-        cmd_assistant_revert, cmd_assistant_diff
+        cmd_assistant_revert, cmd_assistant_diff, cmd_assistant_toggle
     )
     
     if not TELEGRAM_BOT_TOKEN:
@@ -36,6 +36,7 @@ def setup_dispatcher_example():
     app.add_handler(CommandHandler("assistant_list_backups", cmd_assistant_list_backups))
     app.add_handler(CommandHandler("assistant_revert", cmd_assistant_revert))
     app.add_handler(CommandHandler("assistant_diff", cmd_assistant_diff))
+    app.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle))
     
     # Add other handlers...
     # app.add_handler(CommandHandler("start", start_command))
