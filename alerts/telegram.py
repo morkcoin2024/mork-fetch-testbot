@@ -111,8 +111,145 @@ def cmd_assistant_toggle(update, context):
     audit_log(f"FAILSAFE_TOGGLE: user_id:{user_id} set to {mode}")
     # Optional: persist to .env or your secrets store here
 
-def cmd_assistant_diff(update, context):
-    """Standalone assistant_diff command handler"""
+def cmd_rules_show(update, context):
+    """Show current rules configuration"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    try:
+        from rules_loader import Rules
+        rules = Rules()
+        
+        current_profile = rules.meta.get("default_profile", "conservative")
+        profile_data = rules.profile()
+        
+        summary = f"""📋 **Rules Configuration**
+
+**Version:** {rules.meta.get('version', 'unknown')}
+**Active Profile:** {current_profile}
+
+**Output Limits:**
+• Top N: {rules.output.get('top_n', 10)}
+• Min Score: {rules.output.get('min_score', 70)}
+
+**Key Filters ({current_profile}):**
+• Min Liquidity: ${profile_data.get('filters', {}).get('min_liquidity_usd', 0):,}
+• Min Holders: {profile_data.get('filters', {}).get('min_holders', 0)}
+• Max Dev Holdings: {profile_data.get('filters', {}).get('max_dev_holdings_pct', 0)}%
+• Age Range: {profile_data.get('filters', {}).get('min_age_minutes', 0)}-{profile_data.get('filters', {}).get('max_age_minutes', 1440)} min
+
+**Available Profiles:** {', '.join(rules.profiles.keys())}
+
+Use /rules_profile <name> to switch profiles."""
+        
+        update.message.reply_text(summary, parse_mode='Markdown')
+        
+        from assistant_dev import audit_log
+        audit_log(f"RULES_SHOW: user_id:{user_id}")
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Error loading rules: {str(e)}")
+
+def cmd_rules_profile(update, context):
+    """Switch rules profile"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    args = update.message.text.split(maxsplit=1)
+    if len(args) != 2:
+        update.message.reply_text("Usage: /rules_profile <conservative|degen>")
+        return
+    
+    profile_name = args[1].strip().lower()
+    
+    try:
+        from rules_loader import Rules
+        rules = Rules()
+        
+        if profile_name in rules.profiles:
+            rules.set_profile(profile_name)
+            rules.save()
+            update.message.reply_text(f"✅ Switched to {profile_name} profile")
+            
+            from assistant_dev import audit_log
+            audit_log(f"RULES_PROFILE: user_id:{user_id} switched to {profile_name}")
+        else:
+            available = ', '.join(rules.profiles.keys())
+            update.message.reply_text(f"❌ Profile '{profile_name}' not found. Available: {available}")
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Error switching profile: {str(e)}")
+
+def cmd_rules_set(update, context):
+    """Update a rules value"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    args = update.message.text.split(maxsplit=3)
+    if len(args) != 4:
+        update.message.reply_text("Usage: /rules_set <profile> <filter_key> <value>\nExample: /rules_set conservative min_liquidity_usd 50000")
+        return
+    
+    _, profile_name, filter_key, value_str = args
+    
+    try:
+        from rules_loader import Rules
+        rules = Rules()
+        
+        # Parse value
+        try:
+            if value_str.lower() in ['true', 'false']:
+                value = value_str.lower() == 'true'
+            elif '.' in value_str:
+                value = float(value_str)
+            else:
+                value = int(value_str)
+        except ValueError:
+            value = value_str  # Keep as string
+        
+        if rules.update_filter(profile_name, filter_key, value):
+            rules.save()
+            update.message.reply_text(f"✅ Updated {profile_name}.{filter_key} = {value}")
+            
+            from assistant_dev import audit_log
+            audit_log(f"RULES_SET: user_id:{user_id} {profile_name}.{filter_key}={value}")
+        else:
+            update.message.reply_text(f"❌ Failed to update {profile_name}.{filter_key}")
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Error updating rule: {str(e)}")
+
+def cmd_rules_reload(update, context):
+    """Reload rules from file"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Not authorized.")
+        return
+    
+    try:
+        from rules_loader import Rules
+        rules = Rules()
+        
+        if rules.reload():
+            profile = rules.meta.get("default_profile", "conservative")
+            update.message.reply_text(f"✅ Rules reloaded successfully\nActive profile: {profile}")
+            
+            from assistant_dev import audit_log
+            audit_log(f"RULES_RELOAD: user_id:{user_id}")
+        else:
+            update.message.reply_text("❌ Failed to reload rules")
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Error reloading rules: {str(e)}")
+
+def cmd_assistant_diff_old(update, context):
+    """Legacy assistant_diff command handler (deprecated - use bot.py methods)"""
     user_id = update.effective_user.id
     
     # Strict admin-only access control

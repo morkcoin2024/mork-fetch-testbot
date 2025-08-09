@@ -70,6 +70,13 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
         self.app.add_handler(CommandHandler("assistant_toggle", self.assistant_toggle_command))
         
+        # Rules management commands
+        if self.telegram_available:
+            self.app.add_handler(CommandHandler("rules_show", self.rules_show_command))
+            self.app.add_handler(CommandHandler("rules_profile", self.rules_profile_command))
+            self.app.add_handler(CommandHandler("rules_set", self.rules_set_command))
+            self.app.add_handler(CommandHandler("rules_reload", self.rules_reload_command))
+        
         # Additional backup handlers as standalone functions
         from alerts.telegram import cmd_assistant_list_backups, cmd_assistant_revert
         self.app.add_handler(CommandHandler("assistant_list_backups", cmd_assistant_list_backups))
@@ -624,7 +631,142 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
         else:
             await update.message.reply_text("Usage:\n`/assistant_backup` - List backups\n`/assistant_backup create [label]` - Create backup\n`/assistant_backup restore <name>` - Restore backup", parse_mode='Markdown')
     
+    async def rules_show_command(self, update, context):
+        """Handle /rules_show command"""
+        user_id = update.effective_user.id
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
+            return
+        
+        try:
+            from rules_loader import Rules
+            rules = Rules()
+            
+            current_profile = rules.meta.get("default_profile", "conservative")
+            profile_data = rules.profile()
+            
+            summary = f"""📋 **Rules Configuration**
 
+**Version:** {rules.meta.get('version', 'unknown')}
+**Active Profile:** {current_profile}
+
+**Output Limits:**
+• Top N: {rules.output.get('top_n', 10)}
+• Min Score: {rules.output.get('min_score', 70)}
+
+**Key Filters ({current_profile}):**
+• Min Liquidity: ${profile_data.get('filters', {}).get('min_liquidity_usd', 0):,}
+• Min Holders: {profile_data.get('filters', {}).get('min_holders', 0)}
+• Max Dev Holdings: {profile_data.get('filters', {}).get('max_dev_holdings_pct', 0)}%
+• Age Range: {profile_data.get('filters', {}).get('min_age_minutes', 0)}-{profile_data.get('filters', {}).get('max_age_minutes', 1440)} min
+
+**Available Profiles:** {', '.join(rules.profiles.keys())}
+
+Use /rules_profile <name> to switch profiles."""
+            
+            await update.message.reply_text(summary, parse_mode='Markdown')
+            
+            from assistant_dev import audit_log
+            audit_log(f"RULES_SHOW: user_id:{user_id}")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error loading rules: {str(e)}")
+    
+    async def rules_profile_command(self, update, context):
+        """Handle /rules_profile command"""
+        user_id = update.effective_user.id
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
+            return
+        
+        args = update.message.text.split(maxsplit=1)
+        if len(args) != 2:
+            await update.message.reply_text("Usage: /rules_profile <conservative|degen>")
+            return
+        
+        profile_name = args[1].strip().lower()
+        
+        try:
+            from rules_loader import Rules
+            rules = Rules()
+            
+            if profile_name in rules.profiles:
+                rules.set_profile(profile_name)
+                rules.save()
+                await update.message.reply_text(f"✅ Switched to {profile_name} profile")
+                
+                from assistant_dev import audit_log
+                audit_log(f"RULES_PROFILE: user_id:{user_id} switched to {profile_name}")
+            else:
+                available = ', '.join(rules.profiles.keys())
+                await update.message.reply_text(f"❌ Profile '{profile_name}' not found. Available: {available}")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error switching profile: {str(e)}")
+    
+    async def rules_set_command(self, update, context):
+        """Handle /rules_set command"""
+        user_id = update.effective_user.id
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
+            return
+        
+        args = update.message.text.split(maxsplit=3)
+        if len(args) != 4:
+            await update.message.reply_text("Usage: /rules_set <profile> <filter_key> <value>\nExample: /rules_set conservative min_liquidity_usd 50000")
+            return
+        
+        _, profile_name, filter_key, value_str = args
+        
+        try:
+            from rules_loader import Rules
+            rules = Rules()
+            
+            # Parse value
+            try:
+                if value_str.lower() in ['true', 'false']:
+                    value = value_str.lower() == 'true'
+                elif '.' in value_str:
+                    value = float(value_str)
+                else:
+                    value = int(value_str)
+            except ValueError:
+                value = value_str  # Keep as string
+            
+            if rules.update_filter(profile_name, filter_key, value):
+                rules.save()
+                await update.message.reply_text(f"✅ Updated {profile_name}.{filter_key} = {value}")
+                
+                from assistant_dev import audit_log
+                audit_log(f"RULES_SET: user_id:{user_id} {profile_name}.{filter_key}={value}")
+            else:
+                await update.message.reply_text(f"❌ Failed to update {profile_name}.{filter_key}")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error updating rule: {str(e)}")
+    
+    async def rules_reload_command(self, update, context):
+        """Handle /rules_reload command"""
+        user_id = update.effective_user.id
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
+            return
+        
+        try:
+            from rules_loader import Rules
+            rules = Rules()
+            
+            if rules.reload():
+                profile = rules.meta.get("default_profile", "conservative")
+                await update.message.reply_text(f"✅ Rules reloaded successfully\nActive profile: {profile}")
+                
+                from assistant_dev import audit_log
+                audit_log(f"RULES_RELOAD: user_id:{user_id}")
+            else:
+                await update.message.reply_text("❌ Failed to reload rules")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error reloading rules: {str(e)}")
 
     async def handle_message(self, update, context):
         """Handle non-command messages"""
