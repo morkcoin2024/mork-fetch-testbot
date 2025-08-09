@@ -3333,11 +3333,11 @@ Status: EXECUTING...
                     engine = JupiterTradeEngine()
                     result = engine.execute_jupiter_trade(
                         wallet_pubkey="GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
-                        wallet_private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
-                        target_token_mint=token_mint,
+                        private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
+                        token_mint=token_mint,
                         sol_amount=0.0005,
                         slippage_bps=1000,
-                        emergency_mode=False
+                        emergency_failsafe=False
                     )
                     
                     # Report results
