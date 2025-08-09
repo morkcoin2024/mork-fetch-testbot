@@ -1,218 +1,229 @@
 """
-jupiter_engine.py - Safe Jupiter Swap Module
-Handles all SOL->Token swaps with comprehensive safety checks
+Jupiter Engine - Secure Solana/Jupiter DEX Integration
+Core trading engine for Mork F.E.T.C.H Bot with preflight checks and verification
 """
-import os
-import json
-import time
-import base64
-import base58
-import logging
-from decimal import Decimal
 
 import requests
-from solders.pubkey import Pubkey
+import json
+import base64
+import base58
+from typing import Dict, Tuple, Optional
 from solders.keypair import Keypair
+from solders.pubkey import Pubkey
 from spl.token.instructions import get_associated_token_address
+import logging
 
 logger = logging.getLogger(__name__)
 
-SOL_MINT = "So11111111111111111111111111111111111111112"
-JUPITER_API_BASE = "https://quote-api.jup.ag/v6"
-RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-
-def safe_swap_via_jupiter(
-    private_key_b58: str,
-    output_mint_str: str,
-    amount_in_sol: float,
-    slippage_bps: int = 150,
-    min_post_delta_raw: int = 1
-) -> dict:
-    """
-    Execute a safe SOL->Token swap via Jupiter
+class JupiterEngine:
+    """Secure Jupiter DEX integration with preflight checks and verification"""
     
-    Returns:
-    {
-        "success": bool,
-        "signature": str (if successful),
-        "delta_raw": int (tokens received),
-        "error": str (if failed),
-        "pre_balance": int,
-        "post_balance": int
-    }
-    """
-    try:
-        logger.info(f"🪐 JUPITER SAFE SWAP: {amount_in_sol} SOL -> {output_mint_str[:8]}...")
+    def __init__(self):
+        self.quote_api = "https://quote-api.jup.ag/v6"
+        self.rpc_url = "https://api.mainnet-beta.solana.com"
         
-        # 1. Validate inputs
-        if amount_in_sol <= 0:
-            return {"success": False, "error": "Invalid SOL amount"}
-            
-        # 2. Setup keypair
+    def get_sol_balance(self, wallet_address: str) -> float:
+        """Get SOL balance for wallet address"""
         try:
-            keypair = Keypair.from_base58_string(private_key_b58)
-            wallet_pubkey = keypair.pubkey()
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [wallet_address]
+            }
+            response = requests.post(self.rpc_url, json=payload, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                lamports = result.get("result", {}).get("value", 0)
+                return lamports / 1_000_000_000
+            return 0.0
         except Exception as e:
-            return {"success": False, "error": f"Invalid private key: {e}"}
-            
-        logger.info(f"Wallet: {str(wallet_pubkey)}")
-        
-        # 3. Check SOL balance and rent headroom
-        sol_balance = _get_sol_balance(str(wallet_pubkey))
-        required_sol = amount_in_sol + 0.01  # Include rent + fees
-        
-        if sol_balance < required_sol:
-            return {
-                "success": False, 
-                "error": f"Insufficient SOL: {sol_balance:.6f} < {required_sol:.6f} (includes 0.01 rent headroom)"
+            logger.error(f"Error getting SOL balance: {e}")
+            return 0.0
+    
+    def get_token_balance(self, ata_address: str) -> int:
+        """Get token balance for Associated Token Account"""
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTokenAccountBalance",
+                "params": [ata_address]
+            }
+            response = requests.post(self.rpc_url, json=payload, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                if "result" in result and result["result"]["value"]:
+                    return int(result["result"]["value"]["amount"])
+            return 0
+        except Exception as e:
+            logger.debug(f"Token balance check (expected for new tokens): {e}")
+            return 0
+    
+    def check_token_routable(self, token_mint: str, amount_sol: float) -> Tuple[bool, str]:
+        """Check if token is routable via Jupiter with proper liquidity"""
+        try:
+            quote_params = {
+                "inputMint": "So11111111111111111111111111111111111111112",  # SOL
+                "outputMint": token_mint,
+                "amount": str(int(amount_sol * 1_000_000_000)),
+                "slippageBps": "300"
             }
             
-        logger.info(f"✅ SOL Balance: {sol_balance:.6f}")
-        
-        # 4. Get token balance BEFORE trade
-        token_mint = Pubkey.from_string(output_mint_str)
-        ata_address = get_associated_token_address(wallet_pubkey, token_mint)
-        pre_balance = _get_token_balance(str(ata_address))
-        
-        logger.info(f"Pre-trade token balance: {pre_balance}")
-        
-        # 5. Get Jupiter quote
-        amount_lamports = int(amount_in_sol * 1_000_000_000)
-        quote_params = {
-            "inputMint": SOL_MINT,
-            "outputMint": output_mint_str,
-            "amount": str(amount_lamports),
-            "slippageBps": str(slippage_bps),
-            "onlyDirectRoutes": "false"
-        }
-        
-        quote_response = requests.get(f"{JUPITER_API_BASE}/quote", params=quote_params, timeout=20)
-        if quote_response.status_code != 200:
-            return {"success": False, "error": f"Quote failed: {quote_response.text}"}
-            
-        quote_data = quote_response.json()
-        if not quote_data or "outAmount" not in quote_data:
-            return {"success": False, "error": "No valid quote - token may not be bonded/routable"}
-            
-        expected_tokens = int(quote_data["outAmount"])
-        logger.info(f"Expected tokens: {expected_tokens:,}")
-        
-        # 6. Build swap transaction
-        swap_payload = {
-            "quoteResponse": quote_data,
-            "userPublicKey": str(wallet_pubkey),
-            "wrapAndUnwrapSol": True,
-            "useSharedAccounts": True,
-            "computeUnitPriceMicroLamports": 2000000  # Priority fee
-        }
-        
-        swap_response = requests.post(
-            f"{JUPITER_API_BASE}/swap",
-            json=swap_payload,
-            headers={"Content-Type": "application/json"},
-            timeout=30
-        )
-        
-        if swap_response.status_code != 200:
-            return {"success": False, "error": f"Swap build failed: {swap_response.text}"}
-            
-        swap_data = swap_response.json()
-        swap_transaction = swap_data.get("swapTransaction")
-        
-        if not swap_transaction:
-            return {"success": False, "error": "No swap transaction returned"}
-            
-        # 7. Send transaction
-        send_payload = {
-            'jsonrpc': '2.0',
-            'id': 1,
-            'method': 'sendTransaction',
-            'params': [
-                swap_transaction,
-                {
-                    'skipPreflight': False,  # Enable preflight for safety
-                    'preflightCommitment': 'confirmed',
-                    'encoding': 'base64',
-                    'maxRetries': 3
-                }
-            ]
-        }
-        
-        send_response = requests.post(RPC_URL, json=send_payload, timeout=30)
-        send_data = send_response.json()
-        
-        if 'result' in send_data:
-            signature = send_data['result']
-            logger.info(f"Transaction broadcast: {signature}")
-        else:
-            error = send_data.get('error', {})
-            return {"success": False, "error": f"Transaction failed: {error}"}
-            
-        # 8. Wait for confirmation and verify token delivery
-        logger.info("Waiting for confirmation...")
-        time.sleep(10)
-        
-        # Check token balance after trade (with retries)
-        for attempt in range(3):
-            time.sleep(5)
-            post_balance = _get_token_balance(str(ata_address))
-            delta = post_balance - pre_balance
-            
-            logger.info(f"Post-trade balance: {post_balance}, Delta: {delta}")
-            
-            if delta >= min_post_delta_raw:
-                return {
-                    "success": True,
-                    "signature": signature,
-                    "delta_raw": delta,
-                    "pre_balance": pre_balance,
-                    "post_balance": post_balance,
-                    "expected_tokens": expected_tokens
-                }
+            response = requests.get(f"{self.quote_api}/quote", params=quote_params, timeout=10)
+            if response.status_code == 200:
+                quote = response.json()
+                if quote.get("outAmount"):
+                    expected_tokens = int(quote["outAmount"])
+                    return True, f"Routable - {expected_tokens:,} tokens expected"
+                else:
+                    return False, "No liquidity available"
+            else:
+                return False, f"Quote API error: {response.status_code}"
                 
-        # If we get here, no tokens were delivered
-        return {
-            "success": False,
-            "signature": signature,
-            "error": f"Transaction confirmed but zero tokens delivered. Check: https://solscan.io/tx/{signature}",
-            "pre_balance": pre_balance,
-            "post_balance": post_balance,
-            "delta_raw": 0
-        }
+        except Exception as e:
+            return False, f"Routing check failed: {e}"
+    
+    def preflight_checks(self, wallet_address: str, token_mint: str, amount_sol: float) -> Tuple[bool, str]:
+        """Comprehensive preflight checks before trade execution"""
         
-    except Exception as e:
-        logger.exception(f"Jupiter swap failed: {e}")
-        return {"success": False, "error": f"Swap error: {e}"}
-
-def _get_sol_balance(pubkey: str) -> float:
-    """Get SOL balance for wallet"""
-    try:
-        payload = {
-            'jsonrpc': '2.0',
-            'id': 1,
-            'method': 'getBalance',
-            'params': [pubkey]
-        }
-        response = requests.post(RPC_URL, json=payload, timeout=10)
-        data = response.json()
-        return data['result']['value'] / 1_000_000_000
-    except:
-        return 0.0
-
-def _get_token_balance(ata_address: str) -> int:
-    """Get token balance from ATA"""
-    try:
-        payload = {
-            'jsonrpc': '2.0',
-            'id': 1,
-            'method': 'getTokenAccountBalance',
-            'params': [ata_address]
-        }
-        response = requests.post(RPC_URL, json=payload, timeout=10)
-        data = response.json()
+        # Check SOL balance
+        sol_balance = self.get_sol_balance(wallet_address)
+        required_sol = amount_sol + 0.01  # Trade amount + rent/fees headroom
         
-        if 'result' in data and data['result']['value']:
-            return int(data['result']['value']['amount'])
-        return 0
-    except:
-        return 0
+        if sol_balance < required_sol:
+            return False, f"Insufficient SOL: have {sol_balance:.6f}, need {required_sol:.6f}"
+        
+        # Check token routability
+        is_routable, route_msg = self.check_token_routable(token_mint, amount_sol)
+        if not is_routable:
+            return False, f"Token not routable: {route_msg}"
+        
+        # Verify ATA requirements
+        try:
+            wallet_pubkey = Pubkey.from_string(wallet_address)
+            token_pubkey = Pubkey.from_string(token_mint)
+            ata_address = get_associated_token_address(wallet_pubkey, token_pubkey)
+            logger.info(f"ATA calculated: {ata_address}")
+        except Exception as e:
+            return False, f"ATA calculation failed: {e}"
+        
+        return True, f"All checks passed - {route_msg}"
+    
+    def safe_swap(self, private_key_b58: str, token_mint: str, amount_sol: float, 
+                  slippage_bps: int = 300) -> Dict:
+        """Execute safe swap with full verification"""
+        
+        try:
+            # Decode private key and get wallet address
+            private_key_bytes = base58.b58decode(private_key_b58)
+            keypair = Keypair.from_bytes(private_key_bytes)
+            wallet_address = str(keypair.pubkey())
+            
+            logger.info(f"Starting safe swap: {amount_sol} SOL → {token_mint[:8]}...")
+            
+            # Preflight checks
+            checks_ok, checks_msg = self.preflight_checks(wallet_address, token_mint, amount_sol)
+            if not checks_ok:
+                return {"success": False, "error": f"Preflight failed: {checks_msg}"}
+            
+            # Get pre-trade token balance
+            wallet_pubkey = Pubkey.from_string(wallet_address)
+            token_pubkey = Pubkey.from_string(token_mint)
+            ata_address = get_associated_token_address(wallet_pubkey, token_pubkey)
+            pre_balance = self.get_token_balance(str(ata_address))
+            
+            # Get Jupiter quote
+            quote_params = {
+                "inputMint": "So11111111111111111111111111111111111111112",
+                "outputMint": token_mint,
+                "amount": str(int(amount_sol * 1_000_000_000)),
+                "slippageBps": str(slippage_bps)
+            }
+            
+            quote_response = requests.get(f"{self.quote_api}/quote", params=quote_params, timeout=15)
+            if quote_response.status_code != 200:
+                return {"success": False, "error": f"Quote failed: {quote_response.status_code}"}
+            
+            quote_data = quote_response.json()
+            expected_tokens = int(quote_data.get("outAmount", 0))
+            
+            # Build swap transaction
+            swap_payload = {
+                "quoteResponse": quote_data,
+                "userPublicKey": wallet_address,
+                "wrapAndUnwrapSol": True,
+                "computeUnitPriceMicroLamports": 2000000,
+                "dynamicComputeUnitLimit": True
+            }
+            
+            swap_response = requests.post(
+                f"{self.quote_api}/swap",
+                json=swap_payload,
+                headers={"Content-Type": "application/json"},
+                timeout=20
+            )
+            
+            if swap_response.status_code != 200:
+                return {"success": False, "error": f"Swap build failed: {swap_response.status_code}"}
+            
+            swap_data = swap_response.json()
+            transaction = swap_data.get("swapTransaction")
+            
+            # Send transaction
+            rpc_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [
+                    transaction,
+                    {
+                        "skipPreflight": False,
+                        "preflightCommitment": "confirmed",
+                        "encoding": "base64",
+                        "maxRetries": 3
+                    }
+                ]
+            }
+            
+            response = requests.post(self.rpc_url, json=rpc_payload, timeout=30)
+            result = response.json()
+            
+            if "result" in result:
+                signature = result["result"]
+                
+                # Wait briefly for settlement
+                import time
+                time.sleep(5)
+                
+                # Verify token delivery
+                post_balance = self.get_token_balance(str(ata_address))
+                delta = post_balance - pre_balance
+                
+                if delta > 0:
+                    return {
+                        "success": True,
+                        "signature": signature,
+                        "pre_balance": pre_balance,
+                        "post_balance": post_balance,
+                        "delta_raw": delta,
+                        "expected_tokens": expected_tokens
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "Trade completed but no tokens received",
+                        "signature": signature,
+                        "pre_balance": pre_balance,
+                        "post_balance": post_balance
+                    }
+            else:
+                error = result.get("error", "Unknown error")
+                return {"success": False, "error": f"Transaction failed: {error}"}
+                
+        except Exception as e:
+            logger.error(f"Safe swap error: {e}")
+            return {"success": False, "error": f"Swap execution failed: {e}"}
+
+# Global instance
+jupiter_engine = JupiterEngine()
