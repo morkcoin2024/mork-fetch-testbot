@@ -176,3 +176,84 @@ def cmd_assistant_backup(update, context):
     
     else:
         update.message.reply_text("Usage:\n`/assistant_backup` - List backups\n`/assistant_backup create [label]` - Create backup\n`/assistant_backup restore <name>` - Restore backup", parse_mode='Markdown')
+
+def cmd_assistant_backup_standalone(update, context):
+    """Create manual backup - standalone function"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("Not authorized.")
+        return
+    label = "manual"
+    try:
+        name = create_backup(label)
+        update.message.reply_text(f"✅ Backup created: {name}")
+        from assistant_dev import audit_log
+        audit_log(f"MANUAL_BACKUP: user_id:{user_id} created {name}")
+    except Exception as e:
+        update.message.reply_text(f"❌ Backup failed: {e}")
+
+def cmd_assistant_list_backups(update, context):
+    """List available backups"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("Not authorized.")
+        return
+    names = list_backups(30)
+    if not names:
+        update.message.reply_text("No backups yet.")
+        return
+    text = "🗂️ Latest backups (newest first):\n" + "\n".join(f"- {n}" for n in names)
+    update.message.reply_text(text[:4000])
+
+def cmd_assistant_revert(update, context):
+    """Revert to backup"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("Not authorized.")
+        return
+    arg = update.message.text.split(maxsplit=1)
+    target = None
+    if len(arg) == 2:
+        target = arg[1].strip()
+    try:
+        if not target or target == "latest":
+            names = list_backups(1)
+            if not names:
+                update.message.reply_text("No backups available to restore.")
+                return
+            target = names[0]
+        restored = revert_to_backup(target)
+        update.message.reply_text(f"♻️ Restored backup: {restored}\nRestarting…")
+        from assistant_dev import audit_log
+        audit_log(f"BACKUP_REVERT: user_id:{user_id} restored {restored}")
+        # Safe restart
+        import os; os._exit(0)
+    except Exception as e:
+        update.message.reply_text(f"❌ Restore failed: {e}")
+
+def cmd_assistant_diff(update, context):
+    """Show file contents"""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("Not authorized.")
+        return
+    arg = update.message.text.split(maxsplit=1)
+    if len(arg) != 2:
+        update.message.reply_text("Usage: /assistant_diff <relative/path.py>")
+        return
+    path = arg[1].strip()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = f.read()
+        # Telegram message limit safety
+        MAX = 3500
+        if len(data) > MAX:
+            data = data[-MAX:]
+            prefix = "(tail)\n"
+        else:
+            prefix = ""
+        update.message.reply_text(f"📄 {path}\n{prefix}```\n{data}\n```", parse_mode="Markdown")
+        from assistant_dev import audit_log
+        audit_log(f"FILE_DIFF: user_id:{user_id} viewed {path}")
+    except Exception as e:
+        update.message.reply_text(f"❌ Could not read {path}: {e}")

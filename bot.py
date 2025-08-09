@@ -69,6 +69,11 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
         
+        # Additional backup handlers as standalone functions
+        from alerts.telegram import cmd_assistant_list_backups, cmd_assistant_revert
+        self.app.add_handler(CommandHandler("assistant_list_backups", cmd_assistant_list_backups))
+        self.app.add_handler(CommandHandler("assistant_revert", cmd_assistant_revert))
+        
         # Message handlers
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
     
