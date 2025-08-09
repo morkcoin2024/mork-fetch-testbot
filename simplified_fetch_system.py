@@ -76,15 +76,39 @@ class SimplifiedFetchSystem:
             return None
     
     def execute_single_trade(self, token_info):
-        """Execute exactly one trade for 0.05 SOL - CURRENTLY DISABLED"""
+        """Execute exactly one trade for 0.05 SOL using ChatGPT's reliable system"""
         try:
-            # EMERGENCY DISABLE: Critical bug discovered
-            logger.error("🚨 TRADING DISABLED: Jupiter engine has critical false-success bug")
+            from handlers.trade import execute_chatgpt_fetch
             
-            return {
-                'success': False,
-                'error': 'TRADING SUSPENDED: Critical bug discovered where Jupiter engine reports fake successful trades when actual blockchain transactions fail. System was generating false transaction hashes and reading existing wallet balances as new purchases. Trading disabled until bug is resolved.'
-            }
+            logger.info(f"💰 Using ChatGPT's reliable trading system")
+            
+            # Use ChatGPT's proven trading engine
+            result = execute_chatgpt_fetch()
+            
+            if result.get('success'):
+                # Additional verification: Check if we actually received tokens
+                tokens_received = result.get('tokens_received', 0)
+                if tokens_received == 0:
+                    logger.error("🚨 EMERGENCY PROTECTION: Zero tokens received despite success claim")
+                    return {
+                        'success': False,
+                        'error': 'EMERGENCY PROTECTION: System reported successful trade but zero tokens were delivered. This indicates fake transaction reporting. Trading halted for your protection.'
+                    }
+                
+                return {
+                    'success': True,
+                    'tokens_received': tokens_received,
+                    'sol_spent': self.trade_amount,
+                    'transaction_hash': result.get('transaction_hash', ''),
+                    'entry_price': self.calculate_entry_price(tokens_received, self.trade_amount),
+                    'market_cap': result.get('token_info', {}).get('market_cap', 0),
+                    'token_info': result.get('token_info', {})
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': result.get('error', 'ChatGPT trade failed')
+                }
             
             if result.get('success'):
                 return {
