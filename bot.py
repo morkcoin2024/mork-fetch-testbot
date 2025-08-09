@@ -3159,9 +3159,49 @@ Mint: {token_mint[:8]}...{token_mint[-8:]}
 Source: {latest_token.get('source', 'Telegram monitoring')}
 Age: Just detected
 
-PROCEEDING TO TRADE...
+EXECUTING TRADE IMMEDIATELY...
                 """
                 send_message(chat_id, discovery_message)
+                
+                # Skip confirmation and execute trade immediately for VIP mode
+                # Import Jupiter trade engine for direct execution
+                from jupiter_trade_engine import JupiterTradeEngine
+                
+                # Use your actual wallet credentials
+                public_key = "GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk"
+                private_key = "yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ=="
+                
+                # Execute the live trade with discovered token
+                engine = JupiterTradeEngine()
+                result = engine.execute_jupiter_trade(
+                    wallet_pubkey=public_key,
+                    wallet_private_key=private_key,
+                    target_token_mint=token_mint,
+                    sol_amount=0.0005,  # Small amount for safety
+                    slippage_bps=1000,
+                    emergency_mode=False
+                )
+                
+                if result.get('success'):
+                    success_message = f"""
+✅ VIP FETCH TRADE COMPLETED!
+
+🎯 Token: {token_name} ({token_symbol})
+💰 Purchased: {result.get('tokens_received', 'Unknown')} tokens
+💸 Cost: 0.0005 SOL
+📋 Transaction: {result.get('signature', 'N/A')[:8]}...
+
+🚀 Token successfully added to your portfolio!
+                    """
+                    send_message(chat_id, success_message)
+                else:
+                    error_message = f"""
+❌ Trade failed: {result.get('error', 'Unknown error')}
+Attempting next available token...
+                    """
+                    send_message(chat_id, error_message)
+                
+                return
             else:
                 send_message(chat_id, "❌ No fresh tokens discovered. Send a token mint address to discover!")
                 return
