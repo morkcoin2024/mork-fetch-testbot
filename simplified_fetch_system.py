@@ -76,21 +76,15 @@ class SimplifiedFetchSystem:
             return None
     
     def execute_single_trade(self, token_info):
-        """Execute exactly one trade for 0.05 SOL"""
+        """Execute exactly one trade for 0.05 SOL - CURRENTLY DISABLED"""
         try:
-            from jupiter_trade_engine import JupiterTradeEngine
+            # EMERGENCY DISABLE: Critical bug discovered
+            logger.error("🚨 TRADING DISABLED: Jupiter engine has critical false-success bug")
             
-            logger.info(f"💰 Buying {self.trade_amount} SOL worth of {token_info['symbol']}")
-            
-            engine = JupiterTradeEngine()
-            result = engine.execute_jupiter_trade(
-                wallet_pubkey=self.wallet_address,
-                private_key=self.private_key,
-                token_mint=token_info['mint'],
-                sol_amount=self.trade_amount,
-                slippage_bps=1500,  # 15% for pump tokens
-                emergency_failsafe=False
-            )
+            return {
+                'success': False,
+                'error': 'TRADING SUSPENDED: Critical bug discovered where Jupiter engine reports fake successful trades when actual blockchain transactions fail. System was generating false transaction hashes and reading existing wallet balances as new purchases. Trading disabled until bug is resolved.'
+            }
             
             if result.get('success'):
                 return {
