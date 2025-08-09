@@ -2,9 +2,14 @@
 import os, subprocess, textwrap, tempfile, pathlib
 from dataclasses import dataclass
 from typing import List, Optional
+from datetime import datetime
 from unidiff import PatchSet
 from openai import OpenAI
 from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD
+
+# Safety limits
+MAX_DIFFS = 2
+MAX_DIFF_BYTES = 50_000
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -17,9 +22,12 @@ ASSISTANT_SYSTEM_PROMPT = """You are the in-repo developer assistant for the Mor
 - Never include secrets. Always produce valid unified diff format.
 """
 
-def assistant_codegen(user_request: str) -> dict:
+def assistant_codegen(user_request: str, user_id: int = 0) -> dict:
     if not client:
+        audit_log(f"ERROR: OpenAI API key not configured - user_id:{user_id}")
         return {"plan":"OpenAI API key not configured", "diffs":[], "commands":[], "restart":"none"}
+    
+    audit_log(f"REQUEST: user_id:{user_id} - {user_request[:100]}")
     
     prompt = f"""User request for repository update:
 
@@ -43,7 +51,9 @@ Return JSON with keys plan/diffs/commands/restart as specified."""
     content = resp.choices[0].message.content
     try:
         data = json.loads(content or "{}")
+        audit_log(f"RESPONSE: plan='{data.get('plan', '')[:50]}...' diffs={len(data.get('diffs', []))} commands={len(data.get('commands', []))} restart={data.get('restart', 'none')}")
     except Exception as e:
+        audit_log(f"ERROR: Failed to parse OpenAI response - {e}")
         data = {"plan":"(failed to parse)", "diffs":[], "commands":[], "restart":"none", "raw":content}
     return data
 
@@ -56,8 +66,25 @@ class ApplyResult:
 
 def apply_unified_diffs(diffs: List[str]) -> ApplyResult:
     applied, failed = [], []
-    dry_run = (ASSISTANT_WRITE_GUARD.upper() != "OFF")
+    dry_run = (ASSISTANT_WRITE_GUARD.upper() != "ON")
     stdout_lines = []
+    
+    # Apply safety limits
+    if len(diffs) > MAX_DIFFS:
+        audit_log(f"LIMIT_HIT: Truncated {len(diffs)} diffs to {MAX_DIFFS}")
+        diffs = diffs[:MAX_DIFFS]
+    
+    # Check diff sizes and filter out oversized ones
+    filtered_diffs = []
+    for i, diff in enumerate(diffs):
+        size = len(diff.encode("utf-8"))
+        if size > MAX_DIFF_BYTES:
+            failed.append(f"diff[{i}] size {size} bytes exceeds {MAX_DIFF_BYTES} limit")
+            audit_log(f"LIMIT_HIT: Diff {i} size {size} bytes exceeds limit")
+        else:
+            filtered_diffs.append(diff)
+    
+    diffs = filtered_diffs
 
     for idx, diff in enumerate(diffs):
         try:
@@ -116,13 +143,24 @@ def _apply_single_file_patch(original_text: str, patched_file) -> Optional[str]:
 def maybe_run_commands(cmds: List[str]) -> str:
     if not cmds:
         return ""
-    if ASSISTANT_WRITE_GUARD.upper() != "OFF":
+    if ASSISTANT_WRITE_GUARD.upper() != "ON":
         return "(dry-run) would run:\n" + "\n".join(cmds)
     out = []
     for c in cmds:
+        audit_log(f"COMMAND_EXEC: {c}")
         proc = subprocess.run(c, shell=True, capture_output=True, text=True)
         out.append(f"$ {c}\n{proc.stdout}\n{proc.stderr}")
     return "\n".join(out)
+
+def audit_log(entry: str):
+    """Log assistant actions to audit file"""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open("logs/assistant_audit.log", "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {entry}\n")
+    except Exception as e:
+        print(f"Audit log error: {e}")
 
 def safe_restart_if_needed(mode: str):
     if mode != "safe":
