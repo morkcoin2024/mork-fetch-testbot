@@ -9,6 +9,10 @@ import json
 import subprocess
 import tempfile
 from typing import List, Dict, Any
+from config import (
+    OPENAI_API_KEY, ASSISTANT_ADMIN_TELEGRAM_ID, 
+    ASSISTANT_WRITE_GUARD, ASSISTANT_MODEL
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -386,10 +390,9 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
     async def assistant_command(self, update, context):
         """Handle /assistant command for AI-powered code generation"""
         user_id = str(update.effective_user.id)
-        admin_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
         
         # Check admin privileges
-        if not admin_id or user_id != admin_id:
+        if not ASSISTANT_ADMIN_TELEGRAM_ID or int(user_id) != ASSISTANT_ADMIN_TELEGRAM_ID:
             await update.message.reply_text("❌ Access denied. Admin privileges required.")
             return
         
@@ -456,13 +459,12 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
         """Generate code using OpenAI based on user request"""
         try:
             # Check if OpenAI is available
-            openai_key = os.environ.get('OPENAI_API_KEY')
-            if not openai_key:
+            if not OPENAI_API_KEY:
                 logger.error("OPENAI_API_KEY not found")
                 return None
             
             from openai import OpenAI
-            client = OpenAI(api_key=openai_key)
+            client = OpenAI(api_key=OPENAI_API_KEY)
             
             # Get current project structure for context
             project_context = self.get_project_context()
@@ -493,7 +495,7 @@ Guidelines:
 """
             
             response = client.chat.completions.create(
-                model="gpt-4o",
+                model=ASSISTANT_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Request: {user_request}"}
@@ -536,10 +538,9 @@ Guidelines:
     
     def apply_unified_diffs(self, diffs: List[Dict[str, str]]) -> List[str]:
         """Apply unified diffs to files"""
-        write_guard = os.environ.get('ASSISTANT_WRITE_GUARD', 'ON')
         applied_files = []
         
-        if write_guard.upper() == 'ON':
+        if ASSISTANT_WRITE_GUARD.upper() == 'ON':
             logger.info("WRITE_GUARD is ON - dry run mode, no files will be modified")
             return [diff['file'] for diff in diffs if 'file' in diff]
         

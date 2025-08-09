@@ -12,6 +12,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from spl.token.instructions import get_associated_token_address
 import logging
+from config import JUPITER_API_BASE, SOLANA_RPC_URL
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,8 @@ class JupiterEngine:
     """Secure Jupiter DEX integration with preflight checks and verification"""
     
     def __init__(self):
-        self.quote_api = "https://quote-api.jup.ag/v6"
-        self.rpc_url = "https://api.mainnet-beta.solana.com"
+        self.quote_api = JUPITER_API_BASE
+        self.rpc_url = SOLANA_RPC_URL
         
     def get_sol_balance(self, wallet_address: str) -> float:
         """Get SOL balance for wallet address"""

@@ -7,8 +7,11 @@ import time
 import json
 import os
 from typing import Dict, Tuple, Optional
-# Imported at function level to avoid circular imports
 import logging
+from config import (
+    MAX_TRADE_SOL, DAILY_SPEND_LIMIT, 
+    MIN_MORK_FOR_SNIPE, MIN_MORK_FOR_FETCH, MORK_MINT
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +22,11 @@ class SafetySystem:
         self.config_file = "safety_config.json"
         self.emergency_stop = False
         self.safe_mode = True  # Start in safe mode
-        self.mork_mint = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"  # MORK token
-        self.min_mork_for_snipe = 0.1  # SOL worth of MORK for /snipe
-        self.min_mork_for_fetch = 1.0   # SOL worth of MORK for /fetch
-        self.max_trade_sol = 0.1        # Max SOL per trade in safe mode
-        self.daily_spend_limit = 1.0    # Max SOL per day per user
+        self.mork_mint = MORK_MINT
+        self.min_mork_for_snipe = MIN_MORK_FOR_SNIPE
+        self.min_mork_for_fetch = MIN_MORK_FOR_FETCH
+        self.max_trade_sol = MAX_TRADE_SOL
+        self.daily_spend_limit = DAILY_SPEND_LIMIT
         self._load_config()
     
     def _load_config(self):
@@ -34,8 +37,8 @@ class SafetySystem:
                     config = json.load(f)
                 self.safe_mode = config.get("safe_mode", True)
                 self.emergency_stop = config.get("emergency_stop", False)
-                self.max_trade_sol = config.get("max_trade_sol", 0.1)
-                self.daily_spend_limit = config.get("daily_spend_limit", 1.0)
+                self.max_trade_sol = config.get("max_trade_sol", MAX_TRADE_SOL)
+                self.daily_spend_limit = config.get("daily_spend_limit", DAILY_SPEND_LIMIT)
             except Exception as e:
                 logger.error(f"Error loading safety config: {e}")
     

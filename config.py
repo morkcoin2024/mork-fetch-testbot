@@ -1,0 +1,35 @@
+"""
+Configuration settings for Mork F.E.T.C.H Bot
+Environment variables and system constants
+"""
+
+import os
+
+# OpenAI Configuration
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_MODEL = "gpt-4o"  # Latest available model - update when gpt-5-thinking is available
+
+# Assistant Configuration
+ASSISTANT_ADMIN_TELEGRAM_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
+ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "ON")  # "ON" = dry-run; "OFF" = actually write
+
+# Bot Configuration
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+# Database Configuration
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Trading Configuration
+MORK_MINT = "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH"
+JUPITER_API_BASE = "https://quote-api.jup.ag/v6"
+SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
+
+# Safety Limits
+MAX_TRADE_SOL = 0.5
+DAILY_SPEND_LIMIT = 1.0
+MIN_MORK_FOR_SNIPE = 0.1  # SOL worth
+MIN_MORK_FOR_FETCH = 1.0  # SOL worth
+
+# System Settings
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"

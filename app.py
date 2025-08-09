@@ -6,6 +6,7 @@ Handles Telegram webhooks and provides web interface
 import os
 import logging
 from flask import Flask, request, jsonify
+from config import DATABASE_URL, TELEGRAM_BOT_TOKEN
 # Import bot conditionally to handle missing token gracefully
 try:
     from bot import mork_bot
