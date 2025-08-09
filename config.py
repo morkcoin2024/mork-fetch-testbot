@@ -12,6 +12,7 @@ ASSISTANT_MODEL = "gpt-4o"  # Latest available model - update when gpt-5-thinkin
 # Assistant Configuration
 ASSISTANT_ADMIN_TELEGRAM_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
 ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF")  # "OFF" = dry-run; "ON" = actually write
+ASSISTANT_GIT_BRANCH = os.getenv("ASSISTANT_GIT_BRANCH", "")  # If set, stage changes on this branch
 
 # Bot Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

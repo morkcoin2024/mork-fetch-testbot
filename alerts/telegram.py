@@ -3,8 +3,8 @@ Telegram Alert Handlers for Mork F.E.T.C.H Bot
 Standalone command functions for easy integration
 """
 
-from config import ASSISTANT_ADMIN_TELEGRAM_ID
-from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed
+from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH  
+from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge
 
 def cmd_assistant(update, context):
     """Standalone assistant command handler for dispatcher integration"""
@@ -61,3 +61,62 @@ def cmd_assistant(update, context):
 
     # Restart if requested
     safe_restart_if_needed(restart)
+
+def cmd_assistant_diff(update, context):
+    """Standalone assistant_diff command handler"""
+    user_id = update.effective_user.id
+    
+    # Strict admin-only access control
+    if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Access denied. Admin privileges required.")
+        from assistant_dev import audit_log
+        audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+        return
+    
+    # Extract file path
+    file_path = update.message.text.partition(" ")[2].strip()
+    if not file_path:
+        update.message.reply_text("Usage: /assistant_diff <file_path>")
+        return
+    
+    # Get file content
+    content = get_file_tail(file_path, 100)
+    
+    # Format for Telegram
+    response = f"📄 **{file_path}** (last 100 lines):\n\n```\n{content}\n```"
+    
+    # Split long messages
+    if len(response) > 4000:
+        response = response[:3900] + "\n... (truncated)\n```"
+    
+    update.message.reply_text(response, parse_mode='Markdown')
+    
+    from assistant_dev import audit_log
+    audit_log(f"FILE_INSPECT: user_id:{user_id} viewed {file_path}")
+
+def cmd_assistant_approve(update, context):
+    """Standalone assistant_approve command handler"""
+    user_id = update.effective_user.id
+    
+    # Strict admin-only access control
+    if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Access denied. Admin privileges required.")
+        from assistant_dev import audit_log
+        audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+        return
+    
+    if not ASSISTANT_GIT_BRANCH:
+        update.message.reply_text("❌ Git staging not enabled. Set ASSISTANT_GIT_BRANCH environment variable.")
+        return
+    
+    update.message.reply_text("🔄 Approving and merging staged changes...")
+    
+    # Merge the staging branch
+    if git_approve_merge(ASSISTANT_GIT_BRANCH):
+        update.message.reply_text(f"✅ Successfully merged branch `{ASSISTANT_GIT_BRANCH}` to main")
+        from assistant_dev import audit_log
+        audit_log(f"GIT_APPROVED: user_id:{user_id} merged branch {ASSISTANT_GIT_BRANCH}")
+    else:
+        update.message.reply_text(f"❌ Failed to merge branch `{ASSISTANT_GIT_BRANCH}`")
+        from assistant_dev import audit_log  
+        audit_log(f"GIT_APPROVE_FAILED: user_id:{user_id} could not merge {ASSISTANT_GIT_BRANCH}")

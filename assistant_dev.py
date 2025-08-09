@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 from unidiff import PatchSet
 from openai import OpenAI
-from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD
+from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD, ASSISTANT_GIT_BRANCH
 
 # Safety limits
 MAX_DIFFS = 2
@@ -67,6 +67,7 @@ class ApplyResult:
 def apply_unified_diffs(diffs: List[str]) -> ApplyResult:
     applied, failed = [], []
     dry_run = (ASSISTANT_WRITE_GUARD.upper() != "ON")
+    staging_mode = bool(ASSISTANT_GIT_BRANCH and not dry_run)
     stdout_lines = []
     
     # Apply safety limits
@@ -112,6 +113,14 @@ def apply_unified_diffs(diffs: List[str]) -> ApplyResult:
                 applied.append(str(path))
                 if not dry_run:
                     path.write_text(new_content, encoding="utf-8")
+    
+    # Handle Git staging if enabled
+    if staging_mode and applied:
+        if git_stage_changes(applied, ASSISTANT_GIT_BRANCH):
+            stdout_lines.append(f"staged {len(applied)} files on branch {ASSISTANT_GIT_BRANCH}")
+        else:
+            stdout_lines.append("failed to stage changes on Git branch")
+    
     return ApplyResult(applied, failed, dry_run, "\n".join(stdout_lines))
 
 def _apply_single_file_patch(original_text: str, patched_file) -> Optional[str]:
@@ -161,6 +170,80 @@ def audit_log(entry: str):
             f.write(f"[{timestamp}] {entry}\n")
     except Exception as e:
         print(f"Audit log error: {e}")
+
+def git_stage_changes(files: List[str], branch: str) -> bool:
+    """Stage changes on specified Git branch"""
+    try:
+        # Check if git is available and we're in a repo
+        proc = subprocess.run(["git", "status"], capture_output=True, text=True)
+        if proc.returncode != 0:
+            audit_log("GIT_ERROR: Not in a git repository")
+            return False
+        
+        # Create and checkout branch if it doesn't exist
+        subprocess.run(["git", "checkout", "-b", branch], capture_output=True)
+        if subprocess.run(["git", "checkout", branch], capture_output=True).returncode != 0:
+            audit_log(f"GIT_ERROR: Could not checkout branch {branch}")
+            return False
+        
+        # Stage the files
+        for file_path in files:
+            subprocess.run(["git", "add", file_path], capture_output=True)
+        
+        # Commit changes
+        commit_msg = f"Assistant: staged changes for review"
+        proc = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True)
+        
+        if proc.returncode == 0:
+            audit_log(f"GIT_STAGED: {len(files)} files staged on branch {branch}")
+            return True
+        else:
+            audit_log(f"GIT_ERROR: Commit failed - {proc.stderr}")
+            return False
+            
+    except Exception as e:
+        audit_log(f"GIT_ERROR: {e}")
+        return False
+
+def git_approve_merge(branch: str) -> bool:
+    """Merge staging branch to main"""
+    try:
+        # Switch to main and merge
+        subprocess.run(["git", "checkout", "main"], capture_output=True)
+        proc = subprocess.run(["git", "merge", branch], capture_output=True, text=True)
+        
+        if proc.returncode == 0:
+            # Clean up branch
+            subprocess.run(["git", "branch", "-d", branch], capture_output=True)
+            audit_log(f"GIT_MERGED: Branch {branch} merged and deleted")
+            return True
+        else:
+            audit_log(f"GIT_MERGE_ERROR: {proc.stderr}")
+            return False
+            
+    except Exception as e:
+        audit_log(f"GIT_MERGE_ERROR: {e}")
+        return False
+
+def get_file_tail(file_path: str, lines: int = 100) -> str:
+    """Get last N lines of a file for inspection"""
+    try:
+        if not os.path.exists(file_path):
+            return f"File not found: {file_path}"
+        
+        with open(file_path, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+        
+        if len(all_lines) <= lines:
+            content = "".join(all_lines)
+        else:
+            content = "".join(all_lines[-lines:])
+            content = f"... (showing last {lines} lines)\n" + content
+        
+        return content[:3000]  # Limit for Telegram
+        
+    except Exception as e:
+        return f"Error reading file: {e}"
 
 def safe_restart_if_needed(mode: str):
     if mode != "safe":

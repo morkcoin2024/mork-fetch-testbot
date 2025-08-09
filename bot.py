@@ -9,8 +9,8 @@ import json
 import subprocess
 import tempfile
 from typing import List, Dict, Any
-from config import ASSISTANT_ADMIN_TELEGRAM_ID
-from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed
+from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH
+from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge
 
 
 
@@ -64,6 +64,8 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("emergency", self.emergency_command))
         self.app.add_handler(CommandHandler("assistant", self.assistant_command))
+        self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
+        self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         
         # Message handlers
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
@@ -451,6 +453,65 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
 
         # Restart if requested
         safe_restart_if_needed(restart)
+    
+    async def assistant_diff_command(self, update, context):
+        """Handle /assistant_diff <path> command"""
+        user_id = update.effective_user.id
+        
+        # Strict admin-only access control
+        if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Access denied. Admin privileges required.")
+            from assistant_dev import audit_log
+            audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+            return
+        
+        # Extract file path
+        file_path = update.message.text.partition(" ")[2].strip()
+        if not file_path:
+            await update.message.reply_text("Usage: /assistant_diff <file_path>")
+            return
+        
+        # Get file content
+        content = get_file_tail(file_path, 100)
+        
+        # Format for Telegram
+        response = f"📄 **{file_path}** (last 100 lines):\n\n```\n{content}\n```"
+        
+        # Split long messages
+        if len(response) > 4000:
+            response = response[:3900] + "\n... (truncated)\n```"
+        
+        await update.message.reply_text(response, parse_mode='Markdown')
+        
+        from assistant_dev import audit_log
+        audit_log(f"FILE_INSPECT: user_id:{user_id} viewed {file_path}")
+    
+    async def assistant_approve_command(self, update, context):
+        """Handle /assistant_approve command for Git staging"""
+        user_id = update.effective_user.id
+        
+        # Strict admin-only access control
+        if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Access denied. Admin privileges required.")
+            from assistant_dev import audit_log
+            audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+            return
+        
+        if not ASSISTANT_GIT_BRANCH:
+            await update.message.reply_text("❌ Git staging not enabled. Set ASSISTANT_GIT_BRANCH environment variable.")
+            return
+        
+        await update.message.reply_text("🔄 Approving and merging staged changes...")
+        
+        # Merge the staging branch
+        if git_approve_merge(ASSISTANT_GIT_BRANCH):
+            await update.message.reply_text(f"✅ Successfully merged branch `{ASSISTANT_GIT_BRANCH}` to main")
+            from assistant_dev import audit_log
+            audit_log(f"GIT_APPROVED: user_id:{user_id} merged branch {ASSISTANT_GIT_BRANCH}")
+        else:
+            await update.message.reply_text(f"❌ Failed to merge branch `{ASSISTANT_GIT_BRANCH}`")
+            from assistant_dev import audit_log  
+            audit_log(f"GIT_APPROVE_FAILED: user_id:{user_id} could not merge {ASSISTANT_GIT_BRANCH}")
     
 
 
