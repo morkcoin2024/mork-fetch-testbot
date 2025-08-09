@@ -3130,10 +3130,27 @@ def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amo
                 emergency_failsafe=False
             )
             
+            # Enhanced success reporting with proper token amounts
             if result.get('success'):
-                send_message(chat_id, f"✅ Trade successful: {latest_token['symbol']}")
+                tokens_received = result.get('actual_tokens', 0)
+                tx_hash = result.get('transaction_hash', 'N/A')
+                
+                success_msg = f"""✅ VIP FETCH COMPLETE!
+
+• Token: {latest_token['symbol']} ({latest_token['name']})
+• Received: {tokens_received:,.0f} tokens
+• Transaction: {tx_hash[:20]}...
+• Status: SUCCESS
+
+/fetch ready for next execution!"""
+                send_message(chat_id, success_msg)
             else:
-                send_message(chat_id, f"❌ Trade failed: {result.get('error')}")
+                error_msg = f"""❌ Trade Failed
+
+• Token: {latest_token['symbol']}
+• Error: {result.get('error', 'Unknown error')}
+• Please try again with /fetch"""
+                send_message(chat_id, error_msg)
         else:
             send_message(chat_id, "❌ No tokens available for trading")
     except Exception as e:
