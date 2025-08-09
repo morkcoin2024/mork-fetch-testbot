@@ -6,6 +6,7 @@ from datetime import datetime
 from unidiff import PatchSet
 from openai import OpenAI
 from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD, ASSISTANT_GIT_BRANCH
+from backup_manager import create_backup, list_backups, restore_backup, prune_backups
 
 # Safety limits
 MAX_DIFFS = 2
@@ -86,6 +87,14 @@ def apply_unified_diffs(diffs: List[str]) -> ApplyResult:
             filtered_diffs.append(diff)
     
     diffs = filtered_diffs
+    
+    # Create backup before writing any files (only in live mode with diffs)
+    backup_created = False
+    if ASSISTANT_WRITE_GUARD.upper() == "ON" and diffs:
+        backup_name = create_backup("prepatch")
+        stdout_lines.append(f"Created backup: {backup_name}")
+        prune_backups(20)
+        backup_created = True
 
     for idx, diff in enumerate(diffs):
         try:
@@ -244,6 +253,9 @@ def get_file_tail(file_path: str, lines: int = 100) -> str:
         
     except Exception as e:
         return f"Error reading file: {e}"
+
+def revert_to_backup(name: str) -> str:
+    return restore_backup(name)
 
 def safe_restart_if_needed(mode: str):
     if mode != "safe":

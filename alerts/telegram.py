@@ -4,7 +4,8 @@ Standalone command functions for easy integration
 """
 
 from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH  
-from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge
+from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge, revert_to_backup
+from backup_manager import create_backup, list_backups, restore_backup, prune_backups
 
 def cmd_assistant(update, context):
     """Standalone assistant command handler for dispatcher integration"""
@@ -120,3 +121,58 @@ def cmd_assistant_approve(update, context):
         update.message.reply_text(f"❌ Failed to merge branch `{ASSISTANT_GIT_BRANCH}`")
         from assistant_dev import audit_log  
         audit_log(f"GIT_APPROVE_FAILED: user_id:{user_id} could not merge {ASSISTANT_GIT_BRANCH}")
+
+def cmd_assistant_backup(update, context):
+    """Standalone backup command handler"""
+    user_id = update.effective_user.id
+    
+    # Strict admin-only access control
+    if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("❌ Access denied. Admin privileges required.")
+        from assistant_dev import audit_log
+        audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+        return
+    
+    command_args = update.message.text.split()
+    
+    if len(command_args) < 2:
+        # List backups
+        backups = list_backups(10)
+        if not backups:
+            update.message.reply_text("📦 No backups available")
+            return
+        
+        backup_list = "\n".join(f"{i+1}. {backup}" for i, backup in enumerate(backups))
+        update.message.reply_text(f"📦 **Available Backups:**\n\n```\n{backup_list}\n```\n\nUse: `/assistant_backup restore <name>`", parse_mode='Markdown')
+        return
+    
+    action = command_args[1].lower()
+    
+    if action == "create":
+        label = command_args[2] if len(command_args) > 2 else "manual"
+        try:
+            backup_name = create_backup(label)
+            prune_backups(20)
+            update.message.reply_text(f"✅ Created backup: `{backup_name}`", parse_mode='Markdown')
+            from assistant_dev import audit_log
+            audit_log(f"BACKUP_CREATE: user_id:{user_id} created {backup_name}")
+        except Exception as e:
+            update.message.reply_text(f"❌ Backup failed: {e}")
+    
+    elif action == "restore":
+        if len(command_args) < 3:
+            update.message.reply_text("Usage: `/assistant_backup restore <backup_name>`")
+            return
+        
+        backup_name = command_args[2]
+        try:
+            update.message.reply_text("🔄 Restoring backup...")
+            revert_to_backup(backup_name)
+            update.message.reply_text(f"✅ Restored backup: `{backup_name}`", parse_mode='Markdown')
+            from assistant_dev import audit_log
+            audit_log(f"BACKUP_RESTORE: user_id:{user_id} restored {backup_name}")
+        except Exception as e:
+            update.message.reply_text(f"❌ Restore failed: {e}")
+    
+    else:
+        update.message.reply_text("Usage:\n`/assistant_backup` - List backups\n`/assistant_backup create [label]` - Create backup\n`/assistant_backup restore <name>` - Restore backup", parse_mode='Markdown')

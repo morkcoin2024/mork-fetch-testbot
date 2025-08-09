@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 from typing import List, Dict, Any
 from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_GIT_BRANCH
-from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge
+from assistant_dev import assistant_codegen, apply_unified_diffs, maybe_run_commands, safe_restart_if_needed, get_file_tail, git_approve_merge, revert_to_backup
+from backup_manager import create_backup, list_backups, restore_backup, prune_backups
 
 
 
@@ -66,6 +67,7 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("assistant", self.assistant_command))
         self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
+        self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
         
         # Message handlers
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
@@ -512,6 +514,61 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
             await update.message.reply_text(f"❌ Failed to merge branch `{ASSISTANT_GIT_BRANCH}`")
             from assistant_dev import audit_log  
             audit_log(f"GIT_APPROVE_FAILED: user_id:{user_id} could not merge {ASSISTANT_GIT_BRANCH}")
+    
+    async def assistant_backup_command(self, update, context):
+        """Handle /assistant_backup command"""
+        user_id = update.effective_user.id
+        
+        # Strict admin-only access control
+        if not ASSISTANT_ADMIN_TELEGRAM_ID or user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Access denied. Admin privileges required.")
+            from assistant_dev import audit_log
+            audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
+            return
+        
+        command_args = update.message.text.split()
+        
+        if len(command_args) < 2:
+            # List backups
+            backups = list_backups(10)
+            if not backups:
+                await update.message.reply_text("📦 No backups available")
+                return
+            
+            backup_list = "\n".join(f"{i+1}. {backup}" for i, backup in enumerate(backups))
+            await update.message.reply_text(f"📦 **Available Backups:**\n\n```\n{backup_list}\n```\n\nUse: `/assistant_backup restore <name>`", parse_mode='Markdown')
+            return
+        
+        action = command_args[1].lower()
+        
+        if action == "create":
+            label = command_args[2] if len(command_args) > 2 else "manual"
+            try:
+                backup_name = create_backup(label)
+                prune_backups(20)
+                await update.message.reply_text(f"✅ Created backup: `{backup_name}`", parse_mode='Markdown')
+                from assistant_dev import audit_log
+                audit_log(f"BACKUP_CREATE: user_id:{user_id} created {backup_name}")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Backup failed: {e}")
+        
+        elif action == "restore":
+            if len(command_args) < 3:
+                await update.message.reply_text("Usage: `/assistant_backup restore <backup_name>`")
+                return
+            
+            backup_name = command_args[2]
+            try:
+                await update.message.reply_text("🔄 Restoring backup...")
+                revert_to_backup(backup_name)
+                await update.message.reply_text(f"✅ Restored backup: `{backup_name}`", parse_mode='Markdown')
+                from assistant_dev import audit_log
+                audit_log(f"BACKUP_RESTORE: user_id:{user_id} restored {backup_name}")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Restore failed: {e}")
+        
+        else:
+            await update.message.reply_text("Usage:\n`/assistant_backup` - List backups\n`/assistant_backup create [label]` - Create backup\n`/assistant_backup restore <name>` - Restore backup", parse_mode='Markdown')
     
 
 

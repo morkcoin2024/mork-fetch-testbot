@@ -18,7 +18,7 @@ def setup_dispatcher_example():
     """Example of how to set up the dispatcher with assistant command"""
     from telegram.ext import Application, CommandHandler
     from config import TELEGRAM_BOT_TOKEN
-    from alerts.telegram import cmd_assistant, cmd_assistant_diff, cmd_assistant_approve
+    from alerts.telegram import cmd_assistant, cmd_assistant_diff, cmd_assistant_approve, cmd_assistant_backup
     
     if not TELEGRAM_BOT_TOKEN:
         print("TELEGRAM_BOT_TOKEN required")
@@ -31,6 +31,7 @@ def setup_dispatcher_example():
     app.add_handler(CommandHandler("assistant", cmd_assistant))
     app.add_handler(CommandHandler("assistant_diff", cmd_assistant_diff))
     app.add_handler(CommandHandler("assistant_approve", cmd_assistant_approve))
+    app.add_handler(CommandHandler("assistant_backup", cmd_assistant_backup))
     
     # Add other handlers...
     # app.add_handler(CommandHandler("start", start_command))

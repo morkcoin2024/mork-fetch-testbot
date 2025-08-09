@@ -1,0 +1,245 @@
+Below is a **single source of truth** for how the Mork Fetch Bot filters, scores, and returns new Solana/Pump.fun/Bonk-style tokens. Keep this file versioned; we’ll tweak numbers over time. It includes:
+
+1. A YAML rules config (with two presets: `conservative` and `degen`).
+2. A scoring model with weights.
+3. Output limits (how many tokens to return).
+4. Notes on each field.
+
+---
+
+## rules.yaml (copy into your repo as `rules.yaml`)
+
+```yaml
+meta:
+  version: 1
+  description: "Mork Fetch Bot filter + scoring rules for Solana meme tokens"
+  default_profile: conservative
+
+output:
+  top_n: 10           # return up to N matching tokens per fetch cycle
+  min_score: 70       # minimum total score (0..100) a token must achieve
+
+profiles:
+  conservative:
+    filters:
+      # --- AGE / DISCOVERY ---
+      min_age_minutes: 10           # ignore ultra-fresh snipes
+      max_age_minutes: 1440         # 24h max age for 'new' token feed
+      # --- LIQUIDITY / POOL ---
+      min_liquidity_usd: 30000      # Raydium/Orca pool USD liquidity
+      min_lp_locked_pct: 80         # % of LP locked/burned
+      min_lp_lock_days: 7           # lock duration in days
+      require_pool: true            # must have AMM pool live
+      # --- SUPPLY / OWNERSHIP ---
+      max_dev_holdings_pct: 15      # dev/team wallets combined
+      max_top10_holders_pct: 65     # concentration risk
+      mint_revoked: true            # mint authority revoked
+      freeze_revoked: true          # freeze authority revoked
+      # --- TRADE DYNAMICS ---
+      min_5m_volume_usd: 3000       # recent 5-min volume
+      min_30m_volume_usd: 15000
+      min_buys_to_sells_ratio: 1.2  # buy pressure
+      max_tax_buy_pct: 5            # anti-honeypot
+      max_tax_sell_pct: 10
+      # --- HOLDERS ---
+      min_holders: 300
+      min_new_holders_30m: 50
+      # --- SOCIAL / META (best-effort; may be missing) ---
+      require_website: false
+      min_twitter_followers: 0
+      min_telegram_members: 0
+      # --- SAFETY FLAGS ---
+      blocklist_terms: ["scam", "rug", "cex pre-sale"]
+      require_anti_snipe_off: true  # no trapping anti-snipe after launch
+      # --- PUMPFUN-SPECIFIC ---
+      pumpfun_only_if: ""           # empty => allow any; otherwise expr like: market_cap_usd > 100k
+      require_pumpfun_deployed: false
+
+    weights:  # total weights normalized internally to 100
+      liquidity: 25
+      ownership: 20
+      safety: 20
+      holders: 15
+      momentum: 15
+      social: 5
+
+  degen:
+    filters:
+      min_age_minutes: 2
+      max_age_minutes: 720
+      min_liquidity_usd: 7000
+      min_lp_locked_pct: 50
+      min_lp_lock_days: 1
+      require_pool: true
+      max_dev_holdings_pct: 25
+      max_top10_holders_pct: 80
+      mint_revoked: false
+      freeze_revoked: false
+      min_5m_volume_usd: 500
+      min_30m_volume_usd: 3000
+      min_buys_to_sells_ratio: 1.0
+      max_tax_buy_pct: 7
+      max_tax_sell_pct: 12
+      min_holders: 80
+      min_new_holders_30m: 20
+      require_website: false
+      min_twitter_followers: 0
+      min_telegram_members: 0
+      blocklist_terms: []
+      require_anti_snipe_off: false
+      pumpfun_only_if: ""
+      require_pumpfun_deployed: false
+
+    weights:
+      liquidity: 20
+      ownership: 15
+      safety: 15
+      holders: 20
+      momentum: 25
+      social: 5
+
+score_model:
+  # Each category (liquidity/ownership/safety/holders/momentum/social) maps to sub-metrics.
+  # Each sub-metric produces a 0..1 score; we weight and sum.
+  liquidity:
+    pool_liquidity_usd:
+      thresholds: [5000, 15000, 30000, 60000, 100000]
+    lp_locked_pct:
+      thresholds: [20, 40, 60, 80, 95]
+    lp_lock_days:
+      thresholds: [0, 1, 3, 7, 30]
+  ownership:
+    dev_holdings_pct:
+      inverse_thresholds: [35, 25, 20, 15, 10]
+    top10_holders_pct:
+      inverse_thresholds: [90, 85, 80, 70, 60]
+    supply_renounced_score: { full: 1.0, partial: 0.5, none: 0.0 }
+  safety:
+    taxes_buy_pct:
+      inverse_thresholds: [15, 10, 8, 5, 3]
+    taxes_sell_pct:
+      inverse_thresholds: [20, 15, 12, 10, 5]
+    honeypot_checks_passed: { true: 1.0, false: 0.0 }
+    anti_snipe_off: { true: 1.0, false: 0.0 }
+  holders:
+    holders_total:
+      thresholds: [50, 100, 300, 600, 1000]
+    new_holders_30m:
+      thresholds: [10, 25, 50, 100, 200]
+    concentration_declining_1h: { true: 1.0, false: 0.0 }
+  momentum:
+    volume_5m_usd:
+      thresholds: [300, 1000, 3000, 10000, 30000]
+    volume_30m_usd:
+      thresholds: [1000, 5000, 15000, 50000, 150000]
+    buys_to_sells_ratio:
+      thresholds: [0.8, 1.0, 1.2, 1.5, 2.0]
+    price_change_15m_pct:
+      thresholds: [-10, 0, 5, 10, 20]
+  social:
+    twitter_followers:
+      thresholds: [0, 500, 1500, 5000, 15000]
+    telegram_members:
+      thresholds: [0, 300, 800, 2000, 5000]
+    website_present: { true: 1.0, false: 0.0 }
+
+# Fields the fetcher should populate per token (for output and scoring):
+fields:
+  - token_address
+  - symbol
+  - name
+  - source               # pump.fun | raydium | other
+  - age_minutes
+  - market_cap_usd
+  - fdv_usd
+  - pool_liquidity_usd
+  - lp_locked_pct
+  - lp_lock_days
+  - holders_total
+  - new_holders_30m
+  - top10_holders_pct
+  - dev_holdings_pct
+  - mint_revoked
+  - freeze_revoked
+  - taxes_buy_pct
+  - taxes_sell_pct
+  - anti_snipe_off
+  - honeypot_checks_passed
+  - volume_5m_usd
+  - volume_30m_usd
+  - buys_to_sells_ratio
+  - price_change_15m_pct
+  - twitter_followers
+  - telegram_members
+  - website_present
+  - score_total
+  - score_breakdown
+```
+
+---
+
+## Implementation notes (how the bot uses this)
+
+* **Profiles**: Bot loads `rules.yaml`, uses `meta.default_profile`. You can switch via Telegram command (e.g., `/rules_profile degen`).
+* **Filters vs. Scoring**: Hard filters reject tokens early. Remaining tokens get a 0..100 score via `weights` × category subscores. Only tokens with `score ≥ output.min_score` are kept, and we return `output.top_n` highest.
+* **Threshold interpretation**: For `thresholds`, we map the observed value onto 5 buckets (0..1). For `inverse_thresholds`, lower is better.
+* **Pump.fun specifics**: If you later want a rule like `pumpfun_only_if: "market_cap_usd > 100000 and holders_total > 200"`, we’ll parse and evaluate that expression.
+
+---
+
+## Minimal loader (Python)
+
+Use this to wire the rules into your fetch+score pipeline:
+
+```python
+# rules_loader.py
+import yaml
+
+class Rules:
+    def __init__(self, path="rules.yaml"):
+        with open(path, "r", encoding="utf-8") as f:
+            self.raw = yaml.safe_load(f)
+        self.meta = self.raw.get("meta", {})
+        self.output = self.raw.get("output", {})
+        self.profiles = self.raw.get("profiles", {})
+        self.score_model = self.raw.get("score_model", {})
+        self.fields = self.raw.get("fields", [])
+
+    def profile(self, name=None):
+        if not name:
+            name = self.meta.get("default_profile", "conservative")
+        return self.profiles[name]
+```
+
+In your fetcher:
+
+```python
+rules = Rules()
+profile = rules.profile()  # or profile = rules.profile("degen")
+filters = profile["filters"]
+weights = profile["weights"]
+min_score = rules.output.get("min_score", 70)
+top_n = rules.output.get("top_n", 10)
+```
+
+---
+
+## Telegram commands to manage rules (to implement next)
+
+* `/rules_show` – Sends the current `rules.yaml` (or a summary) to Telegram.
+* `/rules_profile <conservative|degen>` – Switch default profile.
+* `/rules_set key path value` – Patch a value e.g. `filters.min_liquidity_usd 20000` (with backup + restart).
+* `/rules_reload` – Reload YAML without a full restart.
+
+---
+
+### Next step
+
+I’ll wire the fetcher to:
+
+1. Pull a live batch (Pump.fun/Raydium).
+2. Apply hard filters.
+3. Score with `score_model`.
+4. Return the **top N** with full `fields` populated + reasons.
+
+Once that’s live, we can iterate the numbers quickly from Telegram using the `/rules_*` commands.
