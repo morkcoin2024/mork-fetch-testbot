@@ -67,6 +67,9 @@ class MorkFetchBot:
         # Lightweight assistant command
         from alerts.telegram import cmd_assistant
         self.app.add_handler(CommandHandler("assistant", cmd_assistant))
+        
+        # Helper command to get Telegram user ID
+        self.app.add_handler(CommandHandler("whoami", self.whoami_command))
         self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))
@@ -405,6 +408,23 @@ The degen's best friend just fetched you some profits! 🐕🚀"""
             await update.message.reply_text(f"✅ **Emergency Stop Deactivated**\n\nTrading resumed with normal safety checks.")
         else:
             await update.message.reply_text("Usage: `/emergency stop` or `/emergency start`")
+    
+    async def whoami_command(self, update, context):
+        """Helper command to get user's Telegram ID"""
+        if not self.telegram_available:
+            return
+        
+        user_id = update.effective_user.id
+        username = update.effective_user.username or "No username"
+        first_name = update.effective_user.first_name or "No name"
+        
+        await update.message.reply_text(f"""👤 **Your Telegram Info:**
+
+**User ID:** `{user_id}`
+**Username:** @{username}
+**Name:** {first_name}
+
+Use your User ID ({user_id}) for ASSISTANT_ADMIN_TELEGRAM_ID""", parse_mode='Markdown')
     
     async def assistant_command(self, update, context):
         """Handle /assistant command for AI-powered code generation"""
