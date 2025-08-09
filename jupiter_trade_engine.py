@@ -276,7 +276,7 @@ class JupiterTradeEngine:
             return {"success": False, "error": f"Trade execution failed: {e}"}
     
     def verify_token_delivery(self, wallet_pubkey, token_mint, expected_amount):
-        """Verify tokens were actually delivered"""
+        """Verify tokens were actually delivered - FIXED VERSION"""
         try:
             payload = {
                 'jsonrpc': '2.0',
@@ -299,18 +299,20 @@ class JupiterTradeEngine:
                     parsed = account['account']['data']['parsed']
                     if parsed and 'info' in parsed:
                         mint = parsed['info']['mint']
-                        balance = float(parsed['info']['tokenAmount']['uiAmount'])
+                        # Handle None values properly
+                        ui_amount = parsed['info']['tokenAmount']['uiAmount']
                         
-                        if mint == token_mint:
+                        if mint == token_mint and ui_amount is not None:
+                            balance = float(ui_amount)
                             print(f"🎯 Tokens found: {balance:,.0f}")
                             return balance
             
             print("❌ No tokens found")
-            return 0
+            return 0.0
             
         except Exception as e:
             print(f"❌ Verification failed: {e}")
-            return 0
+            return 0.0
 
 def test_jupiter_engine():
     """Test the Jupiter trade engine"""
