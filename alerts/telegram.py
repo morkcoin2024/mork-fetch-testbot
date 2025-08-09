@@ -17,6 +17,12 @@ def cmd_assistant(update, context):
         from assistant_dev import audit_log
         audit_log(f"ACCESS_DENIED: user_id:{user_id} (admin:{ASSISTANT_ADMIN_TELEGRAM_ID})")
         return
+    
+    # Check failsafe toggle
+    from config import ASSISTANT_FAILSAFE
+    if ASSISTANT_FAILSAFE == "ON":
+        update.message.reply_text("🚫 Assistant patching is currently DISABLED via failsafe toggle.")
+        return
 
     request_text = update.message.text.partition(" ")[2].strip()
     if not request_text:
