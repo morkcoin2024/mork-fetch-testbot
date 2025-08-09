@@ -3122,18 +3122,9 @@ def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amo
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
     """Execute the VIP FETCH automated trading process"""
     try:
-        # Execute real token discovery from Pump.fun
-        phase1_message = """
-🔍 PHASE 1: LIVE TOKEN DISCOVERY
-
-Sniffer Dog scanning Pump.fun for fresh opportunities...
-• Scanning latest token launches
-• Evaluating safety and potential
-• Finding profitable entry points
-
-SCANNING NOW...
-        """
-        send_message(chat_id, phase1_message)
+        # Direct token discovery and execution
+        discovery_message = "🎯 Discovering and trading tokens..."
+        send_message(chat_id, discovery_message)
         
         # Use real-time Telegram monitoring for fresh token discoveries
         try:
@@ -3217,20 +3208,9 @@ Attempting next available token...
         public_key = "GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk"
         private_key = "yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ=="
         
-        # Phase 2: Execute Live Trade
-        phase2_message = f"""
-PHASE 2: EXECUTING LIVE TRADE
-
-Wallet: {public_key[:8]}...{public_key[-8:]} (YOUR WALLET)
-Target: {token_name} ({token_symbol})
-Token: {token_mint[:8]}...{token_mint[-8:]}
-Amount: 0.0005 SOL
-Safety: Emergency protection disabled for live trading
-Method: Jupiter DEX integration
-
-Executing trade now...
-        """
-        send_message(chat_id, phase2_message)
+        # Execute trade immediately without phase messaging
+        execution_msg = f"🚀 Trading {token_symbol} now..."
+        send_message(chat_id, execution_msg)
         
         # Execute the live trade with discovered token
         engine = JupiterTradeEngine()
