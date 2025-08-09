@@ -106,18 +106,45 @@ def get_latest_telegram_token():
     return monitor.get_fresh_token()
 
 def simulate_telegram_token_discovery():
-    """Simulate discovering a real pump.fun token for testing"""
-    # Example pump.fun token messages for testing
-    test_messages = [
-        "🚀 NEW PUMP TOKEN ALERT! $DEGEN just launched: 7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump Early entry opportunity!",
-        "🔥 MOONSHOT incoming! Check out $ROCKET token: 5K9sB6mN7pL2wE5dV8cX1gF4hJ9tQ0zY5iU7oP2nM6pump Just bonded from curve!",
-        "💎 Diamond hands needed for $GEM: 3kR9sB6mN7pL2wE5dV8cX1gF4hJ9tQ0zY5iU7oP2pump This one's going parabolic!"
-    ]
-    
-    # Simulate receiving one of these messages
-    import random
-    message = random.choice(test_messages)
-    return add_telegram_message_for_analysis(message)
+    """Get real pump.fun tokens with better market cap filtering"""
+    try:
+        from pump_scanner import discover_new_tokens
+        
+        # Get real tokens with our improved criteria
+        real_tokens = discover_new_tokens(max_tokens=3)
+        
+        if real_tokens:
+            # Convert to our format and return the best one
+            best_token = real_tokens[0]  # Already sorted by our criteria
+            
+            return {
+                "mint": best_token['mint'],
+                "name": best_token['name'],
+                "symbol": best_token['symbol'],
+                "source": "PumpFunAPI",
+                "timestamp": int(time.time()),
+                "market_cap": best_token.get('market_cap', 0),
+                "message_text": f"Real pump token: {best_token['symbol']} (MC: ${best_token.get('market_cap', 0):,.0f})"
+            }
+        
+        # Fallback to test tokens if API fails
+        test_messages = [
+            "🚀 NEW PUMP TOKEN ALERT! $DEGEN just launched: 7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump Early entry opportunity!",
+            "🔥 MOONSHOT incoming! Check out $ROCKET token: 5K9sB6mN7pL2wE5dV8cX1gF4hJ9tQ0zY5iU7oP2nM6pump Just bonded from curve!",
+            "💎 Diamond hands needed for $GEM: 3kR9sB6mN7pL2wE5dV8cX1gF4hJ9tQ0zY5iU7oP2pump This one's going parabolic!"
+        ]
+        
+        import random
+        message = random.choice(test_messages)
+        return add_telegram_message_for_analysis(message)
+        
+    except Exception as e:
+        print(f"Real token discovery failed: {e}")
+        # Fallback to simulation
+        test_messages = [
+            "🚀 NEW PUMP TOKEN ALERT! $DEGEN just launched: 7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump Early entry opportunity!"
+        ]
+        return add_telegram_message_for_analysis(test_messages[0])
 
 if __name__ == "__main__":
     # Test the monitor

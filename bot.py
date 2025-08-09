@@ -3336,8 +3336,8 @@ Status: EXECUTING...
                         wallet_pubkey="GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
                         private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
                         token_mint=token_mint,
-                        sol_amount=0.0005,
-                        slippage_bps=1000,
+                        sol_amount=0.01,  # Increased to 0.01 SOL (~$2) for better gains
+                        slippage_bps=1500,  # Increased slippage for pump tokens
                         emergency_failsafe=False
                     )
                     

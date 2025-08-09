@@ -65,8 +65,17 @@ def discover_new_tokens(max_tokens=5):
             if len(tokens) >= max_tokens:
                 break
                 
-            # Basic filtering
-            if coin.get('market_cap', 0) > 1000 and coin.get('market_cap', 0) < 100000:
+            # Improved filtering for pump tokens
+            market_cap = coin.get('market_cap', 0)
+            created_timestamp = coin.get('created_timestamp', 0)
+            
+            # Target tokens with 5K-50K market cap (sweet spot for pumps)
+            # and created within last 24 hours
+            current_time = time.time() * 1000  # Convert to milliseconds
+            age_hours = (current_time - created_timestamp) / (1000 * 60 * 60)
+            
+            if (market_cap > 5000 and market_cap < 50000 and 
+                age_hours < 24 and age_hours > 0.5):  # 30min to 24hr old
                 token_data = {
                     'mint': coin.get('mint', ''),
                     'name': coin.get('name', 'Unknown'),
