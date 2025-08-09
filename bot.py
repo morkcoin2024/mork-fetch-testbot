@@ -3067,7 +3067,7 @@ def start_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: flo
     # Redirect to the working simplified version
     import asyncio
     try:
-        asyncio.run(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        execute_simple_documented_trade(chat_id, wallet_address, trade_amount)
     except Exception as e:
         logging.error(f"VIP FETCH redirect error: {e}")
         send_message(chat_id, f"VIP FETCH error: {str(e)}")
@@ -3109,22 +3109,42 @@ async def execute_automatic_buy_trade(private_key: str, token_mint: str, sol_amo
         }
 
 def execute_simple_documented_trade(chat_id: str, wallet_address: str, trade_amount: float, stop_loss: float = 40.0, take_profit: float = 100.0, sell_percent: float = 100.0):
-    """Execute trade - REDIRECTED to Jupiter engine"""
-    # Redirect to working Jupiter engine instead of old PumpPortal method
-    import asyncio
+    """Execute trade - DIRECT Jupiter engine (no phases)"""
     try:
-        asyncio.run(execute_vip_fetch_trading(chat_id, wallet_address, trade_amount))
+        from telegram_token_monitor import get_latest_telegram_token, simulate_telegram_token_discovery
+        from jupiter_trade_engine import JupiterTradeEngine
+        
+        # Get token directly
+        latest_token = get_latest_telegram_token() or simulate_telegram_token_discovery()
+        
+        if latest_token:
+            send_message(chat_id, f"🚀 Trading {latest_token['symbol']} directly...")
+            
+            engine = JupiterTradeEngine()
+            result = engine.execute_jupiter_trade(
+                wallet_pubkey="GcWdU2s5wem8nuF5AfWC8A2LrdTswragQtmkeUhByxk",
+                private_key="yPVxEVEoplWPzF4C92VB00IqFi7zoDl0sL5XMEZmdi8D/91Ha2a3rTPs4vrTxedFHEWGhF1lV4YXkntJ97aNMQ==",
+                token_mint=latest_token['mint'],
+                sol_amount=0.01,
+                slippage_bps=1500,
+                emergency_failsafe=False
+            )
+            
+            if result.get('success'):
+                send_message(chat_id, f"✅ Trade successful: {latest_token['symbol']}")
+            else:
+                send_message(chat_id, f"❌ Trade failed: {result.get('error')}")
+        else:
+            send_message(chat_id, "❌ No tokens available for trading")
     except Exception as e:
-        logging.error(f"Simple trade redirect error: {e}")
-        send_message(chat_id, f"Trade execution error: {str(e)}")
+        logging.error(f"Direct trade error: {e}")
+        send_message(chat_id, f"❌ Trade error: {str(e)}")
     return
 
 async def execute_vip_fetch_trading(chat_id: str, wallet_address: str, trade_amount: float):
-    """Execute the VIP FETCH automated trading process"""
+    """DEPRECATED - Use direct execution instead"""
+    send_message(chat_id, "🚀 Executing direct trade (no phases)...")
     try:
-        # Direct token discovery and execution
-        discovery_message = "🎯 Discovering and trading tokens..."
-        send_message(chat_id, discovery_message)
         
         # Use real-time Telegram monitoring for fresh token discoveries
         try:
