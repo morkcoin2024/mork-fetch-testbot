@@ -2,25 +2,18 @@
 Data fetcher for Pump.fun and other sources.
 Provides real token data for F.E.T.C.H system.
 """
-import logging
+import logging, time, random, httpx
 import requests
-import time
 from typing import List, Dict, Any, Optional
 
-VERSION_DF = "df-2"
+VERSION_DF = "df-4"
+logging.info(f">>> data_fetcher LOADED {VERSION_DF} <<<")
 
-# Stable public endpoints for production use
-PUMPFUN_ENDPOINTS = [
-    # Primary stable endpoint (supports ?limit=&offset=)
-    "https://frontend-api.pump.fun/coins/created",
-]
-
-# DexScreener search configuration
-DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/pairs/solana"
-
-# Diagnostic variables for monitoring
 LAST_JSON_URL = None
 LAST_JSON_STATUS = None
+
+DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/search"
+PUMPFUN_ENDPOINTS = ["https://frontend-api.pump.fun/coins/created"]
 
 def _get_json(url: str, params: Optional[Dict] = None, timeout: int = 10) -> Optional[Dict]:
     """Helper to fetch JSON with proper error handling."""
