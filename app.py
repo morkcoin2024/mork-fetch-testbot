@@ -628,6 +628,47 @@ Enhanced logging and monitoring active.'''
                     url  = urljoin(base, "live") + ("?" + urlencode({"token": tok}) if tok else "")
                     response_text = f"Open Live Console:\n{url}"
 
+                elif text.strip().startswith("/birdeye_start"):
+                    try:
+                        from birdeye import get_scanner
+                        scanner = get_scanner(publish)
+                        scanner.start()
+                        status = scanner.status()
+                        response_text = f"Birdeye scanner started\nInterval: {status['interval']}s\nCache size: {status['seen_cache']}"
+                    except Exception as e:
+                        response_text = f"Birdeye start failed: {e}"
+
+                elif text.strip().startswith("/birdeye_stop"):
+                    try:
+                        from birdeye import get_scanner
+                        scanner = get_scanner(publish)
+                        scanner.stop()
+                        response_text = "Birdeye scanner stopped"
+                    except Exception as e:
+                        response_text = f"Birdeye stop failed: {e}"
+
+                elif text.strip().startswith("/birdeye_status"):
+                    try:
+                        from birdeye import get_scanner
+                        scanner = get_scanner(publish)
+                        status = scanner.status()
+                        response_text = f"""Birdeye Scanner Status:
+Running: {status['running']}
+Interval: {status['interval']}s
+Cache: {status['seen_cache']} tokens
+API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
+                    except Exception as e:
+                        response_text = f"Birdeye status failed: {e}"
+
+                elif text.strip().startswith("/birdeye_tick"):
+                    try:
+                        from birdeye import get_scanner
+                        scanner = get_scanner(publish)
+                        scanner.tick()
+                        response_text = "Birdeye manual tick executed"
+                    except Exception as e:
+                        response_text = f"Birdeye tick failed: {e}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
@@ -647,6 +688,12 @@ Admin Commands:
 Live Monitoring:
 /monitor - Open real-time monitoring dashboard
 /live - Open compact live console
+
+Birdeye Scanner:
+/birdeye_start - Start token scanning
+/birdeye_stop - Stop token scanning
+/birdeye_status - Scanner status
+/birdeye_tick - Manual scan
 
 AI Assistant:
 /assistant_model [model] - Get/set assistant AI model
