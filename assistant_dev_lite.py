@@ -1,4 +1,5 @@
-# assistant_dev.py (lite)
+# assistant_dev.py
+
 import os, json, subprocess, pathlib
 from dataclasses import dataclass
 from typing import List, Optional
@@ -6,7 +7,10 @@ from unidiff import PatchSet
 from openai import OpenAI
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-4o")
+# Preferred model from env, fallback is gpt-4o
+ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-5-thinking")
+FALLBACK_MODEL = "gpt-4o"
+
 ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF").upper()
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -17,17 +21,42 @@ Diffs must be unified diffs (git-style) that apply cleanly to current working di
 """
 
 def assistant_codegen(user_request: str) -> dict:
+    """Generate plan + diffs with preferred model, fallback if needed."""
     msg = f"User request:\n{user_request}\nProject: Python Telegram bot + Flask on Replit."
-    r = client.chat.completions.create(
-        model=ASSISTANT_MODEL,
-        temperature=0.2,
-        messages=[{"role":"system","content":SYSTEM},{"role":"user","content":msg}],
-    )
+    try:
+        r = client.chat.completions.create(
+            model=ASSISTANT_MODEL,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": msg},
+            ],
+        )
+    except Exception as e:
+        # Log and try fallback
+        import logging
+        logging.warning(f"Assistant model {ASSISTANT_MODEL} failed: {e}")
+        logging.warning(f"Falling back to {FALLBACK_MODEL}")
+        r = client.chat.completions.create(
+            model=FALLBACK_MODEL,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": msg},
+            ],
+        )
+
     content = r.choices[0].message.content or "{}"
     try:
         return json.loads(content)
     except Exception:
-        return {"plan":"parse_error","diffs":[],"commands":[],"restart":"none","raw":content}
+        return {
+            "plan": "parse_error",
+            "diffs": [],
+            "commands": [],
+            "restart": "none",
+            "raw": content
+        }
 
 @dataclass
 class ApplyResult:
