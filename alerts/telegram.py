@@ -49,6 +49,15 @@ def _current_mode_text() -> str:
     # For now we just report that we're in polling mode because main.py starts run_polling().
     return "polling"
 
+def _read_ring_tail(n_lines: int) -> str:
+    """Read recent log entries from ring buffer handler"""
+    lg = logging.getLogger()
+    for h in lg.handlers:
+        if h.__class__.__name__ == "RingBufferHandler":
+            lines = list(h.buffer)[-n_lines:]
+            return "\n".join(lines)
+    return "(no ring buffer logs available)"
+
 def cmd_whoami(update, context):
     uid = update.effective_user.id if update.effective_user else "unknown"
     uname = update.effective_user.username if update.effective_user else "unknown"
