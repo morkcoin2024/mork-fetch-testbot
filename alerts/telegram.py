@@ -9,9 +9,10 @@ logging.basicConfig(level=logging.INFO)
 VERSION_TG = "tg-4"
 logging.info(f">>> alerts.telegram LOADED {VERSION_TG} <<<")
 
-import os, re, time, asyncio, logging, pathlib
+import os, re, time, asyncio, logging, pathlib, importlib
 from typing import Dict, Optional, Tuple
 from data_fetcher import fetch_candidates_from_pumpfun
+import data_fetcher as df
 
 try:
     from telegram import __version__ as PTB_VERSION
@@ -624,6 +625,27 @@ async def cmd_fetch_source_sync(update, context):
     except Exception as e:
         logging.exception("fetch_source error")
         await update.message.reply_text(f"❌ fetch_source failed: {e}")
+        return "ok"
+
+async def cmd_a_diag_fetch(update, context):
+    """Enhanced F.E.T.C.H diagnostics with live module reloading."""
+    try:
+        importlib.reload(df)  # pull fresh symbols/version
+        lines = [
+            "```\n[DIAG FETCH]",
+            f"alerts.telegram={VERSION_TG}",
+            f"data_fetcher={getattr(df,'VERSION_DF','?')}",
+            f"DEXSCREENER_SEARCH={getattr(df,'DEXSCREENER_SEARCH','?')}",
+            f"PUMPFUN_ENDPOINTS={getattr(df,'PUMPFUN_ENDPOINTS','?')}",
+            f"LAST_JSON_URL={getattr(df,'LAST_JSON_URL','?')}",
+            f"LAST_JSON_STATUS={getattr(df,'LAST_JSON_STATUS','?')}",
+            "```",
+        ]
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        return "ok"
+    except Exception as e:
+        logging.exception("a_diag_fetch error")
+        await update.message.reply_text(f"diag failed: {e}")
         return "ok"
 
 def cmd_fetch_now_sync() -> str:

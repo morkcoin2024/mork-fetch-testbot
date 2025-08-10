@@ -7,23 +7,36 @@ import requests
 import time
 from typing import List, Dict, Any, Optional
 
+VERSION_DF = "df-2"
+
 # Stable public endpoints for production use
 PUMPFUN_ENDPOINTS = [
     # Primary stable endpoint (supports ?limit=&offset=)
     "https://frontend-api.pump.fun/coins/created",
 ]
 
+# DexScreener search configuration
+DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/pairs/solana"
+
+# Diagnostic variables for monitoring
+LAST_JSON_URL = None
+LAST_JSON_STATUS = None
+
 def _get_json(url: str, params: Optional[Dict] = None, timeout: int = 10) -> Optional[Dict]:
     """Helper to fetch JSON with proper error handling."""
+    global LAST_JSON_URL, LAST_JSON_STATUS
     try:
+        LAST_JSON_URL = url
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json"
         }
         response = requests.get(url, params=params, headers=headers, timeout=timeout)
         response.raise_for_status()
+        LAST_JSON_STATUS = f"OK-{response.status_code}"
         return response.json()
     except Exception as e:
+        LAST_JSON_STATUS = f"ERROR-{e}"
         logging.warning(f"JSON fetch failed for {url}: {e}")
         return None
 
