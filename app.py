@@ -127,6 +127,21 @@ def webhook():
             
             logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}'")
             
+            # Helper function for sending replies
+            def _reply(text: str):
+                try:
+                    import requests
+                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                    requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": message['chat']['id'], "text": text, "parse_mode": "Markdown"},
+                        timeout=10,
+                    )
+                    return True
+                except Exception as e:
+                    logger.exception("sendMessage failed: %s", e)
+                    return False
+
             # Simple admin command processing for immediate testing
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
             
