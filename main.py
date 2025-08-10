@@ -23,6 +23,9 @@ if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
 
 logging.info("Boot: logging to %s", log_file)
 
+# Admin configuration and command imports
+from config import ASSISTANT_ADMIN_TELEGRAM_ID
+
 # Try streamlined PTB v20.7 implementation
 try:
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
