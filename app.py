@@ -592,6 +592,10 @@ Admin Commands:
 /ping, /a_ping - Test responsiveness
 /status, /a_status - System status  
 /whoami, /a_whoami - Your Telegram info
+/scan_status, /a_scan_status - Comprehensive system health check
+/scan_test, /a_scan_test - Quick system test with sample data
+/pumpfun_status, /a_pumpfun_status - Pump.fun endpoint status
+/pumpfun_probe, /a_pumpfun_probe - Multi-source diagnostic probe
 /a_logs_tail [n] [level=x] - Recent log entries with filtering
 /a_logs_stream - Log streaming info
 /a_logs_watch - Log monitoring status
@@ -634,9 +638,13 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 else:
                     logger.info(f"[WEBHOOK] Unknown admin command: {text}")
-                    # Publish unknown command event
-                    publish("command.done", {"cmd": text.split()[0], "ok": False, "reason": "unknown"})
-                    return jsonify({"status": "ok", "command": text, "response_sent": False})
+                    response_text = f"Unknown command: {text}\n\nAvailable commands: /ping, /status, /scan_status, /scan_test, /pumpfun_status, /pumpfun_probe, /help\n\nType /help for full command list."
+                
+                # Send response if we have one
+                if response_text:
+                    _reply(response_text)
+                    
+                return jsonify({"status": "ok", "command": text, "response_sent": True})
         
         return jsonify({"status": "ok", "processed": True})
         
