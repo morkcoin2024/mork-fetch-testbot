@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 try:
     import telegram
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-    from alerts.telegram import cmd_whoami, cmd_ping, unknown, cmd_debug_handlers
+    from alerts.telegram import cmd_whoami, cmd_ping, cmd_xyzabc, unknown, cmd_debug_handlers
 
     TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     
@@ -28,12 +28,13 @@ try:
         # 1) SPECIFIC commands FIRST in group 0
         application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
         application.add_handler(CommandHandler("ping", cmd_ping), group=0)
+        application.add_handler(CommandHandler("xyzabc", cmd_xyzabc), group=0)
         application.add_handler(CommandHandler("debug_handlers", cmd_debug_handlers), group=0)
 
         # 2) Catch-all UNKNOWN LAST in a very low priority group
         application.add_handler(MessageHandler(filters.COMMAND, unknown), group=999)
 
-        logging.info("Registered handlers: whoami(g0), ping(g0), debug_handlers(g0), unknown(g999)")
+        logging.info("Registered handlers: whoami(g0), ping(g0), xyzabc(g0), debug_handlers(g0), unknown(g999)")
 
         if __name__ == '__main__':
             application.run_polling(drop_pending_updates=True)
