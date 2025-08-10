@@ -5,8 +5,12 @@ Handles Telegram webhooks and provides web interface
 
 import os
 import logging
-from flask import Flask, request, jsonify
-from config import DATABASE_URL, TELEGRAM_BOT_TOKEN
+from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
+from eventbus import publish, BUS
+import json
+import time
+import queue
 # Import bot conditionally to handle missing token gracefully
 try:
     from bot import mork_bot
@@ -468,6 +472,301 @@ def status():
     except Exception as e:
         logger.error(f"Status endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
+
+# Live event streaming dashboard routes
+@app.route('/monitor')
+def monitor_dashboard():
+    """Real-time monitoring dashboard with live event streaming."""
+    return render_template_string('''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mork F.E.T.C.H Bot - Live Monitor</title>
+    <style>
+        body {
+            font-family: 'Monaco', 'Consolas', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #7cb342;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-box {
+            background: #1a1a1a;
+            border: 1px solid #7cb342;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        .events {
+            background: #1a1a1a;
+            border: 1px solid #7cb342;
+            border-radius: 5px;
+            padding: 15px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .event {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #7cb342;
+            background: #2a2a2a;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 12px;
+        }
+        .event-type {
+            color: #7cb342;
+            font-weight: bold;
+        }
+        .event-data {
+            color: #ccc;
+            margin-left: 20px;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #00ff00;
+            animation: pulse 2s infinite;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .btn {
+            background: #7cb342;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        .btn:hover {
+            background: #9ccc65;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🐕 Mork F.E.T.C.H Bot - Live Monitor</h1>
+        <p>Real-time system monitoring and event streaming</p>
+        <span class="status-indicator"></span> System Online
+    </div>
+    
+    <div class="controls">
+        <button class="btn" onclick="triggerFetch()">Trigger Manual Fetch</button>
+        <button class="btn" onclick="clearEvents()">Clear Events</button>
+    </div>
+    
+    <div class="stats">
+        <div class="stat-box">
+            <h3>System Status</h3>
+            <div id="system-stats">
+                <div>Events Processed: <span id="event-count">0</span></div>
+                <div>Last Activity: <span id="last-activity">Starting...</span></div>
+                <div>Uptime: <span id="uptime">Calculating...</span></div>
+            </div>
+        </div>
+        
+        <div class="stat-box">
+            <h3>Token Data Sources</h3>
+            <div id="source-stats">
+                <div>On-chain: <span id="onchain-count">0</span></div>
+                <div>Pump.fun: <span id="pumpfun-count">0</span></div>
+                <div>DexScreener: <span id="dexscreener-count">0</span></div>
+            </div>
+        </div>
+        
+        <div class="stat-box">
+            <h3>Performance</h3>
+            <div id="perf-stats">
+                <div>Fetch Cycles: <span id="fetch-cycles">0</span></div>
+                <div>Fallbacks: <span id="fallback-count">0</span></div>
+                <div>Success Rate: <span id="success-rate">100%</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="events">
+        <h3>Live Event Stream</h3>
+        <div id="event-stream"></div>
+    </div>
+
+    <script>
+        let eventCount = 0;
+        let fetchCycles = 0;
+        let fallbacks = 0;
+        let sources = {onchain: 0, pumpfun: 0, dexscreener: 0};
+        const startTime = Date.now();
+        
+        // Connect to event stream
+        const eventSource = new EventSource('/events');
+        
+        eventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type !== 'heartbeat') {
+                    addEvent(data);
+                    updateStats(data);
+                }
+            } catch (e) {
+                console.error('Error parsing event:', e);
+            }
+        };
+        
+        function addEvent(event) {
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'event';
+            
+            const timestamp = new Date(event.ts).toLocaleTimeString();
+            const eventType = event.type;
+            const eventData = JSON.stringify(event.data, null, 2);
+            
+            eventDiv.innerHTML = `
+                <div class="timestamp">${timestamp}</div>
+                <div class="event-type">${eventType}</div>
+                <div class="event-data">${eventData}</div>
+            `;
+            
+            const stream = document.getElementById('event-stream');
+            stream.insertBefore(eventDiv, stream.firstChild);
+            
+            // Keep only last 50 events
+            if (stream.children.length > 50) {
+                stream.removeChild(stream.lastChild);
+            }
+            
+            eventCount++;
+            document.getElementById('event-count').textContent = eventCount;
+            document.getElementById('last-activity').textContent = timestamp;
+        }
+        
+        function updateStats(event) {
+            if (event.type === 'fetch_completed') {
+                fetchCycles++;
+                document.getElementById('fetch-cycles').textContent = fetchCycles;
+                
+                if (event.data.sources) {
+                    sources.onchain += event.data.sources['pumpfun-chain'] || 0;
+                    sources.pumpfun += event.data.sources['pumpfun'] || 0;
+                    sources.dexscreener += event.data.sources['dexscreener'] || 0;
+                    
+                    document.getElementById('onchain-count').textContent = sources.onchain;
+                    document.getElementById('pumpfun-count').textContent = sources.pumpfun;
+                    document.getElementById('dexscreener-count').textContent = sources.dexscreener;
+                }
+            }
+            
+            if (event.type === 'fallback_activated') {
+                fallbacks++;
+                document.getElementById('fallback-count').textContent = fallbacks;
+                
+                const successRate = fetchCycles > 0 ? Math.round(((fetchCycles - fallbacks) / fetchCycles) * 100) : 100;
+                document.getElementById('success-rate').textContent = successRate + '%';
+            }
+        }
+        
+        function triggerFetch() {
+            fetch('/api/trigger-fetch')
+                .then(response => response.json())
+                .then(data => console.log('Fetch triggered:', data))
+                .catch(error => console.error('Error:', error));
+        }
+        
+        function clearEvents() {
+            document.getElementById('event-stream').innerHTML = '';
+        }
+        
+        // Update uptime every second
+        setInterval(() => {
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            const seconds = uptime % 60;
+            document.getElementById('uptime').textContent = 
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }, 1000);
+    </script>
+</body>
+</html>
+    ''')
+
+@app.route('/events')
+def stream_events():
+    """Server-sent events endpoint for real-time monitoring."""
+    def event_generator():
+        subscriber = BUS.subscribe()
+        try:
+            while True:
+                try:
+                    # Get events with timeout
+                    event = subscriber.get(timeout=30)
+                    yield f"data: {json.dumps(event)}\\n\\n"
+                except queue.Empty:
+                    # Send heartbeat to keep connection alive
+                    yield f"data: {json.dumps({'ts': int(time.time() * 1000), 'type': 'heartbeat', 'data': {}})}\\n\\n"
+        except GeneratorExit:
+            # Clean up subscriber when client disconnects
+            with BUS.lock:
+                BUS.subscribers.discard(subscriber)
+    
+    return Response(
+        stream_with_context(event_generator()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        }
+    )
+
+@app.route('/api/trigger-fetch')
+def trigger_fetch():
+    """API endpoint to trigger a manual fetch for testing."""
+    try:
+        publish("manual_fetch_triggered", {"triggered_by": "web_api", "timestamp": int(time.time())})
+        
+        # Trigger actual fetch in background
+        import threading
+        def background_fetch():
+            try:
+                import rules
+                import data_fetcher
+                rules_config = rules.load_rules()
+                results = data_fetcher.fetch_and_rank(rules_config)
+                publish("manual_fetch_completed", {"tokens_found": len(results)})
+            except Exception as e:
+                publish("manual_fetch_error", {"error": str(e)})
+        
+        thread = threading.Thread(target=background_fetch)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"status": "success", "message": "Fetch triggered"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     # Start bot polling in development
