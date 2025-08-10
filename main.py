@@ -3,10 +3,25 @@ Mork F.E.T.C.H Bot - Main Application Entry Point
 PTB v20.7 integration with intelligent fallback
 """
 
-import os
-import logging
+import logging, os, pathlib
+from logging.handlers import RotatingFileHandler
 
-logging.basicConfig(level=logging.INFO)
+# Enhanced logging setup with file rotation
+pathlib.Path("logs").mkdir(exist_ok=True)
+log_file = "logs/app.log"
+
+root = logging.getLogger()
+root.setLevel(logging.INFO)
+
+# Avoid duplicate handlers if main.py reloads
+if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+    fh = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    sh = logging.StreamHandler()  # still see output in Replit console
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    fh.setFormatter(fmt); sh.setFormatter(fmt)
+    root.addHandler(fh); root.addHandler(sh)
+
+logging.info("Boot: logging to %s", log_file)
 
 # Try streamlined PTB v20.7 implementation
 try:

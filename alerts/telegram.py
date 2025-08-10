@@ -132,8 +132,21 @@ def cmd_logs_tail(update, context):
                 update.message.reply_text("❌ Invalid number. Usage: /logs_tail [n]")
                 return
         
-        # Get last n lines from buffer
-        recent_logs = list(log_buffer)[-n:]
+        # Try to read from log file first, then fallback to buffer
+        recent_logs = []
+        log_file = "logs/app.log"
+        
+        try:
+            if os.path.exists(log_file):
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    recent_logs = [line.rstrip() for line in lines[-n:]]
+            else:
+                # Fallback to buffer
+                recent_logs = list(log_buffer)[-n:]
+        except Exception:
+            # Final fallback to buffer
+            recent_logs = list(log_buffer)[-n:]
         
         if not recent_logs:
             update.message.reply_text("📄 No logs available")
