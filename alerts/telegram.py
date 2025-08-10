@@ -5,7 +5,9 @@ Advanced async admin commands for system monitoring and control
 
 import logging
 logging.basicConfig(level=logging.INFO)
-logging.info(">>> LOADED alerts.telegram vDEBUG-1 <<<")
+
+VERSION_TG = "tg-4"
+logging.info(f">>> alerts.telegram LOADED {VERSION_TG} <<<")
 
 import os, re, time, asyncio, logging, pathlib
 from typing import Dict, Optional, Tuple
