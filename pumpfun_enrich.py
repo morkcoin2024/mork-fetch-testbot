@@ -31,6 +31,10 @@ HEADERS = {
     "accept": "application/json",
 }
 
+# Global tracking for endpoint diagnostics
+_last_json_url = None
+_last_json_status = None
+
 def fetch_pumpfun(limit=50, offset=0, retries=3):
     """Fetch raw token data from Pump.fun with dual endpoint fallback and enhanced headers."""
     last_status = None
@@ -82,6 +86,43 @@ def fetch_pumpfun(limit=50, offset=0, retries=3):
         "endpoints_tried": len(PUMPFUN_ENDPOINTS)
     })
     return []
+
+def pumpfun_ping(limit: int = 10):
+    """Hit first working Pump.fun endpoint. Returns (url, status, n_items, err)."""
+    global _last_json_url, _last_json_status
+    err = None
+    for base in PUMPFUN_ENDPOINTS:
+        url = f"{base}?limit={limit}&offset=0"
+        _last_json_url = url
+        try:
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    with httpx.Client(timeout=PUMPFUN_TIMEOUT, headers=PUMPFUN_HEADERS) as s:
+                        r = s.get(url)
+                    _last_json_status = r.status_code
+                    if r.status_code == 200:
+                        js = r.json()
+                        items = js if isinstance(js, list) else js.get("coins") or js.get("data") or []
+                        return (url, r.status_code, len(items), None)
+                    # transient / CDN statuses: retry
+                    if r.status_code in (429, 500, 502, 503, 504, 530):
+                        base_wait = 0.5 * (2 ** attempt)
+                        time.sleep(base_wait + random.uniform(0.05, 0.35))
+                        continue
+                    err = f"HTTP {r.status_code}"
+                    break
+                except Exception as e:
+                    err = str(e)
+                    if attempt < retries - 1:
+                        base_wait = 0.5 * (2 ** attempt)
+                        time.sleep(base_wait + random.uniform(0.05, 0.35))
+                        continue
+                    break
+        except Exception as e:
+            err = str(e)
+            continue
+    return (_last_json_url, _last_json_status, 0, err)
 
 def enrich_with_dex(tokens):
     """Enrich tokens with DexScreener data."""
