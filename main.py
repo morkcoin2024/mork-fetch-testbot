@@ -45,8 +45,8 @@ try:
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # High-priority admin router for /a_* commands (group -1)
-    app.add_handler(MessageHandler(filters.TEXT, admin_router), group=-1)
+    # High-priority admin router for /a_* commands (group -100)
+    app.add_handler(MessageHandler(filters.ALL, admin_router), group=-100)
 
     # Basic commands (group 0)
     app.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
