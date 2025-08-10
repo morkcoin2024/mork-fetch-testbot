@@ -7,7 +7,21 @@ Real-time token data enrichment with comprehensive metadata extraction
 import httpx, os, time, random, logging
 from eventbus import publish
 
-PUMP_BASE = "https://frontend-api.pump.fun/coins/created"
+# --- Pump.fun config (dual endpoint + headers) ---
+PUMPFUN_ENDPOINTS = [
+    # primary
+    "https://frontend-api.pump.fun/coins/created",
+    # backup (community mirror; schema-compatible for very new launches)
+    "https://pumpportal.fun/api/coins/created",
+]
+PUMPFUN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://pump.fun/",
+    "Origin": "https://pump.fun",
+}
+PUMPFUN_TIMEOUT = 6.0
+
 DEX_SEARCH = "https://api.dexscreener.com/latest/dex/search?q="
 DEX_PAIR   = "https://api.dexscreener.com/latest/dex/pairs/solana/"
 SOLANA_RPC_HTTP = os.environ.get("SOLANA_RPC_HTTP", "").strip()
@@ -18,29 +32,55 @@ HEADERS = {
 }
 
 def fetch_pumpfun(limit=50, offset=0, retries=3):
-    """Fetch raw token data from Pump.fun with retry logic and event tracking."""
-    url = f"{PUMP_BASE}?limit={limit}&offset={offset}"
-    last = None
+    """Fetch raw token data from Pump.fun with dual endpoint fallback and enhanced headers."""
+    last_status = None
+    last_error = None
     
-    for attempt in range(retries):
-        try:
-            r = httpx.get(url, headers=HEADERS, timeout=8)
-            last = r.status_code
-            if r.status_code == 200:
-                data = r.json()
-                # Expect either list or {"coins":[...]}
-                if isinstance(data, dict) and "coins" in data:
-                    data = data["coins"]
-                publish("pumpfun.raw", {"n": len(data)})
-                return data
-            else:
-                publish("pumpfun.err", {"code": r.status_code})
-        except Exception as e:
-            publish("pumpfun.exc", {"err": str(e)})
-        if attempt < retries - 1:
-            time.sleep(0.4 * (2**attempt) + random.uniform(0.05, 0.3))
+    for endpoint_idx, base_url in enumerate(PUMPFUN_ENDPOINTS):
+        url = f"{base_url}?limit={limit}&offset={offset}"
+        endpoint_name = "primary" if endpoint_idx == 0 else "backup"
+        
+        for attempt in range(retries):
+            try:
+                r = httpx.get(url, headers=PUMPFUN_HEADERS, timeout=PUMPFUN_TIMEOUT)
+                last_status = r.status_code
+                
+                if r.status_code == 200:
+                    data = r.json()
+                    # Expect either list or {"coins":[...]}
+                    if isinstance(data, dict) and "coins" in data:
+                        data = data["coins"]
+                    
+                    publish("pumpfun.raw", {
+                        "n": len(data), 
+                        "endpoint": endpoint_name,
+                        "url": base_url
+                    })
+                    return data
+                else:
+                    publish("pumpfun.err", {
+                        "code": r.status_code, 
+                        "endpoint": endpoint_name,
+                        "attempt": attempt + 1
+                    })
+                    
+            except Exception as e:
+                last_error = str(e)
+                publish("pumpfun.exc", {
+                    "err": str(e), 
+                    "endpoint": endpoint_name,
+                    "attempt": attempt + 1
+                })
+                
+            if attempt < retries - 1:
+                time.sleep(0.4 * (2**attempt) + random.uniform(0.05, 0.3))
     
-    publish("pumpfun.empty", {"note": "no data", "last": last})
+    publish("pumpfun.empty", {
+        "note": "all endpoints failed", 
+        "last_status": last_status,
+        "last_error": last_error,
+        "endpoints_tried": len(PUMPFUN_ENDPOINTS)
+    })
     return []
 
 def enrich_with_dex(tokens):
