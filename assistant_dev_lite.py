@@ -44,44 +44,28 @@ Diffs must be unified diffs (git-style) that apply cleanly to current working di
 """
 
 def assistant_codegen(user_request: str) -> dict:
-    """Generate plan + diffs with current model, fallback if needed."""
+    import logging
+    model = get_current_model()  # <— dynamic
     msg = f"User request:\n{user_request}\nProject: Python Telegram bot + Flask on Replit."
-    current_model = get_current_model()
-    
     try:
         r = client.chat.completions.create(
-            model=current_model,
+            model=model,
             temperature=0.2,
-            messages=[
-                {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": msg},
-            ],
+            messages=[{"role":"system","content":SYSTEM},{"role":"user","content":msg}],
         )
     except Exception as e:
-        # Log and try fallback
-        import logging
-        logging.warning(f"Assistant model {current_model} failed: {e}")
+        logging.warning(f"Assistant model {model} failed: {e}")
         logging.warning(f"Falling back to {FALLBACK_MODEL}")
         r = client.chat.completions.create(
             model=FALLBACK_MODEL,
             temperature=0.2,
-            messages=[
-                {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": msg},
-            ],
+            messages=[{"role":"system","content":SYSTEM},{"role":"user","content":msg}],
         )
-
     content = r.choices[0].message.content or "{}"
     try:
         return json.loads(content)
     except Exception:
-        return {
-            "plan": "parse_error",
-            "diffs": [],
-            "commands": [],
-            "restart": "none",
-            "raw": content
-        }
+        return {"plan":"parse_error","diffs":[],"commands":[],"restart":"none","raw":content}
 
 @dataclass
 class ApplyResult:
