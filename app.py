@@ -614,6 +614,20 @@ Response System: Working (HTTP 200)
 
 Enhanced logging and monitoring active.'''
 
+                elif text.strip().startswith("/monitor"):
+                    from urllib.parse import urljoin, urlencode
+                    base = request.url_root  # e.g., https://<your-repl-domain>/
+                    tok  = os.environ.get("LIVE_TOKEN","")
+                    url  = urljoin(base, "monitor") + ("?" + urlencode({"token": tok}) if tok else "")
+                    response_text = f"Open Live Monitor:\n{url}"
+
+                elif text.strip().startswith("/live"):
+                    from urllib.parse import urljoin, urlencode
+                    base = request.url_root
+                    tok  = os.environ.get("LIVE_TOKEN","")
+                    url  = urljoin(base, "live") + ("?" + urlencode({"token": tok}) if tok else "")
+                    response_text = f"Open Live Console:\n{url}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
@@ -629,6 +643,10 @@ Admin Commands:
 /a_logs_stream - Log streaming info
 /a_logs_watch - Log monitoring status
 /a_mode - Operation mode details
+
+Live Monitoring:
+/monitor - Open real-time monitoring dashboard
+/live - Open compact live console
 
 AI Assistant:
 /assistant_model [model] - Get/set assistant AI model
