@@ -394,6 +394,9 @@ def fetch_and_rank(rules):
         chain_items = fetch_recent_pumpfun_mints(max_minutes=15, limit=25)
         all_items.extend(chain_items)
         logging.info("[FETCH] On-chain primary: %d ultra-fresh items", len(chain_items))
+        # Publish early discovery event for on-chain finds
+        if chain_items:
+            publish("fetch.onchain.early", {"yielded": len(chain_items), "max_minutes": 15})
         publish("source_complete", {"source": "on-chain", "count": len(chain_items), "status": "success"})
     except Exception as e:
         logging.warning("On-chain primary source failed: %s", e)
@@ -403,6 +406,9 @@ def fetch_and_rank(rules):
     try:
         pumpfun_rows = fetch_candidates_from_pumpfun(limit=200, offset=0)
         logging.info("[FETCH] Pump.fun API: %d items", len(pumpfun_rows))
+        # Publish early discovery event for Pump.fun finds
+        if pumpfun_rows:
+            publish("fetch.pumpfun.early", {"yielded": len(pumpfun_rows), "limit": 200})
         publish("source_complete", {"source": "pumpfun", "count": len(pumpfun_rows), "status": "success"})
     except Exception as e:
         logging.warning("Pump.fun API failed: %s", e)
@@ -432,6 +438,9 @@ def fetch_and_rank(rules):
 
     # Filter using YAML rules
     filtered = [t for t in all_items if _passes_rules(t, rules)]
+    
+    # Publish early discovery event for tokens that pass initial filtering
+    publish("fetch.dex.early", {"yielded": len(filtered), "total_raw": len(all_items)})
 
     # Score + coerce types
     for t in filtered:
