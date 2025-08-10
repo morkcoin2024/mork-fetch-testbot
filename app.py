@@ -237,26 +237,16 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         response_text = "Not authorized."
                     else:
                         try:
-                            from alerts import telegram as tg
-                            # Create mock update object for Flask-safe handler
-                            class MockUpdate:
-                                def __init__(self, text, user_data):
-                                    class MockMessage:
-                                        def __init__(self, text):
-                                            self.text = text
-                                        async def reply_text(self, response):
-                                            nonlocal response_text
-                                            response_text = response
-                                    class MockUser:
-                                        def __init__(self, user_data):
-                                            self.id = user_data.get('id')
-                                    self.message = MockMessage(text)
-                                    self.effective_user = MockUser(user_data)
+                            from alerts.telegram import assistant_generate_sync
                             
-                            mock_update = MockUpdate(text, user)
-                            import asyncio
-                            asyncio.create_task(tg.cmd_assistant_async_flask(mock_update, None))
-                            response_text = "🤖 Assistant request processing..."
+                            # Extract request from command
+                            req = text.partition(" ")[2].strip()
+                            if not req:
+                                response_text = "Usage: /assistant <request>"
+                            else:
+                                # Call synchronous assistant function
+                                model_used, ai_response = assistant_generate_sync(req)
+                                response_text = f"Model: {model_used}\n\n{ai_response}"
                         except Exception as e:
                             logger.exception("assistant handler error")
                             response_text = f"❌ /assistant failed: {e}"
