@@ -150,20 +150,46 @@ def webhook():
             if text and text.startswith('/'):
                 publish("command.route", {"cmd": text.split()[0]})
             
-            # Helper function for sending replies
-            def _reply(text: str):
+            # Helper functions for sending replies (with auto-split)
+            def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
                 try:
                     import requests
                     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-                    requests.post(
+                    payload = {
+                        "chat_id": message["chat"]["id"],
+                        "text": txt,
+                        "parse_mode": parse_mode,
+                        "disable_web_page_preview": no_preview,
+                    }
+                    r = requests.post(
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json={"chat_id": message['chat']['id'], "text": text, "parse_mode": "Markdown"},
-                        timeout=10,
+                        json=payload,
+                        timeout=15,
                     )
-                    return True
+                    return r.status_code == 200
                 except Exception as e:
                     logger.exception("sendMessage failed: %s", e)
                     return False
+
+            def _reply(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
+                # Telegram limit ~4096; stay under 3900 to be safe with code fences
+                MAX = 3900
+                if len(text) <= MAX:
+                    return _send_chunk(text, parse_mode, no_preview)
+                # split on paragraph boundaries where possible
+                i = 0
+                ok = True
+                while i < len(text):
+                    chunk = text[i:i+MAX]
+                    # try not to cut mid-line
+                    cut = chunk.rfind("\n")
+                    if cut > 1000:  # only use if it helps
+                        chunk = chunk[:cut]
+                        i += cut + 1
+                    else:
+                        i += len(chunk)
+                    ok = _send_chunk(chunk, parse_mode, no_preview) and ok
+                return ok
 
             # Simple admin command processing for immediate testing
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
