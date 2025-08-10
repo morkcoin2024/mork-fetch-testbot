@@ -15,23 +15,30 @@ LAST_JSON_STATUS = None
 DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/search"
 PUMPFUN_ENDPOINTS = ["https://frontend-api.pump.fun/coins/created"]
 
-def _get_json(url: str, params: Optional[Dict] = None, timeout: int = 10) -> Optional[Dict]:
-    """Helper to fetch JSON with proper error handling."""
+def _get_json_retry(url, params=None, headers=None, retries=3, backoff=1.5, timeout=10):
+    """Enhanced JSON fetcher with intelligent retry logic and httpx."""
     global LAST_JSON_URL, LAST_JSON_STATUS
-    try:
-        LAST_JSON_URL = url
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json"
-        }
-        response = requests.get(url, params=params, headers=headers, timeout=timeout)
-        response.raise_for_status()
-        LAST_JSON_STATUS = f"OK-{response.status_code}"
-        return response.json()
-    except Exception as e:
-        LAST_JSON_STATUS = f"ERROR-{e}"
-        logging.warning(f"JSON fetch failed for {url}: {e}")
-        return None
+    ua = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
+    if headers: ua.update(headers)
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            LAST_JSON_URL = url
+            r = httpx.get(url, params=params, headers=ua, timeout=timeout)
+            LAST_JSON_STATUS = r.status_code
+            if r.status_code in (429,500,502,503,504):
+                raise httpx.HTTPStatusError("transient", request=r.request, response=r)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_exc = e
+            time.sleep((backoff * (attempt+1)) + random.uniform(0,0.6))
+    logging.warning("JSON fetch failed for %s: %s", url, last_exc)
+    return None
+
+def _get_json(url: str, params: Optional[Dict] = None, timeout: int = 10) -> Optional[Dict]:
+    """Legacy helper for backward compatibility."""
+    return _get_json_retry(url, params=params, timeout=timeout)
 
 def _minutes_since_ms(timestamp_ms: Optional[int]) -> Optional[int]:
     """Calculate minutes since timestamp in milliseconds."""
@@ -51,7 +58,7 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
     for base in PUMPFUN_ENDPOINTS:
         try:
             params = {"limit": limit, "offset": offset}
-            js = _get_json(base, params=params)
+            js = _get_json_retry(base, params=params, retries=2, timeout=8)
             if not js:
                 continue
 
@@ -124,10 +131,10 @@ def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> 
             "Accept": "application/json"
         }
         
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        data = _get_json_retry(url, headers=headers, retries=2, timeout=10)
+        if not data:
+            return []
         
-        data = response.json()
         tokens = []
         
         for pair in data.get("pairs", [])[:max_pairs][:limit]:
@@ -165,9 +172,6 @@ def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> 
         logging.info(f"[FETCH] Retrieved {len(tokens)} tokens from DexScreener")
         return tokens
         
-    except requests.RequestException as e:
-        logging.error(f"[FETCH] DexScreener API error: {e}")
-        return []
     except Exception as e:
         logging.error(f"[FETCH] DexScreener fetch error: {e}")
         return []
