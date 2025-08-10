@@ -571,8 +571,12 @@ def assistant_generate_sync(user_request: str) -> tuple[str, str]:
 # --- F.E.T.C.H rules helpers (sync) ---
 def cmd_rules_show_sync() -> str:
     try:
-        from rules_loader import load_rules
-        from token_filter import render_rules, get_rules_version
+        # Map rulesloader's names to the helper names we use everywhere else
+        from rulesloader import (
+            loadrules as load_rules,
+            renderrules as render_rules,
+            getrulesversion as get_rules_version,
+        )
         load_rules()
         body = render_rules()
         return f"*rules.yaml (v{get_rules_version()})*:\n```\n{body}\n```"
@@ -582,8 +586,11 @@ def cmd_rules_show_sync() -> str:
 
 def cmd_rules_reload_sync() -> str:
     try:
-        from rules_loader import load_rules
-        from token_filter import get_rules_version
+        # Map rulesloader's names to the helper names we use everywhere else
+        from rulesloader import (
+            loadrules as load_rules,
+            getrulesversion as get_rules_version,
+        )
         load_rules(force=True)
         return f"✅ Rules reloaded (v{get_rules_version()})"
     except Exception as e:
@@ -593,8 +600,11 @@ def cmd_rules_reload_sync() -> str:
 def cmd_fetch_now_sync() -> str:
     """Mock shortlist (filters & formatting). Replace with real data sources next."""
     try:
-        from rules_loader import load_rules
-        from token_filter import get_rules_version
+        # Map rulesloader's names to the helper names we use everywhere else
+        from rulesloader import (
+            loadrules as load_rules,
+            getrulesversion as get_rules_version,
+        )
         rules = load_rules()
         N = int(rules.get("output", {}).get("max_results", 10))
         scan = rules.get("scan", {})
