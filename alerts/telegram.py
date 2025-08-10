@@ -29,12 +29,12 @@ except ImportError:
     def pumpfun_ping(limit=10):
         return ("unavailable", 0, 0, "pumpfun_enrich not available")
 
-# Import probe helpers for comprehensive diagnostics
+# Import probe functionality from data_fetcher
 try:
-    from probe_helpers import probe_pumpfun_sources
+    from data_fetcher import probe_pumpfun_sources
 except ImportError:
     def probe_pumpfun_sources(limit=50):
-        return {"error": "probe_helpers not available"}
+        return {"error": "probe_helpers not available", "sources": [], "rpc": {}}
 
 try:
     from telegram import __version__ as PTB_VERSION
@@ -262,66 +262,32 @@ async def cmd_pumpfun_status(update, context):
 
 async def cmd_pumpfun_probe(update, context):
     """Comprehensive multi-source Pump.fun diagnostic with RPC check"""
-    if not _is_admin(update):
-        return await update.message.reply_text("Not authorized.")
-    
-    # Publish command tracking events
-    publish("command.route", {"cmd": "/pumpfun_probe"})
-    publish("admin.command", {"command": "pumpfun_probe", "user": update.effective_user.username})
-    
-    try:
-        await update.message.reply_text("🔍 Running comprehensive multi-source probe...")
-        
-        results = probe_pumpfun_sources(limit=20)
-        
-        # Format sources summary
-        sources_summary = []
-        working_count = 0
-        for src in results.get("sources", []):
-            status_icon = "✅" if src["status"] == 200 else "❌"
-            if src["status"] == 200:
-                working_count += 1
-            sources_summary.append(f"{status_icon} {src['label']}: {src['status']} ({src['ms']}ms, {src['count']} items)")
-        
-        # Format RPC status
-        rpc = results.get("rpc", {})
-        rpc_icon = "✅" if rpc.get("ok") else "❌"
-        rpc_line = f"{rpc_icon} RPC: {rpc.get('ms', 'N/A')}ms - {rpc.get('error') or 'OK'}"
-        
-        # Build comprehensive status report
-        body = textwrap.dedent(f"""\
-            Multi-Source Probe Results
-            ═════════════════════════
-            Time: {results.get('at', 'unknown')}
-            Working Sources: {working_count}/{len(results.get('sources', []))}
-            
-            Sources:
-            {chr(10).join(sources_summary)}
-            
-            Infrastructure:
-            {rpc_line}
-            
-            Summary: {"✅ Multi-source connectivity OK" if working_count > 0 else "❌ All sources failing"}
-        """)
-        
-        parse_mode = ParseMode.MARKDOWN if ParseMode else None
-        await update.message.reply_text(f"```\n{body}\n```", parse_mode=parse_mode)
-        
-        # Publish detailed success event
-        publish("command.done", {
-            "cmd": "/pumpfun_probe", 
-            "ok": True,
-            "working_sources": working_count,
-            "total_sources": len(results.get("sources", [])),
-            "rpc_ok": rpc.get("ok", False)
-        })
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Multi-source probe failed: {str(e)}")
-        publish("command.error", {
-            "cmd": "/pumpfun_probe",
-            "error": str(e)
-        })
+    if str(getattr(update.effective_user, "id", "")) != str(ASSISTANT_ADMIN_TELEGRAM_ID):
+        await update.message.reply_text("Not authorized.")
+        return
+
+    res = probe_pumpfun_sources(limit=50)
+    lines = [
+        "🛠 Pump.fun Probe",
+        f"at: {res['at']}",
+        "",
+    ]
+    for s in res["sources"]:
+        mark = "✅" if (s["status"] == 200 and s["count"] > 0) else "⚠️" if s["status"] else "❌"
+        lines.append(f"{mark} {s['label']}  ({s['ms']} ms)  status={s['status']}  count={s['count']}" + (f"  err={s['error']}" if s["error"] else ""))
+        if s["samples"]:
+            for it in s["samples"]:
+                sym = it.get("symbol") or "?"
+                nm  = it.get("name") or "?"
+                lines.append(f"   • {sym} — {nm}")
+    r = res.get("rpc", {})
+    if r:
+        rmark = "✅" if r.get("ok") else "❌"
+        lines.append("")
+        lines.append(f"{rmark} solana-rpc ({r.get('ms')} ms) url={r.get('url')}"+ (f"  err={r.get('error')}" if r.get("error") else ""))
+
+    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
+    return "ok"
 
 async def _stream_task(chat_id: int, bot, period_sec: float = 5.0, duration_sec: float = 120.0):
     """Send last ~80 lines every few seconds; auto-stop after duration."""
