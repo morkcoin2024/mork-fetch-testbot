@@ -24,6 +24,27 @@ def unknown(update, context):
     update.message.reply_text("Unknown command. Type /help for available commands.")
 
 
+# NEW: handler map introspection so we can see priority at runtime
+def cmd_debug_handlers(update, context):
+    try:
+        app = context.application
+        lines = ["Handlers by group:"]
+        for group, handlers in sorted(app.handlers.items(), key=lambda kv: kv[0]):
+            descs = []
+            for h in handlers:
+                name = type(h).__name__
+                if name == "CommandHandler":
+                    cmds = getattr(h, "commands", set())
+                    descs.append(f"{name}({','.join(sorted(cmds))})")
+                else:
+                    descs.append(name)
+            lines.append(f"g{group}: " + ", ".join(descs))
+        txt = "\n".join(lines)
+        update.message.reply_text(f"```\n{txt}\n```", parse_mode="Markdown")
+    except Exception as e:
+        update.message.reply_text(f"debug error: {e}")
+
+
 
 def cmd_assistant(update, context):
     """Lightweight assistant command handler"""
