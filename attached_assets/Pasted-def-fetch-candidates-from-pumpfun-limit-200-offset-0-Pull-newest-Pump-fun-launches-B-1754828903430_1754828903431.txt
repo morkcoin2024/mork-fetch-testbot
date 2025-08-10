@@ -1,0 +1,48 @@
+def fetch_candidates_from_pumpfun(limit=200, offset=0):
+    """
+    Pull newest Pump.fun launches. Best-effort; returns [] on any failure.
+    Normalizes to our internal token dict with a 'source' tag.
+    """
+    for base in PUMPFUN_ENDPOINTS:
+        try:
+            params = {"limit": limit, "offset": offset}
+            js = _get_json(base, params=params)  # your existing JSON helper
+            if not js:
+                continue
+
+            rows = js if isinstance(js, list) else js.get("coins") or js.get("data") or []
+            items = []
+            for c in rows:
+                mint = c.get("mint") or c.get("mintAddress") or c.get("address")
+                if not mint:
+                    continue
+
+                name = c.get("name") or c.get("tokenName") or "Pump"
+                sym  = c.get("symbol") or c.get("ticker") or (name[:4].upper() if name else "PUMP")
+
+                ts = c.get("created_timestamp") or c.get("createdAt") or c.get("timestamp")
+                # seconds → ms if needed
+                if ts is not None and ts < 10_000_000_000:
+                    ts *= 1000
+                age_min = _minutes_since_ms(ts) if ts else None  # your existing helper
+
+                mcap = c.get("usd_market_cap") or c.get("market_cap") or c.get("fdv_usd")
+                liq  = c.get("liquidity_usd") or c.get("liquidity")
+
+                items.append({
+                    "source": "pumpfun",
+                    "symbol": sym or "?",
+                    "name": name or sym or "Pump",
+                    "mint": mint,
+                    "holders": c.get("holders") or None,
+                    "mcap_usd": mcap if isinstance(mcap, (int, float)) else None,
+                    "liquidity_usd": liq if isinstance(liq, (int, float)) else None,
+                    "age_min": age_min,
+                    "renounced_mint_auth": None,
+                    "renounced_freeze_auth": None,
+                })
+            if items:
+                return items
+        except Exception as e:
+            logging.warning("Pump.fun fetch/parsing failed for %s: %s", base, e)
+    return []

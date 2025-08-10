@@ -7,14 +7,20 @@ import requests
 import time
 from typing import List, Dict, Any, Optional
 
+# Stable public endpoints for production use
+PUMPFUN_ENDPOINTS = [
+    # Primary stable endpoint (supports ?limit=&offset=)
+    "https://frontend-api.pump.fun/coins/created",
+]
+
 def fetch_candidates_from_pumpfun(limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
     """
     Fetch real token candidates from Pump.fun API.
     Returns list of token data dictionaries.
     """
     try:
-        # Pump.fun API endpoint for new tokens
-        url = "https://frontend-api.pump.fun/coins"
+        # Use stable endpoint for production reliability
+        url = PUMPFUN_ENDPOINTS[0]
         params = {
             "offset": offset,
             "limit": limit,
