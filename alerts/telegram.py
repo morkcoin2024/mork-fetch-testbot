@@ -644,13 +644,11 @@ def cmd_fetch_now_sync() -> str:
         lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk"]
         for t in filtered:
             src  = t.get("source", "?")
-            tag  = "🟢 pumpfun" if src == "pumpfun" else "🔵 dexscreener"
+            tag  = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
             sym  = t.get("symbol", "?")
             name = (t.get("name") or sym)[:20]
             holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
-            mcap = t.get("mcap_usd")
-            liq  = t.get("liquidity_usd")
-            age  = t.get("age_min")
+            mcap = t.get("mcap_usd"); liq = t.get("liquidity_usd"); age = t.get("age_min")
             risk = t.get("risk", "?")
             lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk}")
         
