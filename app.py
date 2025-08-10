@@ -113,6 +113,9 @@ def index():
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging"""
     try:
+        # Import publish at function level to avoid import issues
+        from eventbus import publish
+        
         # Log incoming webhook request
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
         
