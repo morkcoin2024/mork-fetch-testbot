@@ -73,11 +73,19 @@ try:
 
     logging.info("PTB polling boot OK. Handlers: whoami, ping, status, logs_tail, logs_stream, logs_watch, mode(g0), unknown(g999)")
     
+    # Add comprehensive logging to track all bot activity
+    logging.info(f"[MAIN] Starting PTB polling with admin router on group -100")
+    logging.info(f"[MAIN] Admin ID configured: {ASSISTANT_ADMIN_TELEGRAM_ID}")
+    
     if __name__ == '__main__':
         app.run_polling(allowed_updates=constants.UpdateType.ALL_TYPES, drop_pending_updates=True)
 
 except ImportError as e:
     logging.info(f"PTB streamlined mode not available ({e}) - using Flask fallback")
+    
+    # Add comprehensive bot logging configuration
+    bot_logger = logging.getLogger('telegram')
+    bot_logger.setLevel(logging.DEBUG)
     
     # Fallback to Flask application
     from app import app

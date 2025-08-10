@@ -26,16 +26,26 @@ class MorkFetchBot:
         self.app = None
         self.telegram_available = False
         
-        # Telegram bot functionality temporarily disabled due to import conflicts
-        # The AI assistant system works independently via webhooks
+        # Try to enable Telegram bot functionality
         try:
-            # Attempt import but gracefully handle failures
+            # Attempt import and enable bot if successful
             import telegram
-            print("Telegram bot temporarily disabled - assistant system active")
-            self.telegram_available = False
+            from telegram.ext import ApplicationBuilder
             
-            # Telegram functionality disabled - assistant system runs independently
-            logger.info("Assistant system active - Telegram bot disabled")
+            print("Attempting to enable Telegram bot functionality...")
+            logger.info("Enabling Telegram bot - testing PTB integration")
+            
+            # Test if we can create a basic bot instance
+            token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            if token:
+                # Try to create application to test functionality
+                test_app = ApplicationBuilder().token(token).build()
+                self.telegram_available = True
+                print("✅ Telegram bot enabled successfully")
+                logger.info("Telegram bot enabled and operational")
+            else:
+                print("❌ No TELEGRAM_BOT_TOKEN found")
+                self.telegram_available = False
             
         except Exception as e:
             logger.warning(f"Telegram bot disabled: {e}")

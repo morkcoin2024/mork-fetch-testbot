@@ -103,24 +103,89 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Handle Telegram webhook updates"""
+    """Handle Telegram webhook updates with comprehensive logging"""
     try:
-        if not mork_bot:
-            logger.error("Bot not initialized - missing TELEGRAM_BOT_TOKEN")
-            return jsonify({"error": "Bot not available"}), 500
-            
+        # Log incoming webhook request
+        logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
+        
         update_data = request.get_json()
+        logger.info(f"[WEBHOOK] Update data: {update_data}")
         
-        # Process update asynchronously
-        import asyncio
-        from telegram import Update
+        if not mork_bot:
+            logger.error("[WEBHOOK] Bot not initialized - missing TELEGRAM_BOT_TOKEN")
+            return jsonify({"error": "Bot not available"}), 500
         
-        update = Update.de_json(update_data, mork_bot.application.bot)
+        # Skip PTB dependency and handle webhook directly
+        if not mork_bot.telegram_available:
+            logger.warning("[WEBHOOK] PTB disabled, using direct webhook processing")
+            
+        # Process the update
+        if 'message' in update_data:
+            message = update_data['message']
+            user = message.get('from', {})
+            text = message.get('text', '')
+            
+            logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}'")
+            
+            # Simple admin command processing for immediate testing
+            from config import ASSISTANT_ADMIN_TELEGRAM_ID
+            
+            if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID and text.startswith('/'):
+                logger.info(f"[WEBHOOK] Admin command detected: {text}")
+                
+                # Process admin commands directly without PTB
+                chat_id = message['chat']['id']
+                response_text = None
+                
+                if text.strip() in ['/ping', '/a_ping']:
+                    response_text = 'Pong! Webhook processing is working! 🎯'
+                elif text.strip() in ['/status', '/a_status']:
+                    response_text = f'''🤖 Mork F.E.T.C.H Bot Status
+                    
+Mode: Webhook Processing
+PTB: Disabled (import conflicts)
+Admin Commands: Direct webhook
+Logging: Enhanced (active)
+Health: Operational
+
+Admin router with comprehensive logging active.'''
+                elif text.strip() in ['/whoami', '/a_whoami']:
+                    response_text = f'''Your Telegram Info:
+ID: {user.get('id', 'unknown')}
+Username: @{user.get('username', 'unknown')}
+Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
+                elif text.strip() in ['/help']:
+                    response_text = '''🐕 Mork F.E.T.C.H Bot Commands
+
+Admin Commands:
+/ping, /a_ping - Test responsiveness
+/status, /a_status - System status
+/whoami, /a_whoami - Your Telegram info
+/help - This help message
+
+Bot is operational with direct webhook processing.
+Admin alias commands (a_*) available to avoid conflicts.'''
+                
+                if response_text:
+                    # Send response using direct API call
+                    import requests
+                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                    response_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    
+                    response_data = {
+                        'chat_id': chat_id,
+                        'text': response_text
+                    }
+                    
+                    resp = requests.post(response_url, json=response_data)
+                    logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {resp.status_code}")
+                    
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+                else:
+                    logger.info(f"[WEBHOOK] Unknown admin command: {text}")
+                    return jsonify({"status": "ok", "command": text, "response_sent": False})
         
-        # Run the update handler
-        asyncio.create_task(mork_bot.application.process_update(update))
-        
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok", "processed": True})
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")

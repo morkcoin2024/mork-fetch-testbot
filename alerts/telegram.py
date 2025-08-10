@@ -52,13 +52,39 @@ def _current_mode_text() -> str:
 def cmd_whoami(update, context):
     uid = update.effective_user.id if update.effective_user else "unknown"
     uname = update.effective_user.username if update.effective_user else "unknown"
-    update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
+    
+    logging.info(f"[CMD_WHOAMI] Called by {uname} ({uid})")
+    
+    try:
+        response = update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
+        logging.info(f"[CMD_WHOAMI] Response sent successfully")
+        return response
+    except Exception as e:
+        logging.exception(f"[CMD_WHOAMI] Failed to send response: {e}")
+        raise
 
 def cmd_ping(update, context):
-    update.message.reply_text("pong")
+    uid = update.effective_user.id if update.effective_user else "unknown"
+    uname = update.effective_user.username if update.effective_user else "unknown"
+    
+    logging.info(f"[CMD_PING] Called by {uname} ({uid})")
+    
+    try:
+        response = update.message.reply_text("pong")
+        logging.info(f"[CMD_PING] Response sent successfully")
+        return response
+    except Exception as e:
+        logging.exception(f"[CMD_PING] Failed to send response: {e}")
+        raise
 
 async def cmd_status(update, context):
+    uid = update.effective_user.id if update.effective_user else "unknown"
+    uname = update.effective_user.username if update.effective_user else "unknown"
+    
+    logging.info(f"[CMD_STATUS] Called by {uname} ({uid})")
+    
     if not _is_admin(update):
+        logging.warning(f"[CMD_STATUS] Unauthorized access attempt from {uname} ({uid})")
         return await update.message.reply_text("Not authorized.")
     # Build a handler table (groups → handlers)
     try:
@@ -77,9 +103,14 @@ async def cmd_status(update, context):
             lines.append(f" g{grp}: " + ", ".join(descs))
         txt = "```\n" + "\n".join(lines) + "\n```"
         parse_mode = ParseMode.MARKDOWN if ParseMode else None
-        await update.message.reply_text(txt, parse_mode=parse_mode)
+        
+        logging.info(f"[CMD_STATUS] Sending status response to {uname} ({uid})")
+        response = await update.message.reply_text(txt, parse_mode=parse_mode)
+        logging.info(f"[CMD_STATUS] Response sent successfully")
+        return response
+        
     except Exception as e:
-        logging.exception("status error")
+        logging.exception(f"[CMD_STATUS] Error: {e}")
         await update.message.reply_text(f"status error: {e}")
 
 async def cmd_logs_tail(update, context):
