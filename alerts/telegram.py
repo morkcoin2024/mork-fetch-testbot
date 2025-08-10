@@ -523,6 +523,58 @@ def cmd_rules_profile(update, context):
     except Exception as e:
         update.message.reply_text(f"❌ Error switching profile: {str(e)}")
 
+# --- Flask-safe assistant handler (no PTB dependency) ---
+import os, logging
+from openai import OpenAI
+from assistant_dev import get_current_model
+
+# Use your existing OPENAI_API_KEY env
+_CLIENT = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+async def cmd_assistant_async_flask(update, context):
+    """
+    Works in Flask webhook mode. Tries the current model first (e.g., gpt-5-thinking),
+    falls back to gpt-4o on any error, and ALWAYS replies.
+    """
+    try:
+        text = (update.message.text or "")
+        req = text.partition(" ")[2].strip()
+        if not req:
+            await update.message.reply_text("Usage: /assistant <request>")
+            return
+
+        sys = (
+            "You are an engineering assistant. Be concise. "
+            "If the request includes '(plan only)', return a short plan; do not modify files."
+        )
+
+        def call_model(model: str) -> str:
+            r = _CLIENT.chat.completions.create(
+                model=model,
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": sys},
+                    {"role": "user", "content": req},
+                ],
+            )
+            return r.choices[0].message.content
+
+        preferred = get_current_model()
+        used = preferred
+        try:
+            out = call_model(preferred)
+        except Exception as e:
+            logging.warning("Assistant model %s failed: %s ; falling back to gpt-4o", preferred, e)
+            used = "gpt-4o"
+            out = call_model(used)
+
+        if len(out) > 3500:
+            out = out[:3500] + "\n\n…(truncated)…"
+        await update.message.reply_text(f"Model: {used}\n\n{out}")
+    except Exception as e:
+        logging.exception("cmd_assistant_async_flask error")
+        await update.message.reply_text(f"❌ /assistant failed: {e}")
+
 def cmd_rules_set(update, context):
     """Update a rules value"""
     user_id = update.effective_user.id
