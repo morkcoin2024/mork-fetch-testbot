@@ -41,7 +41,7 @@ try:
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Specific commands FIRST (group 0)
+    # Basic commands (group 0)
     app.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
     app.add_handler(CommandHandler("ping", cmd_ping), group=0)
     
@@ -51,6 +51,15 @@ try:
     app.add_handler(CommandHandler("logs_stream",  cmd_logs_stream),  group=0)
     app.add_handler(CommandHandler("logs_watch",   cmd_logs_watch),   group=0)
     app.add_handler(CommandHandler("mode",         cmd_mode),         group=0)
+    
+    # Admin-only aliases (avoid collisions with legacy commands)
+    app.add_handler(CommandHandler("a_status",      cmd_status),      group=0)
+    app.add_handler(CommandHandler("a_logs_tail",   cmd_logs_tail),   group=0)
+    app.add_handler(CommandHandler("a_logs_stream", cmd_logs_stream), group=0)
+    app.add_handler(CommandHandler("a_logs_watch",  cmd_logs_watch),  group=0)
+    app.add_handler(CommandHandler("a_mode",        cmd_mode),        group=0)
+    app.add_handler(CommandHandler("a_ping",        cmd_ping),        group=0)
+    app.add_handler(CommandHandler("a_whoami",      cmd_whoami),      group=0)
 
     # Catch-all LAST (very low priority)
     app.add_handler(MessageHandler(filters.COMMAND, unknown), group=999)
