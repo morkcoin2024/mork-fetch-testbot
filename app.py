@@ -70,6 +70,10 @@ def index():
             <h1>🐕 Mork F.E.T.C.H Bot</h1>
             <h3>Degens' Best Friend</h3>
             <p><em>Fast Execution, Trade Control Handler</em></p>
+            <div style="margin-top: 15px;">
+                <a href="/monitor" style="color: #7cb342; text-decoration: none; margin-right: 15px;">📊 Live Monitor</a>
+                <a href="/live" style="color: #7cb342; text-decoration: none;">💻 Live Console</a>
+            </div>
         </div>
         
         <div class="status">
@@ -755,6 +759,56 @@ def stream_events():
             'Access-Control-Allow-Headers': 'Cache-Control'
         }
     )
+
+LIVE_HTML = """
+<!doctype html>
+<meta charset="utf-8">
+<title>Mork Live Console</title>
+<style>
+ body{font-family:ui-monospace,monospace;background:#0b0f14;color:#e6edf3;margin:0}
+ header{padding:12px 16px;background:#111827;position:sticky;top:0}
+ .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
+ #log{padding:10px 14px;white-space:pre-wrap;font-size:13px;line-height:1.35}
+ .ts{opacity:.6}
+ .row{border-bottom:1px solid #1f2937;padding:6px 0}
+</style>
+<header>
+  <b>Mork Live Console</b>
+  <span id="status" style="margin-left:10px;opacity:.8">connecting...</span>
+</header>
+<div id="log"></div>
+<script>
+const log = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const params=new URLSearchParams(location.search);
+const token=params.get('token')||'';
+const es=new EventSource(`/events?token=${encodeURIComponent(token)}`);
+es.onopen=()=>statusEl.textContent='connected';
+es.onerror=()=>statusEl.textContent='reconnecting...';
+es.onmessage=(e)=>{
+  const evt=JSON.parse(e.data);
+  const d=new Date(evt.ts);
+  const ts=d.toISOString().replace('T',' ').replace('Z','');
+  const type=evt.type||'evt';
+  const data=evt.data||{};
+  const pretty=JSON.stringify(data);
+  const div=document.createElement('div');
+  div.className='row';
+  div.innerHTML=`<span class="ts">${ts}</span> — <b>${type}</b> ${pretty}`;
+  log.prepend(div);
+  const rows=log.children;
+  for(let i=500;i<rows.length;i++) rows[i].remove();
+};
+</script>
+"""
+
+@app.route("/live")
+def live():
+    """Compact live console interface with token-gated access."""
+    tok = request.args.get("token", "")
+    if LIVE_TOKEN and tok != LIVE_TOKEN:
+        return Response("unauthorized", status=401)
+    return render_template_string(LIVE_HTML)
 
 @app.route('/api/trigger-fetch')
 def trigger_fetch():
