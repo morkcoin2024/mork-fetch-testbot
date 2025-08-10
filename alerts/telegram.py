@@ -1,6 +1,6 @@
 """
 Telegram Alert Handlers for Mork F.E.T.C.H Bot
-Standalone command functions for easy integration
+Standalone command functions for easy integration with PTB v20+
 """
 
 import os
