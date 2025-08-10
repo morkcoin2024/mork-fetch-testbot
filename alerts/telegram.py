@@ -628,41 +628,16 @@ async def cmd_fetch_source_sync(update, context):
         return "ok"
 
 def cmd_fetch_now_sync() -> str:
-    """Real token filtering with live data from Pump.fun and DexScreener."""
+    """Enhanced multi-source token filtering with Pump.fun + DexScreener integration."""
     try:
         from rules import load_rules, get_rules_version
-        from data_fetcher import apply_risk_scoring
+        from data_fetcher import fetch_and_rank
         
         rules = load_rules()
         N = int(rules.get("output", {}).get("max_results", 10))
-        scan = rules.get("scan", {})
         
-        # Fetch real data from Pump.fun
-        items = fetch_candidates_from_pumpfun(limit=50, offset=0)
-        
-        # Apply risk scoring
-        items = apply_risk_scoring(items, rules)
-        
-        # Apply rules filtering
-        max_age = scan.get("max_age_minutes", 180)
-        min_holders = scan.get("holders_min", 75)
-        max_holders = scan.get("holders_max", 5000)
-        min_mcap = scan.get("mcap_min_usd", 50000)
-        max_mcap = scan.get("mcap_max_usd", 2000000)
-        min_liq = scan.get("liquidity_min_usd", 10000)
-        max_risk = rules.get("risk", {}).get("max_score", 70)
-        
-        filtered = []
-        for item in items:
-            age_ok = item.get("age_min") is None or item["age_min"] <= max_age
-            holders_ok = item.get("holders") is None or item["holders"] == -1 or (min_holders <= item["holders"] <= max_holders)
-            mcap_ok = item.get("mcap_usd") is None or (min_mcap <= item["mcap_usd"] <= max_mcap)
-            liq_ok = item.get("liquidity_usd") is None or item["liquidity_usd"] >= min_liq
-            risk_ok = item.get("risk") is None or item["risk"] <= max_risk
-            
-            if age_ok and holders_ok and mcap_ok and liq_ok and risk_ok:
-                filtered.append(item)
-        
+        # Use enhanced fetch_and_rank for multi-source integration
+        filtered = fetch_and_rank(rules)
         filtered = filtered[:N]
         
         # Format output with source column and green tag
@@ -672,7 +647,7 @@ def cmd_fetch_now_sync() -> str:
         lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk"]
         for t in filtered:
             src  = t.get("source", "?")
-            tag  = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
+            tag  = "🟢 pumpfun" if src == "pumpfun" else "🔵 dexscreener"
             sym  = t.get("symbol", "?")
             name = (t.get("name") or sym)[:20]
             holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
@@ -684,7 +659,7 @@ def cmd_fetch_now_sync() -> str:
         
         body = "\n".join(lines)
         if len(body) > 3800: body = body[:3800] + "\n…(truncated)…"
-        return f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(filtered)} tokens:\n```\n{body}\n```"
+        return f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(filtered)} tokens (multi-source):\n```\n{body}\n```"
         
     except Exception as e:
         logging.exception("fetch_now error")

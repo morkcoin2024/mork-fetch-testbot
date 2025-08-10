@@ -97,7 +97,7 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
     logging.error("[FETCH] All Pump.fun endpoints failed")
     return []
 
-def fetch_candidates_from_dexscreener(limit: int = 50) -> List[Dict[str, Any]]:
+def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> List[Dict[str, Any]]:
     """
     Fetch token candidates from DexScreener API.
     Returns list of token data dictionaries.
@@ -117,7 +117,7 @@ def fetch_candidates_from_dexscreener(limit: int = 50) -> List[Dict[str, Any]]:
         data = response.json()
         tokens = []
         
-        for pair in data.get("pairs", [])[:limit]:
+        for pair in data.get("pairs", [])[:max_pairs][:limit]:
             # Calculate age in minutes
             created_at = pair.get("pairCreatedAt")
             age_min = None
@@ -135,6 +135,7 @@ def fetch_candidates_from_dexscreener(limit: int = 50) -> List[Dict[str, Any]]:
                 "symbol": base_token.get("symbol", ""),
                 "name": base_token.get("name", ""),
                 "contract": base_token.get("address", ""),
+                "mint": base_token.get("address", ""),  # Keep both for compatibility
                 "holders": None,  # Not available in DexScreener API
                 "mcap_usd": pair.get("marketCap"),
                 "liquidity_usd": pair.get("liquidity", {}).get("usd"),
@@ -199,3 +200,150 @@ def apply_risk_scoring(tokens: List[Dict[str, Any]], rules: Dict[str, Any]) -> L
     filtered_tokens = [t for t in tokens if t.get("risk", 0) <= max_score]
     
     return filtered_tokens
+
+def _passes_rules(token: Dict[str, Any], rules: Dict[str, Any]) -> bool:
+    """Check if token passes YAML rules filtering."""
+    scan = rules.get("scan", {})
+    
+    # Age filter
+    max_age = scan.get("max_age_minutes", 180)
+    if token.get("age_min") is not None and token["age_min"] > max_age:
+        return False
+    
+    # Holders filter
+    holders = token.get("holders")
+    if holders is not None and holders != -1:
+        min_holders = scan.get("holders_min", 75)
+        max_holders = scan.get("holders_max", 5000)
+        if not (min_holders <= holders <= max_holders):
+            return False
+    
+    # Market cap filter
+    mcap = token.get("mcap_usd")
+    if mcap is not None:
+        min_mcap = scan.get("mcap_min_usd", 50000)
+        max_mcap = scan.get("mcap_max_usd", 2000000)
+        if not (min_mcap <= mcap <= max_mcap):
+            return False
+    
+    # Liquidity filter
+    liquidity = token.get("liquidity_usd")
+    if liquidity is not None:
+        min_liq = scan.get("liquidity_min_usd", 10000)
+        if liquidity < min_liq:
+            return False
+    
+    return True
+
+def _score_token(token: Dict[str, Any], rules: Dict[str, Any]) -> float:
+    """Calculate risk score for a token based on rules."""
+    risk_config = rules.get("risk", {})
+    weights = risk_config.get("weights", {})
+    risk_score = 0
+    
+    # Age scoring (newer = riskier)
+    age_min = token.get("age_min")
+    if age_min is not None and weights.get("age", 0) > 0:
+        age_risk = min(100, (180 - age_min) / 180 * 100)
+        risk_score += age_risk * weights["age"]
+    
+    # Holders scoring (fewer = riskier)
+    holders = token.get("holders")
+    if holders is not None and holders > 0 and weights.get("holders", 0) > 0:
+        holder_risk = max(0, (5000 - holders) / 5000 * 100)
+        risk_score += holder_risk * weights["holders"]
+    
+    # Liquidity scoring (lower = riskier)
+    liquidity = token.get("liquidity_usd")
+    if liquidity is not None and weights.get("liquidity", 0) > 0:
+        liq_risk = max(0, (100000 - liquidity) / 100000 * 100)
+        risk_score += liq_risk * weights["liquidity"]
+    
+    # Market cap scoring (lower = riskier)
+    mcap = token.get("mcap_usd")
+    if mcap is not None and weights.get("mcap", 0) > 0:
+        mcap_risk = max(0, (2000000 - mcap) / 2000000 * 100)
+        risk_score += mcap_risk * weights["mcap"]
+    
+    # Renounced authority bonus (lower risk)
+    renounce_weight = weights.get("renounce", 0)
+    if renounce_weight > 0:
+        mint_renounced = token.get("renounced_mint_auth")
+        freeze_renounced = token.get("renounced_freeze_auth")
+        if mint_renounced or freeze_renounced:
+            risk_score -= 10 * renounce_weight  # Reduce risk for renounced
+    
+    return round(max(0, risk_score), 1)
+
+def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Deduplicate tokens by mint address, keeping the best one (Pump.fun preferred, then lowest risk)."""
+    seen_mints = {}
+    
+    for token in tokens:
+        mint = token.get("mint") or token.get("contract")
+        if not mint:
+            continue
+            
+        if mint not in seen_mints:
+            seen_mints[mint] = token
+        else:
+            existing = seen_mints[mint]
+            
+            # Prefer Pump.fun source
+            if token.get("source") == "pumpfun" and existing.get("source") != "pumpfun":
+                seen_mints[mint] = token
+            elif existing.get("source") == "pumpfun" and token.get("source") != "pumpfun":
+                continue  # Keep existing Pump.fun token
+            else:
+                # Same source priority, choose lower risk
+                if token.get("risk", 100) < existing.get("risk", 100):
+                    seen_mints[mint] = token
+    
+    return list(seen_mints.values())
+
+def fetch_and_rank(rules):
+    """Merge Pump.fun + Dexscreener, filter, score, de-dupe, then order with Pump.fun first."""
+    all_items = []
+
+    # 1) Pump.fun first (ultra-new)
+    try:
+        all_items.extend(fetch_candidates_from_pumpfun(limit=200, offset=0))
+    except Exception as e:
+        logging.warning("Pump.fun source failed: %s", e)
+
+    # 2) Dexscreener
+    try:
+        all_items.extend(fetch_candidates_from_dexscreener(max_pairs=500))
+    except Exception as e:
+        logging.warning("Dexscreener source failed: %s", e)
+
+    # Filter using YAML rules
+    filtered = [t for t in all_items if _passes_rules(t, rules)]
+
+    # Score + coerce types
+    for t in filtered:
+        t["risk"] = _score_token(t, rules)
+        if t.get("mcap_usd") is not None:
+            t["mcap_usd"] = int(t["mcap_usd"])
+        if t.get("liquidity_usd") is not None:
+            t["liquidity_usd"] = int(t["liquidity_usd"])
+        if t.get("age_min") is not None:
+            t["age_min"] = int(t["age_min"])
+        if t.get("holders") is None:
+            t["holders"] = -1
+
+    # De-dupe by mint (keep Pump.fun/newest or lowest risk)
+    filtered = _dedupe_keep_best(filtered)
+
+    # Order: Pump.fun first, then lowest risk, then higher liquidity
+    def _src_priority(src): 
+        return 0 if src == "pumpfun" else 1
+    
+    filtered.sort(key=lambda x: (
+        _src_priority(x.get("source")), 
+        x["risk"], 
+        -(x.get("liquidity_usd") or 0)
+    ))
+    
+    logging.info(f"[FETCH] Merged and ranked {len(filtered)} tokens from {len(all_items)} total")
+    return filtered
