@@ -1,5 +1,5 @@
 # birdeye.py
-import os, time, logging, httpx
+import os, time, logging, httpx, threading
 from collections import deque
 
 BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
@@ -14,6 +14,8 @@ class BirdeyeScanner:
         self.running = False
         self.seen = deque(maxlen=5000)      # recent mints memory
         self._seen_set = set()
+        self._thread = None
+        self._stop_event = threading.Event()
 
     def _mark_seen(self, mint):
         if mint in self._seen_set: return False
@@ -26,12 +28,18 @@ class BirdeyeScanner:
     def start(self):
         if self.running: return
         self.running = True
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._scan_loop, daemon=True)
+        self._thread.start()
         self.publish("scan.birdeye.start", {"interval": SCAN_INTERVAL})
         logging.info("[SCAN] Birdeye scanner started (every %ss)", SCAN_INTERVAL)
 
     def stop(self):
         if not self.running: return
         self.running = False
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
         self.publish("scan.birdeye.stop", {})
 
     def status(self):
@@ -39,7 +47,19 @@ class BirdeyeScanner:
             "running": self.running,
             "interval": SCAN_INTERVAL,
             "seen_cache": len(self._seen_set),
+            "thread_alive": self._thread.is_alive() if self._thread else False,
         }
+
+    def _scan_loop(self):
+        """Background scanning loop"""
+        while self.running and not self._stop_event.is_set():
+            try:
+                self.tick()
+                self._stop_event.wait(SCAN_INTERVAL)
+            except Exception as e:
+                logging.error("[SCAN] Background scan error: %s", e)
+                self.publish("scan.birdeye.error", {"err": f"background_scan: {e}"})
+                self._stop_event.wait(SCAN_INTERVAL)
 
     def tick(self):
         if not self.running: return
