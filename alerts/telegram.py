@@ -99,6 +99,14 @@ def cmd_whoami(update, context):
     uname = update.effective_user.username if update.effective_user else "unknown"
     update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
 
+def log_update(update, context):
+    """Log ANY update so we know the bot is receiving messages at all"""
+    try:
+        import logging
+        logging.info("UPDATE: %s", update.to_dict())
+    except Exception:
+        pass
+
 def cmd_rules_show(update, context):
     """Show current rules configuration"""
     user_id = update.effective_user.id
