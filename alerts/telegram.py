@@ -13,6 +13,7 @@ import os, re, time, asyncio, logging, pathlib, importlib
 from typing import Dict, Optional, Tuple
 from data_fetcher import fetch_candidates_from_pumpfun, _fetch_pairs_from_dexscreener_search
 import data_fetcher as df
+from admin_notifications import send_fetch_summary, _dm_admin_alert
 
 # Import event publishing for command tracking
 try:
@@ -541,6 +542,114 @@ def cmd_rules_profile(update, context):
             
     except Exception as e:
         update.message.reply_text(f"❌ Error switching profile: {str(e)}")
+
+async def cmd_fetch_now(update, context):
+    """Enhanced fetch command with comprehensive admin DM summaries."""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    
+    # Publish command initiation event
+    publish("command.route", {"cmd": "fetch_now", "user_id": user_id})
+    
+    await update.message.reply_text("🔄 Initiating comprehensive tri-source fetch...")
+    
+    try:
+        # Load rules configuration
+        from rules_loader import Rules
+        rules = Rules()
+        
+        # Execute tri-source fetch with error tracking
+        from data_fetcher import fetch_and_rank
+        
+        # Track source failures
+        pumpfun_failed = False
+        dex_failed = False
+        onchain_failed = False
+        
+        # Get all items before filtering
+        try:
+            all_items = []
+            
+            # On-chain fetch
+            try:
+                from pump_chain import fetch_recent_pumpfun_mints
+                chain_items = fetch_recent_pumpfun_mints(max_minutes=15, limit=25)
+                all_items.extend(chain_items)
+            except Exception as e:
+                onchain_failed = True
+                logging.warning(f"On-chain fetch failed: {e}")
+            
+            # Pump.fun fetch
+            try:
+                pumpfun_items = fetch_candidates_from_pumpfun(limit=200, offset=0)
+                all_items.extend(pumpfun_items)
+            except Exception as e:
+                pumpfun_failed = True
+                logging.warning(f"Pump.fun fetch failed: {e}")
+            
+            # DexScreener fetch
+            try:
+                dex_items = _fetch_pairs_from_dexscreener_search(query="solana", limit=300)
+                all_items.extend(dex_items)
+            except Exception as e:
+                dex_failed = True
+                logging.warning(f"DexScreener fetch failed: {e}")
+            
+            # Apply filtering and ranking
+            filtered_items = fetch_and_rank(rules.data)
+            
+            # Send comprehensive admin summary
+            await send_fetch_summary(
+                context, 
+                all_items, 
+                filtered_items,
+                pumpfun_failed=pumpfun_failed,
+                dex_failed=dex_failed,
+                onchain_failed=onchain_failed
+            )
+            
+            # Send user response
+            source_counts = {}
+            for item in filtered_items[:10]:  # Top 10
+                source = item.get("source", "unknown")
+                source_counts[source] = source_counts.get(source, 0) + 1
+            
+            source_summary = " | ".join([f"{src}: {count}" for src, count in source_counts.items()])
+            
+            response = f"""✅ Fetch completed!
+📊 Found {len(filtered_items)} ranked tokens from {len(all_items)} raw
+🎯 Top 10 sources: {source_summary}
+📈 Filter efficiency: {(len(filtered_items)/len(all_items)*100):.1f}%
+
+📱 Admin DM sent with detailed breakdown."""
+            
+            await update.message.reply_text(response)
+            
+            # Publish success event
+            publish("command.done", {
+                "cmd": "fetch_now", 
+                "user_id": user_id,
+                "success": True,
+                "total_tokens": len(filtered_items),
+                "raw_tokens": len(all_items)
+            })
+            
+        except Exception as e:
+            await _dm_admin_alert(context, "FETCH_ERROR", f"Fetch operation failed: {str(e)}")
+            await update.message.reply_text(f"❌ Fetch failed: {str(e)}")
+            
+            # Publish error event
+            publish("command.error", {
+                "cmd": "fetch_now",
+                "user_id": user_id, 
+                "error": str(e)
+            })
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Command error: {str(e)}")
+        publish("command.error", {"cmd": "fetch_now", "user_id": user_id, "error": str(e)})
 
 # --- Sync assistant for Flask webhook (no asyncio needed) ---
 import os, logging
