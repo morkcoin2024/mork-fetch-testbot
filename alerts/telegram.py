@@ -4,6 +4,7 @@ Standalone command functions for easy integration with PTB v20+
 """
 
 import os
+import logging
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
 
@@ -13,14 +14,14 @@ def cmd_whoami(update, context):
     update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
 
 
+def cmd_ping(update, context):
+    update.message.reply_text("pong")
+
+
 def unknown(update, context):
-    # Helpful debug: show what command was caught
     txt = update.message.text if getattr(update, "message", None) else ""
+    logging.info("UNKNOWN caught: %r", txt)
     update.message.reply_text("Unknown command. Type /help for available commands.")
-    try:
-        import logging; logging.info("UNKNOWN caught: %r", txt)
-    except Exception:
-        pass
 
 
 

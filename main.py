@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 # Try PTB v20+ integration first, fallback to Flask app
 try:
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-    from alerts.telegram import cmd_whoami, cmd_assistant, cmd_assistant_model, cmd_assistant_toggle, unknown
+    from alerts.telegram import cmd_whoami, cmd_ping, cmd_assistant, cmd_assistant_model, cmd_assistant_toggle, unknown
 
     # Get token from environment
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -21,6 +21,7 @@ try:
 
         # IMPORTANT: specific command handlers FIRST (group 0)
         application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
+        application.add_handler(CommandHandler("ping", cmd_ping), group=0)
         application.add_handler(CommandHandler("assistant_model", cmd_assistant_model), group=0)
         application.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle), group=0)
         application.add_handler(CommandHandler("assistant", cmd_assistant), group=0)
