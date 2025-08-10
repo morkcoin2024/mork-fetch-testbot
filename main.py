@@ -19,15 +19,13 @@ try:
         # Build application with PTB v20+
         application = ApplicationBuilder().token(TOKEN).build()
 
-        # Core assistant commands - group 0 (default, highest priority)
-        application.add_handler(CommandHandler("assistant", cmd_assistant), group=0)
+        # IMPORTANT: specific command handlers FIRST (group 0)
+        application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
         application.add_handler(CommandHandler("assistant_model", cmd_assistant_model), group=0)
         application.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle), group=0)
-        
-        # Utility commands - group 0
-        application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
+        application.add_handler(CommandHandler("assistant", cmd_assistant), group=0)
 
-        # Catch-all unknown commands - group 1 (lower priority)
+        # Catch-all for any other /commands LAST (group 1)
         application.add_handler(MessageHandler(filters.COMMAND, unknown), group=1)
 
         print("Mork F.E.T.C.H Bot starting with PTB v20+ integration...")
