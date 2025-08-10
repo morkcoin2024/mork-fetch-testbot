@@ -58,6 +58,29 @@ def _read_ring_tail(n_lines: int) -> str:
             return "\n".join(lines)
     return "(no ring buffer logs available)"
 
+def _read_tail_file(file_path: pathlib.Path, n_lines: int):
+    """Read tail of file and return list of (timestamp, line) tuples"""
+    import datetime
+    
+    if not file_path.exists():
+        return []
+    
+    try:
+        with file_path.open('r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Return last n_lines with current timestamp
+        recent_lines = lines[-n_lines:] if lines else []
+        rows = []
+        for line in recent_lines:
+            # Try to extract timestamp from log line, fallback to current time
+            timestamp = datetime.datetime.utcnow()
+            rows.append((timestamp, line.rstrip()))
+        
+        return rows
+    except Exception as e:
+        return [(datetime.datetime.utcnow(), f"(read error {file_path}: {e})")]
+
 def cmd_whoami(update, context):
     uid = update.effective_user.id if update.effective_user else "unknown"
     uname = update.effective_user.username if update.effective_user else "unknown"
@@ -131,7 +154,34 @@ async def cmd_logs_tail(update, context):
             n = max(10, min(1000, int(context.args[0])))
         except Exception:
             pass
-    text = _tail_lines(LOG_PATH, n)
+    
+    # Build list of log files to check
+    files = [LOG_PATH]
+    
+    # Read from files first
+    import datetime
+    rows = []
+    for f in files:
+        try:
+            rows.extend(_read_tail_file(f, n))
+        except Exception as e:
+            rows.append((datetime.datetime.utcnow(), f"(read error {f}: {e})"))
+
+    # If no rows from files, fall back entirely to ring buffer
+    if not rows:
+        text = _read_ring_tail(n)
+        if not text or text.startswith("(no ring"):
+            text = "(no file logs yet; showing in-memory ring buffer)\n" + _read_ring_tail(n)
+        # chunk + send (same as before)
+        while text:
+            chunk = text[:3500]; text = text[3500:]
+            await update.message.reply_text(f"```\n{chunk}\n```", parse_mode=ParseMode.MARKDOWN)
+            if text:
+                await asyncio.sleep(0.1)
+        return
+    
+    # Process rows from files
+    text = "\n".join([row[1] for row in rows[-n:]])
     # Keep under Telegram limits
     if len(text) > 3900:
         text = text[-3900:]
