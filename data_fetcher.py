@@ -110,12 +110,39 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
     logging.error("[FETCH] All Pump.fun endpoints failed")
     return []
 
-def _fetch_pairs_from_dexscreener_search(query: str = "solana", limit: int = 200) -> List[Dict[str, Any]]:
-    """
-    Internal alias for DexScreener search testing.
-    Used by diagnostic commands for debugging purposes.
-    """
-    return fetch_candidates_from_dexscreener(limit=limit, max_pairs=limit*2)
+def _fetch_pairs_from_dexscreener_search(query="solana", limit=300):
+    """Enhanced DexScreener search using proper search endpoint."""
+    logging.info("[FETCH] Dexscreener USING SEARCH endpoint (q=%s)", query)
+    js = _get_json_retry(DEXSCREENER_SEARCH, params={"q": query})
+    if not js:
+        logging.warning("[FETCH] Dexscreener search returned no JSON")
+        return []
+    pairs = js.get("pairs") or []
+    out = []
+    for p in pairs[:limit]:
+        try:
+            base = p.get("baseToken") or {}
+            sym = base.get("symbol") or p.get("baseSymbol") or "SOL"
+            name = base.get("name") or sym
+            mint = base.get("address") or p.get("pairAddress")
+            liq  = (p.get("liquidity") or {}).get("usd")
+            fdv  = p.get("fdv")
+            out.append({
+                "source": "dexscreener",
+                "symbol": sym,
+                "name": name,
+                "mint": mint,
+                "holders": None,
+                "mcap_usd": fdv if isinstance(fdv,(int,float)) else None,
+                "liquidity_usd": liq if isinstance(liq,(int,float)) else None,
+                "age_min": None,
+                "renounced_mint_auth": None,
+                "renounced_freeze_auth": None,
+            })
+        except Exception:
+            continue
+    logging.info("[FETCH] Dexscreener search yielded %d items", len(out))
+    return out
 
 def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> List[Dict[str, Any]]:
     """
