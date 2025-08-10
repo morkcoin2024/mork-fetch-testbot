@@ -389,10 +389,9 @@ def fetch_and_rank(rules):
     publish("fetch_started", {"sources": ["on-chain", "pumpfun", "dexscreener"]})
     all_items = []
     
-    # Try enriched Pump.fun fetch first (if available)
+    # Enhanced Pump.fun fetch with comprehensive enrichment
     try:
-        from pumpfun_enrich import pumpfun_full
-        enriched_pumpfun = pumpfun_full(limit=200)
+        enriched_pumpfun = fetch_source_pumpfun(limit=200)
         if enriched_pumpfun:
             # Add source tag for enriched data
             for token in enriched_pumpfun:
@@ -400,8 +399,11 @@ def fetch_and_rank(rules):
             all_items.extend(enriched_pumpfun)
             logging.info("[FETCH] Pump.fun enriched: %d items", len(enriched_pumpfun))
             publish("source_complete", {"source": "pumpfun-enriched", "count": len(enriched_pumpfun), "status": "success"})
+        else:
+            publish("source_complete", {"source": "pumpfun-enriched", "count": 0, "status": "empty"})
     except Exception as e:
         logging.warning("Enriched Pump.fun fetch failed, falling back to standard: %s", e)
+        publish("source_complete", {"source": "pumpfun-enriched", "count": 0, "status": "failed", "error": str(e)})
     
     # 1) On-chain watcher first (real-time blockchain monitoring for ultra-fresh tokens)
     try:
@@ -498,3 +500,22 @@ def fetch_and_rank(rules):
     })
     
     return filtered
+
+def fetch_source_pumpfun(limit=50):
+    """Enhanced Pump.fun source fetcher with comprehensive enrichment and event tracking."""
+    from pumpfun_enrich import pumpfun_full
+    from eventbus import publish
+    
+    try:
+        items = pumpfun_full(limit=limit)
+        if not items:
+            publish("fetch.pumpfun.final", {"n": 0, "note": "empty", "limit": limit})
+            logging.info("[FETCH] Pump.fun enriched source: 0 items (empty response)")
+        else:
+            publish("fetch.pumpfun.final", {"n": len(items), "limit": limit, "enriched": True})
+            logging.info("[FETCH] Pump.fun enriched source: %d items successfully fetched", len(items))
+        return items
+    except Exception as e:
+        publish("fetch.pumpfun.final", {"n": 0, "note": "error", "error": str(e), "limit": limit})
+        logging.error("[FETCH] Pump.fun enriched source failed: %s", e)
+        return []

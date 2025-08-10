@@ -660,6 +660,51 @@ async def cmd_enrich_test(update, context):
         await update.message.reply_text(f"❌ Enrichment test failed: {str(e)}")
         publish("command.error", {"cmd": "enrich_test", "user_id": user_id, "error": str(e)})
 
+async def cmd_fetch_source(update, context):
+    """Test specific data source with enrichment capabilities."""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    
+    args = update.message.text.split(maxsplit=1)
+    if len(args) != 2:
+        await update.message.reply_text("Usage: /fetch_source pumpfun|dexscreener|onchain")
+        return
+    
+    source = args[1].strip().lower()
+    
+    if source == "pumpfun":
+        await update.message.reply_text("🔄 Testing enriched Pump.fun source...")
+        
+        try:
+            from data_fetcher import fetch_source_pumpfun
+            items = fetch_source_pumpfun(limit=25)
+            
+            enriched_count = len([item for item in items if item.get("dex_data")])
+            
+            response = f"""✅ Pump.fun source test completed!
+📊 Total tokens: {len(items)}
+⚡ Enriched with DexScreener: {enriched_count}
+🎯 Enrichment rate: {(enriched_count/len(items)*100):.1f}% if items else 0"""
+            
+            await update.message.reply_text(response)
+            
+            publish("command.done", {
+                "cmd": "fetch_source_pumpfun",
+                "user_id": user_id,
+                "success": True,
+                "tokens": len(items),
+                "enriched": enriched_count
+            })
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Pump.fun source test failed: {str(e)}")
+            publish("command.error", {"cmd": "fetch_source_pumpfun", "user_id": user_id, "error": str(e)})
+    
+    else:
+        await update.message.reply_text(f"❌ Source '{source}' not supported. Use: pumpfun")
+
 # --- Sync assistant for Flask webhook (no asyncio needed) ---
 import os, logging
 from openai import OpenAI
