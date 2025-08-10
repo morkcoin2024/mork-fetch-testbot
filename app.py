@@ -256,12 +256,12 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         from alerts.telegram import cmd_a_diag_fetch
                         
                         # Create a mock update object for compatibility
-                        class MockUpdate:
+                        class MockUpdateDiag:
                             def __init__(self, message_data):
                                 self.message = type('obj', (object,), message_data)()
                                 self.effective_user = type('obj', (object,), {'id': user.get('id')})()
                         
-                        mock_update = MockUpdate({
+                        mock_update = MockUpdateDiag({
                             'chat': type('obj', (object,), {'id': message['chat']['id']})(),
                             'from_user': type('obj', (object,), user)(),
                             'text': text
@@ -1042,9 +1042,14 @@ def trigger_fetch():
 
 if __name__ == '__main__':
     # Start bot polling in development
-    if mork_bot and os.environ.get('REPLIT_ENVIRONMENT'):
+    if mork_bot and mork_bot.telegram_available and os.environ.get('REPLIT_ENVIRONMENT'):
         logger.info("Starting bot in polling mode...")
-        mork_bot.run()
+        # Use the bot's start method instead of run
+        if hasattr(mork_bot, 'start_polling'):
+            mork_bot.start_polling()
+        else:
+            logger.warning("Bot polling not available, running Flask only")
+            app.run(host='0.0.0.0', port=5000, debug=True)
     else:
         # Run Flask app
         app.run(host='0.0.0.0', port=5000, debug=True)
