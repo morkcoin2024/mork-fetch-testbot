@@ -78,8 +78,9 @@ def fetch_recent_pumpfun_mints(max_minutes: int = 60, limit: int = 50) -> list[d
                     "age_min": age_min,
                 })
             logging.info("[CHAIN] pumpfun-chain yielded %d seed rows (<=%dmin)", len(out), max_minutes)
-            # Publish successful on-chain fetch event
+            # Publish successful on-chain fetch event with detailed metrics
             publish("fetch.onchain.status", {"status": "ok", "n": len(out), "max_minutes": max_minutes})
+            publish("fetch.onchain.yield", {"candidates": len(out), "max_minutes": max_minutes, "limit": limit})
             return out
     except Exception as e:
         logging.exception("[CHAIN] pumpfun-chain fetch error")

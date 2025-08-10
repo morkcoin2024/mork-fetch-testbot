@@ -112,8 +112,9 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
                 })
             if items:
                 logging.info(f"[FETCH] Retrieved {len(items)} tokens from Pump.fun via {base}")
-                # Publish successful fetch event
+                # Publish successful fetch event with detailed metrics
                 publish("fetch.pumpfun.status", {"status": "ok", "n": len(items), "source": base})
+                publish("fetch.pumpfun.yield", {"tokens": len(items), "endpoint": base, "limit": limit, "offset": offset})
                 return items
         except Exception as e:
             logging.warning("Pump.fun fetch/parsing failed for %s: %s", base, e)
@@ -160,8 +161,9 @@ def _fetch_pairs_from_dexscreener_search(query="solana", limit=300):
             logging.warning("[FETCH] Error parsing Dexscreener pair: %s", e)
             continue
     logging.info("[FETCH] Dexscreener search yielded %d items", len(out))
-    # Publish successful fetch event
+    # Publish successful fetch event with granular search tracking
     publish("fetch.dexscreener.status", {"status": "ok", "n": len(out), "query": query})
+    publish("fetch.dex.search", {"yielded": len(out), "query": query, "limit": limit})
     return out
 
 def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> List[Dict[str, Any]]:
@@ -219,8 +221,9 @@ def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> 
             tokens.append(token_data)
             
         logging.info(f"[FETCH] Retrieved {len(tokens)} tokens from DexScreener")
-        # Publish successful fetch event
+        # Publish successful fetch event with detailed metrics
         publish("fetch.dexscreener.status", {"status": "ok", "n": len(tokens)})
+        publish("fetch.dex.pairs", {"yielded": len(tokens), "limit": limit, "max_pairs": max_pairs})
         return tokens
         
     except Exception as e:
