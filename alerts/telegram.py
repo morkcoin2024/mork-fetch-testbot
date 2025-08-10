@@ -3,8 +3,11 @@ Telegram Alert Handlers for Mork F.E.T.C.H Bot
 Standalone command functions for easy integration with PTB v20+
 """
 
-import os
 import logging
+logging.basicConfig(level=logging.INFO)
+logging.info(">>> LOADED alerts.telegram vDEBUG-1 <<<")
+
+import os
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
 
