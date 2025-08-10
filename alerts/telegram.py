@@ -591,8 +591,8 @@ def cmd_rules_reload_sync() -> str:
 
 async def cmd_fetch_source_sync(update, context):
     """
-    Debug command to verify live ingestion by source.
-    Usage: /fetch_source pumpfun
+    Debug: /fetch_source pumpfun
+    Bypasses rules to verify live intake & shows source column + green tag.
     """
     try:
         text = update.message.text.strip()
@@ -606,7 +606,6 @@ async def cmd_fetch_source_sync(update, context):
             await update.message.reply_text("Usage: /fetch_source pumpfun")
             return "ok"
 
-        # Render: include source + 🟢 for pumpfun
         lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min"]
         for t in items[:20]:
             src  = t.get("source", "?")
@@ -614,9 +613,7 @@ async def cmd_fetch_source_sync(update, context):
             sym  = t.get("symbol", "?")
             name = (t.get("name") or sym)[:20]
             holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
-            mcap = t.get("mcap_usd")
-            liq  = t.get("liquidity_usd")
-            age  = t.get("age_min")
+            mcap = t.get("mcap_usd"); liq = t.get("liquidity_usd"); age = t.get("age_min")
             lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'}")
 
         block = "```\n" + "\n".join(lines) + "\n```"
