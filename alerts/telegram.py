@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 VERSION_TG = "tg-4"
 logging.info(f">>> alerts.telegram LOADED {VERSION_TG} <<<")
 
-import os, re, time, asyncio, logging, pathlib, importlib
+import os, re, time, asyncio, logging, pathlib, importlib, textwrap
 from typing import Dict, Optional, Tuple
 from data_fetcher import fetch_candidates_from_pumpfun, _fetch_pairs_from_dexscreener_search
 import data_fetcher as df
@@ -21,6 +21,13 @@ try:
 except ImportError:
     def publish(event_type, data):
         pass  # Fallback if eventbus not available
+
+# Import pumpfun_ping from enrichment module
+try:
+    from pumpfun_enrich import pumpfun_ping
+except ImportError:
+    def pumpfun_ping(limit=10):
+        return ("unavailable", 0, 0, "pumpfun_enrich not available")
 
 try:
     from telegram import __version__ as PTB_VERSION
