@@ -216,6 +216,43 @@ async def cmd_logs_tail(update, context):
     parse_mode = ParseMode.MARKDOWN if ParseMode else None
     await update.message.reply_text(f"```\n{text}\n```", parse_mode=parse_mode)
 
+async def cmd_pumpfun_status(update, context):
+    """Quick Pump.fun CDN/edge diagnostic command"""
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    
+    # Publish command tracking events
+    publish("command.route", {"cmd": "/pumpfun_status"})
+    publish("admin.command", {"command": "pumpfun_status", "user": update.effective_user.username})
+    
+    try:
+        url, status, n, err = pumpfun_ping(limit=10)
+        body = textwrap.dedent(f"""\
+            Pump.fun status
+            ───────────────
+            url:    {url}
+            status: {status}
+            items:  {n}
+            error:  {err or "-"}
+        """)
+        parse_mode = ParseMode.MARKDOWN if ParseMode else None
+        await update.message.reply_text(f"```\n{body}\n```", parse_mode=parse_mode)
+        
+        # Publish success event
+        publish("command.done", {
+            "cmd": "/pumpfun_status", 
+            "ok": True,
+            "endpoint_status": status,
+            "items_found": n
+        })
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Pump.fun status check failed: {str(e)}")
+        publish("command.error", {
+            "cmd": "/pumpfun_status",
+            "error": str(e)
+        })
+
 async def _stream_task(chat_id: int, bot, period_sec: float = 5.0, duration_sec: float = 120.0):
     """Send last ~80 lines every few seconds; auto-stop after duration."""
     start = time.time()
