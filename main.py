@@ -34,6 +34,7 @@ try:
         cmd_whoami, cmd_ping, unknown, cmd_status, cmd_logs_tail, 
         cmd_logs_stream, cmd_logs_watch, cmd_mode
     )
+    from alerts.admin_router import admin_router
 
     TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -43,6 +44,9 @@ try:
     Bot(TOKEN).delete_webhook(drop_pending_updates=True)
 
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # High-priority admin router for /a_* commands (group -1)
+    app.add_handler(MessageHandler(filters.TEXT, admin_router), group=-1)
 
     # Basic commands (group 0)
     app.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
