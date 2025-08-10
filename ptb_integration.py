@@ -18,7 +18,11 @@ def setup_assistant_handlers(application):
     # Utility commands
     application.add_handler(CommandHandler("whoami", cmd_whoami))
     
-    print("Assistant handlers registered with PTB v20+")
+    # Unknown command handler with debug logging
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(MessageHandler(filters.COMMAND, unknown), group=1)
+    
+    print("Assistant handlers registered with PTB v20+ (including debug logging)")
 
 # Example usage:
 # application = Application.builder().token(TOKEN).build()

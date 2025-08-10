@@ -14,7 +14,13 @@ def cmd_whoami(update, context):
 
 
 def unknown(update, context):
+    # Helpful debug: show what command was caught
+    txt = update.message.text if getattr(update, "message", None) else ""
     update.message.reply_text("Unknown command. Type /help for available commands.")
+    try:
+        import logging; logging.info("UNKNOWN caught: %r", txt)
+    except Exception:
+        pass
 
 
 
