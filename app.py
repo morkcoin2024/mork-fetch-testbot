@@ -143,6 +143,10 @@ def webhook():
                 "chat_id": message.get('chat', {}).get('id')
             })
             
+            # Publish command routing event for specific command tracking
+            if text and text.startswith('/'):
+                publish("command.route", {"cmd": text.split()[0]})
+            
             # Helper function for sending replies
             def _reply(text: str):
                 try:

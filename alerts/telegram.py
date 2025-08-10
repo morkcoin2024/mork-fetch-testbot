@@ -14,6 +14,13 @@ from typing import Dict, Optional, Tuple
 from data_fetcher import fetch_candidates_from_pumpfun, _fetch_pairs_from_dexscreener_search
 import data_fetcher as df
 
+# Import event publishing for command tracking
+try:
+    from eventbus import publish
+except ImportError:
+    def publish(event_type, data):
+        pass  # Fallback if eventbus not available
+
 try:
     from telegram import __version__ as PTB_VERSION
     from telegram.constants import ParseMode
@@ -118,6 +125,10 @@ async def cmd_status(update, context):
     uname = update.effective_user.username if update.effective_user else "unknown"
     
     logging.info(f"[CMD_STATUS] Called by {uname} ({uid})")
+    
+    # Publish command routing events
+    publish("command.route", {"cmd": "/status"})
+    publish("admin.command", {"command": "status", "user": uname})
     
     if not _is_admin(update):
         logging.warning(f"[CMD_STATUS] Unauthorized access attempt from {uname} ({uid})")
