@@ -1,0 +1,183 @@
+# alerts/telegram.py — log/status utilities for PTB v20+
+import os, re, time, asyncio, logging, pathlib
+from typing import Dict, Optional, Tuple
+
+from telegram import __version__ as PTB_VERSION
+from telegram.constants import ParseMode
+
+from config import ASSISTANT_ADMIN_TELEGRAM_ID
+
+LOG_PATH = pathlib.Path("logs/app.log")
+STREAM_TASKS: Dict[int, asyncio.Task] = {}
+WATCH_TASKS: Dict[int, asyncio.Task] = {}
+
+def _is_admin(update) -> bool:
+    return getattr(update.effective_user, "id", None) == ASSISTANT_ADMIN_TELEGRAM_ID
+
+def _tail_lines(path: pathlib.Path, n: int = 200) -> str:
+    if not path.exists():
+        return f"(no log file at {path})"
+    # Efficient-ish tail without loading whole file
+    with path.open("rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        block = 4096
+        data = b""
+        while size > 0 and data.count(b"\n") <= n:
+            read_size = block if size - block > 0 else size
+            f.seek(size - read_size)
+            data = f.read(read_size) + data
+            size -= read_size
+    text = data.decode("utf-8", errors="replace")
+    return "\n".join(text.splitlines()[-n:])
+
+def _current_mode_text() -> str:
+    # Heuristic: if PUBLIC_WEBHOOK_URL is set AND a webhook is configured, you can adapt this.
+    # For now we just report that we’re in polling mode because main.py starts run_polling().
+    return "polling"
+
+async def cmd_status(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    # Build a handler table (groups → handlers)
+    try:
+        app = context.application
+        lines = [f"PTB: {PTB_VERSION}", f"Mode: {_current_mode_text()}"]
+        lines.append("Handlers:")
+        for grp in sorted(app.handlers.keys()):
+            descs = []
+            for h in app.handlers[grp]:
+                name = type(h).__name__
+                cmds = getattr(h, "commands", set())
+                if cmds:
+                    descs.append(f"{name}({','.join(sorted(cmds))})")
+                else:
+                    descs.append(name)
+            lines.append(f" g{grp}: " + ", ".join(descs))
+        txt = "```\n" + "\n".join(lines) + "\n```"
+        await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logging.exception("status error")
+        await update.message.reply_text(f"status error: {e}")
+
+async def cmd_logs_tail(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    n = 200
+    if context.args:
+        try:
+            n = max(10, min(1000, int(context.args[0])))
+        except Exception:
+            pass
+    text = _tail_lines(LOG_PATH, n)
+    # Keep under Telegram limits
+    if len(text) > 3900:
+        text = text[-3900:]
+        text = "(tail)\n" + text
+    await update.message.reply_text(f"```\n{text}\n```", parse_mode=ParseMode.MARKDOWN)
+
+async def _stream_task(chat_id: int, bot, period_sec: float = 5.0, duration_sec: float = 120.0):
+    """Send last ~80 lines every few seconds; auto-stop after duration."""
+    start = time.time()
+    while time.time() - start < duration_sec:
+        if chat_id not in STREAM_TASKS:
+            break  # cancelled
+        text = _tail_lines(LOG_PATH, 80)
+        if len(text) > 3900:
+            text = "(tail)\n" + text[-3900:]
+        try:
+            await bot.send_message(chat_id, f"```\n{text}\n```", parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logging.warning("logs_stream send failed: %s", e)
+            break
+        await asyncio.sleep(period_sec)
+    STREAM_TASKS.pop(chat_id, None)
+
+async def cmd_logs_stream(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /logs_stream on|off")
+    mode = context.args[0].lower()
+    chat_id = update.effective_chat.id
+    if mode == "on":
+        if chat_id in STREAM_TASKS and not STREAM_TASKS[chat_id].done():
+            return await update.message.reply_text("Already streaming. Use /logs_stream off to stop.")
+        task = asyncio.create_task(_stream_task(chat_id, context.bot))
+        STREAM_TASKS[chat_id] = task
+        return await update.message.reply_text("✅ Log streaming started for ~2 minutes (every 5s).")
+    elif mode == "off":
+        t = STREAM_TASKS.pop(chat_id, None)
+        if t:
+            t.cancel()
+        return await update.message.reply_text("🛑 Log streaming stopped.")
+    else:
+        return await update.message.reply_text("Usage: /logs_stream on|off")
+
+async def _watch_task(chat_id: int, bot, pattern: re.Pattern, timeout_sec: float = 300.0):
+    """Poll the log for a regex match; stop on first match or timeout."""
+    pos = 0
+    start = time.time()
+    try:
+        while time.time() - start < timeout_sec:
+            if chat_id not in WATCH_TASKS:
+                break
+            if not LOG_PATH.exists():
+                await asyncio.sleep(2.0); continue
+            # Read new bytes from file
+            with LOG_PATH.open("rb") as f:
+                f.seek(pos)
+                chunk = f.read()
+                pos = f.tell()
+            if chunk:
+                text = chunk.decode("utf-8", errors="replace")
+                if pattern.search(text):
+                    await bot.send_message(chat_id, f"🔔 logs_watch matched: `{pattern.pattern}`", parse_mode=ParseMode.MARKDOWN)
+                    break
+            await asyncio.sleep(2.0)
+    finally:
+        WATCH_TASKS.pop(chat_id, None)
+
+async def cmd_logs_watch(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /logs_watch <regex>")
+    expr = " ".join(context.args).strip()
+    try:
+        pat = re.compile(expr)
+    except re.error as e:
+        return await update.message.reply_text(f"Bad regex: {e}")
+    chat_id = update.effective_chat.id
+    if chat_id in WATCH_TASKS and not WATCH_TASKS[chat_id].done():
+        WATCH_TASKS[chat_id].cancel()
+    WATCH_TASKS[chat_id] = asyncio.create_task(_watch_task(chat_id, context.bot, pat))
+    await update.message.reply_text(f"👀 Watching logs for `{expr}` (up to 5m)…", parse_mode=ParseMode.MARKDOWN)
+
+async def cmd_mode(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /mode polling|webhook")
+    choice = context.args[0].lower()
+    if choice == "polling":
+        try:
+            from telegram import Bot
+            token = os.environ["TELEGRAM_BOT_TOKEN"]
+            Bot(token).delete_webhook(drop_pending_updates=True)
+            return await update.message.reply_text("✅ Switched to polling (webhook deleted). *Restart not required.*", parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            return await update.message.reply_text(f"Error switching to polling: {e}")
+    elif choice == "webhook":
+        pub = os.environ.get("PUBLIC_WEBHOOK_URL")
+        if not pub:
+            return await update.message.reply_text("Set PUBLIC_WEBHOOK_URL first.")
+        try:
+            import requests
+            token = os.environ["TELEGRAM_BOT_TOKEN"]
+            r = requests.get(f"https://api.telegram.org/bot{token}/setWebhook", params={"url": pub})
+            return await update.message.reply_text(f"Webhook set status {r.status_code}: {r.text[:500]}")
+        except Exception as e:
+            return await update.message.reply_text(f"Error setting webhook: {e}")
+    else:
+        return await update.message.reply_text("Usage: /mode polling|webhook")

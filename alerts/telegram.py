@@ -1,6 +1,6 @@
 """
 Telegram Alert Handlers for Mork F.E.T.C.H Bot
-Standalone command functions for easy integration with PTB v20+
+Advanced admin commands for system monitoring and control
 """
 
 import logging
@@ -8,6 +8,11 @@ logging.basicConfig(level=logging.INFO)
 logging.info(">>> LOADED alerts.telegram vDEBUG-1 <<<")
 
 import os
+import re
+import sys
+import time
+import threading
+from collections import deque
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
 
@@ -19,6 +24,272 @@ def cmd_whoami(update, context):
 
 def cmd_ping(update, context):
     update.message.reply_text("pong")
+
+
+# Global state for log monitoring
+log_buffer = deque(maxlen=1000)  # Keep last 1000 log lines
+log_stream_active = False
+log_watch_active = False
+log_watch_pattern = None
+current_bot_app = None  # Will be set by main.py
+
+
+def is_admin(user_id):
+    """Check if user is admin"""
+    return str(user_id) == str(ASSISTANT_ADMIN_TELEGRAM_ID)
+
+
+def admin_required(func):
+    """Decorator to require admin access"""
+    def wrapper(update, context):
+        user_id = update.effective_user.id if update.effective_user else None
+        if not is_admin(user_id):
+            update.message.reply_text("🚫 Admin access required")
+            return
+        return func(update, context)
+    return wrapper
+
+
+def split_message(text, max_length=4000):
+    """Split long messages into chunks under Telegram limit"""
+    chunks = []
+    while text:
+        if len(text) <= max_length:
+            chunks.append(text)
+            break
+        
+        # Find last newline before limit
+        split_pos = text.rfind('\n', 0, max_length)
+        if split_pos == -1:
+            split_pos = max_length
+        
+        chunks.append(text[:split_pos])
+        text = text[split_pos:].lstrip('\n')
+    
+    return chunks
+
+
+@admin_required
+def cmd_status(update, context):
+    """Show PTB version, mode, and handler table"""
+    try:
+        import telegram
+        ptb_version = getattr(telegram, '__version__', 'Unknown')
+        
+        # Determine mode
+        mode = "polling (fallback)" if current_bot_app is None else "polling"
+        
+        # Build handler table
+        handler_info = []
+        if current_bot_app and hasattr(current_bot_app, 'handlers'):
+            for group in sorted(current_bot_app.handlers.keys()):
+                handlers = current_bot_app.handlers[group]
+                group_handlers = []
+                for h in handlers:
+                    if hasattr(h, 'commands'):
+                        cmds = ','.join(sorted(h.commands))
+                        group_handlers.append(f"/{cmds}")
+                    else:
+                        group_handlers.append(type(h).__name__)
+                
+                if group_handlers:
+                    handler_info.append(f"Group {group}: {' | '.join(group_handlers)}")
+        
+        status_text = f"""📊 **System Status**
+
+🔧 PTB Version: {ptb_version}
+🔄 Mode: {mode}
+👥 Admin ID: {ASSISTANT_ADMIN_TELEGRAM_ID}
+
+📋 **Handler Table:**
+{chr(10).join(handler_info) if handler_info else 'No handlers registered'}
+
+🎯 **Available Commands:**
+/status - System status
+/logs_tail [n] - Last n log lines  
+/logs_stream on|off - Stream logs
+/logs_watch <regex> - Watch for pattern
+/mode polling|webhook - Switch mode
+"""
+        
+        for chunk in split_message(status_text):
+            update.message.reply_text(chunk, parse_mode='Markdown')
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Status error: {e}")
+
+
+@admin_required 
+def cmd_logs_tail(update, context):
+    """Send last n lines of logs"""
+    try:
+        n = 200
+        if context.args:
+            try:
+                n = int(context.args[0])
+                n = min(n, 500)  # Limit to 500 lines
+            except ValueError:
+                update.message.reply_text("❌ Invalid number. Usage: /logs_tail [n]")
+                return
+        
+        # Get last n lines from buffer
+        recent_logs = list(log_buffer)[-n:]
+        
+        if not recent_logs:
+            update.message.reply_text("📄 No logs available")
+            return
+            
+        log_text = f"📄 **Last {len(recent_logs)} log lines:**\n\n```\n" + '\n'.join(recent_logs) + "\n```"
+        
+        for chunk in split_message(log_text):
+            update.message.reply_text(chunk, parse_mode='Markdown')
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Logs error: {e}")
+
+
+@admin_required
+def cmd_logs_stream(update, context):
+    """Stream logs for 2 minutes or until stopped"""
+    global log_stream_active
+    
+    if not context.args:
+        update.message.reply_text("❌ Usage: /logs_stream on|off")
+        return
+        
+    action = context.args[0].lower()
+    
+    if action == "off":
+        log_stream_active = False
+        update.message.reply_text("🔴 Log streaming stopped")
+        return
+    elif action == "on":
+        if log_stream_active:
+            update.message.reply_text("⚠️ Log streaming already active")
+            return
+            
+        log_stream_active = True
+        update.message.reply_text("🟢 Log streaming started (2 min auto-stop)")
+        
+        def stream_logs():
+            global log_stream_active
+            start_time = time.time()
+            last_sent = 0
+            
+            while log_stream_active and (time.time() - start_time) < 120:  # 2 minutes
+                time.sleep(5)  # Every 5 seconds
+                
+                if not log_stream_active:
+                    break
+                    
+                # Get new logs since last send
+                recent_logs = list(log_buffer)[last_sent:]
+                last_sent = len(log_buffer)
+                
+                if recent_logs:
+                    log_text = "📡 **Live Logs:**\n\n```\n" + '\n'.join(recent_logs[-80:]) + "\n```"
+                    try:
+                        for chunk in split_message(log_text):
+                            update.message.reply_text(chunk, parse_mode='Markdown')
+                    except:
+                        pass  # Ignore send errors during streaming
+            
+            log_stream_active = False
+            try:
+                update.message.reply_text("⏰ Log streaming auto-stopped")
+            except:
+                pass
+        
+        thread = threading.Thread(target=stream_logs, daemon=True)
+        thread.start()
+    else:
+        update.message.reply_text("❌ Usage: /logs_stream on|off")
+
+
+@admin_required
+def cmd_logs_watch(update, context):
+    """Watch logs for regex pattern"""
+    global log_watch_active, log_watch_pattern
+    
+    if not context.args:
+        if log_watch_active:
+            log_watch_active = False
+            update.message.reply_text("🔴 Log watching stopped")
+        else:
+            update.message.reply_text("❌ Usage: /logs_watch <regex_pattern>")
+        return
+    
+    pattern = ' '.join(context.args)
+    
+    try:
+        re.compile(pattern)  # Test regex validity
+    except re.error as e:
+        update.message.reply_text(f"❌ Invalid regex: {e}")
+        return
+    
+    log_watch_active = True
+    log_watch_pattern = pattern
+    update.message.reply_text(f"👀 Watching logs for pattern: `{pattern}`", parse_mode='Markdown')
+    
+    def watch_logs():
+        global log_watch_active
+        
+        while log_watch_active:
+            time.sleep(1)
+            
+            # Check recent log entries
+            for log_line in list(log_buffer)[-10:]:  # Check last 10 lines
+                if re.search(log_watch_pattern, log_line, re.IGNORECASE):
+                    try:
+                        alert_text = f"🚨 **Log Alert Match**\n\nPattern: `{log_watch_pattern}`\nLine: ```\n{log_line}\n```"
+                        update.message.reply_text(alert_text, parse_mode='Markdown')
+                        log_watch_active = False
+                        return
+                    except:
+                        pass
+    
+    thread = threading.Thread(target=watch_logs, daemon=True)
+    thread.start()
+
+
+@admin_required
+def cmd_mode(update, context):
+    """Switch between polling and webhook modes"""
+    if not context.args:
+        update.message.reply_text("❌ Usage: /mode polling|webhook")
+        return
+        
+    mode = context.args[0].lower()
+    
+    try:
+        from telegram import Bot
+        
+        if mode == "polling":
+            # Delete webhook and switch to polling
+            bot = Bot(os.environ["TELEGRAM_BOT_TOKEN"])
+            bot.delete_webhook(drop_pending_updates=True)
+            update.message.reply_text("🔄 Switched to polling mode")
+            
+        elif mode == "webhook":
+            webhook_url = os.environ.get("PUBLIC_WEBHOOK_URL")
+            if not webhook_url:
+                update.message.reply_text("❌ PUBLIC_WEBHOOK_URL not set")
+                return
+                
+            bot = Bot(os.environ["TELEGRAM_BOT_TOKEN"])
+            bot.set_webhook(url=webhook_url)
+            update.message.reply_text(f"🔗 Webhook set to: {webhook_url}")
+            
+        else:
+            update.message.reply_text("❌ Usage: /mode polling|webhook")
+            
+    except Exception as e:
+        update.message.reply_text(f"❌ Mode switch error: {e}")
+
+
+def capture_logs(message):
+    """Capture log messages to buffer"""
+    log_buffer.append(f"[{time.strftime('%H:%M:%S')}] {message}")
 
 
 def unknown(update, context):

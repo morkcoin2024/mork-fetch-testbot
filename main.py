@@ -12,7 +12,10 @@ logging.basicConfig(level=logging.INFO)
 try:
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
     from telegram import Bot, constants
-    from alerts.telegram import cmd_whoami, cmd_ping, unknown
+    from alerts.telegram import (
+        cmd_whoami, cmd_ping, unknown, cmd_status, cmd_logs_tail, 
+        cmd_logs_stream, cmd_logs_watch, cmd_mode, capture_logs
+    )
 
     TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -23,14 +26,32 @@ try:
 
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Set app reference for status command
+    import alerts.telegram
+    alerts.telegram.current_bot_app = app
+
     # Specific commands FIRST (group 0)
     app.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
     app.add_handler(CommandHandler("ping", cmd_ping), group=0)
+    app.add_handler(CommandHandler("status", cmd_status), group=0)
+    app.add_handler(CommandHandler("logs_tail", cmd_logs_tail), group=0)
+    app.add_handler(CommandHandler("logs_stream", cmd_logs_stream), group=0)
+    app.add_handler(CommandHandler("logs_watch", cmd_logs_watch), group=0)
+    app.add_handler(CommandHandler("mode", cmd_mode), group=0)
 
     # Catch-all LAST (very low priority)
     app.add_handler(MessageHandler(filters.COMMAND, unknown), group=999)
 
-    logging.info("PTB polling boot OK. Handlers: whoami(g0), ping(g0), unknown(g999)")
+    # Setup log capture
+    class LogCapture(logging.Handler):
+        def emit(self, record):
+            capture_logs(self.format(record))
+    
+    log_handler = LogCapture()
+    log_handler.setLevel(logging.INFO)
+    logging.getLogger().addHandler(log_handler)
+
+    logging.info("PTB polling boot OK. Handlers: whoami, ping, status, logs_tail, logs_stream, logs_watch, mode(g0), unknown(g999)")
     
     if __name__ == '__main__':
         app.run_polling(allowed_updates=constants.UpdateType.ALL_TYPES, drop_pending_updates=True)
