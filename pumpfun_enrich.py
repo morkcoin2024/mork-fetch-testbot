@@ -8,9 +8,11 @@ import httpx, os, time, random, logging
 from eventbus import publish
 
 # --- Pump.fun config (dual endpoint + headers) ---
+PUMPFUN_BASE_URL = os.getenv("PUMPFUN_BASE_URL", "https://frontend-api.pump.fun")
+
 PUMPFUN_ENDPOINTS = [
-    # primary
-    "https://frontend-api.pump.fun/coins/created",
+    # primary (configurable via PUMPFUN_BASE_URL env var)
+    f"{PUMPFUN_BASE_URL}/coins/created",
     # backup (community mirror; schema-compatible for very new launches)
     "https://pumpportal.fun/api/coins/created",
 ]

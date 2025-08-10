@@ -21,7 +21,11 @@ LAST_JSON_URL = None
 LAST_JSON_STATUS = None
 
 DEXSCREENER_SEARCH = "https://api.dexscreener.com/latest/dex/search"
-PUMPFUN_ENDPOINTS = ["https://frontend-api.pump.fun/coins/created"]
+
+# Environment-configurable Pump.fun endpoint
+import os
+PUMPFUN_BASE_URL = os.getenv("PUMPFUN_BASE_URL", "https://frontend-api.pump.fun")
+PUMPFUN_ENDPOINTS = [f"{PUMPFUN_BASE_URL}/coins/created"]
 
 def _get_json_retry(url, params=None, headers=None, retries=3, backoff=1.5, timeout=10):
     """Enhanced JSON fetcher with intelligent retry logic and httpx."""
