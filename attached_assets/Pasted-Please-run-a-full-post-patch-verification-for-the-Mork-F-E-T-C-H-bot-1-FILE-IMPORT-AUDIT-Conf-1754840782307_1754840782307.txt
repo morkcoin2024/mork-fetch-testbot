@@ -1,0 +1,70 @@
+Please run a full post-patch verification for the Mork F.E.T.C.H bot:
+
+1) FILE & IMPORT AUDIT
+- Confirm these files exist and import cleanly (no ImportError, SyntaxError):
+  - app.py
+  - alerts/telegram.py
+  - data_fetcher.py
+  - eventbus.py
+  - pumpfun_enrich.py
+  - pump_chain.py  (if present; optional)
+- Print the first 15 lines of each file and confirm the critical symbols:
+  - eventbus.py -> EventBus, BUS, publish
+  - pumpfun_enrich.py -> pumpfun_full, enrich_with_solana_rpc, _rpc_batch_token_supply
+  - data_fetcher.py -> fetch_source_pumpfun (calls pumpfun_full)
+  - alerts/telegram.py -> _src_to_label, /fetch_now handler calls DM summary (optional), table uses _src_to_label
+  - app.py -> routes /live and /events and token check
+
+2) ENV CHECK
+- Assert these env vars exist and are non-empty (show masked value length):
+  - TELEGRAM_BOT_TOKEN
+  - ASSISTANT_ADMIN_TELEGRAM_ID
+  - ASSISTANT_MODEL
+  - ASSISTANT_FAILSAFE
+  - ASSISTANT_WRITE_GUARD
+  - LIVE_TOKEN
+  - SOLANA_RPC_HTTP
+  - (optional) PUMPFUN_PROGRAM_ID
+- Confirm webhook URL is set and Flask mode is active (PTB disabled).
+
+3) SERVER & ROUTE SMOKE
+- Start the app (gunicorn/flask as configured).
+- GET /live?token=$LIVE_TOKEN → expect 200 HTML containing “Mork Live Console”.
+- GET /events?token=$LIVE_TOKEN → expect HTTP 200 text/event-stream; read one keepalive or event.
+
+4) EVENT BUS INSTRUMENTATION
+- Simulate publishing events:
+  - from eventbus import publish; publish("selftest.event", {"ok": True})
+- Confirm event appears on /events stream (log or short capture).
+
+5) WEBHOOK SIMULATION (ADMIN)
+- POST to /webhook endpoint with a minimal Telegram update JSON that mimics:
+  a) /a_logs_tail  → expect a 200 and log publish “command.route/command.done”
+  b) /fetch_now    → expect fetch path to run; check logs for these events:
+     - pumpfun.raw OR pumpfun.empty
+     - rpc.supply.batch OR rpc.supply.skip
+     - pumpfun.rpc_enriched
+     - pumpfun.enriched.dex
+     - pumpfun.full.done
+     - fetch.pumpfun.final
+     - fetch.dex.search and/or fetch.dex.early (depending on rules)
+- Print a compact summary of which events fired and counts.
+
+6) TABLE LABELS
+- Verify the table builder uses _src_to_label:
+  - pumpfun → "🟢 pumpfun"
+  - pumpfun-chain → "🟢 pumpfun"
+  - dexscreener-new/dxs-new → "🟡 dxs-new"
+  - default dexscreener → "dexscreener"
+- If possible, run /fetch_source dexscreener_early and show one rendered sample row with the yellow label.
+
+7) CIRCUIT-BREAKER NOTE (if implemented)
+- If Pump.fun returns 5xx, confirm we do not spam requests endlessly and a note is logged.
+
+8) DELIVERABLE
+- Post a single PASS/FAIL report with:
+  - Missing envs/files (if any)
+  - Route status codes
+  - Event names observed
+  - Example rendered row showing the source label
+  - Any error stack traces (trimmed)
