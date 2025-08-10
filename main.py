@@ -44,11 +44,13 @@ try:
     # Specific commands FIRST (group 0)
     app.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
     app.add_handler(CommandHandler("ping", cmd_ping), group=0)
-    app.add_handler(CommandHandler("status", cmd_status), group=0)
-    app.add_handler(CommandHandler("logs_tail", cmd_logs_tail), group=0)
-    app.add_handler(CommandHandler("logs_stream", cmd_logs_stream), group=0)
-    app.add_handler(CommandHandler("logs_watch", cmd_logs_watch), group=0)
-    app.add_handler(CommandHandler("mode", cmd_mode), group=0)
+    
+    # Admin monitoring commands
+    app.add_handler(CommandHandler("status",       cmd_status),       group=0)
+    app.add_handler(CommandHandler("logs_tail",    cmd_logs_tail),    group=0)
+    app.add_handler(CommandHandler("logs_stream",  cmd_logs_stream),  group=0)
+    app.add_handler(CommandHandler("logs_watch",   cmd_logs_watch),   group=0)
+    app.add_handler(CommandHandler("mode",         cmd_mode),         group=0)
 
     # Catch-all LAST (very low priority)
     app.add_handler(MessageHandler(filters.COMMAND, unknown), group=999)
