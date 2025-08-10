@@ -208,6 +208,40 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                             
                     except Exception as e:
                         response_text = f'❌ Error reading ring buffer: {str(e)}'
+                
+                # Assistant model and codegen integration
+                elif text.startswith("/assistant_model"):
+                    try:
+                        from assistant_dev import set_current_model, get_current_model
+                        
+                        logger.info(f"[WEBHOOK] Routing /assistant_model")
+                        if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                            response_text = "Not authorized."
+                        else:
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = f"Current model: {get_current_model()}"
+                            else:
+                                new_model = parts[1].strip()
+                                os.environ["ASSISTANT_MODEL"] = new_model  # live in-process
+                                set_current_model(new_model)               # persist to assistant module
+                                logger.info(f"[ADMIN] Assistant model changed to {new_model}")
+                                response_text = f"✅ Assistant model changed to: {new_model}"
+                    except Exception as e:
+                        logger.exception("assistant_model handler error")
+                        response_text = f"❌ /assistant_model failed: {e}"
+
+                elif text.startswith("/assistant "):
+                    logger.info(f"[WEBHOOK] Routing /assistant")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            # Note: This would need async handling for full implementation
+                            response_text = "⚠️ Assistant codegen requires async handling - use PTB mode for full functionality or direct module access"
+                        except Exception as e:
+                            logger.exception("assistant handler error")
+                            response_text = f"❌ /assistant failed: {e}"
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:
@@ -251,6 +285,8 @@ Admin Commands:
 /a_logs_stream - Log streaming info
 /a_logs_watch - Log monitoring status
 /a_mode - Operation mode details
+/assistant_model [model] - Get/set assistant AI model
+/assistant [request] - AI assistant codegen (PTB mode recommended)
 /help - This help message
 
 Bot is operational with direct webhook processing.
