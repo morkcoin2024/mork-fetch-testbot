@@ -10,6 +10,7 @@ from eventbus import publish
 PUMP_BASE = "https://frontend-api.pump.fun/coins/created"
 DEX_SEARCH = "https://api.dexscreener.com/latest/dex/search?q="
 DEX_PAIR   = "https://api.dexscreener.com/latest/dex/pairs/solana/"
+SOLANA_RPC_HTTP = os.environ.get("SOLANA_RPC_HTTP", "").strip()
 
 HEADERS = {
     "user-agent": "Mozilla/5.0 (MorkFetcher; +https://github.com/mork-bot)",
@@ -19,134 +20,143 @@ HEADERS = {
 def fetch_pumpfun(limit=50, offset=0, retries=3):
     """Fetch raw token data from Pump.fun with retry logic and event tracking."""
     url = f"{PUMP_BASE}?limit={limit}&offset={offset}"
+    last = None
     
     for attempt in range(retries):
         try:
-            start_time = time.time()
             r = httpx.get(url, headers=HEADERS, timeout=8)
-            
+            last = r.status_code
             if r.status_code == 200:
                 data = r.json()
-                
-                # Publish detailed fetch metrics
-                publish("pumpfun.raw", {
-                    "n": len(data), 
-                    "limit": limit, 
-                    "offset": offset,
-                    "response_time": round(time.time() - start_time, 3)
-                })
-                
-                logging.info(f"Pump.fun fetch: {len(data)} tokens (limit={limit}, offset={offset})")
+                # Expect either list or {"coins":[...]}
+                if isinstance(data, dict) and "coins" in data:
+                    data = data["coins"]
+                publish("pumpfun.raw", {"n": len(data)})
                 return data
             else:
-                publish("pumpfun.err", {
-                    "code": r.status_code, 
-                    "attempt": attempt + 1,
-                    "url": url
-                })
-                logging.warning(f"Pump.fun API error: {r.status_code}")
-                
+                publish("pumpfun.err", {"code": r.status_code})
         except Exception as e:
-            publish("pumpfun.exc", {
-                "err": str(e), 
-                "attempt": attempt + 1,
-                "url": url
-            })
-            logging.error(f"Pump.fun fetch exception: {e}")
-            
+            publish("pumpfun.exc", {"err": str(e)})
         if attempt < retries - 1:
-            sleep_time = 0.4 * (2**attempt) + random.uniform(0.05, 0.3)
-            time.sleep(sleep_time)
-            
-    publish("pumpfun.failed", {"limit": limit, "offset": offset, "retries": retries})
+            time.sleep(0.4 * (2**attempt) + random.uniform(0.05, 0.3))
+    
+    publish("pumpfun.empty", {"note": "no data", "last": last})
     return []
 
-def enrich_tokens(tokens):
-    """Enrich tokens with DexScreener data and comprehensive metadata."""
-    enriched = []
-    success_count = 0
-    error_count = 0
-    
+def enrich_with_dex(tokens):
+    """Enrich tokens with DexScreener data."""
+    out = []
     for tok in tokens:
         mint = tok.get("mint")
-        sym = tok.get("symbol") or ""
-        name = tok.get("name") or ""
-        
         if not mint:
+            out.append(tok)
             continue
-            
-        # DexScreener lookup with detailed tracking
         try:
-            start_time = time.time()
             r = httpx.get(f"{DEX_PAIR}{mint}", headers=HEADERS, timeout=6)
-            response_time = round(time.time() - start_time, 3)
-            
             if r.status_code == 200:
                 ds = r.json()
-                pairs = ds.get("pairs", [])
-                tok["dex_data"] = pairs
-                
-                # Extract key metrics from DexScreener data
-                if pairs:
-                    pair = pairs[0]  # Use primary pair
-                    tok["dex_liquidity"] = pair.get("liquidity", {}).get("usd", 0)
-                    tok["dex_volume_24h"] = pair.get("volume", {}).get("h24", 0)
-                    tok["dex_price_usd"] = pair.get("priceUsd", "0")
-                    tok["dex_price_change_24h"] = pair.get("priceChange", {}).get("h24", 0)
-                    tok["dex_market_cap"] = pair.get("marketCap", 0)
-                
-                success_count += 1
-                publish("dex.success", {
-                    "mint": mint, 
-                    "pairs_found": len(pairs),
-                    "response_time": response_time
-                })
-                
+                tok["dex_data"] = ds.get("pairs", [])
             else:
-                error_count += 1
-                publish("dex.err", {
-                    "mint": mint, 
-                    "code": r.status_code,
-                    "response_time": response_time
-                })
-                logging.warning(f"DexScreener error for {mint}: {r.status_code}")
-                
+                publish("dex.err", {"mint": mint, "code": r.status_code})
         except Exception as e:
-            error_count += 1
             publish("dex.exc", {"mint": mint, "err": str(e)})
-            logging.error(f"DexScreener exception for {mint}: {e}")
-            
-        enriched.append(tok)
-    
-    # Publish comprehensive enrichment summary
-    publish("pumpfun.enriched", {
-        "total_tokens": len(enriched),
-        "dex_success": success_count,
-        "dex_errors": error_count,
-        "success_rate": round((success_count / len(tokens)) * 100, 1) if tokens else 0
-    })
-    
-    logging.info(f"Token enrichment complete: {success_count}/{len(tokens)} successful DexScreener lookups")
-    return enriched
+        out.append(tok)
+    publish("pumpfun.enriched.dex", {"n": len(out)})
+    return out
+
+def _rpc_batch_token_supply(mints, batch_size=25, timeout=12):
+    """
+    Batch JSON-RPC: getTokenSupply for each mint.
+    Returns dict[mint] -> {"decimals": int, "amount": str, "uiAmount": float}
+    """
+    if not SOLANA_RPC_HTTP:
+        publish("rpc.disabled", {"reason": "no SOLANA_RPC_HTTP"})
+        return {}
+
+    results = {}
+    try:
+        with httpx.Client(timeout=timeout, headers={"content-type":"application/json"}) as c:
+            for i in range(0, len(mints), batch_size):
+                chunk = mints[i:i+batch_size]
+                calls = []
+                for idx, mint in enumerate(chunk):
+                    calls.append({
+                        "jsonrpc":"2.0","id":idx,
+                        "method":"getTokenSupply","params":[mint]
+                    })
+                r = c.post(SOLANA_RPC_HTTP, json=calls)
+                if r.status_code != 200:
+                    publish("rpc.batch.err", {"code": r.status_code})
+                    continue
+                arr = r.json()
+                # JSON-RPC batch is a list of responses
+                for resp in arr:
+                    rid = resp.get("id")
+                    val = (resp.get("result") or {}).get("value") or {}
+                    # Need to map back to mint by position
+                    try:
+                        mint = chunk[rid]
+                    except Exception:
+                        continue
+                    if isinstance(val, dict):
+                        results[mint] = {
+                            "decimals": val.get("decimals"),
+                            "amount": val.get("amount"),
+                            "uiAmount": val.get("uiAmount"),
+                        }
+                publish("rpc.supply.batch", {"n": len(chunk)})
+    except Exception as e:
+        publish("rpc.batch.exc", {"err": str(e)})
+    return results
+
+def enrich_with_solana_rpc(tokens):
+    """
+    Add rpc.{decimals, supply} to tokens that have 'mint'.
+    """
+    mints = [t.get("mint") for t in tokens if t.get("mint")]
+    mints = [m for m in mints if isinstance(m, str)]
+    if not mints:
+        publish("rpc.supply.skip", {"reason": "no mints"})
+        return tokens
+
+    sup = _rpc_batch_token_supply(mints)
+    out = []
+    for t in tokens:
+        m = t.get("mint")
+        if m and m in sup:
+            t.setdefault("rpc", {})
+            t["rpc"]["decimals"] = sup[m].get("decimals")
+            t["rpc"]["supply"]   = sup[m].get("amount")
+            t["rpc"]["supply_ui"]= sup[m].get("uiAmount")
+        out.append(t)
+    publish("pumpfun.rpc_enriched", {"n": len(out), "matched": len(sup)})
+    return out
 
 def pumpfun_full(limit=50):
-    """Complete Pump.fun fetch and enrichment pipeline."""
-    publish("pumpfun.fetch_started", {"limit": limit})
-    
+    """Complete Pump.fun fetch and enrichment pipeline with Solana RPC integration."""
     raw = fetch_pumpfun(limit=limit)
     if not raw:
-        publish("pumpfun.fetch_failed", {"limit": limit})
         return []
     
-    enriched = enrich_tokens(raw)
+    # Normalize: ensure minimal shape + source
+    norm = []
+    for c in raw:
+        norm.append({
+            "source": "pumpfun",
+            "symbol": c.get("symbol") or c.get("ticker") or None,
+            "name": c.get("name") or None,
+            "mint": c.get("mint") or c.get("mintAddress") or c.get("tokenAddress"),
+            "holders": c.get("holders") or None,
+            "mcap_usd": c.get("market_cap") or c.get("mcap") or None,
+            "liquidity_usd": c.get("liquidity_usd") or c.get("liquidity") or None,
+            "age_min": None,  # can compute if you have createdAt; left None if missing
+        })
     
-    publish("pumpfun.fetch_completed", {
-        "raw_count": len(raw),
-        "enriched_count": len(enriched),
-        "limit": limit
-    })
-    
-    return enriched
+    # RPC enrichment (decimals/supply), then Dex data
+    step1 = enrich_with_solana_rpc(norm)
+    step2 = enrich_with_dex(step1)
+    publish("pumpfun.full.done", {"n": len(step2)})
+    return step2
 
 def search_dexscreener(query, limit=100):
     """Search DexScreener with comprehensive error handling and tracking."""

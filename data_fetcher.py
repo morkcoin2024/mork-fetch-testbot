@@ -502,20 +502,10 @@ def fetch_and_rank(rules):
     return filtered
 
 def fetch_source_pumpfun(limit=50):
-    """Enhanced Pump.fun source fetcher with comprehensive enrichment and event tracking."""
+    """Enhanced Pump.fun source fetcher with Solana RPC and DexScreener enrichment."""
     from pumpfun_enrich import pumpfun_full
     from eventbus import publish
     
-    try:
-        items = pumpfun_full(limit=limit)
-        if not items:
-            publish("fetch.pumpfun.final", {"n": 0, "note": "empty", "limit": limit})
-            logging.info("[FETCH] Pump.fun enriched source: 0 items (empty response)")
-        else:
-            publish("fetch.pumpfun.final", {"n": len(items), "limit": limit, "enriched": True})
-            logging.info("[FETCH] Pump.fun enriched source: %d items successfully fetched", len(items))
-        return items
-    except Exception as e:
-        publish("fetch.pumpfun.final", {"n": 0, "note": "error", "error": str(e), "limit": limit})
-        logging.error("[FETCH] Pump.fun enriched source failed: %s", e)
-        return []
+    items = pumpfun_full(limit=limit)
+    publish("fetch.pumpfun.final", {"n": len(items)})
+    return items
