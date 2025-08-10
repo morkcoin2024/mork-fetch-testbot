@@ -231,24 +231,19 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         logger.exception("assistant_model handler error")
                         response_text = f"❌ /assistant_model failed: {e}"
 
+                # --- assistant via sync path (no asyncio) ---
                 elif text.startswith("/assistant "):
                     logger.info(f"[WEBHOOK] Routing /assistant")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
+                        from alerts.telegram import assistant_generate_sync
+                        req = text.partition(" ")[2].strip()
                         try:
-                            from alerts.telegram import assistant_generate_sync
-                            
-                            # Extract request from command
-                            req = text.partition(" ")[2].strip()
-                            if not req:
-                                response_text = "Usage: /assistant <request>"
-                            else:
-                                # Call synchronous assistant function
-                                model_used, ai_response = assistant_generate_sync(req)
-                                response_text = f"Model: {model_used}\n\n{ai_response}"
+                            model_used, body = assistant_generate_sync(req)
+                            response_text = f"Model: {model_used}\n\n{body}"
                         except Exception as e:
-                            logger.exception("assistant handler error")
+                            logger.exception("assistant sync error")
                             response_text = f"❌ /assistant failed: {e}"
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
