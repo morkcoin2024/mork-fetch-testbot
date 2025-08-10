@@ -1,0 +1,76 @@
+/assistant Install fetch_source (Pump.fun direct) and force source column + green tag in /fetch_now.
+
+PATCH
+=====
+
+1) alerts/telegram.py — add real /fetch_source and force source column block used by /fetch_now.
+
+# --- BEGIN PATCH: alerts/telegram.py ---
+# near other imports
+from data_fetcher import fetch_candidates_from_pumpfun
+
+# add this helper next to your other *sync* command functions
+async def cmd_fetch_source_sync(update, context):
+    """
+    Debug command to verify live ingestion by source.
+    Usage: /fetch_source pumpfun
+    """
+    try:
+        text = update.message.text.strip()
+        parts = text.split(maxsplit=1)
+        wanted = parts[1].strip().lower() if len(parts) > 1 else "pumpfun"
+
+        items = []
+        if wanted in ("pumpfun", "pf", "pump"):
+            items = fetch_candidates_from_pumpfun(limit=50, offset=0)
+        else:
+            await update.message.reply_text("Usage: /fetch_source pumpfun")
+            return "ok"
+
+        # Render: include source + 🟢 for pumpfun
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min"]
+        for t in items[:20]:
+            src  = t.get("source", "?")
+            tag  = "🟢 pumpfun" if src == "pumpfun" else src
+            sym  = t.get("symbol", "?")
+            name = (t.get("name") or sym)[:20]
+            holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+            mcap = t.get("mcap_usd")
+            liq  = t.get("liquidity_usd")
+            age  = t.get("age_min")
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'}")
+
+        block = "```\n" + "\n".join(lines) + "\n```"
+        await update.message.reply_text(block, parse_mode="Markdown")
+        return "ok"
+    except Exception as e:
+        logging.exception("fetch_source error")
+        await update.message.reply_text(f"❌ fetch_source failed: {e}")
+        return "ok"
+
+# --- FORCE the /fetch_now output to include source + 🟢 tag ---
+# find the code inside cmd_fetch_now_sync that builds 'lines = [...]'
+# REPLACE that header+loop with this block:
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk"]
+        for t in items:
+            src  = t.get("source", "?")
+            tag  = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
+            sym  = t.get("symbol", "?")
+            name = (t.get("name") or sym)[:20]
+            holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+            mcap = t.get("mcap_usd")
+            liq  = t.get("liquidity_usd")
+            age  = t.get("age_min")
+            risk = t.get("risk", "?")
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk}")
+# --- END PATCH ---
+
+2) app.py (Flask webhook) — route /fetch_source (place with other admin routes BEFORE unknown fallback).
+
+# --- BEGIN PATCH: app.py ---
+        if text.startswith("/fetch_source"):
+            if getattr(update.effective_user, "id", None) != ASSISTANT_ADMIN_TELEGRAM_ID:
+                _reply("Not authorized."); return "ok"
+            from alerts.telegram import cmd_fetch_source_sync
+            _reply(await cmd_fetch_source_sync(update, None)); return "ok"
+# --- END PATCH ---

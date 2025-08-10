@@ -290,6 +290,47 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                     from alerts.telegram import cmd_fetch_now_sync
                     _reply(cmd_fetch_now_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
+
+                # /fetch_source (admin only)
+                elif text.startswith("/fetch_source"):
+                    logger.info("[WEBHOOK] Routing /fetch_source")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    
+                    # Create mock update object for compatibility
+                    class MockMessage:
+                        def __init__(self, text, chat_id):
+                            self.text = text
+                            self.chat_id = chat_id
+                        
+                        async def reply_text(self, text, parse_mode=None):
+                            _reply(text)
+                    
+                    class MockUpdate:
+                        def __init__(self, message_text, user_data, chat_id):
+                            self.message = MockMessage(message_text, chat_id)
+                            self.effective_user = type('User', (), user_data)()
+                    
+                    mock_update = MockUpdate(text, user, message['chat']['id'])
+                    
+                    try:
+                        import asyncio
+                        from alerts.telegram import cmd_fetch_source_sync
+                        
+                        # Run the async function
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            result = loop.run_until_complete(cmd_fetch_source_sync(mock_update, None))
+                        finally:
+                            loop.close()
+                        
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    except Exception as e:
+                        logger.exception("fetch_source error")
+                        _reply(f"❌ fetch_source failed: {e}")
+                        return jsonify({"status": "error", "command": text, "error": str(e)})
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:

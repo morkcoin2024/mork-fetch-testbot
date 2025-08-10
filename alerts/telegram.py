@@ -9,6 +9,7 @@ logging.info(">>> LOADED alerts.telegram vDEBUG-1 <<<")
 
 import os, re, time, asyncio, logging, pathlib
 from typing import Dict, Optional, Tuple
+from data_fetcher import fetch_candidates_from_pumpfun
 
 try:
     from telegram import __version__ as PTB_VERSION
@@ -588,40 +589,103 @@ def cmd_rules_reload_sync() -> str:
         logging.exception("rules_reload error")
         return f"❌ rules_reload failed: {e}"
 
+async def cmd_fetch_source_sync(update, context):
+    """
+    Debug command to verify live ingestion by source.
+    Usage: /fetch_source pumpfun
+    """
+    try:
+        text = update.message.text.strip()
+        parts = text.split(maxsplit=1)
+        wanted = parts[1].strip().lower() if len(parts) > 1 else "pumpfun"
+
+        items = []
+        if wanted in ("pumpfun", "pf", "pump"):
+            items = fetch_candidates_from_pumpfun(limit=50, offset=0)
+        else:
+            await update.message.reply_text("Usage: /fetch_source pumpfun")
+            return "ok"
+
+        # Render: include source + 🟢 for pumpfun
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min"]
+        for t in items[:20]:
+            src  = t.get("source", "?")
+            tag  = "🟢 pumpfun" if src == "pumpfun" else src
+            sym  = t.get("symbol", "?")
+            name = (t.get("name") or sym)[:20]
+            holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+            mcap = t.get("mcap_usd")
+            liq  = t.get("liquidity_usd")
+            age  = t.get("age_min")
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'}")
+
+        block = "```\n" + "\n".join(lines) + "\n```"
+        await update.message.reply_text(block, parse_mode="Markdown")
+        return "ok"
+    except Exception as e:
+        logging.exception("fetch_source error")
+        await update.message.reply_text(f"❌ fetch_source failed: {e}")
+        return "ok"
+
 def cmd_fetch_now_sync() -> str:
-    """Mock shortlist (filters & formatting). Replace with real data sources next."""
+    """Real token filtering with live data from Pump.fun and DexScreener."""
     try:
         from rules import load_rules, get_rules_version
+        from data_fetcher import apply_risk_scoring
+        
         rules = load_rules()
         N = int(rules.get("output", {}).get("max_results", 10))
         scan = rules.get("scan", {})
-
-        items = [
-            {"symbol":"FNM","name":"FennecMan","holders":210,"mcap_usd":120000,"liquidity_usd":18000,"age_min":45,"risk":38},
-            {"symbol":"YOLO","name":"YoloCat","holders":560,"mcap_usd":350000,"liquidity_usd":42000,"age_min":70,"risk":52},
-            {"symbol":"ZAP","name":"ZapFox","holders":95,"mcap_usd":80000,"liquidity_usd":12000,"age_min":30,"risk":41},
-        ]
-
-        out = []
-        for t in items:
-            if t["holders"] < scan.get("holders_min", 0): continue
-            if t["holders"] > scan.get("holders_max", 10**9): continue
-            if t["mcap_usd"] < scan.get("mcap_min_usd", 0): continue
-            if t["mcap_usd"] > scan.get("mcap_max_usd", 10**12): continue
-            if t["liquidity_usd"] < scan.get("liquidity_min_usd", 0): continue
-            if t["age_min"] > scan.get("max_age_minutes", 10**9): continue
-            out.append(t)
-
-        out = sorted(out, key=lambda x: (x["risk"], -x["liquidity_usd"]))[:N]
-        if not out:
-            return "No candidates under current rules."
-
-        lines = ["symbol | name | holders | mcap$ | liq$ | age_min | risk"]
-        for t in out:
-            lines.append(f"{t['symbol']} | {t['name']} | {t['holders']} | {t['mcap_usd']:,} | {t['liquidity_usd']:,} | {t['age_min']} | {t['risk']}")
+        
+        # Fetch real data from Pump.fun
+        items = fetch_candidates_from_pumpfun(limit=50, offset=0)
+        
+        # Apply risk scoring
+        items = apply_risk_scoring(items, rules)
+        
+        # Apply rules filtering
+        max_age = scan.get("max_age_minutes", 180)
+        min_holders = scan.get("holders_min", 75)
+        max_holders = scan.get("holders_max", 5000)
+        min_mcap = scan.get("mcap_min_usd", 50000)
+        max_mcap = scan.get("mcap_max_usd", 2000000)
+        min_liq = scan.get("liquidity_min_usd", 10000)
+        max_risk = rules.get("risk", {}).get("max_score", 70)
+        
+        filtered = []
+        for item in items:
+            age_ok = item.get("age_min") is None or item["age_min"] <= max_age
+            holders_ok = item.get("holders") is None or item["holders"] == -1 or (min_holders <= item["holders"] <= max_holders)
+            mcap_ok = item.get("mcap_usd") is None or (min_mcap <= item["mcap_usd"] <= max_mcap)
+            liq_ok = item.get("liquidity_usd") is None or item["liquidity_usd"] >= min_liq
+            risk_ok = item.get("risk") is None or item["risk"] <= max_risk
+            
+            if age_ok and holders_ok and mcap_ok and liq_ok and risk_ok:
+                filtered.append(item)
+        
+        filtered = filtered[:N]
+        
+        # Format output with source column and green tag
+        if not filtered:
+            return f"*F.E.T.C.H Results (v{get_rules_version()})* — No tokens match current filters"
+        
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk"]
+        for t in filtered:
+            src  = t.get("source", "?")
+            tag  = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
+            sym  = t.get("symbol", "?")
+            name = (t.get("name") or sym)[:20]
+            holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+            mcap = t.get("mcap_usd")
+            liq  = t.get("liquidity_usd")
+            age  = t.get("age_min")
+            risk = t.get("risk", "?")
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk}")
+        
         body = "\n".join(lines)
         if len(body) > 3800: body = body[:3800] + "\n…(truncated)…"
-        return f"*F.E.T.C.H results (v{get_rules_version()})*\n```\n{body}\n```"
+        return f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(filtered)} tokens:\n```\n{body}\n```"
+        
     except Exception as e:
         logging.exception("fetch_now error")
         return f"❌ fetch_now failed: {e}"
