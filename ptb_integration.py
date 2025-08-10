@@ -5,7 +5,7 @@ Modern python-telegram-bot integration pattern
 
 # PTB v20+ style integration
 from telegram.ext import Application, CommandHandler
-from alerts.telegram import cmd_assistant_model, cmd_assistant, cmd_assistant_toggle
+from alerts.telegram import cmd_assistant_model, cmd_assistant, cmd_assistant_toggle, cmd_whoami, unknown
 
 def setup_assistant_handlers(application):
     """Set up assistant command handlers for PTB v20+"""
@@ -14,6 +14,9 @@ def setup_assistant_handlers(application):
     application.add_handler(CommandHandler("assistant", cmd_assistant))
     application.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle))
     application.add_handler(CommandHandler("assistant_model", cmd_assistant_model))
+    
+    # Utility commands
+    application.add_handler(CommandHandler("whoami", cmd_whoami))
     
     print("Assistant handlers registered with PTB v20+")
 
