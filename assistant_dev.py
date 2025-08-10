@@ -1,12 +1,50 @@
 # assistant_dev.py
-import os, subprocess, textwrap, tempfile, pathlib
+import os, subprocess, textwrap, tempfile, pathlib, logging
 from dataclasses import dataclass
 from typing import List, Optional
 from datetime import datetime
 from unidiff import PatchSet
+from pathlib import Path
 from openai import OpenAI
 from config import OPENAI_API_KEY, ASSISTANT_MODEL, ASSISTANT_WRITE_GUARD, ASSISTANT_GIT_BRANCH
 from backup_manager import create_backup, list_backups, restore_backup, prune_backups
+
+# Where we persist the chosen model across restarts
+_PERSIST_PATH = Path(".assistant_model")
+
+def get_current_model() -> str:
+    """
+    Returns the currently selected assistant model.
+    Priority: persisted file -> env ASSISTANT_MODEL -> default.
+    """
+    try:
+        if _PERSIST_PATH.exists():
+            name = _PERSIST_PATH.read_text(encoding="utf-8").strip()
+            if name:
+                return name
+    except Exception as e:
+        logging.warning("get_current_model: read persist failed: %s", e)
+
+    # Fallback to env or sensible default
+    return os.environ.get("ASSISTANT_MODEL", "gpt-4o")
+
+def set_current_model(name: str) -> str:
+    """
+    Sets and persists the assistant model. Also updates the process env
+    so the running app immediately uses it without restart.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Model name cannot be empty")
+
+    os.environ["ASSISTANT_MODEL"] = name  # live for this process
+    try:
+        _PERSIST_PATH.write_text(name, encoding="utf-8")
+    except Exception as e:
+        logging.warning("set_current_model: write persist failed: %s", e)
+
+    logging.info("[ADMIN] Assistant model persisted to %s", name)
+    return name
 
 # Safety limits
 MAX_DIFFS = 2
