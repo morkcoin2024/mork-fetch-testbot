@@ -3,10 +3,11 @@ Mork F.E.T.C.H Bot - Main Application Entry Point
 PTB v20+ integration with fallback support
 """
 
-import os
 import logging
-
 logging.basicConfig(level=logging.INFO)
+logging.info(">>> RUNNING from main.py vDEBUG-ENTRY <<<")
+
+import os
 
 # Try PTB v20+ streamlined integration
 try:
