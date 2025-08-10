@@ -223,6 +223,35 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                             
                     except Exception as e:
                         response_text = f'❌ Error reading ring buffer: {str(e)}'
+                elif text.startswith("/a_diag_fetch"):
+                    # Enhanced diagnostic command for multi-source fetch system
+                    try:
+                        # Import the diagnostic function
+                        import asyncio
+                        from alerts.telegram import cmd_a_diag_fetch
+                        
+                        # Create a mock update object for compatibility
+                        class MockUpdate:
+                            def __init__(self, message_data):
+                                self.message = type('obj', (object,), message_data)()
+                                self.effective_user = type('obj', (object,), {'id': user.get('id')})()
+                        
+                        mock_update = MockUpdate({
+                            'chat': type('obj', (object,), {'id': message['chat']['id']})(),
+                            'from_user': type('obj', (object,), user)(),
+                            'text': text
+                        })
+                        
+                        # Run the async diagnostic command
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            response_text = loop.run_until_complete(cmd_a_diag_fetch(mock_update, None))
+                        finally:
+                            loop.close()
+                            
+                    except Exception as e:
+                        response_text = f'❌ Diagnostic command error: {str(e)}'
                 
                 # Assistant model and codegen integration
                 elif text.startswith("/assistant_model"):
