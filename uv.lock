@@ -1510,6 +1510,7 @@ dependencies = [
     { name = "flask" },
     { name = "flask-sqlalchemy" },
     { name = "gunicorn" },
+    { name = "httpx" },
     { name = "numpy" },
     { name = "openai" },
     { name = "pandas" },
@@ -1523,6 +1524,7 @@ dependencies = [
     { name = "solana" },
     { name = "solders" },
     { name = "sqlalchemy" },
+    { name = "telegram" },
     { name = "trafilatura" },
     { name = "unidiff" },
     { name = "websocket-client" },
@@ -1542,6 +1544,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1.1" },
     { name = "flask-sqlalchemy", specifier = ">=3.1.1" },
     { name = "gunicorn", specifier = ">=23.0.0" },
+    { name = "httpx", specifier = ">=0.25.2" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "openai", specifier = ">=1.40.0" },
     { name = "pandas", specifier = ">=2.3.1" },
@@ -1555,6 +1558,7 @@ requires-dist = [
     { name = "solana", specifier = ">=0.36.7" },
     { name = "solders", specifier = ">=0.26.0" },
     { name = "sqlalchemy", specifier = ">=2.0.42" },
+    { name = "telegram", specifier = ">=0.0.1" },
     { name = "trafilatura", specifier = ">=2.0.0" },
     { name = "unidiff", specifier = ">=0.7.5" },
     { name = "websocket-client", specifier = ">=1.8.0" },
@@ -1801,6 +1805,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/9e/9bce34f67aea0251c8ac104f7bdb2229d58fb2e86a4ad8807999c4bee34b/sqlalchemy-2.0.42-cp313-cp313-win_amd64.whl", hash = "sha256:eb9905f7f1e49fd57a7ed6269bc567fcbbdac9feadff20ad6bd7707266a91577", size = 2120473 },
     { url = "https://files.pythonhosted.org/packages/ee/55/ba2546ab09a6adebc521bf3974440dc1d8c06ed342cceb30ed62a8858835/sqlalchemy-2.0.42-py3-none-any.whl", hash = "sha256:defcdff7e661f0043daa381832af65d616e060ddb54d3fe4476f51df7eaa1835", size = 1922072 },
 ]
+
+[[package]]
+name = "telegram"
+version = "0.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/ca/8bdf2deb93b9f6971dabf2ddc827c2a98ce23e13582a15b37e9bc169f226/telegram-0.0.1.tar.gz", hash = "sha256:d405a0af4c868a8dbeae6d03e297e21c7ee6269e11e2ed3810e15544aba02591", size = 879 }
 
 [[package]]
 name = "threadpoolctl"

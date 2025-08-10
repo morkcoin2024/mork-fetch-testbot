@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 VERSION_TG = "tg-4"
 logging.info(f">>> alerts.telegram LOADED {VERSION_TG} <<<")
 
-import os, re, time, asyncio, logging, pathlib, importlib, textwrap
+import os, re, time, asyncio, logging, pathlib, importlib, textwrap, datetime
 from typing import Dict, Optional, Tuple
 from data_fetcher import fetch_candidates_from_pumpfun, _fetch_pairs_from_dexscreener_search
 import data_fetcher as df
@@ -285,6 +285,115 @@ async def cmd_pumpfun_probe(update, context):
         rmark = "✅" if r.get("ok") else "❌"
         lines.append("")
         lines.append(f"{rmark} solana-rpc ({r.get('ms')} ms) url={r.get('url')}"+ (f"  err={r.get('error')}" if r.get("error") else ""))
+
+    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
+    return "ok"
+
+async def cmd_scan_status(update, context):
+    """Comprehensive system scan and status check"""
+    if str(getattr(update.effective_user, "id", "")) != str(ASSISTANT_ADMIN_TELEGRAM_ID):
+        await update.message.reply_text("Not authorized.")
+        return
+
+    lines = [
+        "🔍 System Scan Status",
+        f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+        "",
+    ]
+    
+    # Check data fetcher status
+    try:
+        from data_fetcher import probe_pumpfun_sources
+        res = probe_pumpfun_sources(limit=20)
+        working_sources = sum(1 for s in res["sources"] if s["status"] == 200)
+        total_sources = len(res["sources"])
+        lines.append(f"📊 Data Sources: {working_sources}/{total_sources} operational")
+        
+        for s in res["sources"]:
+            mark = "✅" if s["status"] == 200 else "❌"
+            lines.append(f"  {mark} {s['label']}: {s['status']} ({s['ms']}ms)")
+    except Exception as e:
+        lines.append(f"❌ Data sources check failed: {str(e)}")
+    
+    # Check RPC connectivity
+    try:
+        rpc = res.get("rpc", {})
+        if rpc:
+            mark = "✅" if rpc.get("ok") else "❌"
+            lines.append(f"{mark} Solana RPC: {rpc.get('ms', 'N/A')}ms")
+    except:
+        lines.append("❌ RPC status unavailable")
+    
+    # Check event bus
+    try:
+        from eventbus import get_subscriber_count
+        count = get_subscriber_count()
+        lines.append(f"📡 Event Bus: {count} active subscribers")
+    except:
+        lines.append("📡 Event Bus: status unknown")
+    
+    # Check logging system
+    try:
+        from robust_logging import get_ring_buffer_stats
+        stats = get_ring_buffer_stats()
+        if stats.get("available"):
+            lines.append(f"📝 Logging: {stats['current_size']}/{stats['max_capacity']} entries ({stats['usage_percent']}%)")
+        else:
+            lines.append("📝 Logging: ring buffer unavailable")
+    except:
+        lines.append("📝 Logging: status unknown")
+
+    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
+    return "ok"
+
+async def cmd_scan_test(update, context):
+    """Quick system test with sample data"""
+    if str(getattr(update.effective_user, "id", "")) != str(ASSISTANT_ADMIN_TELEGRAM_ID):
+        await update.message.reply_text("Not authorized.")
+        return
+
+    lines = [
+        "🧪 System Test Results",
+        f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+        "",
+    ]
+    
+    # Test data fetching
+    try:
+        from data_fetcher import probe_pumpfun_sources
+        res = probe_pumpfun_sources(limit=5)
+        
+        sample_count = 0
+        for s in res["sources"]:
+            if s.get("samples"):
+                sample_count += len(s["samples"])
+        
+        lines.append(f"🔬 Data Test: {sample_count} sample tokens retrieved")
+        
+        # Show sample tokens if available
+        for s in res["sources"]:
+            if s.get("samples"):
+                lines.append(f"  📈 From {s['label']}:")
+                for sample in s["samples"][:2]:  # Show first 2 samples
+                    symbol = sample.get("symbol", "?")
+                    name = sample.get("name", "?")
+                    lines.append(f"    • {symbol} - {name}")
+                if len(s["samples"]) > 2:
+                    lines.append(f"    ... and {len(s['samples']) - 2} more")
+    except Exception as e:
+        lines.append(f"❌ Data test failed: {str(e)}")
+    
+    # Test event publishing
+    try:
+        from eventbus import publish, get_subscriber_count
+        publish("test.scan", {"test_id": "scan_test", "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+        subscriber_count = get_subscriber_count()
+        lines.append(f"📤 Event Test: published to {subscriber_count} subscribers")
+    except Exception as e:
+        lines.append(f"❌ Event test failed: {str(e)}")
+    
+    lines.append("")
+    lines.append("✅ System test complete")
 
     await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
     return "ok"

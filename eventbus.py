@@ -38,3 +38,6 @@ class EventBus:
 
 BUS = EventBus()
 def publish(typ, payload=None): BUS.publish(typ, payload)
+def get_subscriber_count(): 
+    with BUS.lock: 
+        return len(BUS.subscribers)

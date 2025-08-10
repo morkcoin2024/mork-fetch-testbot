@@ -1,0 +1,32 @@
+📋 Ring Buffer Log Entries (last 34 lines, level>=info):
+
+```
+...1111111111111111111111111111112?chain=solana) • "
+        "[Pump.fun](https://pump.fun/So11111111111111111111111111111111111111112)"
+    )
+    _reply(sample, parse_mode="Markdown", disable_web_page_preview=True)
+    return "ok"
+END REPLACE
+2025-08-10 19:43:30,123 [INFO] app: [WEBHOOK] Received POST request from 172.31.76.98
+2025-08-10 19:43:30,123 [INFO] app: [WEBHOOK] Update data: {'update_id': 112121395, 'message': {'message_id': 4452, 'from': {'id': 1653046781, 'is_bot': False, 'first_name': 'Turk', 'username': 'Drahcir196', 'language_code': 'en', 'is_premium': True}, 'chat': {'id': 1653046781, 'first_name': 'Turk', 'username': 'Drahcir196', 'type': 'private'}, 'date': 1754855010, 'text': '/scan_status', 'entities': [{'offset': 0, 'length': 12, 'type': 'bot_command'}]}}
+2025-08-10 19:43:30,123 [WARNING] app: [WEBHOOK] PTB disabled, using direct webhook processing
+2025-08-10 19:43:30,124 [INFO] app: [WEBHOOK] Message from Drahcir196 (1653046781): '/scan_status'
+2025-08-10 19:43:30,124 [INFO] app: [WEBHOOK] Admin command detected: /scan_status
+2025-08-10 19:43:30,124 [INFO] app: [WEBHOOK] Unknown admin command: /scan_status
+2025-08-10 19:43:39,979 [INFO] app: [WEBHOOK] Received POST request from 172.31.76.98
+2025-08-10 19:43:39,979 [INFO] app: [WEBHOOK] Update data: {'update_id': 112121396, 'message': {'message_id': 4453, 'from': {'id': 1653046781, 'is_bot': False, 'first_name': 'Turk', 'username': 'Drahcir196', 'language_code': 'en', 'is_premium': True}, 'chat': {'id': 1653046781, 'first_name': 'Turk', 'username': 'Drahcir196', 'type': 'private'}, 'date': 1754855019, 'text': '/scan_test', 'entities': [{'offset': 0, 'length': 10, 'type': 'bot_command'}]}}
+2025-08-10 19:43:39,979 [WARNING] app: [WEBHOOK] PTB disabled, using direct webhook processing
+2025-08-10 19:43:39,979 [INFO] app: [WEBHOOK] Message from Drahcir196 (1653046781): '/scan_test'
+2025-08-10 19:43:39,979 [INFO] app: [WEBHOOK] Admin command detected: /scan_test
+2025-08-10 19:43:39,979 [INFO] app: [WEBHOOK] Unknown admin command: /scan_test
+2025-08-10 19:43:50,851 [INFO] app: [WEBHOOK] Received POST request from 172.31.76.98
+2025-08-10 19:43:50,851 [INFO] app: [WEBHOOK] Update data: {'update_id': 112121397, 'message': {'message_id': 4454, 'from': {'id': 1653046781, 'is_bot': False, 'first_name': 'Turk', 'username': 'Drahcir196', 'language_code': 'en', 'is_premium': True}, 'chat': {'id': 1653046781, 'first_name': 'Turk', 'username': 'Drahcir196', 'type': 'private'}, 'date': 1754855030, 'text': '/a_logs_tail 80 level=info', 'entities': [{'offset': 0, 'length': 12, 'type': 'bot_command'}]}}
+2025-08-10 19:43:50,851 [WARNING] app: [WEBHOOK] PTB disabled, using direct webhook processing
+2025-08-10 19:43:50,851 [INFO] app: [WEBHOOK] Message from Drahcir196 (1653046781): '/a_logs_tail 80 level=info'
+2025-08-10 19:43:50,851 [INFO] app: [WEBHOOK] Admin command detected: /a_logs_tail 80 level=info
+```
+
+Buffer: 34/12000 (0.3%)
+Source: Ring Buffer (ultra-fast access)
+Usage: /a_logs_tail [number] [level=error|warn|info|all]
+Examples: /a_logs_tail 100, /a_logs_tail level=error

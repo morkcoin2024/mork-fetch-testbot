@@ -380,6 +380,118 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         except Exception as e:
                             response_text = f"❌ Status check failed: {str(e)}"
 
+                # /scan_status (admin only)
+                elif text.strip().startswith("/scan_status"):
+                    logger.info("[WEBHOOK] Routing /scan_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            import datetime
+                            lines = [
+                                "🔍 System Scan Status",
+                                f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+                                "",
+                            ]
+                            
+                            # Check data fetcher status
+                            try:
+                                from data_fetcher import probe_pumpfun_sources
+                                res = probe_pumpfun_sources(limit=20)
+                                working_sources = sum(1 for s in res["sources"] if s["status"] == 200)
+                                total_sources = len(res["sources"])
+                                lines.append(f"📊 Data Sources: {working_sources}/{total_sources} operational")
+                                
+                                for s in res["sources"]:
+                                    mark = "✅" if s["status"] == 200 else "❌"
+                                    lines.append(f"  {mark} {s['label']}: {s['status']} ({s['ms']}ms)")
+                                    
+                                # Check RPC connectivity
+                                rpc = res.get("rpc", {})
+                                if rpc:
+                                    mark = "✅" if rpc.get("ok") else "❌"
+                                    lines.append(f"{mark} Solana RPC: {rpc.get('ms', 'N/A')}ms")
+                            except Exception as e:
+                                lines.append(f"❌ Data sources check failed: {str(e)}")
+                            
+                            # Check event bus
+                            try:
+                                from eventbus import get_subscriber_count
+                                count = get_subscriber_count()
+                                lines.append(f"📡 Event Bus: {count} active subscribers")
+                            except:
+                                lines.append("📡 Event Bus: status unknown")
+                            
+                            # Check logging system
+                            try:
+                                from robust_logging import get_ring_buffer_stats
+                                stats = get_ring_buffer_stats()
+                                if stats.get("available"):
+                                    lines.append(f"📝 Logging: {stats['current_size']}/{stats['max_capacity']} entries ({stats['usage_percent']}%)")
+                                else:
+                                    lines.append("📝 Logging: ring buffer unavailable")
+                            except:
+                                lines.append("📝 Logging: status unknown")
+                            
+                            response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ Scan status failed: {str(e)}"
+
+                # /scan_test (admin only)
+                elif text.strip().startswith("/scan_test"):
+                    logger.info("[WEBHOOK] Routing /scan_test")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            import datetime
+                            lines = [
+                                "🧪 System Test Results",
+                                f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
+                                "",
+                            ]
+                            
+                            # Test data fetching
+                            try:
+                                from data_fetcher import probe_pumpfun_sources
+                                res = probe_pumpfun_sources(limit=5)
+                                
+                                sample_count = 0
+                                for s in res["sources"]:
+                                    if s.get("samples"):
+                                        sample_count += len(s["samples"])
+                                
+                                lines.append(f"🔬 Data Test: {sample_count} sample tokens retrieved")
+                                
+                                # Show sample tokens if available
+                                for s in res["sources"]:
+                                    if s.get("samples"):
+                                        lines.append(f"  📈 From {s['label']}:")
+                                        for sample in s["samples"][:2]:  # Show first 2 samples
+                                            symbol = sample.get("symbol", "?")
+                                            name = sample.get("name", "?")
+                                            lines.append(f"    • {symbol} - {name}")
+                                        if len(s["samples"]) > 2:
+                                            lines.append(f"    ... and {len(s['samples']) - 2} more")
+                            except Exception as e:
+                                lines.append(f"❌ Data test failed: {str(e)}")
+                            
+                            # Test event publishing
+                            try:
+                                from eventbus import publish, get_subscriber_count
+                                publish("test.scan", {"test_id": "scan_test", "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                                subscriber_count = get_subscriber_count()
+                                lines.append(f"📤 Event Test: published to {subscriber_count} subscribers")
+                            except Exception as e:
+                                lines.append(f"❌ Event test failed: {str(e)}")
+                            
+                            lines.append("")
+                            lines.append("✅ System test complete")
+                            
+                            response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ Scan test failed: {str(e)}"
+
                 # /rules_reload (admin only)
                 elif text.startswith("/rules_reload"):
                     logger.info("[WEBHOOK] Routing /rules_reload")
