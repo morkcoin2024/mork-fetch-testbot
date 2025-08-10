@@ -1,43 +1,49 @@
 """
 Mork F.E.T.C.H Bot - Main Application Entry Point
-Clean PTB v20+ integration with essential commands
+Enhanced PTB v20+ integration with robust fallback handling
 """
 
-import os
 import logging
+import os
+
 logging.basicConfig(level=logging.INFO)
 
-# Try PTB v20+ integration first, fallback to Flask app
+# Try enhanced PTB v20+ integration first
 try:
+    import telegram
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-    from alerts.telegram import cmd_whoami, cmd_ping, cmd_debug_handlers, unknown
+    from alerts.telegram import cmd_whoami, cmd_ping, unknown, cmd_debug_handlers
 
-    # Get token from environment
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
+    TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    
     if TOKEN:
-        # Build application with PTB v20+
+        logging.info("Starting enhanced PTB v20+ bot with webhook cleanup...")
+        
+        # Ensure polling (and kill any old webhook)
+        from telegram import Bot
+        Bot(TOKEN).delete_webhook(drop_pending_updates=True)
+
         application = ApplicationBuilder().token(TOKEN).build()
 
-        # SPECIFIC commands FIRST (group 0)
+        # 1) SPECIFIC commands FIRST in group 0
         application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
         application.add_handler(CommandHandler("ping", cmd_ping), group=0)
         application.add_handler(CommandHandler("debug_handlers", cmd_debug_handlers), group=0)
 
-        # Catch-all LAST (group 1)
-        application.add_handler(MessageHandler(filters.COMMAND, unknown), group=1)
+        # 2) Catch-all UNKNOWN LAST in a very low priority group
+        application.add_handler(MessageHandler(filters.COMMAND, unknown), group=999)
 
-        logging.info("Handlers registered: whoami(g0), ping(g0), debug_handlers(g0), unknown(g1)")
+        logging.info("Registered handlers: whoami(g0), ping(g0), debug_handlers(g0), unknown(g999)")
 
-        # Run the bot
         if __name__ == '__main__':
             application.run_polling(drop_pending_updates=True)
     else:
-        print("TELEGRAM_BOT_TOKEN not found - running Flask app only")
-        raise ImportError("No token available")
-        
+        raise ImportError("No TELEGRAM_BOT_TOKEN found")
+
 except ImportError as e:
-    print(f"PTB integration not available ({e}) - running Flask app")
+    logging.info(f"PTB integration not available ({e}) - running Flask app")
+    
+    # Fallback to Flask application
     from app import app
     
     if __name__ == '__main__':
