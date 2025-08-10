@@ -6,7 +6,7 @@ import logging, time, random, httpx
 import requests
 from typing import List, Dict, Any, Optional
 
-VERSION_DF = "df-5"
+VERSION_DF = "df-6"
 logging.info(f">>> data_fetcher LOADED {VERSION_DF} <<<")
 
 LAST_JSON_URL = None
@@ -356,22 +356,35 @@ def fetch_and_rank(rules):
     """Enhanced tri-source integration: On-chain + Pump.fun + DexScreener search, filter, score, de-dupe, then order."""
     all_items = []
     
-    # 1) On-chain watcher first (real-time blockchain monitoring)
+    # 1) On-chain watcher first (real-time blockchain monitoring for ultra-fresh tokens)
     try:
         from pump_chain import fetch_recent_pumpfun_mints
-        chain_items = fetch_recent_pumpfun_mints(max_minutes=30, limit=25)
+        chain_items = fetch_recent_pumpfun_mints(max_minutes=15, limit=25)
         all_items.extend(chain_items)
-        logging.info("[FETCH] On-chain source: %d seed items", len(chain_items))
+        logging.info("[FETCH] On-chain primary: %d ultra-fresh items", len(chain_items))
     except Exception as e:
-        logging.warning("On-chain source failed: %s", e)
+        logging.warning("On-chain primary source failed: %s", e)
     
-    # 2) Pump.fun API (ultra-new launches) 
-    try: 
-        pumpfun_items = fetch_candidates_from_pumpfun(limit=200, offset=0)
-        all_items.extend(pumpfun_items)
-        logging.info("[FETCH] Pump.fun API: %d items", len(pumpfun_items))
-    except Exception as e: 
-        logging.warning("Pump.fun source failed: %s", e)
+    # 2) Pump.fun API with on-chain fallback (ultra-new launches)
+    pumpfun_rows = []
+    try:
+        pumpfun_rows = fetch_candidates_from_pumpfun(limit=200, offset=0)
+        logging.info("[FETCH] Pump.fun API: %d items", len(pumpfun_rows))
+    except Exception as e:
+        logging.warning("Pump.fun API failed: %s", e)
+        pumpfun_rows = []
+
+    if not pumpfun_rows:
+        # Use on-chain seeds when REST is down
+        try:
+            from pump_chain import fetch_recent_pumpfun_mints
+            seeds = fetch_recent_pumpfun_mints(max_minutes=60, limit=50)
+            pumpfun_rows.extend(seeds)
+            logging.info("[FETCH] On-chain fallback: %d seed items", len(seeds))
+        except Exception as e:
+            logging.warning("On-chain fallback failed: %s", e)
+
+    all_items.extend(pumpfun_rows)
         
     # 3) DexScreener search (established tokens)
     try: 
