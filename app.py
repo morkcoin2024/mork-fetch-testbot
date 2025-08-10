@@ -5,6 +5,7 @@ Handles Telegram webhooks and provides web interface
 
 import os
 import logging
+import threading
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from eventbus import publish, BUS
@@ -24,6 +25,24 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ---- Birdeye scanner driver thread ----
+from birdeye import get_scanner, SCAN_INTERVAL
+
+_scanner = get_scanner(publish)
+
+def _scanner_thread():
+    while True:
+        try:
+            _scanner.tick()
+            time.sleep(SCAN_INTERVAL)
+        except Exception as e:
+            logger.warning("[SCAN] loop error: %s", e)
+            time.sleep(2)
+
+# start thread on boot
+t = threading.Thread(target=_scanner_thread, daemon=True)
+t.start()
 
 # Create Flask app
 app = Flask(__name__)
