@@ -67,16 +67,44 @@ class BirdeyeScanner:
             self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
             return
         try:
-            # recent tokens (Birdeye)
-            url = f"{API}/public/token/solana/recent"
-            r = httpx.get(url, headers=HEADERS, timeout=10)
+            # Try 1: official tokenlist, newest first
+            url = f"{API}/public/tokenlist"
+            params = {
+                "chain": "solana",
+                "sort_by": "createdTime",
+                "sort_type": "desc",
+                "offset": 0,
+                "limit": 50,
+            }
+            r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
+
+            if r.status_code == 404:
+                # Try 2: legacy-style recent endpoint (some keys use it)
+                url = f"{API}/public/token/solana/recent"
+                r = httpx.get(url, headers=HEADERS, timeout=12)
+
+            if r.status_code == 404:
+                # Try 3: generic recent w/ chain param (seen in some mirrors)
+                url = f"{API}/public/token/recent"
+                r = httpx.get(url, headers=HEADERS, params={"chain": "solana"}, timeout=12)
+
             r.raise_for_status()
             data = r.json() or {}
-            items = data.get("data", []) or data.get("tokens", []) or []
+
+            # Normalize payload across variants
+            items = (
+                data.get("data", {}).get("tokens")
+                or data.get("data", [])
+                or data.get("tokens", [])
+                or data.get("items", [])
+                or []
+            )
+
             new_tokens = []
             for it in items:
-                mint = it.get("address") or it.get("mint")
-                if not mint: continue
+                mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+                if not mint:
+                    continue
                 if self._mark_seen(mint):
                     new_tokens.append({
                         "mint": mint,
@@ -84,8 +112,10 @@ class BirdeyeScanner:
                         "name": it.get("name") or "?",
                         "price": it.get("priceUsd") or it.get("price") or None,
                     })
+
             if new_tokens:
                 self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+
         except Exception as e:
             logging.warning("[SCAN] Birdeye tick error: %s", e)
             self.publish("scan.birdeye.error", {"err": str(e)})
