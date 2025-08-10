@@ -1,15 +1,38 @@
 # assistant_dev.py
 
 import os, json, subprocess, pathlib
+from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
 from unidiff import PatchSet
 from openai import OpenAI
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# Preferred model from env, fallback is gpt-4o
-ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-5-thinking")
+
+PERSIST_PATH = Path(".assistant_model")  # simple local persistence between restarts
+DEFAULT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-5-thinking")
 FALLBACK_MODEL = "gpt-4o"
+
+def _load_model_name() -> str:
+    try:
+        if PERSIST_PATH.exists():
+            name = PERSIST_PATH.read_text(encoding="utf-8").strip()
+            if name:
+                return name
+    except Exception:
+        pass
+    return DEFAULT_MODEL
+
+def _save_model_name(name: str):
+    PERSIST_PATH.write_text(name.strip(), encoding="utf-8")
+
+def get_current_model() -> str:
+    return _load_model_name()
+
+def set_current_model(name: str) -> str:
+    name = name.strip()
+    _save_model_name(name)
+    return name
 
 ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF").upper()
 
@@ -21,11 +44,13 @@ Diffs must be unified diffs (git-style) that apply cleanly to current working di
 """
 
 def assistant_codegen(user_request: str) -> dict:
-    """Generate plan + diffs with preferred model, fallback if needed."""
+    """Generate plan + diffs with current model, fallback if needed."""
     msg = f"User request:\n{user_request}\nProject: Python Telegram bot + Flask on Replit."
+    current_model = get_current_model()
+    
     try:
         r = client.chat.completions.create(
-            model=ASSISTANT_MODEL,
+            model=current_model,
             temperature=0.2,
             messages=[
                 {"role": "system", "content": SYSTEM},
@@ -35,7 +60,7 @@ def assistant_codegen(user_request: str) -> dict:
     except Exception as e:
         # Log and try fallback
         import logging
-        logging.warning(f"Assistant model {ASSISTANT_MODEL} failed: {e}")
+        logging.warning(f"Assistant model {current_model} failed: {e}")
         logging.warning(f"Falling back to {FALLBACK_MODEL}")
         r = client.chat.completions.create(
             model=FALLBACK_MODEL,
