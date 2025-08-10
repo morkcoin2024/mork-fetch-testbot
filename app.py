@@ -295,6 +295,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                                 response_text = f"✅ Assistant model changed to: {new_model}"
                     except Exception as e:
                         logger.exception("assistant_model handler error")
+                        publish("command.error", {"cmd": text.split()[0], "err": str(e)})
                         response_text = f"❌ /assistant_model failed: {e}"
 
                 # --- assistant via sync path (no asyncio) ---
@@ -310,6 +311,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                             response_text = f"Model: {model_used}\n\n{body}"
                         except Exception as e:
                             logger.exception("assistant sync error")
+                            publish("command.error", {"cmd": text.split()[0], "err": str(e)})
                             response_text = f"❌ /assistant failed: {e}"
 
                 # /rules_show (admin only)
@@ -380,6 +382,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     except Exception as e:
                         logger.exception("fetch_source error")
+                        publish("command.error", {"cmd": text.split()[0], "err": str(e)})
                         _reply(f"❌ fetch_source failed: {e}")
                         return jsonify({"status": "error", "command": text, "error": str(e)})
                         

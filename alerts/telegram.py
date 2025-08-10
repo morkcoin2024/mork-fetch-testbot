@@ -161,6 +161,7 @@ async def cmd_status(update, context):
         
     except Exception as e:
         logging.exception(f"[CMD_STATUS] Error: {e}")
+        publish("command.error", {"cmd": "/status", "err": str(e)})
         await update.message.reply_text(f"status error: {e}")
 
 async def cmd_logs_tail(update, context):
