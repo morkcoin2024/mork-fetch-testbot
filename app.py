@@ -645,26 +645,19 @@ Bot is operational with direct webhook processing.
 Admin alias commands (a_*) available to avoid conflicts.'''
                 
                 if response_text:
-                    # Send response using direct API call
-                    import requests
-                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-                    response_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                    sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
+                    logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {'200' if sent_ok else '500'}")
+
+                    try:
+                        publish("command.done", {
+                            "cmd": text.split()[0],
+                            "ok": bool(sent_ok),
+                            **({ "reason": "api_error" } if not sent_ok else {})
+                        })
+                    except Exception as e:
+                        logger.warning(f"Event publish failed: {e}")
                     
-                    response_data = {
-                        'chat_id': chat_id,
-                        'text': response_text
-                    }
-                    
-                    resp = requests.post(response_url, json=response_data)
-                    logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {resp.status_code}")
-                    
-                    # Publish command completion event
-                    if resp.status_code == 200:
-                        publish("command.done", {"cmd": text.split()[0], "ok": True})
-                    else:
-                        publish("command.done", {"cmd": text.split()[0], "ok": False, "reason": "api_error"})
-                    
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    return jsonify({"status": "ok", "command": text, "response_sent": bool(sent_ok)})
                 else:
                     logger.info(f"[WEBHOOK] Unknown admin command: {text}")
                     response_text = f"Unknown command: {text}\n\nAvailable commands: /ping, /status, /scan_status, /scan_test, /pumpfun_status, /pumpfun_probe, /help\n\nType /help for full command list."
