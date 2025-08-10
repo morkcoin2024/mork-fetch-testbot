@@ -44,6 +44,55 @@ def _scanner_thread():
 t = threading.Thread(target=_scanner_thread, daemon=True)
 t.start()
 
+# subscribe to publish Birdeye hits to Telegram
+def _on_new(evt):
+    items = evt.get("items", [])
+    if not items: return
+    lines = ["🟢 New tokens (Birdeye):"]
+    for it in items[:5]:
+        mint = it["mint"]; sym = it.get("symbol","?")
+        nm = it.get("name","?")
+        price = it.get("price")
+        lines.append(f"• {sym} | {nm} | {mint}")
+        lines.append(f"  Birdeye: https://birdeye.so/token/{mint}?chain=solana")
+        lines.append(f"  Pump.fun: https://pump.fun/{mint}")
+        if price: lines.append(f"  ~${price}")
+    try:
+        # Send notification to admin via Telegram
+        import requests
+        message_text = "\n".join(lines)
+        if TELEGRAM_BOT_TOKEN and ASSISTANT_ADMIN_TELEGRAM_ID:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": ASSISTANT_ADMIN_TELEGRAM_ID,
+                "text": message_text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }
+            requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        logger.warning("Failed to send Birdeye notification: %s", e)
+
+# Subscribe to Birdeye events via queue polling
+_notification_queue = BUS.subscribe()
+
+def _notification_thread():
+    """Background thread to handle Birdeye notifications"""
+    while True:
+        try:
+            evt = _notification_queue.get(timeout=30)
+            if evt.get("type") == "scan.birdeye.new":
+                _on_new(evt.get("data", {}))
+        except queue.Empty:
+            continue
+        except Exception as e:
+            logger.warning("Notification thread error: %s", e)
+            time.sleep(1)
+
+# Start notification thread
+notification_thread = threading.Thread(target=_notification_thread, daemon=True)
+notification_thread.start()
+
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
