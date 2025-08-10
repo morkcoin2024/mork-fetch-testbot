@@ -154,26 +154,80 @@ Admin router with comprehensive logging active.'''
 ID: {user.get('id', 'unknown')}
 Username: @{user.get('username', 'unknown')}
 Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
-                elif text.strip() in ['/a_logs_tail', '/logs_tail']:
-                    # Get recent log entries
+                elif text.strip().startswith('/a_logs_tail') or text.strip().startswith('/logs_tail'):
+                    # Enhanced logs tail with argument parsing
                     try:
-                        import pathlib
-                        log_path = pathlib.Path('logs/app.log')
-                        if log_path.exists():
-                            with log_path.open('r') as f:
-                                lines = f.readlines()
-                            recent_lines = lines[-20:]  # Last 20 lines
+                        import pathlib, glob, datetime
+                        
+                        # Parse command arguments
+                        parts = text.strip().split()
+                        args = parts[1:] if len(parts) > 1 else []
+                        
+                        # Default values
+                        n_lines = 50
+                        level_filter = "all"
+                        
+                        # Parse arguments
+                        for arg in args:
+                            if arg.isdigit():
+                                n_lines = max(10, min(500, int(arg)))  # Limit for Telegram
+                            elif arg.startswith("level="):
+                                level_filter = arg.split("=", 1)[1].lower()
+                        
+                        # Level filtering function
+                        def get_log_level(line):
+                            line_lower = line.lower()
+                            if "[error]" in line_lower or "error" in line_lower:
+                                return 40
+                            elif "[warning]" in line_lower or "[warn]" in line_lower:
+                                return 30
+                            elif "[info]" in line_lower:
+                                return 20
+                            return 10
+                        
+                        # Level thresholds
+                        level_thresholds = {"error": 40, "warn": 30, "warning": 30, "info": 20, "all": 0}
+                        min_level = level_thresholds.get(level_filter, 0)
+                        
+                        # Read log files
+                        log_files = [pathlib.Path('logs/app.log')]
+                        all_lines = []
+                        
+                        for log_file in log_files:
+                            if log_file.exists():
+                                with log_file.open('r') as f:
+                                    lines = f.readlines()
+                                    # Filter by level if specified
+                                    if level_filter != "all":
+                                        lines = [line for line in lines if get_log_level(line) >= min_level]
+                                    all_lines.extend(lines)
+                        
+                        if not all_lines:
+                            response_text = f'❌ No log entries found (level={level_filter})'
+                        else:
+                            # Get the most recent entries
+                            recent_lines = all_lines[-n_lines:]
                             log_text = ''.join(recent_lines)
-                            response_text = f'''📋 Recent Log Entries (last 20 lines):
+                            
+                            # Truncate if too long for Telegram (4096 char limit)
+                            if len(log_text) > 3000:
+                                log_text = "..." + log_text[-2900:]
+                            
+                            header = f"📋 Recent Log Entries (last {len(recent_lines)} lines"
+                            if level_filter != "all":
+                                header += f", level>={level_filter}"
+                            header += "):"
+                            
+                            response_text = f'''{header}
 
 ```
 {log_text}
 ```
 
-Total log entries: {len(lines)}
-Bot operational with webhook processing.'''
-                        else:
-                            response_text = '❌ Log file not found.'
+Total entries: {len(all_lines)}
+Usage: /a_logs_tail [number] [level=error|warn|info|all]
+Examples: /a_logs_tail 100, /a_logs_tail level=error'''
+                            
                     except Exception as e:
                         response_text = f'❌ Error reading logs: {str(e)}'
                         
@@ -215,7 +269,7 @@ Admin Commands:
 /ping, /a_ping - Test responsiveness
 /status, /a_status - System status  
 /whoami, /a_whoami - Your Telegram info
-/a_logs_tail - Recent log entries
+/a_logs_tail [n] [level=x] - Recent log entries with filtering
 /a_logs_stream - Log streaming info
 /a_logs_watch - Log monitoring status
 /a_mode - Operation mode details

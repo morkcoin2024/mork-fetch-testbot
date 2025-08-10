@@ -1,0 +1,114 @@
+# --- logs tail helpers (enhanced) ---
+import glob, datetime
+
+LEVEL_ORDER = {"error": 40, "warn": 30, "warning": 30, "info": 20, "all": 0}
+
+def _parse_tail_args(args):
+    """
+    Accepts:
+      /a_logs_tail
+      /a_logs_tail 300
+      /a_logs_tail n=300
+      /a_logs_tail level=error
+      /a_logs_tail 400 level=warn sources=app,webhook
+    Returns: (n_lines:int, level:str, sources:list[str])
+    """
+    n = 200
+    level = "all"
+    sources = []  # [] => auto (all *.log)
+
+    for a in (args or []):
+        a = a.strip()
+        if a.isdigit():
+            n = max(10, min(2000, int(a)))
+            continue
+        if a.startswith("n="):
+            try:
+                n = max(10, min(2000, int(a.split("=",1)[1])))
+            except Exception:
+                pass
+            continue
+        if a.startswith("level="):
+            lvl = a.split("=",1)[1].lower()
+            if lvl in LEVEL_ORDER:
+                level = lvl
+            continue
+        if a.startswith("sources="):
+            sources = [s.strip() for s in a.split("=",1)[1].split(",") if s.strip()]
+            continue
+    return n, level, sources
+
+def _level_from_line(line: str) -> int:
+    l = line.lower()
+    if "[error]" in l:
+        return 40
+    if "[warning]" in l or " warn" in l:
+        return 30
+    if "[info]" in l:
+        return 20
+    return 10  # debug/other
+
+def _extract_ts(line: str) -> datetime.datetime:
+    # Expect format like: 2025-08-10 09:41:01,164 [LEVEL] name: msg
+    # Fallback to now if parse fails so we still sort reasonably.
+    try:
+        # split on first ' [' to isolate timestamp
+        ts = line.split(" [", 1)[0]
+        return datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S,%f")
+    except Exception:
+        return datetime.datetime.utcnow()
+
+def _read_tail_file(path: pathlib.Path, n_lines: int) -> list[tuple[datetime.datetime, str]]:
+    if not path.exists():
+        return []
+    # Efficient tail read
+    raw = _tail_lines(path, n_lines)
+    return [(_extract_ts(ln), ln) for ln in raw.splitlines() if ln.strip()]
+
+def _gather_sources(sources: list[str]) -> list[pathlib.Path]:
+    # If explicit, map friendly names to files; else take all *.log
+    name_map = {
+        "app": LOG_PATH,
+        "webhook": pathlib.Path("logs/webhook.log"),
+        "router": pathlib.Path("logs/router.log"),
+        "trading": pathlib.Path("logs/trading.log"),
+    }
+    if sources:
+        return [p for key,p in name_map.items() if key in sources]
+    files = [pathlib.Path(p) for p in glob.glob("logs/*.log")]
+    return files or [LOG_PATH]
+
+async def cmd_logs_tail(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    n, level, sources = _parse_tail_args(context.args)
+
+    files = _gather_sources(sources)
+    rows = []
+    for f in files:
+        try:
+            rows.extend(_read_tail_file(f, n))
+        except Exception as e:
+            rows.append((datetime.datetime.utcnow(), f"(read error {f}: {e})"))
+
+    # Sort by timestamp and filter by level
+    rows.sort(key=lambda x: x[0])
+    min_level = LEVEL_ORDER.get(level, 0)
+    filtered = [ln for ts, ln in rows if _level_from_line(ln) >= min_level]
+
+    # If nothing matched due to level filter, fall back to unfiltered (but say so)
+    if not filtered:
+        filtered = [ln for ts, ln in rows]
+        header = f"(no lines matched level={level}; showing recent combined tail)\n"
+    else:
+        header = f"(level>={level}; combined from {', '.join(str(f) for f in files)})\n"
+
+    text = header + "\n".join(filtered[-n:]) if filtered else header + "(no logs found)"
+    # Chunk safely for Telegram
+    while text:
+        chunk = text[:3500]
+        text = text[3500:]
+        await update.message.reply_text(f"```\n{chunk}\n```", parse_mode=ParseMode.MARKDOWN)
+        # avoid spamming; typically 1–2 messages only
+        if text:
+            await asyncio.sleep(0.1)
