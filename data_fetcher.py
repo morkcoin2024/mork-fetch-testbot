@@ -110,6 +110,13 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
     logging.error("[FETCH] All Pump.fun endpoints failed")
     return []
 
+def _fetch_pairs_from_dexscreener_search(query: str = "solana", limit: int = 200) -> List[Dict[str, Any]]:
+    """
+    Internal alias for DexScreener search testing.
+    Used by diagnostic commands for debugging purposes.
+    """
+    return fetch_candidates_from_dexscreener(limit=limit, max_pairs=limit*2)
+
 def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> List[Dict[str, Any]]:
     """
     Fetch token candidates from DexScreener API.

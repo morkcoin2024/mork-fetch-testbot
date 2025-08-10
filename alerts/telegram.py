@@ -11,7 +11,7 @@ logging.info(f">>> alerts.telegram LOADED {VERSION_TG} <<<")
 
 import os, re, time, asyncio, logging, pathlib, importlib
 from typing import Dict, Optional, Tuple
-from data_fetcher import fetch_candidates_from_pumpfun
+from data_fetcher import fetch_candidates_from_pumpfun, _fetch_pairs_from_dexscreener_search
 import data_fetcher as df
 
 try:
@@ -605,8 +605,12 @@ async def cmd_fetch_source_sync(update, context):
         items = []
         if wanted in ("pumpfun", "pf", "pump"):
             items = fetch_candidates_from_pumpfun(limit=50, offset=0)
+            logging.info("[FETCH] /fetch_source pumpfun returned %d items", len(items))
+        elif wanted in ("dexscreener", "dex", "ds"):
+            items = _fetch_pairs_from_dexscreener_search(query="solana", limit=200)
+            logging.info("[FETCH] /fetch_source dexscreener (search) returned %d items", len(items))
         else:
-            await update.message.reply_text("Usage: /fetch_source pumpfun")
+            await update.message.reply_text("Usage: /fetch_source pumpfun|dexscreener")
             return "ok"
 
         lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min"]
