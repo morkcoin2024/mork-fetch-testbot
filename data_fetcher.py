@@ -354,6 +354,9 @@ def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def fetch_and_rank(rules):
     """Enhanced tri-source integration: On-chain + Pump.fun + DexScreener search, filter, score, de-dupe, then order."""
+    from eventbus import publish
+    
+    publish("fetch_started", {"sources": ["on-chain", "pumpfun", "dexscreener"]})
     all_items = []
     
     # 1) On-chain watcher first (real-time blockchain monitoring for ultra-fresh tokens)
@@ -362,6 +365,7 @@ def fetch_and_rank(rules):
         chain_items = fetch_recent_pumpfun_mints(max_minutes=15, limit=25)
         all_items.extend(chain_items)
         logging.info("[FETCH] On-chain primary: %d ultra-fresh items", len(chain_items))
+        publish("source_complete", {"source": "on-chain", "count": len(chain_items), "status": "success"})
     except Exception as e:
         logging.warning("On-chain primary source failed: %s", e)
     
@@ -370,6 +374,7 @@ def fetch_and_rank(rules):
     try:
         pumpfun_rows = fetch_candidates_from_pumpfun(limit=200, offset=0)
         logging.info("[FETCH] Pump.fun API: %d items", len(pumpfun_rows))
+        publish("source_complete", {"source": "pumpfun", "count": len(pumpfun_rows), "status": "success"})
     except Exception as e:
         logging.warning("Pump.fun API failed: %s", e)
         pumpfun_rows = []
@@ -381,6 +386,7 @@ def fetch_and_rank(rules):
             seeds = fetch_recent_pumpfun_mints(max_minutes=60, limit=50)
             pumpfun_rows.extend(seeds)
             logging.info("[FETCH] On-chain fallback: %d seed items", len(seeds))
+            publish("fallback_activated", {"source": "on-chain", "count": len(seeds), "reason": "pumpfun_api_failed"})
         except Exception as e:
             logging.warning("On-chain fallback failed: %s", e)
 
@@ -391,6 +397,7 @@ def fetch_and_rank(rules):
         dex_items = _fetch_pairs_from_dexscreener_search(query="solana", limit=300)
         all_items.extend(dex_items)
         logging.info("[FETCH] DexScreener: %d items", len(dex_items))
+        publish("source_complete", {"source": "dexscreener", "count": len(dex_items), "status": "success"})
     except Exception as e: 
         logging.error("[FETCH] Dexscreener search error: %s", e)
 
@@ -423,4 +430,18 @@ def fetch_and_rank(rules):
     ))
     
     logging.info(f"[FETCH] Merged and ranked {len(filtered)} tokens from {len(all_items)} total")
+    
+    # Publish completion event with statistics
+    sources = {}
+    for token in filtered:
+        src = token.get("source", "unknown")
+        sources[src] = sources.get(src, 0) + 1
+    
+    publish("fetch_completed", {
+        "total_tokens": len(filtered),
+        "sources": sources,
+        "top_tokens": [{"symbol": t.get("symbol"), "source": t.get("source"), "risk": t.get("risk")} 
+                      for t in filtered[:5]]
+    })
+    
     return filtered
