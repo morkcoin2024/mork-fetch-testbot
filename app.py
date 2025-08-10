@@ -135,6 +135,14 @@ def webhook():
             
             logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}'")
             
+            # Publish webhook event for real-time monitoring
+            publish("webhook.update", {
+                "from": user.get("username", "?"), 
+                "user_id": user.get("id"),
+                "text": text,
+                "chat_id": message.get('chat', {}).get('id')
+            })
+            
             # Helper function for sending replies
             def _reply(text: str):
                 try:
@@ -161,8 +169,10 @@ def webhook():
                 response_text = None
                 
                 if text.strip() in ['/ping', '/a_ping']:
+                    publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
                 elif text.strip() in ['/status', '/a_status']:
+                    publish("admin.command", {"command": "status", "user": user.get("username", "?")})
                     response_text = f'''🤖 Mork F.E.T.C.H Bot Status
                     
 Mode: Webhook Processing
