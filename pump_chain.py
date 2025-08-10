@@ -9,6 +9,13 @@ from __future__ import annotations
 import os, time, math, json, logging, datetime
 import httpx
 
+# Import event publishing for on-chain monitoring
+try:
+    from eventbus import publish
+except ImportError:
+    def publish(event_type, data):
+        pass  # Fallback if eventbus not available
+
 PUMPFUN_PROGRAM_ID = os.environ.get("PUMPFUN_PROGRAM_ID", "").strip()  # e.g., set in Replit Secrets
 SOLANA_RPC_HTTP = os.environ.get("SOLANA_RPC_HTTP", "").strip()        # https URL from Helius/QuickNode/etc.
 
@@ -39,6 +46,8 @@ def fetch_recent_pumpfun_mints(max_minutes: int = 60, limit: int = 50) -> list[d
     """
     if not PUMPFUN_PROGRAM_ID or not SOLANA_RPC_HTTP:
         logging.warning("[CHAIN] Missing PUMPFUN_PROGRAM_ID or SOLANA_RPC_HTTP")
+        # Publish configuration failure event
+        publish("fetch.onchain.status", {"status": "fail", "code": "missing_config"})
         return []
 
     try:
@@ -69,7 +78,11 @@ def fetch_recent_pumpfun_mints(max_minutes: int = 60, limit: int = 50) -> list[d
                     "age_min": age_min,
                 })
             logging.info("[CHAIN] pumpfun-chain yielded %d seed rows (<=%dmin)", len(out), max_minutes)
+            # Publish successful on-chain fetch event
+            publish("fetch.onchain.status", {"status": "ok", "n": len(out), "max_minutes": max_minutes})
             return out
     except Exception as e:
         logging.exception("[CHAIN] pumpfun-chain fetch error")
+        # Publish on-chain fetch failure event
+        publish("fetch.onchain.status", {"status": "fail", "code": "rpc_error", "error": str(e)})
         return []

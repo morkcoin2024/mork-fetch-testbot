@@ -6,6 +6,13 @@ import logging, time, random, httpx
 import requests
 from typing import List, Dict, Any, Optional
 
+# Import event publishing for source-specific monitoring
+try:
+    from eventbus import publish
+except ImportError:
+    def publish(event_type, data):
+        pass  # Fallback if eventbus not available
+
 VERSION_DF = "df-6"
 logging.info(f">>> data_fetcher LOADED {VERSION_DF} <<<")
 
@@ -60,6 +67,8 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
             params = {"limit": limit, "offset": offset}
             js = _get_json_retry(base, params=params, retries=2, timeout=8)
             if not js:
+                # Publish fetch failure event
+                publish("fetch.pumpfun.status", {"status": "fail", "code": "no_response"})
                 continue
 
             rows = js if isinstance(js, list) else js.get("coins") or js.get("data") or []
@@ -103,11 +112,17 @@ def fetch_candidates_from_pumpfun(limit=200, offset=0):
                 })
             if items:
                 logging.info(f"[FETCH] Retrieved {len(items)} tokens from Pump.fun via {base}")
+                # Publish successful fetch event
+                publish("fetch.pumpfun.status", {"status": "ok", "n": len(items), "source": base})
                 return items
         except Exception as e:
             logging.warning("Pump.fun fetch/parsing failed for %s: %s", base, e)
+            # Publish fetch failure event
+            publish("fetch.pumpfun.status", {"status": "fail", "code": "exception", "error": str(e)})
     
     logging.error("[FETCH] All Pump.fun endpoints failed")
+    # Publish overall failure event
+    publish("fetch.pumpfun.status", {"status": "fail", "code": "all_endpoints_failed"})
     return []
 
 def _fetch_pairs_from_dexscreener_search(query="solana", limit=300):
@@ -116,6 +131,8 @@ def _fetch_pairs_from_dexscreener_search(query="solana", limit=300):
     js = _get_json_retry(DEXSCREENER_SEARCH, params={"q": query})
     if not js:
         logging.warning("[FETCH] Dexscreener search returned no JSON")
+        # Publish fetch failure event
+        publish("fetch.dexscreener.status", {"status": "fail", "code": "no_response"})
         return []
     pairs = js.get("pairs") or []
     out = []
@@ -139,9 +156,12 @@ def _fetch_pairs_from_dexscreener_search(query="solana", limit=300):
                 "renounced_mint_auth": None,
                 "renounced_freeze_auth": None,
             })
-        except Exception:
+        except Exception as e:
+            logging.warning("[FETCH] Error parsing Dexscreener pair: %s", e)
             continue
     logging.info("[FETCH] Dexscreener search yielded %d items", len(out))
+    # Publish successful fetch event
+    publish("fetch.dexscreener.status", {"status": "ok", "n": len(out), "query": query})
     return out
 
 def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> List[Dict[str, Any]]:
@@ -160,6 +180,8 @@ def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> 
         
         data = _get_json_retry(url, headers=headers, retries=2, timeout=10)
         if not data:
+            # Publish fetch failure event
+            publish("fetch.dexscreener.status", {"status": "fail", "code": "no_data"})
             return []
         
         tokens = []
@@ -197,10 +219,14 @@ def fetch_candidates_from_dexscreener(limit: int = 50, max_pairs: int = 500) -> 
             tokens.append(token_data)
             
         logging.info(f"[FETCH] Retrieved {len(tokens)} tokens from DexScreener")
+        # Publish successful fetch event
+        publish("fetch.dexscreener.status", {"status": "ok", "n": len(tokens)})
         return tokens
         
     except Exception as e:
         logging.error(f"[FETCH] DexScreener fetch error: {e}")
+        # Publish fetch failure event
+        publish("fetch.dexscreener.status", {"status": "fail", "code": "exception", "error": str(e)})
         return []
 
 def apply_risk_scoring(tokens: List[Dict[str, Any]], rules: Dict[str, Any]) -> List[Dict[str, Any]]:
