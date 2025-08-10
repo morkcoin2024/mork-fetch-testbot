@@ -688,6 +688,24 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     except Exception as e:
                         response_text = f"Birdeye tick failed: {e}"
 
+                elif text.strip().startswith("/scan_start"):
+                    _scanner.start()
+                    response_text = f"📡 Birdeye scan started (every {SCAN_INTERVAL}s)."
+
+                elif text.strip().startswith("/scan_stop"):
+                    _scanner.stop()
+                    response_text = "🛑 Birdeye scan stopped."
+
+                elif text.strip().startswith("/scan_status") or text.strip().startswith("/a_scan_status"):
+                    st = _scanner.status()
+                    response_text = (
+                        "🔍 Scanner Status\n"
+                        f"running: {st['running']}\n"
+                        f"interval: {st['interval']}s\n"
+                        f"seen-cache: {st['seen_cache']}\n"
+                        "source: Birdeye recent tokens"
+                    )
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
@@ -709,6 +727,9 @@ Live Monitoring:
 /live - Open compact live console
 
 Birdeye Scanner:
+/scan_start - Start background scanning
+/scan_stop - Stop background scanning
+/scan_status - Scanner status and metrics
 /birdeye_start - Start token scanning
 /birdeye_stop - Stop token scanning
 /birdeye_status - Scanner status

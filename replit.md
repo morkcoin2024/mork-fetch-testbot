@@ -21,7 +21,7 @@ Key technical implementations include:
 - **Enhanced Logging System**: Dual-layer logging with RotatingFileHandler and RingBufferHandler for efficient log access and reliability.
 - **Enhanced Multi-Source Diagnostics**: A complete diagnostic system for live module reloading, version tracking, real-time endpoint monitoring, and debugging.
 - **Comprehensive Scan Command System**: Full scan diagnostic infrastructure for system health monitoring and validation.
-- **Birdeye Token Scanner Integration**: Real-time Solana token discovery system via Birdeye API for fresh token monitoring with configurable scan intervals and deduplication.
+- **Birdeye Token Scanner Integration**: Real-time Solana token discovery system via Birdeye API with automatic background scanning thread, enhanced webhook commands (`/scan_start`, `/scan_stop`, `/scan_status`) with emoji feedback, comprehensive status monitoring, configurable scan intervals via `SCAN_INTERVAL_SEC`, and memory-efficient 5000-token deduplication cache.
 
 ## External Dependencies
 - **Telegram Bot API**: For all message handling and user interactions.
