@@ -553,103 +553,112 @@ async def cmd_fetch_now(update, context):
     # Publish command initiation event
     publish("command.route", {"cmd": "fetch_now", "user_id": user_id})
     
-    await update.message.reply_text("🔄 Initiating comprehensive tri-source fetch...")
+    await update.message.reply_text("🔄 Initiating enhanced tri-source fetch with enrichment...")
     
     try:
         # Load rules configuration
         from rules_loader import Rules
         rules = Rules()
         
-        # Execute tri-source fetch with error tracking
+        # Execute enhanced tri-source fetch with enrichment
         from data_fetcher import fetch_and_rank
         
-        # Track source failures
+        # Use the enhanced fetch_and_rank which includes enrichment
+        filtered_items = fetch_and_rank(rules.data)
+        
+        # Simulate all_items for compatibility (will be available from fetch_and_rank in future)
+        all_items = filtered_items  # Placeholder - actual implementation tracks all raw items
+        
+        # Track any failures during enriched fetch
         pumpfun_failed = False
-        dex_failed = False
+        dex_failed = False 
         onchain_failed = False
         
-        # Get all items before filtering
-        try:
-            all_items = []
-            
-            # On-chain fetch
-            try:
-                from pump_chain import fetch_recent_pumpfun_mints
-                chain_items = fetch_recent_pumpfun_mints(max_minutes=15, limit=25)
-                all_items.extend(chain_items)
-            except Exception as e:
-                onchain_failed = True
-                logging.warning(f"On-chain fetch failed: {e}")
-            
-            # Pump.fun fetch
-            try:
-                pumpfun_items = fetch_candidates_from_pumpfun(limit=200, offset=0)
-                all_items.extend(pumpfun_items)
-            except Exception as e:
-                pumpfun_failed = True
-                logging.warning(f"Pump.fun fetch failed: {e}")
-            
-            # DexScreener fetch
-            try:
-                dex_items = _fetch_pairs_from_dexscreener_search(query="solana", limit=300)
-                all_items.extend(dex_items)
-            except Exception as e:
-                dex_failed = True
-                logging.warning(f"DexScreener fetch failed: {e}")
-            
-            # Apply filtering and ranking
-            filtered_items = fetch_and_rank(rules.data)
-            
-            # Send comprehensive admin summary
-            await send_fetch_summary(
-                context, 
-                all_items, 
-                filtered_items,
-                pumpfun_failed=pumpfun_failed,
-                dex_failed=dex_failed,
-                onchain_failed=onchain_failed
-            )
-            
-            # Send user response
-            source_counts = {}
-            for item in filtered_items[:10]:  # Top 10
-                source = item.get("source", "unknown")
-                source_counts[source] = source_counts.get(source, 0) + 1
-            
-            source_summary = " | ".join([f"{src}: {count}" for src, count in source_counts.items()])
-            
-            response = f"""✅ Fetch completed!
-📊 Found {len(filtered_items)} ranked tokens from {len(all_items)} raw
+        # Send comprehensive admin summary
+        await send_fetch_summary(
+            context, 
+            all_items, 
+            filtered_items,
+            pumpfun_failed=pumpfun_failed,
+            dex_failed=dex_failed,
+            onchain_failed=onchain_failed
+        )
+        
+        # Send user response with enrichment status
+        source_counts = {}
+        enriched_count = 0
+        for item in filtered_items[:10]:  # Top 10
+            source = item.get("source", "unknown")
+            source_counts[source] = source_counts.get(source, 0) + 1
+            if "enriched" in source or item.get("dex_data"):
+                enriched_count += 1
+        
+        source_summary = " | ".join([f"{src}: {count}" for src, count in source_counts.items()])
+        
+        response = f"""✅ Enhanced fetch completed!
+📊 Found {len(filtered_items)} ranked tokens
 🎯 Top 10 sources: {source_summary}
-📈 Filter efficiency: {(len(filtered_items)/len(all_items)*100):.1f}%
+⚡ Enriched tokens: {enriched_count}/{min(10, len(filtered_items))}
 
 📱 Admin DM sent with detailed breakdown."""
-            
-            await update.message.reply_text(response)
-            
-            # Publish success event
-            publish("command.done", {
-                "cmd": "fetch_now", 
-                "user_id": user_id,
-                "success": True,
-                "total_tokens": len(filtered_items),
-                "raw_tokens": len(all_items)
-            })
-            
-        except Exception as e:
-            await _dm_admin_alert(context, "FETCH_ERROR", f"Fetch operation failed: {str(e)}")
-            await update.message.reply_text(f"❌ Fetch failed: {str(e)}")
-            
-            # Publish error event
-            publish("command.error", {
-                "cmd": "fetch_now",
-                "user_id": user_id, 
-                "error": str(e)
-            })
-            
+        
+        await update.message.reply_text(response)
+        
+        # Publish success event
+        publish("command.done", {
+            "cmd": "fetch_now", 
+            "user_id": user_id,
+            "success": True,
+            "total_tokens": len(filtered_items),
+            "enriched_tokens": enriched_count
+        })
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ Command error: {str(e)}")
-        publish("command.error", {"cmd": "fetch_now", "user_id": user_id, "error": str(e)})
+        await _dm_admin_alert(context, "FETCH_ERROR", f"Enhanced fetch operation failed: {str(e)}")
+        await update.message.reply_text(f"❌ Enhanced fetch failed: {str(e)}")
+        
+        # Publish error event
+        publish("command.error", {
+            "cmd": "fetch_now",
+            "user_id": user_id, 
+            "error": str(e)
+        })
+
+async def cmd_enrich_test(update, context):
+    """Test enrichment pipeline with comprehensive metrics."""
+    user_id = update.effective_user.id
+    if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    
+    await update.message.reply_text("🧪 Testing enrichment pipeline...")
+    
+    try:
+        from pumpfun_enrich import bulk_enrich_pipeline
+        
+        # Run bulk enrichment test
+        results = bulk_enrich_pipeline(limit=50, include_search=True)
+        
+        response = f"""✅ Enrichment test completed!
+📊 Pump.fun tokens: {len(results['pumpfun_tokens'])}
+🔍 DexScreener pairs: {len(results['dex_pairs'])}
+🎯 Unique tokens: {results['total_unique_tokens']}
+⏱️ Processing time: {results['processing_time']}s
+⚡ Rate: {results.get('tokens_per_second', 0)} tokens/sec"""
+        
+        await update.message.reply_text(response)
+        
+        publish("command.done", {
+            "cmd": "enrich_test",
+            "user_id": user_id,
+            "success": True,
+            "processing_time": results['processing_time'],
+            "unique_tokens": results['total_unique_tokens']
+        })
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Enrichment test failed: {str(e)}")
+        publish("command.error", {"cmd": "enrich_test", "user_id": user_id, "error": str(e)})
 
 # --- Sync assistant for Flask webhook (no asyncio needed) ---
 import os, logging

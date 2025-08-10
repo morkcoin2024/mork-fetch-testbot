@@ -1,6 +1,7 @@
 """
 Data fetcher for Pump.fun and other sources.
 Provides real token data for F.E.T.C.H system.
+Enhanced with comprehensive enrichment capabilities.
 """
 import logging, time, random, httpx
 import requests
@@ -387,6 +388,20 @@ def fetch_and_rank(rules):
     
     publish("fetch_started", {"sources": ["on-chain", "pumpfun", "dexscreener"]})
     all_items = []
+    
+    # Try enriched Pump.fun fetch first (if available)
+    try:
+        from pumpfun_enrich import pumpfun_full
+        enriched_pumpfun = pumpfun_full(limit=200)
+        if enriched_pumpfun:
+            # Add source tag for enriched data
+            for token in enriched_pumpfun:
+                token["source"] = "pumpfun-enriched"
+            all_items.extend(enriched_pumpfun)
+            logging.info("[FETCH] Pump.fun enriched: %d items", len(enriched_pumpfun))
+            publish("source_complete", {"source": "pumpfun-enriched", "count": len(enriched_pumpfun), "status": "success"})
+    except Exception as e:
+        logging.warning("Enriched Pump.fun fetch failed, falling back to standard: %s", e)
     
     # 1) On-chain watcher first (real-time blockchain monitoring for ultra-fresh tokens)
     try:
