@@ -621,8 +621,10 @@ def monitor_dashboard():
         let sources = {onchain: 0, pumpfun: 0, dexscreener: 0};
         const startTime = Date.now();
         
-        // Connect to event stream
-        const eventSource = new EventSource('/events');
+        // Connect to event stream with optional token
+        const token = new URLSearchParams(window.location.search).get('token') || '';
+        const eventUrl = '/events' + (token ? '?token=' + encodeURIComponent(token) : '');
+        const eventSource = new EventSource(eventUrl);
         
         eventSource.onmessage = function(event) {
             try {
@@ -713,32 +715,44 @@ def monitor_dashboard():
 </html>
     ''')
 
+LIVE_TOKEN = os.environ.get("LIVE_TOKEN", "")
+
 @app.route('/events')
 def stream_events():
-    """Server-sent events endpoint for real-time monitoring."""
-    def event_generator():
-        subscriber = BUS.subscribe()
+    """Token-gated server-sent events endpoint for real-time monitoring."""
+    # Simple token gate for secure access
+    tok = request.args.get("token", "")
+    if LIVE_TOKEN and tok != LIVE_TOKEN:
+        return Response("unauthorized", status=401)
+
+    q = BUS.subscribe()
+
+    @stream_with_context
+    def gen():
+        # Set retry interval for client reconnection
+        yield "retry: 1000\\n\\n"
         try:
             while True:
                 try:
-                    # Get events with timeout
-                    event = subscriber.get(timeout=30)
-                    yield f"data: {json.dumps(event)}\\n\\n"
+                    evt = q.get(timeout=30)
+                    # Compact JSON serialization for efficiency
+                    yield f"data: {json.dumps(evt, separators=(',', ':'))}\\n\\n"
                 except queue.Empty:
-                    # Send heartbeat to keep connection alive
-                    yield f"data: {json.dumps({'ts': int(time.time() * 1000), 'type': 'heartbeat', 'data': {}})}\\n\\n"
+                    # Send keepalive comment (not data event)
+                    yield ": keepalive\\n\\n"
         except GeneratorExit:
             # Clean up subscriber when client disconnects
             with BUS.lock:
-                BUS.subscribers.discard(subscriber)
+                BUS.subscribers.discard(q)
     
     return Response(
-        stream_with_context(event_generator()),
-        mimetype='text/event-stream',
+        gen(),
+        mimetype="text/event-stream",
         headers={
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Cache-Control'
         }
     )
 
