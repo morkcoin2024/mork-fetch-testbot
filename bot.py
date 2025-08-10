@@ -65,9 +65,10 @@ class MorkFetchBot:
         from alerts.telegram import cmd_whoami
         self.app.add_handler(CommandHandler("whoami", cmd_whoami))
         
-        # Assistant toggle command
-        from alerts.telegram import cmd_assistant_toggle
+        # Assistant management commands
+        from alerts.telegram import cmd_assistant_toggle, cmd_assistant_model
         self.app.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle))
+        self.app.add_handler(CommandHandler("assistant_model", cmd_assistant_model))
         self.app.add_handler(CommandHandler("assistant_diff", self.assistant_diff_command))
         self.app.add_handler(CommandHandler("assistant_approve", self.assistant_approve_command))
         self.app.add_handler(CommandHandler("assistant_backup", self.assistant_backup_command))

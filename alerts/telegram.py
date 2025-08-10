@@ -64,6 +64,32 @@ def cmd_assistant(update, context):
 
 
 
+def cmd_assistant_model(update, context):
+    """Get/set current assistant model"""
+    from config import ASSISTANT_ADMIN_TELEGRAM_ID
+    from assistant_dev_lite import get_current_model, set_current_model
+    
+    uid = update.effective_user.id
+    if uid != ASSISTANT_ADMIN_TELEGRAM_ID:
+        update.message.reply_text("Not authorized.")
+        return
+
+    args = update.message.text.split(maxsplit=1)
+    if len(args) == 1:
+        # show current
+        update.message.reply_text(f"🤖 Current assistant model: `{get_current_model()}`\nUse `/assistant_model <name>` to change.", parse_mode="Markdown")
+        return
+
+    new_name = args[1].strip()
+    # Optional basic sanity check
+    if not new_name:
+        update.message.reply_text("Usage: /assistant_model <model-name>")
+        return
+
+    set_current_model(new_name)
+    update.message.reply_text(f"✅ Assistant model set to: `{new_name}`\n(Will auto-fallback to `gpt-4o` on errors.)", parse_mode="Markdown")
+
+
 def cmd_assistant_toggle(update, context):
     """Toggle assistant failsafe ON/OFF"""
     from config import ASSISTANT_ADMIN_TELEGRAM_ID
