@@ -6,7 +6,7 @@ import logging, time, random, httpx
 import requests
 from typing import List, Dict, Any, Optional
 
-VERSION_DF = "df-4"
+VERSION_DF = "df-5"
 logging.info(f">>> data_fetcher LOADED {VERSION_DF} <<<")
 
 LAST_JSON_URL = None
@@ -333,10 +333,17 @@ def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         else:
             existing = seen_mints[mint]
             
-            # Prefer Pump.fun source
-            if token.get("source") == "pumpfun" and existing.get("source") != "pumpfun":
+            # Source priority: pumpfun-chain > pumpfun > others
+            token_src = token.get("source", "")
+            existing_src = existing.get("source", "")
+            
+            if token_src == "pumpfun-chain" and existing_src != "pumpfun-chain":
                 seen_mints[mint] = token
-            elif existing.get("source") == "pumpfun" and token.get("source") != "pumpfun":
+            elif existing_src == "pumpfun-chain" and token_src != "pumpfun-chain":
+                continue  # Keep existing on-chain token
+            elif token_src == "pumpfun" and existing_src not in ("pumpfun-chain", "pumpfun"):
+                seen_mints[mint] = token
+            elif existing_src == "pumpfun" and token_src not in ("pumpfun-chain", "pumpfun"):
                 continue  # Keep existing Pump.fun token
             else:
                 # Same source priority, choose lower risk
@@ -346,18 +353,31 @@ def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(seen_mints.values())
 
 def fetch_and_rank(rules):
-    """Enhanced multi-source integration: Pump.fun + DexScreener search, filter, score, de-dupe, then order with Pump.fun first."""
+    """Enhanced tri-source integration: On-chain + Pump.fun + DexScreener search, filter, score, de-dupe, then order."""
     all_items = []
     
-    # 1) Pump.fun first (ultra-new launches) 
+    # 1) On-chain watcher first (real-time blockchain monitoring)
+    try:
+        from pump_chain import fetch_recent_pumpfun_mints
+        chain_items = fetch_recent_pumpfun_mints(max_minutes=30, limit=25)
+        all_items.extend(chain_items)
+        logging.info("[FETCH] On-chain source: %d seed items", len(chain_items))
+    except Exception as e:
+        logging.warning("On-chain source failed: %s", e)
+    
+    # 2) Pump.fun API (ultra-new launches) 
     try: 
-        all_items.extend(fetch_candidates_from_pumpfun(limit=200, offset=0))
+        pumpfun_items = fetch_candidates_from_pumpfun(limit=200, offset=0)
+        all_items.extend(pumpfun_items)
+        logging.info("[FETCH] Pump.fun API: %d items", len(pumpfun_items))
     except Exception as e: 
         logging.warning("Pump.fun source failed: %s", e)
         
-    # 2) DexScreener search (established tokens)
+    # 3) DexScreener search (established tokens)
     try: 
-        all_items.extend(_fetch_pairs_from_dexscreener_search(query="solana", limit=300))
+        dex_items = _fetch_pairs_from_dexscreener_search(query="solana", limit=300)
+        all_items.extend(dex_items)
+        logging.info("[FETCH] DexScreener: %d items", len(dex_items))
     except Exception as e: 
         logging.error("[FETCH] Dexscreener search error: %s", e)
 
