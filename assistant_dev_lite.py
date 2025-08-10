@@ -6,7 +6,7 @@ from unidiff import PatchSet
 from openai import OpenAI
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-5-thinking")
+ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-4o")
 ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF").upper()
 
 client = OpenAI(api_key=OPENAI_API_KEY)

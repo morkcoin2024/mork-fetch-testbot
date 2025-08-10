@@ -26,26 +26,19 @@ class MorkFetchBot:
         self.app = None
         self.telegram_available = False
         
-        # Try to import telegram components
+        # Telegram bot functionality temporarily disabled due to import conflicts
+        # The AI assistant system works independently via webhooks
         try:
-            from telegram import Update
-            from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-            self.telegram_available = True
-            
-            token = os.environ.get('TELEGRAM_BOT_TOKEN')
-            if not token:
-                logger.warning("TELEGRAM_BOT_TOKEN not found - bot disabled")
-                return
-            
-            self.app = Application.builder().token(token).build()
-            self.setup_handlers()
-            logger.info("Telegram bot initialized successfully")
-            
-        except ImportError as e:
-            logger.warning(f"Telegram not available: {e}")
+            # Attempt import but gracefully handle failures
+            import telegram
+            print("Telegram bot temporarily disabled - assistant system active")
             self.telegram_available = False
+            
+            # Telegram functionality disabled - assistant system runs independently
+            logger.info("Assistant system active - Telegram bot disabled")
+            
         except Exception as e:
-            logger.error(f"Bot initialization failed: {e}")
+            logger.warning(f"Telegram bot disabled: {e}")
             self.telegram_available = False
     
     def setup_handlers(self):
@@ -805,7 +798,7 @@ Use /rules_profile <name> to switch profiles."""
             return {"status": "error", "message": "Bot not initialized"}
         
         try:
-            from telegram import Update
+            from telegram._update import Update
             update = Update.de_json(update_data, self.app.bot)
             await self.app.process_update(update)
             return {"status": "ok"}
