@@ -237,8 +237,26 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         response_text = "Not authorized."
                     else:
                         try:
-                            # Note: This would need async handling for full implementation
-                            response_text = "⚠️ Assistant codegen requires async handling - use PTB mode for full functionality or direct module access"
+                            from alerts import telegram as tg
+                            # Create mock update object for Flask-safe handler
+                            class MockUpdate:
+                                def __init__(self, text, user_data):
+                                    class MockMessage:
+                                        def __init__(self, text):
+                                            self.text = text
+                                        async def reply_text(self, response):
+                                            nonlocal response_text
+                                            response_text = response
+                                    class MockUser:
+                                        def __init__(self, user_data):
+                                            self.id = user_data.get('id')
+                                    self.message = MockMessage(text)
+                                    self.effective_user = MockUser(user_data)
+                            
+                            mock_update = MockUpdate(text, user)
+                            import asyncio
+                            asyncio.create_task(tg.cmd_assistant_async_flask(mock_update, None))
+                            response_text = "🤖 Assistant request processing..."
                         except Exception as e:
                             logger.exception("assistant handler error")
                             response_text = f"❌ /assistant failed: {e}"
