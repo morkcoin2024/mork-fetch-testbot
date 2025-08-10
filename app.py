@@ -454,9 +454,17 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                     resp = requests.post(response_url, json=response_data)
                     logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {resp.status_code}")
                     
+                    # Publish command completion event
+                    if resp.status_code == 200:
+                        publish("command.done", {"cmd": text.split()[0], "ok": True})
+                    else:
+                        publish("command.done", {"cmd": text.split()[0], "ok": False, "reason": "api_error"})
+                    
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 else:
                     logger.info(f"[WEBHOOK] Unknown admin command: {text}")
+                    # Publish unknown command event
+                    publish("command.done", {"cmd": text.split()[0], "ok": False, "reason": "unknown"})
                     return jsonify({"status": "ok", "command": text, "response_sent": False})
         
         return jsonify({"status": "ok", "processed": True})

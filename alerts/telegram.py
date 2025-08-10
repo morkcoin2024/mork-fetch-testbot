@@ -132,6 +132,7 @@ async def cmd_status(update, context):
     
     if not _is_admin(update):
         logging.warning(f"[CMD_STATUS] Unauthorized access attempt from {uname} ({uid})")
+        publish("command.done", {"cmd": "/status", "ok": False, "reason": "unauthorized"})
         return await update.message.reply_text("Not authorized.")
     # Build a handler table (groups → handlers)
     try:
@@ -154,6 +155,8 @@ async def cmd_status(update, context):
         logging.info(f"[CMD_STATUS] Sending status response to {uname} ({uid})")
         response = await update.message.reply_text(txt, parse_mode=parse_mode)
         logging.info(f"[CMD_STATUS] Response sent successfully")
+        # Publish successful completion
+        publish("command.done", {"cmd": "/status", "ok": True})
         return response
         
     except Exception as e:
