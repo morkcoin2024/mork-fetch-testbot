@@ -1,39 +1,48 @@
 """
-Mork F.E.T.C.H Bot - Main Entry Point
-Production-ready Solana trading bot with safety systems
+Mork F.E.T.C.H Bot - Main Application Entry Point
+Modern PTB v20+ integration with assistant system
 """
 
+import os
 import logging
 logging.basicConfig(level=logging.INFO)
 
-from app import app
+# Try PTB v20+ integration first, fallback to Flask app
+try:
+    from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+    from alerts.telegram import cmd_whoami, cmd_assistant, cmd_assistant_model, cmd_assistant_toggle, unknown
 
-def log_update(update, context):
-    """Log all incoming updates for debugging"""
-    try:
-        logging.info("UPDATE: %s", update.to_dict())
-    except Exception:
-        logging.info("UPDATE received (non-dict)")
+    # Get token from environment
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Lightweight assistant command handlers for direct application integration
-# Uncomment these lines to wire handlers directly:
-#
-# from telegram.ext import CommandHandler
-# from alerts.telegram import cmd_whoami, cmd_assistant, cmd_assistant_toggle
-# 
-# # Add handlers to application:
-# application.add_handler(CommandHandler("whoami", cmd_whoami))
-# application.add_handler(CommandHandler("assistant", cmd_assistant))
-# application.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle))
+    if TOKEN:
+        # Build application with PTB v20+
+        application = ApplicationBuilder().token(TOKEN).build()
 
-# Update logging for debugging (choose version based on PTB):
-# PTB v13:
-# from telegram.ext import MessageHandler, Filters
-# dispatcher.add_handler(MessageHandler(Filters.all, log_update))
+        # Core assistant commands - group 0 (default, highest priority)
+        application.add_handler(CommandHandler("assistant", cmd_assistant), group=0)
+        application.add_handler(CommandHandler("assistant_model", cmd_assistant_model), group=0)
+        application.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle), group=0)
+        
+        # Utility commands - group 0
+        application.add_handler(CommandHandler("whoami", cmd_whoami), group=0)
 
-# PTB v20:
-# from telegram.ext import MessageHandler, filters
-# application.add_handler(MessageHandler(filters.ALL, log_update))
+        # Catch-all unknown commands - group 1 (lower priority)
+        application.add_handler(MessageHandler(filters.COMMAND, unknown), group=1)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+        print("Mork F.E.T.C.H Bot starting with PTB v20+ integration...")
+        print("Assistant commands available: /assistant, /assistant_model, /assistant_toggle, /whoami")
+        
+        # Run the bot
+        if __name__ == '__main__':
+            application.run_polling(drop_pending_updates=True)
+    else:
+        print("TELEGRAM_BOT_TOKEN not found - running Flask app only")
+        raise ImportError("No token available")
+        
+except ImportError as e:
+    print(f"PTB integration not available ({e}) - running Flask app")
+    from app import app
+    
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=5000)
