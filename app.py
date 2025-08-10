@@ -260,6 +260,34 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         except Exception as e:
                             logger.exception("assistant sync error")
                             response_text = f"❌ /assistant failed: {e}"
+
+                # --- F.E.T.C.H rules management (sync) ---
+                elif text.strip() in ['/rules_show', '/a_rules_show']:
+                    logger.info(f"[WEBHOOK] Routing /rules_show")
+                    try:
+                        from fetch_rules_helpers import cmd_rules_show_sync
+                        response_text = cmd_rules_show_sync()
+                    except Exception as e:
+                        logger.exception("rules_show handler error")
+                        response_text = f"❌ /rules_show failed: {e}"
+
+                elif text.strip() in ['/rules_reload', '/a_rules_reload']:
+                    logger.info(f"[WEBHOOK] Routing /rules_reload")
+                    try:
+                        from fetch_rules_helpers import cmd_rules_reload_sync
+                        response_text = cmd_rules_reload_sync()
+                    except Exception as e:
+                        logger.exception("rules_reload handler error")
+                        response_text = f"❌ /rules_reload failed: {e}"
+
+                elif text.strip() in ['/fetch_now', '/a_fetch_now']:
+                    logger.info(f"[WEBHOOK] Routing /fetch_now")
+                    try:
+                        from fetch_rules_helpers import cmd_fetch_now_sync
+                        response_text = cmd_fetch_now_sync()
+                    except Exception as e:
+                        logger.exception("fetch_now handler error")
+                        response_text = f"❌ /fetch_now failed: {e}"
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:
@@ -303,8 +331,16 @@ Admin Commands:
 /a_logs_stream - Log streaming info
 /a_logs_watch - Log monitoring status
 /a_mode - Operation mode details
+
+AI Assistant:
 /assistant_model [model] - Get/set assistant AI model
-/assistant [request] - AI assistant codegen (PTB mode recommended)
+/assistant [request] - AI assistant and code generation
+
+F.E.T.C.H Rules System:
+/rules_show, /a_rules_show - Display current rules configuration
+/rules_reload, /a_rules_reload - Reload rules from rules.yaml
+/fetch_now, /a_fetch_now - Run token filtering demo
+
 /help - This help message
 
 Bot is operational with direct webhook processing.
