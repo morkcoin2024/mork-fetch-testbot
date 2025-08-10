@@ -324,6 +324,62 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                     _reply(cmd_rules_show_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
+                # /pumpfun_probe (admin only)
+                elif text.strip().startswith("/pumpfun_probe"):
+                    logger.info("[WEBHOOK] Routing /pumpfun_probe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from data_fetcher import probe_pumpfun_sources
+                            
+                            res = probe_pumpfun_sources(limit=50)
+                            lines = [
+                                "🛠 Pump.fun Probe",
+                                f"at: {res['at']}",
+                                "",
+                            ]
+                            for s in res["sources"]:
+                                mark = "✅" if (s["status"] == 200 and s["count"] > 0) else "⚠️" if s["status"] else "❌"
+                                lines.append(f"{mark} {s['label']}  ({s['ms']} ms)  status={s['status']}  count={s['count']}" + (f"  err={s['error']}" if s["error"] else ""))
+                                if s["samples"]:
+                                    for it in s["samples"]:
+                                        sym = it.get("symbol") or "?"
+                                        nm  = it.get("name") or "?"
+                                        lines.append(f"   • {sym} — {nm}")
+                            r = res.get("rpc", {})
+                            if r:
+                                rmark = "✅" if r.get("ok") else "❌"
+                                lines.append("")
+                                lines.append(f"{rmark} solana-rpc ({r.get('ms')} ms) url={r.get('url')}"+ (f"  err={r.get('error')}" if r.get("error") else ""))
+                            
+                            response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ Probe failed: {str(e)}"
+
+                # /pumpfun_status (admin only) 
+                elif text.strip().startswith("/pumpfun_status"):
+                    logger.info("[WEBHOOK] Routing /pumpfun_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from pumpfun_enrich import pumpfun_ping
+                            import textwrap
+                            
+                            url, status, n, err = pumpfun_ping(limit=10)
+                            body = textwrap.dedent(f"""\
+                                Pump.fun status
+                                ───────────────
+                                url:    {url}
+                                status: {status}
+                                items:  {n}
+                                error:  {err or "-"}
+                            """)
+                            response_text = f"```\n{body}\n```"
+                        except Exception as e:
+                            response_text = f"❌ Status check failed: {str(e)}"
+
                 # /rules_reload (admin only)
                 elif text.startswith("/rules_reload"):
                     logger.info("[WEBHOOK] Routing /rules_reload")
