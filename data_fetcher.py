@@ -346,20 +346,20 @@ def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(seen_mints.values())
 
 def fetch_and_rank(rules):
-    """Merge Pump.fun + Dexscreener, filter, score, de-dupe, then order with Pump.fun first."""
+    """Enhanced multi-source integration: Pump.fun + DexScreener search, filter, score, de-dupe, then order with Pump.fun first."""
     all_items = []
-
-    # 1) Pump.fun first (ultra-new)
-    try:
+    
+    # 1) Pump.fun first (ultra-new launches) 
+    try: 
         all_items.extend(fetch_candidates_from_pumpfun(limit=200, offset=0))
-    except Exception as e:
+    except Exception as e: 
         logging.warning("Pump.fun source failed: %s", e)
-
-    # 2) Dexscreener
-    try:
-        all_items.extend(fetch_candidates_from_dexscreener(max_pairs=500))
-    except Exception as e:
-        logging.warning("Dexscreener source failed: %s", e)
+        
+    # 2) DexScreener search (established tokens)
+    try: 
+        all_items.extend(_fetch_pairs_from_dexscreener_search(query="solana", limit=300))
+    except Exception as e: 
+        logging.error("[FETCH] Dexscreener search error: %s", e)
 
     # Filter using YAML rules
     filtered = [t for t in all_items if _passes_rules(t, rules)]
