@@ -21,13 +21,7 @@ def cmd_ping(update, context):
     update.message.reply_text("pong")
 
 
-def cmd_xyzabc(update, context):  # unique to avoid collisions
-    update.message.reply_text("xyzabc-ok")
-
-
 def unknown(update, context):
-    txt = update.message.text if getattr(update, "message", None) else ""
-    logging.info("UNKNOWN caught: %r", txt)
     update.message.reply_text("Unknown command. Type /help for available commands.")
 
 
