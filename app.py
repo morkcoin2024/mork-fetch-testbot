@@ -261,33 +261,35 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                             logger.exception("assistant sync error")
                             response_text = f"❌ /assistant failed: {e}"
 
-                # --- F.E.T.C.H rules management (sync) ---
-                elif text.strip() in ['/rules_show', '/a_rules_show']:
-                    logger.info(f"[WEBHOOK] Routing /rules_show")
-                    try:
-                        from fetch_rules_helpers import cmd_rules_show_sync
-                        response_text = cmd_rules_show_sync()
-                    except Exception as e:
-                        logger.exception("rules_show handler error")
-                        response_text = f"❌ /rules_show failed: {e}"
+                # /rules_show (admin only)
+                elif text.strip() == "/rules_show":
+                    logger.info("[WEBHOOK] Routing /rules_show")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    from alerts.telegram import cmd_rules_show_sync
+                    _reply(cmd_rules_show_sync())
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
 
-                elif text.strip() in ['/rules_reload', '/a_rules_reload']:
-                    logger.info(f"[WEBHOOK] Routing /rules_reload")
-                    try:
-                        from fetch_rules_helpers import cmd_rules_reload_sync
-                        response_text = cmd_rules_reload_sync()
-                    except Exception as e:
-                        logger.exception("rules_reload handler error")
-                        response_text = f"❌ /rules_reload failed: {e}"
+                # /rules_reload (admin only)
+                elif text.startswith("/rules_reload"):
+                    logger.info("[WEBHOOK] Routing /rules_reload")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    from alerts.telegram import cmd_rules_reload_sync
+                    _reply(cmd_rules_reload_sync())
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
 
-                elif text.strip() in ['/fetch_now', '/a_fetch_now']:
-                    logger.info(f"[WEBHOOK] Routing /fetch_now")
-                    try:
-                        from fetch_rules_helpers import cmd_fetch_now_sync
-                        response_text = cmd_fetch_now_sync()
-                    except Exception as e:
-                        logger.exception("fetch_now handler error")
-                        response_text = f"❌ /fetch_now failed: {e}"
+                # /fetch_now (admin only)
+                elif text.startswith("/fetch_now"):
+                    logger.info("[WEBHOOK] Routing /fetch_now")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    from alerts.telegram import cmd_fetch_now_sync
+                    _reply(cmd_fetch_now_sync())
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:
