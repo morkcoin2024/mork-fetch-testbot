@@ -155,9 +155,9 @@ ID: {user.get('id', 'unknown')}
 Username: @{user.get('username', 'unknown')}
 Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
                 elif text.strip().startswith('/a_logs_tail') or text.strip().startswith('/logs_tail'):
-                    # Enhanced logs tail with argument parsing
+                    # Enhanced logs tail with ring buffer (ultra-fast)
                     try:
-                        import pathlib, glob, datetime
+                        from robust_logging import get_ring_buffer_lines, get_ring_buffer_stats
                         
                         # Parse command arguments
                         parts = text.strip().split()
@@ -174,62 +174,40 @@ Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
                             elif arg.startswith("level="):
                                 level_filter = arg.split("=", 1)[1].lower()
                         
-                        # Level filtering function
-                        def get_log_level(line):
-                            line_lower = line.lower()
-                            if "[error]" in line_lower or "error" in line_lower:
-                                return 40
-                            elif "[warning]" in line_lower or "[warn]" in line_lower:
-                                return 30
-                            elif "[info]" in line_lower:
-                                return 20
-                            return 10
+                        # Get lines from ring buffer (super fast!)
+                        lines = get_ring_buffer_lines(n_lines, level_filter)
+                        stats = get_ring_buffer_stats()
                         
-                        # Level thresholds
-                        level_thresholds = {"error": 40, "warn": 30, "warning": 30, "info": 20, "all": 0}
-                        min_level = level_thresholds.get(level_filter, 0)
-                        
-                        # Read log files
-                        log_files = [pathlib.Path('logs/app.log')]
-                        all_lines = []
-                        
-                        for log_file in log_files:
-                            if log_file.exists():
-                                with log_file.open('r') as f:
-                                    lines = f.readlines()
-                                    # Filter by level if specified
-                                    if level_filter != "all":
-                                        lines = [line for line in lines if get_log_level(line) >= min_level]
-                                    all_lines.extend(lines)
-                        
-                        if not all_lines:
+                        if not lines:
                             response_text = f'❌ No log entries found (level={level_filter})'
                         else:
-                            # Get the most recent entries
-                            recent_lines = all_lines[-n_lines:]
-                            log_text = ''.join(recent_lines)
+                            log_text = '\n'.join(lines)
                             
                             # Truncate if too long for Telegram (4096 char limit)
                             if len(log_text) > 3000:
                                 log_text = "..." + log_text[-2900:]
                             
-                            header = f"📋 Recent Log Entries (last {len(recent_lines)} lines"
+                            header = f"📋 Ring Buffer Log Entries (last {len(lines)} lines"
                             if level_filter != "all":
                                 header += f", level>={level_filter}"
                             header += "):"
+                            
+                            buffer_info = ""
+                            if stats.get("available"):
+                                buffer_info = f"\nBuffer: {stats['current_size']}/{stats['max_capacity']} ({stats['usage_percent']}%)"
                             
                             response_text = f'''{header}
 
 ```
 {log_text}
 ```
-
-Total entries: {len(all_lines)}
+{buffer_info}
+Source: Ring Buffer (ultra-fast access)
 Usage: /a_logs_tail [number] [level=error|warn|info|all]
 Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                             
                     except Exception as e:
-                        response_text = f'❌ Error reading logs: {str(e)}'
+                        response_text = f'❌ Error reading ring buffer: {str(e)}'
                         
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:

@@ -3,25 +3,12 @@ Mork F.E.T.C.H Bot - Main Application Entry Point
 PTB v20.7 integration with intelligent fallback
 """
 
-import logging, os, pathlib
-from logging.handlers import RotatingFileHandler
+import logging, os
+from robust_logging import setup_robust_logging, get_ring_buffer_stats
 
-# Enhanced logging setup with file rotation
-pathlib.Path("logs").mkdir(exist_ok=True)
-log_file = "logs/app.log"
-
-root = logging.getLogger()
-root.setLevel(logging.INFO)
-
-# Avoid duplicate handlers if main.py reloads
-if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
-    fh = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
-    sh = logging.StreamHandler()  # still see output in Replit console
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    fh.setFormatter(fmt); sh.setFormatter(fmt)
-    root.addHandler(fh); root.addHandler(sh)
-
-logging.info("Boot: logging to %s", log_file)
+# Initialize robust logging with file rotation and ring buffer
+setup_robust_logging()
+logging.info("Boot: robust logging with ring buffer initialized")
 
 # Admin configuration and command imports
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
