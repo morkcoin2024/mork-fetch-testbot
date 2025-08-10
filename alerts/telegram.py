@@ -1,309 +1,213 @@
 """
 Telegram Alert Handlers for Mork F.E.T.C.H Bot
-Advanced admin commands for system monitoring and control
+Advanced async admin commands for system monitoring and control
 """
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logging.info(">>> LOADED alerts.telegram vDEBUG-1 <<<")
 
-import os
-import re
-import sys
-import time
-import threading
-from collections import deque
+import os, re, time, asyncio, logging, pathlib
+from typing import Dict, Optional, Tuple
+
+try:
+    from telegram import __version__ as PTB_VERSION
+    from telegram.constants import ParseMode
+except ImportError:
+    PTB_VERSION = "Unknown"
+    ParseMode = None
+
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
+LOG_PATH = pathlib.Path("logs/app.log")
+STREAM_TASKS: Dict[int, asyncio.Task] = {}
+WATCH_TASKS: Dict[int, asyncio.Task] = {}
+
+
+def _is_admin(update) -> bool:
+    return getattr(update.effective_user, "id", None) == ASSISTANT_ADMIN_TELEGRAM_ID
+
+def _tail_lines(path: pathlib.Path, n: int = 200) -> str:
+    if not path.exists():
+        return f"(no log file at {path})"
+    # Efficient-ish tail without loading whole file
+    with path.open("rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        block = 4096
+        data = b""
+        while size > 0 and data.count(b"\n") <= n:
+            read_size = block if size - block > 0 else size
+            f.seek(size - read_size)
+            data = f.read(read_size) + data
+            size -= read_size
+    text = data.decode("utf-8", errors="replace")
+    return "\n".join(text.splitlines()[-n:])
+
+def _current_mode_text() -> str:
+    # Heuristic: if PUBLIC_WEBHOOK_URL is set AND a webhook is configured, you can adapt this.
+    # For now we just report that we're in polling mode because main.py starts run_polling().
+    return "polling"
 
 def cmd_whoami(update, context):
     uid = update.effective_user.id if update.effective_user else "unknown"
     uname = update.effective_user.username if update.effective_user else "unknown"
     update.message.reply_text(f"Your Telegram ID: {uid}\nUsername: @{uname}")
 
-
 def cmd_ping(update, context):
     update.message.reply_text("pong")
 
-
-# Global state for log monitoring
-log_buffer = deque(maxlen=1000)  # Keep last 1000 log lines
-log_stream_active = False
-log_watch_active = False
-log_watch_pattern = None
-current_bot_app = None  # Will be set by main.py
-
-
-def is_admin(user_id):
-    """Check if user is admin"""
-    return str(user_id) == str(ASSISTANT_ADMIN_TELEGRAM_ID)
-
-
-def admin_required(func):
-    """Decorator to require admin access"""
-    def wrapper(update, context):
-        user_id = update.effective_user.id if update.effective_user else None
-        if not is_admin(user_id):
-            update.message.reply_text("🚫 Admin access required")
-            return
-        return func(update, context)
-    return wrapper
-
-
-def split_message(text, max_length=4000):
-    """Split long messages into chunks under Telegram limit"""
-    chunks = []
-    while text:
-        if len(text) <= max_length:
-            chunks.append(text)
-            break
-        
-        # Find last newline before limit
-        split_pos = text.rfind('\n', 0, max_length)
-        if split_pos == -1:
-            split_pos = max_length
-        
-        chunks.append(text[:split_pos])
-        text = text[split_pos:].lstrip('\n')
-    
-    return chunks
-
-
-@admin_required
-def cmd_status(update, context):
-    """Show PTB version, mode, and handler table"""
+async def cmd_status(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    # Build a handler table (groups → handlers)
     try:
-        import telegram
-        ptb_version = getattr(telegram, '__version__', 'Unknown')
-        
-        # Determine mode
-        mode = "polling (fallback)" if current_bot_app is None else "polling"
-        
-        # Build handler table
-        handler_info = []
-        if current_bot_app and hasattr(current_bot_app, 'handlers'):
-            for group in sorted(current_bot_app.handlers.keys()):
-                handlers = current_bot_app.handlers[group]
-                group_handlers = []
-                for h in handlers:
-                    if hasattr(h, 'commands'):
-                        cmds = ','.join(sorted(h.commands))
-                        group_handlers.append(f"/{cmds}")
-                    else:
-                        group_handlers.append(type(h).__name__)
-                
-                if group_handlers:
-                    handler_info.append(f"Group {group}: {' | '.join(group_handlers)}")
-        
-        status_text = f"""📊 **System Status**
-
-🔧 PTB Version: {ptb_version}
-🔄 Mode: {mode}
-👥 Admin ID: {ASSISTANT_ADMIN_TELEGRAM_ID}
-
-📋 **Handler Table:**
-{chr(10).join(handler_info) if handler_info else 'No handlers registered'}
-
-🎯 **Available Commands:**
-/status - System status
-/logs_tail [n] - Last n log lines  
-/logs_stream on|off - Stream logs
-/logs_watch <regex> - Watch for pattern
-/mode polling|webhook - Switch mode
-"""
-        
-        for chunk in split_message(status_text):
-            update.message.reply_text(chunk, parse_mode='Markdown')
-            
+        app = context.application
+        lines = [f"PTB: {PTB_VERSION}", f"Mode: {_current_mode_text()}"]
+        lines.append("Handlers:")
+        for grp in sorted(app.handlers.keys()):
+            descs = []
+            for h in app.handlers[grp]:
+                name = type(h).__name__
+                cmds = getattr(h, "commands", set())
+                if cmds:
+                    descs.append(f"{name}({','.join(sorted(cmds))})")
+                else:
+                    descs.append(name)
+            lines.append(f" g{grp}: " + ", ".join(descs))
+        txt = "```\n" + "\n".join(lines) + "\n```"
+        parse_mode = ParseMode.MARKDOWN if ParseMode else None
+        await update.message.reply_text(txt, parse_mode=parse_mode)
     except Exception as e:
-        update.message.reply_text(f"❌ Status error: {e}")
+        logging.exception("status error")
+        await update.message.reply_text(f"status error: {e}")
 
-
-@admin_required 
-def cmd_logs_tail(update, context):
-    """Send last n lines of logs"""
-    try:
-        n = 200
-        if context.args:
-            try:
-                n = int(context.args[0])
-                n = min(n, 500)  # Limit to 500 lines
-            except ValueError:
-                update.message.reply_text("❌ Invalid number. Usage: /logs_tail [n]")
-                return
-        
-        # Try to read from log file first, then fallback to buffer
-        recent_logs = []
-        log_file = "logs/app.log"
-        
+async def cmd_logs_tail(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    n = 200
+    if context.args:
         try:
-            if os.path.exists(log_file):
-                with open(log_file, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    recent_logs = [line.rstrip() for line in lines[-n:]]
-            else:
-                # Fallback to buffer
-                recent_logs = list(log_buffer)[-n:]
+            n = max(10, min(1000, int(context.args[0])))
         except Exception:
-            # Final fallback to buffer
-            recent_logs = list(log_buffer)[-n:]
-        
-        if not recent_logs:
-            update.message.reply_text("📄 No logs available")
-            return
-            
-        log_text = f"📄 **Last {len(recent_logs)} log lines:**\n\n```\n" + '\n'.join(recent_logs) + "\n```"
-        
-        for chunk in split_message(log_text):
-            update.message.reply_text(chunk, parse_mode='Markdown')
-            
-    except Exception as e:
-        update.message.reply_text(f"❌ Logs error: {e}")
+            pass
+    text = _tail_lines(LOG_PATH, n)
+    # Keep under Telegram limits
+    if len(text) > 3900:
+        text = text[-3900:]
+        text = "(tail)\n" + text
+    parse_mode = ParseMode.MARKDOWN if ParseMode else None
+    await update.message.reply_text(f"```\n{text}\n```", parse_mode=parse_mode)
 
+async def _stream_task(chat_id: int, bot, period_sec: float = 5.0, duration_sec: float = 120.0):
+    """Send last ~80 lines every few seconds; auto-stop after duration."""
+    start = time.time()
+    while time.time() - start < duration_sec:
+        if chat_id not in STREAM_TASKS:
+            break  # cancelled
+        text = _tail_lines(LOG_PATH, 80)
+        if len(text) > 3900:
+            text = "(tail)\n" + text[-3900:]
+        try:
+            parse_mode = ParseMode.MARKDOWN if ParseMode else None
+            await bot.send_message(chat_id, f"```\n{text}\n```", parse_mode=parse_mode)
+        except Exception as e:
+            logging.warning("logs_stream send failed: %s", e)
+            break
+        await asyncio.sleep(period_sec)
+    STREAM_TASKS.pop(chat_id, None)
 
-@admin_required
-def cmd_logs_stream(update, context):
-    """Stream logs for 2 minutes or until stopped"""
-    global log_stream_active
-    
+async def cmd_logs_stream(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
     if not context.args:
-        update.message.reply_text("❌ Usage: /logs_stream on|off")
-        return
-        
-    action = context.args[0].lower()
-    
-    if action == "off":
-        log_stream_active = False
-        update.message.reply_text("🔴 Log streaming stopped")
-        return
-    elif action == "on":
-        if log_stream_active:
-            update.message.reply_text("⚠️ Log streaming already active")
-            return
-            
-        log_stream_active = True
-        update.message.reply_text("🟢 Log streaming started (2 min auto-stop)")
-        
-        def stream_logs():
-            global log_stream_active
-            start_time = time.time()
-            last_sent = 0
-            
-            while log_stream_active and (time.time() - start_time) < 120:  # 2 minutes
-                time.sleep(5)  # Every 5 seconds
-                
-                if not log_stream_active:
-                    break
-                    
-                # Get new logs since last send
-                recent_logs = list(log_buffer)[last_sent:]
-                last_sent = len(log_buffer)
-                
-                if recent_logs:
-                    log_text = "📡 **Live Logs:**\n\n```\n" + '\n'.join(recent_logs[-80:]) + "\n```"
-                    try:
-                        for chunk in split_message(log_text):
-                            update.message.reply_text(chunk, parse_mode='Markdown')
-                    except:
-                        pass  # Ignore send errors during streaming
-            
-            log_stream_active = False
-            try:
-                update.message.reply_text("⏰ Log streaming auto-stopped")
-            except:
-                pass
-        
-        thread = threading.Thread(target=stream_logs, daemon=True)
-        thread.start()
-    else:
-        update.message.reply_text("❌ Usage: /logs_stream on|off")
-
-
-@admin_required
-def cmd_logs_watch(update, context):
-    """Watch logs for regex pattern"""
-    global log_watch_active, log_watch_pattern
-    
-    if not context.args:
-        if log_watch_active:
-            log_watch_active = False
-            update.message.reply_text("🔴 Log watching stopped")
-        else:
-            update.message.reply_text("❌ Usage: /logs_watch <regex_pattern>")
-        return
-    
-    pattern = ' '.join(context.args)
-    
-    try:
-        re.compile(pattern)  # Test regex validity
-    except re.error as e:
-        update.message.reply_text(f"❌ Invalid regex: {e}")
-        return
-    
-    log_watch_active = True
-    log_watch_pattern = pattern
-    update.message.reply_text(f"👀 Watching logs for pattern: `{pattern}`", parse_mode='Markdown')
-    
-    def watch_logs():
-        global log_watch_active
-        
-        while log_watch_active:
-            time.sleep(1)
-            
-            # Check recent log entries
-            for log_line in list(log_buffer)[-10:]:  # Check last 10 lines
-                if re.search(log_watch_pattern, log_line, re.IGNORECASE):
-                    try:
-                        alert_text = f"🚨 **Log Alert Match**\n\nPattern: `{log_watch_pattern}`\nLine: ```\n{log_line}\n```"
-                        update.message.reply_text(alert_text, parse_mode='Markdown')
-                        log_watch_active = False
-                        return
-                    except:
-                        pass
-    
-    thread = threading.Thread(target=watch_logs, daemon=True)
-    thread.start()
-
-
-@admin_required
-def cmd_mode(update, context):
-    """Switch between polling and webhook modes"""
-    if not context.args:
-        update.message.reply_text("❌ Usage: /mode polling|webhook")
-        return
-        
+        return await update.message.reply_text("Usage: /logs_stream on|off")
     mode = context.args[0].lower()
-    
+    chat_id = update.effective_chat.id
+    if mode == "on":
+        if chat_id in STREAM_TASKS and not STREAM_TASKS[chat_id].done():
+            return await update.message.reply_text("Already streaming. Use /logs_stream off to stop.")
+        task = asyncio.create_task(_stream_task(chat_id, context.bot))
+        STREAM_TASKS[chat_id] = task
+        return await update.message.reply_text("✅ Log streaming started for ~2 minutes (every 5s).")
+    elif mode == "off":
+        t = STREAM_TASKS.pop(chat_id, None)
+        if t:
+            t.cancel()
+        return await update.message.reply_text("🛑 Log streaming stopped.")
+    else:
+        return await update.message.reply_text("Usage: /logs_stream on|off")
+
+async def _watch_task(chat_id: int, bot, pattern: re.Pattern, timeout_sec: float = 300.0):
+    """Poll the log for a regex match; stop on first match or timeout."""
+    pos = 0
+    start = time.time()
     try:
-        from telegram import Bot
-        
-        if mode == "polling":
-            # Delete webhook and switch to polling
-            bot = Bot(os.environ["TELEGRAM_BOT_TOKEN"])
-            bot.delete_webhook(drop_pending_updates=True)
-            update.message.reply_text("🔄 Switched to polling mode")
-            
-        elif mode == "webhook":
-            webhook_url = os.environ.get("PUBLIC_WEBHOOK_URL")
-            if not webhook_url:
-                update.message.reply_text("❌ PUBLIC_WEBHOOK_URL not set")
-                return
-                
-            bot = Bot(os.environ["TELEGRAM_BOT_TOKEN"])
-            bot.set_webhook(url=webhook_url)
-            update.message.reply_text(f"🔗 Webhook set to: {webhook_url}")
-            
-        else:
-            update.message.reply_text("❌ Usage: /mode polling|webhook")
-            
-    except Exception as e:
-        update.message.reply_text(f"❌ Mode switch error: {e}")
+        while time.time() - start < timeout_sec:
+            if chat_id not in WATCH_TASKS:
+                break
+            if not LOG_PATH.exists():
+                await asyncio.sleep(2.0); continue
+            # Read new bytes from file
+            with LOG_PATH.open("rb") as f:
+                f.seek(pos)
+                chunk = f.read()
+                pos = f.tell()
+            if chunk:
+                text = chunk.decode("utf-8", errors="replace")
+                if pattern.search(text):
+                    parse_mode = ParseMode.MARKDOWN if ParseMode else None
+                    await bot.send_message(chat_id, f"🔔 logs_watch matched: `{pattern.pattern}`", parse_mode=parse_mode)
+                    break
+            await asyncio.sleep(2.0)
+    finally:
+        WATCH_TASKS.pop(chat_id, None)
 
+async def cmd_logs_watch(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /logs_watch <regex>")
+    expr = " ".join(context.args).strip()
+    try:
+        pat = re.compile(expr)
+    except re.error as e:
+        return await update.message.reply_text(f"Bad regex: {e}")
+    chat_id = update.effective_chat.id
+    if chat_id in WATCH_TASKS and not WATCH_TASKS[chat_id].done():
+        WATCH_TASKS[chat_id].cancel()
+    WATCH_TASKS[chat_id] = asyncio.create_task(_watch_task(chat_id, context.bot, pat))
+    parse_mode = ParseMode.MARKDOWN if ParseMode else None
+    await update.message.reply_text(f"👀 Watching logs for `{expr}` (up to 5m)…", parse_mode=parse_mode)
 
-def capture_logs(message):
-    """Capture log messages to buffer"""
-    log_buffer.append(f"[{time.strftime('%H:%M:%S')}] {message}")
-
+async def cmd_mode(update, context):
+    if not _is_admin(update):
+        return await update.message.reply_text("Not authorized.")
+    if not context.args:
+        return await update.message.reply_text("Usage: /mode polling|webhook")
+    choice = context.args[0].lower()
+    if choice == "polling":
+        try:
+            from telegram import Bot
+            token = os.environ["TELEGRAM_BOT_TOKEN"]
+            Bot(token).delete_webhook(drop_pending_updates=True)
+            parse_mode = ParseMode.MARKDOWN if ParseMode else None
+            return await update.message.reply_text("✅ Switched to polling (webhook deleted). *Restart not required.*", parse_mode=parse_mode)
+        except Exception as e:
+            return await update.message.reply_text(f"Error switching to polling: {e}")
+    elif choice == "webhook":
+        pub = os.environ.get("PUBLIC_WEBHOOK_URL")
+        if not pub:
+            return await update.message.reply_text("Set PUBLIC_WEBHOOK_URL first.")
+        try:
+            import requests
+            token = os.environ["TELEGRAM_BOT_TOKEN"]
+            r = requests.get(f"https://api.telegram.org/bot{token}/setWebhook", params={"url": pub})
+            return await update.message.reply_text(f"Webhook set status {r.status_code}: {r.text[:500]}")
+        except Exception as e:
+            return await update.message.reply_text(f"Error setting webhook: {e}")
+    else:
+        return await update.message.reply_text("Usage: /mode polling|webhook")
 
 def unknown(update, context):
     update.message.reply_text("Unknown command. Type /help for available commands.")
