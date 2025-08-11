@@ -118,6 +118,10 @@ try:
     logger.info("Scanners initialized successfully")
 except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
+    # Continue without scanners if initialization fails
+    SCANNER = None
+    JUPITER_SCANNER = None 
+    SOLSCAN_SCANNER = None
 
 def _scanner_thread():
     while True:
@@ -149,16 +153,25 @@ if SCANNER:
     t.start()
 
 # Auto-start Jupiter scanner if enabled
-if JUPITER_SCANNER and JUPITER_SCANNER.enabled:
-    JUPITER_SCANNER.start()
-    logger.info("Jupiter scanner auto-started on boot")
+try:
+    if JUPITER_SCANNER and JUPITER_SCANNER.enabled:
+        JUPITER_SCANNER.start()
+        logger.info("Jupiter scanner auto-started on boot")
+except Exception as e:
+    logger.warning(f"Jupiter auto-start failed: {e}")
 
-# Auto-start Solscan scanner if enabled (has API key)
-if SOLSCAN_SCANNER and SOLSCAN_SCANNER.enabled:
-    SOLSCAN_SCANNER.start()
-    logger.info("Solscan scanner auto-started on boot")
-else:
-    logger.info("Solscan scanner dormant (no SOLSCAN_API_KEY)")
+# Auto-start Solscan scanner if enabled (has API key and feature flag)
+try:
+    if SOLSCAN_SCANNER and SOLSCAN_SCANNER.enabled:
+        SOLSCAN_SCANNER.start()
+        logger.info("Solscan scanner auto-started on boot")
+    else:
+        if SOLSCAN_SCANNER:
+            logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
+        else:
+            logger.info("Solscan scanner not initialized")
+except Exception as e:
+    logger.warning(f"Solscan auto-start failed: {e}")
 
 # subscribe to publish Birdeye hits to Telegram
 def _on_new(evt):
