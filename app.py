@@ -36,7 +36,7 @@ from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVA
 from birdeye_ws import get_ws
 from dexscreener_scanner import get_ds_client
 from jupiter_scan import JupiterScan
-from solscan_scanner import SolscanScanner
+from solscan_scan import SolscanScan
 
 # Initialize components after admin functions are defined
 def _init_scanners():
@@ -54,7 +54,7 @@ def _init_scanners():
     
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
     JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
-    SOLSCAN_SCANNER = SolscanScanner(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=10)  # Solscan scanner (dormant)
+    SOLSCAN_SCANNER = SolscanScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=10)  # Solscan scanner (dormant)
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
@@ -1460,7 +1460,7 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                     SOLSCAN_SCANNER.start()
                                     response_text = "🔍 Solscan scanner started successfully"
                                 else:
-                                    response_text = "❌ Solscan disabled (no SOLSCAN_API_KEY)\nProvide API key to enable"
+                                    response_text = "❌ Solscan disabled\nRequires: FEATURE_SOLSCAN=on AND SOLSCAN_API_KEY"
                             else:
                                 response_text = "❌ Solscan scanner not initialized"
                         except Exception as e:
@@ -1490,7 +1490,7 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                 status = "🟢 Running" if SOLSCAN_SCANNER.running else "🔴 Stopped"
                                 enabled = "✅ Enabled" if SOLSCAN_SCANNER.enabled else "❌ Disabled (no API key)"
                                 cache_size = len(SOLSCAN_SCANNER.seen)
-                                api_key_status = "✅ Provided" if SOLSCAN_SCANNER.api_key else "❌ Missing"
+                                api_key_status = "✅ Provided" if SOLSCAN_SCANNER.key else "❌ Missing"
                                 response_text = f"""🔍 **Solscan Scanner Status**
 Status: {status}
 Feature: {enabled}
@@ -1498,7 +1498,7 @@ API Key: {api_key_status}
 Cache: {cache_size} seen tokens
 Interval: {SOLSCAN_SCANNER.interval}s
 
-Note: Requires SOLSCAN_API_KEY environment variable"""
+Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                             else:
                                 response_text = "❌ Solscan scanner not initialized"
                         except Exception as e:
@@ -1562,8 +1562,8 @@ DexScreener Scanner:
 Multi-Source Token Discovery:
 /jupiter_start, /jupiter_stop - Jupiter scanner controls
 /jupiter_status - Jupiter scanner status and metrics
-/solscan_start, /solscan_stop - Solscan scanner controls (requires API key)
-/solscan_status - Solscan scanner status
+/solscan_start, /solscan_stop - Solscan Pro API scanner controls  
+/solscan_status - Solscan scanner status (requires FEATURE_SOLSCAN=on + Pro API key)
 
 AI Assistant:
 /assistant_model [model] - Get/set assistant AI model

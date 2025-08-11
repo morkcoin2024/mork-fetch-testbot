@@ -14,7 +14,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 **Current Configuration: Multi-Source Token Discovery (August 11, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
-- **Solscan Scanner**: Dormant until SOLSCAN_API_KEY provided (correctly implemented as requested)
+- **Solscan Pro Scanner**: Enhanced implementation using Pro API v2.0, dormant until both FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
 - **Admin Commands**: Complete set for all scanners (/jupiter_start, /jupiter_stop, /jupiter_status, /solscan_start, /solscan_stop, /solscan_status)
 - **Unified Architecture**: All scanners integrated with existing de-dupe cache, notification system, and Telegram admin interface

@@ -1,0 +1,86 @@
+# solscan_scan.py
+import os, time, random, logging
+from typing import List, Dict
+import httpx
+
+log = logging.getLogger(__name__)
+
+# This endpoint requires a Pro key; adjust path if your plan differs.
+SOLSCAN_TOKENS_URL = "https://pro-api.solscan.io/v2.0/token/list?offset=0&limit=50&sortBy=createdBlockTime&direction=desc"
+
+class SolscanScan:
+    def __init__(self, notify_fn, cache_limit:int=8000, interval_sec:int=10):
+        self.notify = notify_fn
+        self.interval = int(os.getenv("SCAN_INTERVAL_SEC", str(interval_sec)))
+        self.key = os.getenv("SOLSCAN_API_KEY", "")
+        self.enabled = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on" and bool(self.key)
+        self.seen: set[str] = set()
+        self.cache_limit = cache_limit
+        self.running = False
+        self.session = httpx.Client(timeout=15)
+
+    def _maybe_trim_cache(self):
+        if len(self.seen) > self.cache_limit:
+            drop = max(1000, self.cache_limit // 4)
+            for _ in range(drop):
+                self.seen.pop()
+
+    def _fetch_latest(self) -> List[Dict]:
+        if not self.key:
+            raise RuntimeError("SOLSCAN_API_KEY not set")
+        r = self.session.get(
+            SOLSCAN_TOKENS_URL,
+            headers={"token": self.key, "User-Agent": "mork-fetch/solscan"}
+        )
+        r.raise_for_status()
+        data = r.json()
+        # Expected { data: [ { mintAddress, tokenName, tokenSymbol, decimals, createdBlockTime } ... ] }
+        items = data.get("data") or []
+        out = []
+        for t in items:
+            mint = t.get("mintAddress")
+            if not mint: 
+                continue
+            out.append({
+                "mint": mint,
+                "name": t.get("tokenName") or "",
+                "symbol": t.get("tokenSymbol") or "",
+                "decimals": t.get("decimals", 0),
+                "source": "solscan",
+            })
+        return out
+
+    def tick(self):
+        if not self.enabled:
+            return 0, 0
+        try:
+            latest = self._fetch_latest()
+        except Exception as e:
+            log.warning("[SCAN] Solscan fetch error: %s", e)
+            return 0, 0
+
+        new_items = []
+        for t in latest:
+            if t["mint"] not in self.seen:
+                self.seen.add(t["mint"])
+                new_items.append(t)
+
+        announced = new_items[:10]
+        if announced:
+            self.notify(announced, title="New tokens (Solscan)")
+
+        self._maybe_trim_cache()
+        return len(latest), len(new_items)
+
+    def start(self):
+        if not self.enabled:
+            log.info("[SCAN] Solscan disabled (set FEATURE_SOLSCAN=on and add SOLSCAN_API_KEY to enable)")
+            return
+        self.running = True
+        log.info("[SCAN] Solscan scanner started (every %ss)", self.interval)
+
+    def stop(self):
+        self.running = False
+        try: self.session.close()
+        except: pass
+        log.info("[SCAN] Solscan scanner stopped")
