@@ -679,8 +679,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             
                             scanner_list = ", ".join(started_scanners) if started_scanners else "birdeye only"
                             response_text = f"✅ Scanners started: {scanner_list}\nBirdeye interval: {SCANNER.interval}s"
+                            logger.info(f"[WEBHOOK] scan_start response ready: {len(response_text)} chars")
                         except Exception as e:
                             response_text = f"❌ scan_start failed: {e}"
+                            logger.error(f"[WEBHOOK] scan_start error: {e}")
 
                 # /scan_stop
                 elif text.strip().startswith("/scan_stop"):
@@ -699,8 +701,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                     pass
                             
                             response_text = "🛑 All scanners stopped"
+                            logger.info(f"[WEBHOOK] scan_stop response ready: {len(response_text)} chars")
                         except Exception as e:
                             response_text = f"❌ scan_stop failed: {e}"
+                            logger.error(f"[WEBHOOK] scan_stop error: {e}")
 
                 # /scan_status (admin only)
                 elif text.strip().startswith("/scan_status"):
@@ -726,8 +730,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 f"  • Solscan: {'ON' if SCANNERS.get('solscan') and SCANNERS['solscan'].enabled else 'OFF (no key)'}"
                             ]
                             response_text = "\n".join(lines)
+                            logger.info(f"[WEBHOOK] scan_status response ready: {len(response_text)} chars")
                         except Exception as e:
                             response_text = f"❌ scan_status failed: {e}"
+                            logger.error(f"[WEBHOOK] scan_status error: {e}")
 
                 # /scan_mode [all|strict]
                 elif text.strip().startswith("/scan_mode"):
@@ -1659,8 +1665,11 @@ Bot is operational with direct webhook processing.
 Admin alias commands (a_*) available to avoid conflicts.'''
                 
                 if response_text:
+                    logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
                     sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
                     logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {'200' if sent_ok else '500'}")
+                    if not sent_ok:
+                        logger.error(f"[WEBHOOK] Failed to send response to Telegram for command: {text}")
 
                     try:
                         publish("command.done", {
