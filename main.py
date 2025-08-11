@@ -88,8 +88,7 @@ except ImportError as e:
     bot_logger.setLevel(logging.DEBUG)
     
     # Fallback to Flask application
-    from app import app as flask_app
-    app = flask_app  # Export for gunicorn
+    from app import app
     
     if __name__ == '__main__':
-        flask_app.run(host='0.0.0.0', port=5000)
+        app.run(host='0.0.0.0', port=5000)

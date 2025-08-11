@@ -1980,6 +1980,9 @@ def start_services():
 with app.app_context():
     start_services()
 
+# Export app for gunicorn
+application = app
+
 if __name__ == '__main__':
     # Start bot polling in development
     if mork_bot and mork_bot.telegram_available and os.environ.get('REPLIT_ENVIRONMENT'):
