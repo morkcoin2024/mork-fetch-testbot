@@ -40,7 +40,7 @@ from solscan_scan import SolscanScan
 
 # Initialize components after admin functions are defined
 def _init_scanners():
-    global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER
+    global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, SCANNERS
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
     
     # Only initialize WebSocket if enabled
@@ -55,6 +55,15 @@ def _init_scanners():
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
     JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
     SOLSCAN_SCANNER = SolscanScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=10)  # Solscan scanner (dormant)
+    
+    # Register scanners in centralized registry
+    SCANNERS = {
+        'birdeye': SCANNER,
+        'jupiter': JUPITER_SCANNER,
+        'solscan': SOLSCAN_SCANNER,
+        'dexscreener': DS_SCANNER,
+        'websocket': ws_client
+    }
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
@@ -112,6 +121,9 @@ DS_SCANNER = None
 JUPITER_SCANNER = None
 SOLSCAN_SCANNER = None
 
+# Centralized scanner registry
+SCANNERS = {}
+
 # Initialize scanners after admin functions are defined
 try:
     _init_scanners()
@@ -122,6 +134,7 @@ except Exception as e:
     SCANNER = None
     JUPITER_SCANNER = None 
     SOLSCAN_SCANNER = None
+    SCANNERS = {}
 
 def _scanner_thread():
     while True:
