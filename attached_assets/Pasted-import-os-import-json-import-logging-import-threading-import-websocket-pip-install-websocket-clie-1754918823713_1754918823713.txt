@@ -1,0 +1,91 @@
+import os
+import json
+import logging
+import threading
+import websocket  # pip install websocket-client
+from eventbus import publish
+
+BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "").strip()
+BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
+
+class BirdeyeWS:
+    def __init__(self):
+        self.ws = None
+        self.thread = None
+        self.running = False
+
+    def start(self):
+        if not BIRDEYE_KEY:
+            logging.error("[WS] Missing BIRDEYE_API_KEY")
+            return
+        if self.running:
+            return
+        self.running = True
+        self.thread = threading.Thread(target=self._run_forever, daemon=True)
+        self.thread.start()
+        logging.info("[WS] Birdeye WebSocket started")
+
+    def stop(self):
+        self.running = False
+        if self.ws:
+            self.ws.close()
+        logging.info("[WS] Birdeye WebSocket stopped")
+
+    def _on_open(self, ws):
+        logging.info("[WS] Connected to Birdeye WebSocket")
+        # Subscribe to new tokens channel
+        subscribe_msg = {
+            "type": "subscribe",
+            "channels": [
+                {"name": "token.created"}  # new token events
+            ]
+        }
+        ws.send(json.dumps(subscribe_msg))
+        logging.info("[WS] Sent subscription for token.created")
+
+    def _on_message(self, ws, message):
+        try:
+            data = json.loads(message)
+        except json.JSONDecodeError:
+            logging.warning("[WS] Received non-JSON message: %s", message)
+            return
+
+        event_type = data.get("type")
+        if event_type == "token.created":
+            tok = data.get("data", {})
+            mint = tok.get("address") or tok.get("mint")
+            name = tok.get("name") or "?"
+            sym = tok.get("symbol") or "?"
+            link_be = f"https://birdeye.so/token/{mint}?chain=solana"
+            link_pf = f"https://pump.fun/{mint}"
+
+            alert = (
+                f"⚡ *New token (WS)*\n"
+                f"*{name}* ({sym})\n"
+                f"`{mint}`\n"
+                f"[Birdeye]({link_be}) • [Pump.fun]({link_pf})"
+            )
+            logging.info("[WS] New token via WS: %s (%s)", name, sym)
+            publish("scan.birdeye.ws", {"alert": alert})
+
+    def _on_error(self, ws, error):
+        logging.error("[WS] Error: %s", error)
+
+    def _on_close(self, ws, close_status_code, close_msg):
+        logging.warning("[WS] Closed: %s %s", close_status_code, close_msg)
+        if self.running:
+            logging.info("[WS] Attempting reconnect in 5s...")
+            threading.Timer(5, self.start).start()
+
+    def _run_forever(self):
+        self.ws = websocket.WebSocketApp(
+            BIRDEYE_WS_URL,
+            on_open=self._on_open,
+            on_message=self._on_message,
+            on_error=self._on_error,
+            on_close=self._on_close
+        )
+        self.ws.run_forever()
+
+# Singleton for imports
+ws_client = BirdeyeWS()

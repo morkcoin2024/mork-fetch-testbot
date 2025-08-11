@@ -10,6 +10,10 @@ except Exception as e:
 
 BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
 BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "")  # e.g. wss://ws.birdeye.so/socket (your Business plan URL)
+
+# Auto-configure public API URL if no custom URL provided but API key exists
+if not BIRDEYE_WS_URL and BIRDEYE_KEY:
+    BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
 
 # share mode + filter helpers with HTTP scanner if present
@@ -130,6 +134,17 @@ class BirdeyeWS:
                 logging.info("[WS] sent subscription payload")
             except Exception as e:
                 logging.warning("[WS] bad BIRDEYE_WS_SUB: %s", e)
+        else:
+            # Default subscription for token.created events
+            default_sub = {
+                "type": "subscribe", 
+                "channels": [{"name": "token.created"}]
+            }
+            try:
+                ws.send(json.dumps(default_sub))
+                logging.info("[WS] sent default token.created subscription")
+            except Exception as e:
+                logging.warning("[WS] failed to send default subscription: %s", e)
 
     def _on_message(self, _ws, msg):
         self.recv_count += 1
@@ -139,9 +154,22 @@ class BirdeyeWS:
             # non-JSON message; ignore but keep alive
             return
 
-        tok = _extract_token(data)
-        if not tok:
+        # Handle both generic token extraction and specific token.created events
+        event_type = data.get("type")
+        if event_type == "token.created":
+            tok_data = data.get("data", {})
+            tok = {
+                "mint": tok_data.get("address") or tok_data.get("mint"),
+                "symbol": tok_data.get("symbol") or "?",
+                "name": tok_data.get("name") or "?",
+                "price": tok_data.get("price") or tok_data.get("priceUsd")
+            }
+        else:
+            tok = _extract_token(data)
+            
+        if not tok or not tok.get("mint"):
             return
+            
         mint = tok["mint"]
         if not self._mark_seen(mint):
             return
@@ -152,7 +180,7 @@ class BirdeyeWS:
             name = tok["name"] or "?"
             sym  = tok["symbol"] or "?"
             text = (
-                f"🔔 *Birdeye WS — New token*\n"
+                f"⚡ *Birdeye WS — New token*\n"
                 f"*{name}* ({sym})\n"
                 f"`{mint}`\n"
                 f"[Birdeye]({LINK_BE.format(mint=mint)}) • [Pump.fun]({LINK_PF.format(mint=mint)})"
@@ -174,10 +202,17 @@ class BirdeyeWS:
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                hdrs = {
-                    "X-API-KEY": BIRDEYE_KEY,
-                    "User-Agent": "MorkFetchBot/1.0",
-                }
+                # Support both header and URL parameter authentication
+                if "?x-api-key=" in BIRDEYE_WS_URL:
+                    # URL parameter auth (public API style)
+                    hdrs = {"User-Agent": "MorkFetchBot/1.0"}
+                else:
+                    # Header auth (business plan style)
+                    hdrs = {
+                        "X-API-KEY": BIRDEYE_KEY,
+                        "User-Agent": "MorkFetchBot/1.0",
+                    }
+                    
                 if websocket:
                     self._ws = websocket.WebSocketApp(
                     BIRDEYE_WS_URL,
