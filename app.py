@@ -28,10 +28,15 @@ logger = logging.getLogger(__name__)
 
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
-from birdeye_ws import ws_client
+from birdeye_ws import get_ws
 from dexscreener_scanner import get_ds_client
-SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
-DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
+
+# Initialize components after admin functions are defined
+def _init_scanners():
+    global SCANNER, ws_client, DS_SCANNER
+    SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
+    ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+    DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
@@ -55,6 +60,12 @@ def send_admin_md(text: str):
         logger.exception("send_admin_md failed: %s", e)
         return False
 # --- END PATCH ---
+
+# Initialize scanners after admin functions are defined
+_init_scanners()
+SCANNER = SCANNER if 'SCANNER' in globals() else None
+ws_client = ws_client if 'ws_client' in globals() else None
+DS_SCANNER = DS_SCANNER if 'DS_SCANNER' in globals() else None
 
 _scanner = SCANNER
 
@@ -726,7 +737,6 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             enabled = mode in ("on", "true", "1", "yes")
                             try:
                                 # Try to use birdeye_ws helper if available
-                                from birdeye_ws import ws_client
                                 if hasattr(ws_client, 'set_tap_mode'):
                                     ws_client.set_tap_mode(enabled)
                                 else:
@@ -1198,26 +1208,28 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         response_text = "Not authorized."
                     else:
                         try:
-                            from birdeye_ws import get_ws
-                            from eventbus import publish
-                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            from birdeye_ws import ws_client_singleton as WS_CLIENT
+                            if not WS_CLIENT:
+                                from birdeye_ws import get_ws
+                                from eventbus import publish
+                                WS_CLIENT = get_ws(publish=publish, notify=lambda m: _reply(m))
                             
                             parts = text.split(maxsplit=1)
                             action = parts[1].lower() if len(parts) > 1 else "status"
                             
                             if action in ("on", "enable", "true", "1"):
-                                ws.set_debug(True)
+                                WS_CLIENT.set_debug(True)
                                 response_text = "🔬 *WebSocket debug mode enabled*\nRate-limited message forwarding active"
                             elif action in ("off", "disable", "false", "0"):
-                                ws.set_debug(False)
+                                WS_CLIENT.set_debug(False)
                                 response_text = "🔬 *WebSocket debug mode disabled*"
                             elif action == "inject":
-                                ws.inject_debug_event("manual_test")
+                                WS_CLIENT.inject_debug_event("manual_test")
                                 response_text = "🧪 *Debug event injected*\nSynthetic test message sent through pipeline"
                             elif action.startswith("cache"):
                                 try:
                                     cache_size = int(action.split("cache")[-1]) if "cache" in action else 10
-                                    cache = ws.get_debug_cache(cache_size)
+                                    cache = WS_CLIENT.get_debug_cache(cache_size)
                                     if cache:
                                         response_text = f"📋 *Debug Cache ({len(cache)} messages):*\n"
                                         for i, msg in enumerate(cache[-5:], 1):  # Show last 5
@@ -1229,8 +1241,8 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                                     response_text = f"❌ Cache error: {e}"
                             else:
                                 # Status
-                                debug_on = getattr(ws, 'ws_debug', False)
-                                cache_size = len(getattr(ws, '_debug_cache', []))
+                                debug_on = getattr(WS_CLIENT, 'ws_debug', False)
+                                cache_size = len(getattr(WS_CLIENT, '_debug_cache', []))
                                 response_text = (
                                     f"🔬 *WebSocket Debug Status*\n"
                                     f"Mode: {'ON' if debug_on else 'OFF'}\n"

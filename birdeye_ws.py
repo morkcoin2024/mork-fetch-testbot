@@ -369,30 +369,28 @@ class BirdeyeWS:
 
 # singleton helper
 _ws_singleton = None
+ws_client_singleton = None  # Alternative reference for compatibility
 
 def get_ws_scanner(publish, notify):
-    global _ws_singleton
+    global _ws_singleton, ws_client_singleton
     if _ws_singleton is None:
         _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
+        ws_client_singleton = _ws_singleton  # Set alternative reference
     return _ws_singleton
 
 def get_ws(publish=None, notify=None):
-    """Enhanced WebSocket client with Launchpad support"""
-    global _ws_singleton
-    if _ws_singleton is None:
+    """Enhanced WebSocket client accessor with debug capabilities"""
+    global _ws_singleton, ws_client_singleton
+    if _ws_singleton is None and publish and notify:
         _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
-    return _ws_singleton
+        ws_client_singleton = _ws_singleton
+    return _ws_singleton or ws_client_singleton
 
-# Direct singleton instance for simple imports (compatibility)
-ws_client = None
-
-def get_ws_client():
-    global ws_client
-    if ws_client is None:
-        from eventbus import publish
-        ws_client = BirdeyeWS(publish=publish, notify=lambda msg: logging.info("[WS] %s", msg))
-    return ws_client
-
-# Make ws_client available immediately
-ws_client = get_ws_client()
+def get_ws(publish=None, notify=None):
+    """Enhanced WebSocket client accessor with debug capabilities"""
+    global _ws_singleton, ws_client_singleton
+    if _ws_singleton is None and publish and notify:
+        _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
+        ws_client_singleton = _ws_singleton
+    return _ws_singleton or ws_client_singleton
 # --- END FILE: birdeye_ws.py ---
