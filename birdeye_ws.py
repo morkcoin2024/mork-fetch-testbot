@@ -303,6 +303,13 @@ def get_ws_scanner(publish, notify):
         _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
     return _ws_singleton
 
+def get_ws(publish=None, notify=None):
+    """Enhanced WebSocket client with Launchpad support"""
+    global _ws_singleton
+    if _ws_singleton is None:
+        _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
+    return _ws_singleton
+
 # Direct singleton instance for simple imports (compatibility)
 ws_client = None
 

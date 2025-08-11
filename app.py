@@ -1124,12 +1124,17 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         from birdeye_ws import get_ws_scanner
                         ws = get_ws_scanner(lambda *_: None, lambda *_: None)
                         st = ws.status()
+                        # Get subscription topics
+                        topics = getattr(ws, 'subscription_topics', ['token.created'])
+                        
                         response_text = (
-                            "🗂 Birdeye WS Status\n"
+                            "🗂 *Birdeye WebSocket Status*\n"
                             f"running: {st['running']}\n"
+                            f"connected: {st.get('connected', False)}\n"
                             f"recv: {st['recv']}  new: {st['new']}\n"
                             f"seencache: {st['seen_cache']}  threadalive: {st['thread_alive']}\n"
-                            f"mode: {st['mode']}"
+                            f"mode: {st['mode']}\n"
+                            f"topics: {', '.join(topics)}"
                         )
 
                 elif text.strip().startswith("/ws_mode"):
@@ -1143,6 +1148,48 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         mode = parts[1] if len(parts) > 1 else "strict"
                         set_ws_mode(mode)
                         response_text = f"⚙️ Birdeye WS mode set to: {mode}"
+                        
+                # /ws_restart - Enhanced WebSocket restart with Launchpad support
+                elif text.strip().startswith("/ws_restart"):
+                    logger.info("[WEBHOOK] Routing /ws_restart")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from birdeye_ws import get_ws
+                            from eventbus import publish
+                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            ws.stop()
+                            time.sleep(0.5)
+                            ws.start()
+                            response_text = "🔄 *Birdeye WS restarted with Launchpad priority*"
+                        except Exception as e:
+                            response_text = f"❌ WS restart error: {e}"
+                            
+                # /ws_sub - Set subscription topics with Launchpad priority
+                elif text.strip().startswith("/ws_sub"):
+                    logger.info("[WEBHOOK] Routing /ws_sub")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from birdeye_ws import get_ws
+                            from eventbus import publish
+                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            
+                            parts = text.split(maxsplit=1)
+                            topics = []
+                            if len(parts) > 1:
+                                topics = [t.strip() for t in parts[1].split(",") if t.strip()]
+                            if not topics:
+                                topics = ["launchpad.created", "token.created"]
+                            
+                            # Set subscription topics
+                            ws.subscription_topics = topics
+                            
+                            response_text = f"✅ *WS subscriptions set:* {', '.join(topics)}"
+                        except Exception as e:
+                            response_text = f"❌ WS subscription error: {e}"
 
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
