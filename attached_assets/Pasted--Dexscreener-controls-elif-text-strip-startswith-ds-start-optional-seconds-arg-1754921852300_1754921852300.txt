@@ -1,0 +1,59 @@
+# === Dexscreener controls ===
+elif text.strip().startswith("/ds_start"):
+    # optional seconds arg: /ds_start 15
+    try:
+        from eventbus import publish
+        from dexscreener_scanner import get_scanner
+        parts = text.split()
+        interval = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+        scanner = get_scanner(publish)
+        if interval:
+            scanner.interval = max(10, interval)
+        scanner.start()
+        response_text = f"✅ Dexscreener scan started (every {scanner.interval}s)."
+    except Exception as e:
+        response_text = f"❌ /ds_start failed: {e}"
+
+elif text.strip().startswith("/ds_stop"):
+    try:
+        from eventbus import publish
+        from dexscreener_scanner import get_scanner
+        scanner = get_scanner(publish)
+        scanner.stop()
+        response_text = "🛑 Dexscreener scan stopped."
+    except Exception as e:
+        response_text = f"❌ /ds_stop failed: {e}"
+
+elif text.strip().startswith("/ds_status"):
+    try:
+        from eventbus import publish
+        from dexscreener_scanner import get_scanner
+        s = get_scanner(publish).status()
+        response_text = (
+            "🧭 Dexscreener Scan Status\n"
+            f"running: {s['running']}\n"
+            f"interval: {s['interval']}s\n"
+            f"seencache: {s['seencache']}\n"
+            f"threadalive: {s['threadalive']}\n"
+            f"window: {s['window_sec']}s"
+        )
+    except Exception as e:
+        response_text = f"❌ /ds_status failed: {e}"
+
+# === WS debug tap: mirror every raw WS message to logs (and tiny sample to chat) ===
+elif text.strip().startswith("/ws_tap"):
+    # /ws_tap on  or  /ws_tap off
+    try:
+        parts = text.split()
+        mode = parts[1].lower() if len(parts) > 1 else "on"
+        enabled = mode in ("on", "true", "1", "yes")
+        try:
+            # prefer a helper in your ws module if present
+            from birdeye_ws import set_ws_tap
+            set_ws_tap(enabled)
+        except Exception:
+            # fallback: store flag in env for your WS loop to read
+            os.environ["WS_TAP"] = "1" if enabled else "0"
+        response_text = f"🛰 WS tap {'enabled' if enabled else 'disabled'}."
+    except Exception as e:
+        response_text = f"❌ /ws_tap failed: {e}"

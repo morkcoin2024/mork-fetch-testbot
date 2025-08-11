@@ -28,12 +28,14 @@ logger = logging.getLogger(__name__)
 
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
+from birdeye_ws import ws_client
+from dexscreener_scanner import get_ds_client
 SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
+DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
 import requests
-from birdeye_ws import ws_client
 from eventbus import BUS
 
 def send_admin_md(text: str):
@@ -663,6 +665,46 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             f"messages_received: {status.get('recv', 0)}\n"
                             f"new_tokens: {status.get('new', 0)}\n"
                             f"cache_size: {status.get('seen_cache', 0)}/8000"
+                        )
+
+                # /ds_start (DexScreener scanner start)
+                elif text.strip().startswith("/ds_start"):
+                    logger.info("[WEBHOOK] Routing /ds_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            DS_SCANNER.start()
+                            response_text = "✅ DexScreener scanner *started*"
+                        except Exception as e:
+                            response_text = f"❌ DS start failed: {e}"
+
+                # /ds_stop (DexScreener scanner stop)
+                elif text.strip().startswith("/ds_stop"):
+                    logger.info("[WEBHOOK] Routing /ds_stop")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            DS_SCANNER.stop()
+                            response_text = "✅ DexScreener scanner *stopped*"
+                        except Exception as e:
+                            response_text = f"❌ DS stop failed: {e}"
+
+                # /ds_status (DexScreener status check)
+                elif text.strip().startswith("/ds_status"):
+                    logger.info("[WEBHOOK] Routing /ds_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        status = DS_SCANNER.status()
+                        response_text = (
+                            "🔍 *DexScreener Status*\n"
+                            f"running: {status.get('running', False)}\n"
+                            f"thread_alive: {status.get('threadalive', False)}\n"
+                            f"interval: {status.get('interval', 0)}s\n"
+                            f"window: {status.get('window_sec', 0)}s\n"
+                            f"cache_size: {status.get('seencache', 0)}/8000"
                         )
 
                 # /scan_test (quick single-shot fetch preview)
@@ -1559,6 +1601,13 @@ def start_services():
         logger.info("Birdeye WS scanner auto-started on boot")
     except Exception as e:
         logger.warning("WS start failed: %s", e)
+        
+    # Start DexScreener scanner
+    try:
+        DS_SCANNER.start()
+        logger.info("DexScreener scanner auto-started on boot")
+    except Exception as e:
+        logger.warning("DexScreener scanner start failed: %s", e)
 
     # Background forwarder: push WS alerts to admin chat
     def _forward_ws():
@@ -1589,6 +1638,7 @@ def start_services():
     publish("app.services.started", {
         "http_scanner": True,
         "ws_scanner": True,
+        "ds_scanner": True,
         "alert_forwarding": True,
         "timestamp": time.time()
     })
