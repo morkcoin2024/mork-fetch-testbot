@@ -342,6 +342,16 @@ def get_scanner(publish):
         scanner_singleton = BirdeyeScanner(interval_sec=SCAN_INTERVAL, publish=publish)
     return scanner_singleton
 
+# convenience helpers for app.py commands
+def peek_last(n: int = 10):
+    sc = get_scanner(lambda *_: None)
+    n = max(1, min(50, int(n or 10)))
+    return list(sc.last_items)[-n:]
+
+def current_mode():
+    sc = scanner_singleton
+    return sc.mode if sc else SCAN_MODE
+
 # --- one-shot probe for Telegram (/birdeye_probe) ---
 def birdeye_probe_once(limit=20):
     """
