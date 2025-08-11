@@ -924,6 +924,58 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         except Exception as e:
                             response_text = f"❌ scan_probe failed: {e}"
 
+                elif text.strip().startswith("/ws_start"):
+                    logger.info("[WEBHOOK] Routing /ws_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        from eventbus import publish
+                        from birdeye_ws import get_ws_scanner
+                        def _notify(msg):
+                            _reply(msg)
+                        ws = get_ws_scanner(publish, _notify)
+                        ws.start()
+                        response_text = "🟢 Birdeye WS started."
+
+                elif text.strip().startswith("/ws_stop"):
+                    logger.info("[WEBHOOK] Routing /ws_stop")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        from birdeye_ws import get_ws_scanner
+                        def _notify(_): pass
+                        ws = get_ws_scanner(lambda *_: None, _notify)
+                        ws.stop()
+                        response_text = "🔴 Birdeye WS stopped."
+
+                elif text.strip().startswith("/ws_status"):
+                    logger.info("[WEBHOOK] Routing /ws_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        from birdeye_ws import get_ws_scanner
+                        ws = get_ws_scanner(lambda *_: None, lambda *_: None)
+                        st = ws.status()
+                        response_text = (
+                            "🗂 Birdeye WS Status\n"
+                            f"running: {st['running']}\n"
+                            f"recv: {st['recv']}  new: {st['new']}\n"
+                            f"seencache: {st['seen_cache']}  threadalive: {st['thread_alive']}\n"
+                            f"mode: {st['mode']}"
+                        )
+
+                elif text.strip().startswith("/ws_mode"):
+                    # /ws_mode all  or /ws_mode strict
+                    logger.info("[WEBHOOK] Routing /ws_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        from birdeye_ws import set_ws_mode
+                        parts = text.split()
+                        mode = parts[1] if len(parts) > 1 else "strict"
+                        set_ws_mode(mode)
+                        response_text = f"⚙️ Birdeye WS mode set to: {mode}"
+
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
                     mode = parts[1].lower() if len(parts) > 1 else ""

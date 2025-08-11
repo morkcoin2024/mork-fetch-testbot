@@ -71,7 +71,7 @@ class BirdeyeWS:
     def _mark_seen(self, mint):
         if mint in self._seen_set: return False
         self.seen.append(mint); self._seen_set.add(mint)
-        if len(self._seen_set) > self.seen.maxlen:
+        if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
             old = self.seen.popleft(); self._seen_set.discard(old)
         return True
 
@@ -178,7 +178,8 @@ class BirdeyeWS:
                     "X-API-KEY": BIRDEYE_KEY,
                     "User-Agent": "MorkFetchBot/1.0",
                 }
-                self._ws = websocket.WebSocketApp(
+                if websocket:
+                    self._ws = websocket.WebSocketApp(
                     BIRDEYE_WS_URL,
                     header=[f"{k}: {v}" for k,v in hdrs.items()],
                     on_open=self._on_open,
@@ -186,7 +187,7 @@ class BirdeyeWS:
                     on_error=self._on_error,
                     on_close=self._on_close,
                 )
-                self._ws.run_forever(ping_interval=30, ping_timeout=10)
+                    self._ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
                 logging.warning("[WS] run_forever error: %s", e)
 
