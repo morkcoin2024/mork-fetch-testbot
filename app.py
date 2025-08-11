@@ -690,7 +690,15 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     else:
                         try:
                             SCANNER.stop()
-                            response_text = "🛑 Birdeye scanner stopped"
+                            
+                            # Stop all scanners in registry
+                            for s in SCANNERS.values():
+                                try: 
+                                    s.stop()
+                                except: 
+                                    pass
+                            
+                            response_text = "🛑 All scanners stopped"
                         except Exception as e:
                             response_text = f"❌ scan_stop failed: {e}"
 
