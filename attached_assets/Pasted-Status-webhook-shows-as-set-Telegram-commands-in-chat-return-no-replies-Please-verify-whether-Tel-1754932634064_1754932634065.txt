@@ -1,0 +1,42 @@
+Status: webhook shows as set; Telegram commands in chat return no replies. Please verify whether Telegram’s POSTs are reaching Flask, in real time, then force a known-good path.
+
+# 1) Live-watch webhook/WS/SCAN lines for 90s while I send /ping in Telegram
+timeout 90 tail -f logs/app.log | sed -n 's/.*\[WEBHOOK\].*/&/p; s/.*\[WS\].*/&/p; s/.*\[SCAN\].*/&/p'
+
+# 2) Immediately after I send /ping, confirm if Flask logged any [WEBHOOK] lines.
+# If nothing appeared, re-register webhook (idempotent) with drop_pending_updates and minimal allowed_updates.
+
+TOKEN="$(python3 - <<'PY'
+import os; print(os.getenv("TELEGRAM_BOT_TOKEN",""))
+PY
+)"
+APP_URL='https://telegram-bot-morkcoin2024.replit.app/webhook'
+
+echo "Deleting webhook…"
+curl -sS "https://api.telegram.org/bot${TOKEN}/deleteWebhook?drop_pending_updates=true"
+echo; echo "Setting webhook…"
+curl -sS "https://api.telegram.org/bot${TOKEN}/setWebhook" \
+  -d "url=${APP_URL}" \
+  -d "allowed_updates[]=message" \
+  -d "allowed_updates[]=callback_query" \
+  -d "drop_pending_updates=true"
+echo; echo "--- getWebhookInfo ---"
+curl -sS "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
+
+# 3) Prove the command router works by injecting a fake /ping directly to Flask
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ping"}}'
+# Then show last 40 WEBHOOK lines:
+grep "\[WEBHOOK\]" -n logs/app.log | tail -n 40
+
+# 4) Health check
+curl -sS -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:5000/status
+
+# 5) Sanity: ensure NO polling bot is running (webhook must be the only consumer)
+ps aux | grep -E "python.*(poll|working_bot|simple_polling_bot|python-telegram-bot)" | grep -v grep || true
+
+# 6) If real Telegram /ping still doesn’t log, please print:
+#   - the first ~80 lines around the @app.route('/webhook') handler in app.py
+#   - any reverse proxy / gunicorn access log lines if available
+sed -n '1,220p' app.py | sed -n '1,220p' | sed -n '1,220p' | grep -n "def webhook" -n && sed -n '1,260p' app.py
