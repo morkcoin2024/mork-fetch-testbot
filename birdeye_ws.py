@@ -1,6 +1,7 @@
 # --- BEGIN FILE: birdeye_ws.py ---
 import os, json, time, threading, logging, re
 from collections import deque
+from typing import Any, Dict
 
 # Global WebSocket connection status
 WS_CONNECTED = False
@@ -85,6 +86,11 @@ class BirdeyeWS:
         self.new_count  = 0
         self.seen = deque(maxlen=8000)
         self._seen_set = set()
+        
+        # --- Enhanced Debug Support ---
+        self.ws_debug = False                 # on/off toggle
+        self._debug_cache = deque(maxlen=30)  # keep last 30 raw msgs for /ws_dump
+        self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
 
     def _mark_seen(self, mint):
         if mint in self._seen_set: return False
@@ -200,6 +206,35 @@ class BirdeyeWS:
             # non-JSON message; ignore but keep alive
             return
 
+        # --- ENHANCED DEBUG ECHO ---
+        if self.ws_debug:
+            # Store in debug cache (raw)
+            try:
+                self._debug_cache.append(data)
+            except Exception:
+                pass
+            # Simple rate limit: max 6 debug pushes / minute
+            now = time.time()
+            win = self._debug_rate
+            if now - win.get("window_start", 0) > 60:
+                win["window_start"] = now
+                win["count_min"] = 0
+            if win["count_min"] < 6:
+                win["count_min"] += 1
+                # Publish a compact summary to app -> Telegram
+                try:
+                    event = data.get("event") or data.get("type", "?")
+                    # Trim payload to keep Telegram happy
+                    preview = json.dumps(data)[:900]
+                    self.publish("ws.debug", {
+                        "ts": int(now),
+                        "event": event,
+                        "preview": preview
+                    })
+                    logging.info("[WS] debug echo sent (%s)", event)
+                except Exception as e:
+                    logging.warning("[WS] debug echo error: %s", e)
+
         # Enhanced event handling for multiple topic types
         event_type = data.get("type") or data.get("topic", "")
         
@@ -294,6 +329,44 @@ class BirdeyeWS:
             # reconnect with backoff
             time.sleep(backoff)
             backoff = min(backoff * 1.5, 30.0)
+
+    # ===== Debug helpers (called from app.py) =====
+    def set_debug(self, on: bool):
+        """Enable/disable debug mode with rate-limited message forwarding"""
+        self.ws_debug = bool(on)
+        logging.info("[WS] debug mode: %s", "ON" if self.ws_debug else "OFF")
+        self.publish("ws.debug.mode", {"on": self.ws_debug})
+
+    def get_debug_cache(self, n: int = 10):
+        """Get last N debug messages from cache"""
+        n = max(1, min(n, 30))
+        out = list(self._debug_cache)[-n:]
+        return out
+
+    def inject_debug_event(self, label: str = "synthetic"):
+        """Push a fake event through the normal message path for pipeline verification"""
+        payload: Dict[str, Any] = {
+            "event": "debug.synthetic",
+            "label": label,
+            "token": {
+                "name": "moonpepe",
+                "symbol": "moonpepe", 
+                "mint": "8DX27KPjZMpLi3pBBTaEVqSNq33gAaWkL2v7N8kCNpump",
+                "price": "0.0000700144"
+            }
+        }
+        try:
+            self._debug_cache.append(payload)
+        except Exception:
+            pass
+        # Echo via publish like a real message
+        self.publish("ws.debug", {
+            "ts": int(time.time()),
+            "event": payload["event"],
+            "preview": json.dumps(payload)[:900]
+        })
+        logging.info("[WS] injected synthetic debug event")
+
 # singleton helper
 _ws_singleton = None
 

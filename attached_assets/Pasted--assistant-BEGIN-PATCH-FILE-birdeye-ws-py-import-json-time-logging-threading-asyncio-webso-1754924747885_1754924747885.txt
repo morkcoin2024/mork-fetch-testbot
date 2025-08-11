@@ -1,0 +1,107 @@
+/assistant
+BEGIN PATCH
+FILE: birdeye_ws.py
+@@
+-import json, time, logging, threading, asyncio, websockets
++import json, time, logging, threading, asyncio, websockets
++from collections import deque
++from typing import Any, Dict
+ 
+@@
+ class BirdeyeWSClient:
+@@
+     def __init__(self, url: str, token: str, publish=None):
+         self.url = url
+         self.token = token
+         self.publish = publish or (lambda _t, _d: None)
+         self.running = False
+         self.connected = False
+         self._thread = None
+         self._stop_event = threading.Event()
++        # --- debug support ---
++        self.ws_debug = False                 # on/off toggle
++        self._debug_cache = deque(maxlen=30)  # keep last 30 raw msgs for /ws_dump
++        self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
+ 
+@@
+     async def _on_message(self, msg: str):
+-        data = json.loads(msg)
++        data = json.loads(msg)
+         # your normal routing here...
+         event = data.get("event") or data.get("type")
+@@
+-        # existing handling for token created, etc.
++        # existing handling for token created, etc.
+         if event in ("token.created", "launchpad.created"):
+             # ... your normal logic that turns this into an alert ...
+             pass
++
++        # --- DEBUG ECHO ---
++        if self.ws_debug:
++            # store in cache (raw)
++            try:
++                self._debug_cache.append(data)
++            except Exception:
++                pass
++            # simple rate limit: max 6 debug pushes / minute
++            now = time.time()
++            win = self._debug_rate
++            if now - win.get("window_start", 0) > 60:
++                win["window_start"] = now
++                win["count_min"] = 0
++            if win["count_min"] < 6:
++                win["count_min"] += 1
++                # publish a compact summary to app -> Telegram
++                try:
++                    # trim payload to keep Telegram happy
++                    preview = json.dumps(data)[:900]
++                    self.publish("ws.debug", {
++                        "ts": int(now),
++                        "event": event or "?",
++                        "preview": preview
++                    })
++                    logging.info("[WS] debug echo sent (%s)", event or "?")
++                except Exception as e:
++                    logging.warning("[WS] debug echo error: %s", e)
+ 
+@@
+     def subscribe(self, events):
+         # existing code that sends subscription message
+         ...
+ 
++    # ===== Debug helpers (called from app.py) =====
++    def set_debug(self, on: bool):
++        self.ws_debug = bool(on)
++        logging.info("[WS] debug mode: %s", "ON" if self.ws_debug else "OFF")
++        self.publish("ws.debug.mode", {"on": self.ws_debug})
++
++    def get_debug_cache(self, n: int = 10):
++        n = max(1, min(n, 30))
++        out = list(self._debug_cache)[-n:]
++        return out
++
++    def inject_debug_event(self, label: str = "synthetic"):
++        # push a fake event through the normal on_message path so we can verify pipeline
++        payload: Dict[str, Any] = {
++            "event": "debug.synthetic",
++            "label": label,
++            "token": {
++                "name": "moonpepe",
++                "symbol": "moonpepe",
++                "mint": "8DX27KPjZMpLi3pBBTaEVqSNq33gAaWkL2v7N8kCNpump",
++                "price": "0.0000700144"
++            }
++        }
++        try:
++            self._debug_cache.append(payload)
++        except Exception:
++            pass
++        # echo via publish like a real message
++        self.publish("ws.debug", {
++            "ts": int(time.time()),
++            "event": payload["event"],
++            "preview": json.dumps(payload)[:900]
++        })
++        logging.info("[WS] injected synthetic debug event")
++
+END PATCH

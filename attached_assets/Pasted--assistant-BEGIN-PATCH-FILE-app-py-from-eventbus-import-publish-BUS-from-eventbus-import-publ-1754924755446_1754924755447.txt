@@ -1,0 +1,146 @@
+/assistant
+BEGIN PATCH
+FILE: app.py
+@@
+-from eventbus import publish, BUS
++from eventbus import publish, BUS
+@@
+ mork_bot = None
+@@
+ app = Flask(__name__)
+@@
+ def webhook():
+@@
+-            # Helper function for sending replies
++            # Helper function for sending replies
+             def _reply(text: str):
+                 try:
+                     import requests
+                     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                     requests.post(
+                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                         json={"chat_id": message['chat']['id'], "text": text, "parse_mode": "Markdown"},
+                         timeout=10,
+                     )
+                     return True
+                 except Exception as e:
+                     logger.exception("sendMessage failed: %s", e)
+                     return False
+@@
+-                elif text.strip().startswith("/ws_status"):
++                elif text.strip().startswith("/ws_status"):
+                     # your existing status reply
+                     ...
+ 
++                # ======= WS DEBUG CONTROLS =======
++                elif text.strip().startswith("/ws_debug"):
++                    # /ws_debug on  OR  /ws_debug off
++                    try:
++                        from birdeye_ws import ws_client_singleton as WS_CLIENT  # adapt to your singleton name
++                    except Exception:
++                        WS_CLIENT = None
++                    arg = text.strip().split()
++                    want_on = (len(arg) > 1 and arg[1].lower() == "on")
++                    want_off = (len(arg) > 1 and arg[1].lower() == "off")
++                    if not WS_CLIENT:
++                        response_text = "WS client not initialized."
++                    else:
++                        if want_on:
++                            WS_CLIENT.set_debug(True)
++                            response_text = "✅ WS debug: ON (throttled, 6/min). Use /ws_dump 5 to view cached raw events."
++                        elif want_off:
++                            WS_CLIENT.set_debug(False)
++                            response_text = "🛑 WS debug: OFF"
++                        else:
++                            response_text = "Usage: /ws_debug on | /ws_debug off"
++
++                elif text.strip().startswith("/ws_dump"):
++                    # /ws_dump [n]
++                    try:
++                        from birdeye_ws import ws_client_singleton as WS_CLIENT
++                    except Exception:
++                        WS_CLIENT = None
++                    n = 10
++                    parts = text.strip().split()
++                    if len(parts) > 1 and parts[1].isdigit():
++                        n = int(parts[1])
++                    if not WS_CLIENT:
++                        response_text = "WS client not initialized."
++                    else:
++                        items = WS_CLIENT.get_debug_cache(n)
++                        if not items:
++                            response_text = "No WS debug cache yet."
++                        else:
++                            # pretty-print compacted JSONs
++                            lines = ["📦 Last WS raw events:"]
++                            for i, item in enumerate(items, 1):
++                                s = json.dumps(item, separators=(',', ':'))[:900]
++                                lines.append(f"{i}. `{s}`")
++                            response_text = "\n".join(lines)
++
++                elif text.strip().startswith("/ws_probe"):
++                    # inject synthetic event end-to-end
++                    try:
++                        from birdeye_ws import ws_client_singleton as WS_CLIENT
++                    except Exception:
++                        WS_CLIENT = None
++                    if not WS_CLIENT:
++                        response_text = "WS client not initialized."
++                    else:
++                        WS_CLIENT.inject_debug_event("manual-probe")
++                        response_text = "🧪 Probe: injected a synthetic WS event (check /a_logs_tail contains=[WS] or /ws_dump)."
+@@
+                 if response_text:
+                     # Send response using direct API call
+                     import requests
+                     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                     response_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+@@
+                     return jsonify({"status": "ok", "command": text, "response_sent": True})
+@@
+     except Exception as e:
+         logger.error(f"Webhook error: {e}")
+         return jsonify({"error": str(e)}), 500
+@@
+-# Live event streaming dashboard routes
++# Live event streaming dashboard routes
+@@
+     return render_template_string(LIVE_HTML)
++
++# ========= Forward WS debug events to admin chat (one-time subscriber) =========
++_WS_DEBUG_FORWARDER_SET = False
++def _install_ws_debug_forwarder():
++    global _WS_DEBUG_FORWARDER_SET
++    if _WS_DEBUG_FORWARDER_SET:
++        return
++    _WS_DEBUG_FORWARDER_SET = True
++    try:
++        admin_id = int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
++    except Exception:
++        admin_id = 0
++    if not admin_id:
++        return
++    def _send_admin(text: str):
++        try:
++            import requests
++            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
++            requests.post(
++                f"https://api.telegram.org/bot{bot_token}/sendMessage",
++                json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown"},
++                timeout=8,
++            )
++        except Exception as e:
++            logging.warning("admin send fail: %s", e)
++    def _on_evt(evt):
++        # evt example: {"type":"ws.debug","data":{"event":"token.created","preview":"{...}"}}
++        if evt.get("type") == "ws.debug":
++            d = evt.get("data", {})
++            ev = d.get("event", "?")
++            pv = d.get("preview", "")[:900]
++            _send_admin(f"🛰 *WS debug* `{ev}`\n`{pv}`")
++    BUS.subscribe_fn(_on_evt)
++    logging.info("[WS] debug forwarder installed")
++
++# install forwarder at import time
++_install_ws_debug_forwarder()
+ END PATCH

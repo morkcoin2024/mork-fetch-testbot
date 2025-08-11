@@ -1190,6 +1190,55 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             response_text = f"✅ *WS subscriptions set:* {', '.join(topics)}"
                         except Exception as e:
                             response_text = f"❌ WS subscription error: {e}"
+                            
+                # /ws_debug - Enhanced debug control
+                elif text.strip().startswith("/ws_debug"):
+                    logger.info("[WEBHOOK] Routing /ws_debug")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from birdeye_ws import get_ws
+                            from eventbus import publish
+                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            
+                            parts = text.split(maxsplit=1)
+                            action = parts[1].lower() if len(parts) > 1 else "status"
+                            
+                            if action in ("on", "enable", "true", "1"):
+                                ws.set_debug(True)
+                                response_text = "🔬 *WebSocket debug mode enabled*\nRate-limited message forwarding active"
+                            elif action in ("off", "disable", "false", "0"):
+                                ws.set_debug(False)
+                                response_text = "🔬 *WebSocket debug mode disabled*"
+                            elif action == "inject":
+                                ws.inject_debug_event("manual_test")
+                                response_text = "🧪 *Debug event injected*\nSynthetic test message sent through pipeline"
+                            elif action.startswith("cache"):
+                                try:
+                                    cache_size = int(action.split("cache")[-1]) if "cache" in action else 10
+                                    cache = ws.get_debug_cache(cache_size)
+                                    if cache:
+                                        response_text = f"📋 *Debug Cache ({len(cache)} messages):*\n"
+                                        for i, msg in enumerate(cache[-5:], 1):  # Show last 5
+                                            event = msg.get("event", "?")
+                                            response_text += f"{i}. {event}\n"
+                                    else:
+                                        response_text = "📋 *Debug cache empty*"
+                                except Exception as e:
+                                    response_text = f"❌ Cache error: {e}"
+                            else:
+                                # Status
+                                debug_on = getattr(ws, 'ws_debug', False)
+                                cache_size = len(getattr(ws, '_debug_cache', []))
+                                response_text = (
+                                    f"🔬 *WebSocket Debug Status*\n"
+                                    f"Mode: {'ON' if debug_on else 'OFF'}\n"
+                                    f"Cache: {cache_size}/30 messages\n"
+                                    f"Commands: on/off, inject, cache[N], status"
+                                )
+                        except Exception as e:
+                            response_text = f"❌ Debug command error: {e}"
 
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
