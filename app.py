@@ -40,7 +40,16 @@ from dexscreener_scanner import get_ds_client
 def _init_scanners():
     global SCANNER, ws_client, DS_SCANNER
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
-    ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+    
+    # Only initialize WebSocket if enabled
+    feature_ws = os.environ.get('FEATURE_WS', 'on').lower()
+    if feature_ws != 'off':
+        ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+        logger.info("[WS] WebSocket client enabled (FEATURE_WS not 'off')")
+    else:
+        ws_client = None
+        logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
+    
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
 # --- END PATCH ---
 
