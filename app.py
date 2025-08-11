@@ -1344,6 +1344,16 @@ def trigger_fetch():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# --- BEGIN PATCH: optional auto-start on boot (place near `if __name__ == '__main__':` block) ---
+# Auto-start Birdeye scanner when app boots (optional; comment out if you prefer manual control)
+try:
+    if SCANNER and not SCANNER.running:
+        SCANNER.start()
+        logger.info("Birdeye scanner auto-started on boot")
+except Exception as _e:
+    logger.warning("Birdeye auto-start skipped: %s", _e)
+# --- END PATCH ---
+
 if __name__ == '__main__':
     # Start bot polling in development
     if mork_bot and mork_bot.telegram_available and os.environ.get('REPLIT_ENVIRONMENT'):
