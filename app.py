@@ -313,24 +313,34 @@ Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
                         # Parse command arguments
                         parts = text.strip().split()
                         args = parts[1:] if len(parts) > 1 else []
-                        
-                        # Default values
+
+                        # Defaults
                         n_lines = 50
                         level_filter = "all"
-                        
-                        # Parse arguments
+                        contains = None
+
                         for arg in args:
                             if arg.isdigit():
-                                n_lines = max(10, min(500, int(arg)))  # Limit for Telegram
+                                n_lines = max(10, min(500, int(arg)))
                             elif arg.startswith("level="):
                                 level_filter = arg.split("=", 1)[1].lower()
-                        
-                        # Get lines from ring buffer (super fast!)
+                            elif arg.startswith("contains="):
+                                contains = arg.split("=", 1)[1]
+
+                        # Get lines from ring buffer
                         lines = get_ring_buffer_lines(n_lines, level_filter)
+
+                        # Optional substring filter
+                        if contains:
+                            lines = [ln for ln in lines if contains in ln]
+                        
                         stats = get_ring_buffer_stats()
                         
                         if not lines:
-                            response_text = f'❌ No log entries found (level={level_filter})'
+                            filter_desc = f"level={level_filter}"
+                            if contains:
+                                filter_desc += f", contains='{contains}'"
+                            response_text = f'❌ No log entries found ({filter_desc})'
                         else:
                             log_text = '\n'.join(lines)
                             
@@ -341,6 +351,8 @@ Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
                             header = f"📋 Ring Buffer Log Entries (last {len(lines)} lines"
                             if level_filter != "all":
                                 header += f", level>={level_filter}"
+                            if contains:
+                                header += f", contains='{contains}'"
                             header += "):"
                             
                             buffer_info = ""
@@ -354,8 +366,8 @@ Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
 ```
 {buffer_info}
 Source: Ring Buffer (ultra-fast access)
-Usage: /a_logs_tail [number] [level=error|warn|info|all]
-Examples: /a_logs_tail 100, /a_logs_tail level=error'''
+Usage: /a_logs_tail [number] [level=error|warn|info|all] [contains=text]
+Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS'''
                             
                     except Exception as e:
                         response_text = f'❌ Error reading ring buffer: {str(e)}'
