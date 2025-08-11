@@ -1,0 +1,96 @@
+I need Telegram commands (like /ping) to work again from @MorkFetchBot.
+
+Goal:
+- Only ONE consumer should handle Telegram updates: the Flask app at /webhook.
+- No background polling bots should be running.
+
+Please do the following EXACTLY and paste outputs for each step.
+
+1) Show env + basic sanity:
+----------------------------------------------------------------
+python3 -c "import os,sys; print('py',sys.version); print('TOKEN_SET',bool(os.getenv('TELEGRAM_BOT_TOKEN'))); print('URL',os.getenv('REPLIT_WEB_URL') or os.getenv('REPLIT_URL') or 'n/a')"
+echo "APP URL should be: https://telegram-bot-morkcoin2024.replit.app"
+echo "Admin ID should be: 1653046781"
+----------------------------------------------------------------
+
+2) Kill ANY stray polling bots so only webhook remains:
+----------------------------------------------------------------
+ps aux | grep -E 'python.*(poll|ultra_simple_bot|simple_polling_bot|final_bot|python-telegram-bot)' | grep -v grep || true
+pkill -f 'simple_polling_bot.py' || true
+pkill -f 'ultra_simple_bot' || true
+pkill -f 'final_bot' || true
+pkill -f 'python.*Bot.*poll' || true
+sleep 1
+ps aux | grep -E 'python.*(poll|ultra_simple_bot|simple_polling_bot|final_bot|python-telegram-bot)' | grep -v grep || true
+----------------------------------------------------------------
+
+3) Confirm Flask app is running and reachable locally:
+----------------------------------------------------------------
+curl -sS -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:5000/status
+tail -n 40 logs/app.log || true
+----------------------------------------------------------------
+
+4) Re-register Telegram webhook CLEANLY (drop queued updates) to our app URL:
+----------------------------------------------------------------
+TOKEN="$(python3 -c 'import os; print(os.getenv("TELEGRAM_BOT_TOKEN",""))')"
+APP_URL='https://telegram-bot-morkcoin2024.replit.app/webhook'
+
+echo "Using token len: ${#TOKEN}"
+curl -sS "https://api.telegram.org/bot${TOKEN}/deleteWebhook?drop_pending_updates=true"
+curl -sS "https://api.telegram.org/bot${TOKEN}/setWebhook" \
+  -d "url=${APP_URL}" \
+  -d "allowed_updates[]=message" \
+  -d "allowed_updates[]=callback_query" \
+  -d "drop_pending_updates=true"
+
+echo "--- getWebhookInfo ---"
+curl -sS "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
+----------------------------------------------------------------
+
+5) Verify the Flask app is actually receiving webhook posts:
+----------------------------------------------------------------
+# 1) Show latest app.log lines while I will send /ping in Telegram:
+tail -n 120 logs/app.log
+
+# 2) ALSO install a quick live tail for 60s so we can see '[WEBHOOK]' lines:
+timeout 60 tail -f logs/app.log | sed -n 's/.*\[WEBHOOK\].*/&/p'
+----------------------------------------------------------------
+
+If step 5 shows no [WEBHOOK] lines when /ping is sent, run this forced self-test to prove the token and chat are valid, and paste its output:
+
+----------------------------------------------------------------
+python3 - << 'PY'
+import os,requests,sys
+t=os.getenv("TELEGRAM_BOT_TOKEN"); chat=1653046781
+assert t, "TELEGRAM_BOT_TOKEN missing"
+r=requests.post(f"https://api.telegram.org/bot{t}/sendMessage",
+                json={"chat_id":chat,"text":"Direct sendMessage test from Replit. If you see this, token+chat are OK."},timeout=10)
+print("direct sendMessage status:", r.status_code, r.text[:200])
+PY
+----------------------------------------------------------------
+
+If direct sendMessage works but /webhook still doesn’t log anything when I send /ping, please:
+- Print the app’s Flask routes to confirm /webhook is mounted,
+- Then restart ONLY the Flask app (no polling bots), and show the first 80 lines of logs.
+
+Commands:
+----------------------------------------------------------------
+python3 - << 'PY'
+from app import app
+print("ROUTES:", [str(r) for r in app.url_map.iter_rules()])
+PY
+
+# restart app process the way this project normally runs:
+# (use the project's run command; if using 'python app.py', run that; do NOT spawn any polling bot)
+pkill -f 'python.*app.py' || true
+sleep 1
+nohup python3 app.py > run.log 2>&1 &
+sleep 2
+tail -n 80 run.log || true
+tail -n 80 logs/app.log || true
+----------------------------------------------------------------
+
+Finally, tell me:
+- Which processes are running (ps aux | grep -E 'python.*app.py|gunicorn|uvicorn' | grep -v grep)
+- The final getWebhookInfo JSON again
+- Whether /ping triggered a [WEBHOOK] log line.
