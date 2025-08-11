@@ -105,11 +105,18 @@ class BirdeyeWS:
             return
 
         self.running = True
+        
+        # Enhanced subscription topics - prefer Launchpad if available
+        self.subscription_topics = [
+            "launchpad.created",  # Priority: Launchpad new tokens
+            "token.created",      # Fallback: Generic token events
+        ]
+        
         self._stop.clear()
         self._th = threading.Thread(target=self._run, daemon=True)
         self._th.start()
         self.publish("scan.birdeye.ws.start", {})
-        logging.info("[WS] Birdeye WS started")
+        logging.info("[WS] Birdeye WS started with Launchpad priority")
 
     def stop(self):
         self.running = False
@@ -143,26 +150,42 @@ class BirdeyeWS:
         WS_CONNECTED = True
         logging.info("[WS] Connected to Birdeye feed")
         self.publish("scan.birdeye.ws.open", {})
-        # If your plan needs a subscribe frame, set env BIRDEYE_WS_SUB JSON and we'll send it:
+        # Enhanced subscription with Launchpad priority
         sub = os.getenv("BIRDEYE_WS_SUB", "")
         if sub:
             try:
                 payload = json.loads(sub)
                 ws.send(json.dumps(payload))
-                logging.info("[WS] sent subscription payload")
+                logging.info("[WS] sent custom subscription payload")
             except Exception as e:
                 logging.warning("[WS] bad BIRDEYE_WS_SUB: %s", e)
         else:
-            # Default subscription for token.created events
-            default_sub = {
-                "type": "subscribe", 
-                "channels": [{"name": "token.created"}]
-            }
+            # Try subscribing to multiple topics with priority for Launchpad
+            topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
+            
+            for topic in topics_to_try:
+                try:
+                    # Try Birdeye topic-based subscription format
+                    topic_sub = {
+                        "type": "subscribe",
+                        "topic": topic,
+                        "chain": "solana"
+                    }
+                    ws.send(json.dumps(topic_sub))
+                    logging.info("[WS] sent %s subscription", topic)
+                except Exception as e:
+                    logging.debug("[WS] %s subscription failed: %s", topic, e)
+            
+            # Fallback: original channel-based format
             try:
+                default_sub = {
+                    "type": "subscribe", 
+                    "channels": [{"name": "token.created"}]
+                }
                 ws.send(json.dumps(default_sub))
-                logging.info("[WS] sent default token.created subscription")
+                logging.info("[WS] sent fallback channel subscription")
             except Exception as e:
-                logging.warning("[WS] failed to send default subscription: %s", e)
+                logging.warning("[WS] fallback subscription failed: %s", e)
 
     def _on_message(self, _ws, msg):
         self.recv_count += 1
@@ -177,18 +200,24 @@ class BirdeyeWS:
             # non-JSON message; ignore but keep alive
             return
 
-        # Handle both generic token extraction and specific token.created events
-        event_type = data.get("type")
-        if event_type == "token.created":
+        # Enhanced event handling for multiple topic types
+        event_type = data.get("type") or data.get("topic", "")
+        
+        # Handle specific Launchpad and token creation events
+        if event_type in ("launchpad.created", "token.created"):
             tok_data = data.get("data", {})
             tok = {
                 "mint": tok_data.get("address") or tok_data.get("mint"),
                 "symbol": tok_data.get("symbol") or "?",
                 "name": tok_data.get("name") or "?",
-                "price": tok_data.get("price") or tok_data.get("priceUsd")
+                "price": tok_data.get("price") or tok_data.get("priceUsd"),
+                "source": event_type  # Track which topic provided the token
             }
         else:
+            # Fallback to generic token extraction
             tok = _extract_token(data)
+            if tok:
+                tok["source"] = "generic"
             
         if not tok or not tok.get("mint"):
             return
@@ -202,8 +231,14 @@ class BirdeyeWS:
             self.publish("scan.birdeye.ws.new", {"token": tok})
             name = tok["name"] or "?"
             sym  = tok["symbol"] or "?"
+            source = tok.get("source", "ws")
+            
+            # Enhanced alert with source information
+            source_emoji = "🚀" if source == "launchpad.created" else "⚡"
+            source_text = "Launchpad" if source == "launchpad.created" else "WS"
+            
             text = (
-                f"⚡ *Birdeye WS — New token*\n"
+                f"{source_emoji} *Birdeye {source_text} — New token*\n"
                 f"*{name}* ({sym})\n"
                 f"`{mint}`\n"
                 f"[Birdeye]({LINK_BE.format(mint=mint)}) • [Pump.fun]({LINK_PF.format(mint=mint)})"
