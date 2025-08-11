@@ -5,64 +5,50 @@ from collections import deque
 BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "5"))
 
-# --- BEGIN PATCH: Birdeye rate-limit handling ---
+# --- BEGIN HOTFIX: Birdeye sort_by + pacing ---
 _last_birdeye_call_ts = 0.0
-_MIN_CALL_SPACING_SEC = int(os.getenv("BIRDEYE_MIN_SPACING_SEC", "8"))  # pace gate
+# 1) make the global pace a bit gentler
+_BIRDEYE_BASE_SPACING = int(os.getenv("BIRDEYE_MIN_SPACING_SEC", "15"))  # was 8
+_MAX_RETRIES = 5
 
 def _sleep_until_allowed():
-    """Ensure at least _MIN_CALL_SPACING_SEC between Birdeye calls."""
     import time as _t
     global _last_birdeye_call_ts
     now = _t.time()
     delta = now - _last_birdeye_call_ts
-    if delta < _MIN_CALL_SPACING_SEC:
-        _t.sleep(_MIN_CALL_SPACING_SEC - delta)
+    if delta < _BIRDEYE_BASE_SPACING:
+        _t.sleep(_BIRDEYE_BASE_SPACING - delta)
 
-def _birdeye_get(url, params, headers, max_retries=4):
-    """
-    GET with 429 handling: honors Retry-After, backs off exponentially with jitter.
-    Returns parsed JSON dict.
-    """
+def _birdeye_get(url, params, headers, max_retries=_MAX_RETRIES):
     import time as _t
-
+    import random
     global _last_birdeye_call_ts
     attempt = 0
     while True:
         _sleep_until_allowed()
-        try:
-            r = httpx.get(url, headers=headers, params=params, timeout=12)
-            _last_birdeye_call_ts = _t.time()
-            if r.status_code == 429:
-                retry_after = r.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        wait = float(retry_after)
-                    except:
-                        wait = 2.0
-                else:
-                    # exp backoff with jitter
-                    wait = min(20.0, (2 ** attempt)) + random.uniform(0.1, 0.6)
-                logging.warning("[SCAN] Birdeye 429; backing off %.2fs", wait)
-                _t.sleep(wait)
-                attempt += 1
-                if attempt > max_retries:
-                    raise httpx.HTTPStatusError("429 Too Many Requests", request=r.request, response=r)
-                continue
+        r = httpx.get(url, headers=headers, params=params, timeout=12)
+        _last_birdeye_call_ts = _t.time()
 
-            r.raise_for_status()
-            return r.json() or {}
-
-        except httpx.HTTPStatusError as e:
-            # Let caller handle 400s/others (we already do in tick()).
-            raise
-        except Exception as e:
-            # transient errors: short sleep and retry
-            wait = min(8.0, 1.0 + attempt * 1.5) + random.uniform(0.05, 0.3)
-            logging.warning("[SCAN] Birdeye GET error: %s; retrying in %.2fs", e, wait)
+        # Respect 429 with exponential backoff + jitter
+        if r.status_code == 429:
+            ra = r.headers.get("Retry-After")
+            if ra:
+                try:
+                    wait = float(ra)
+                except:
+                    wait = 4.0
+            else:
+                wait = min(60.0, (2 ** max(1, attempt)) * 2.0) + random.uniform(0.2, 0.8)
+            logging.warning("[SCAN] Birdeye 429; backing off %.2fs", wait)
             _t.sleep(wait)
             attempt += 1
-            if attempt > max_retries:
-                raise
+            if attempt >= max_retries:
+                raise httpx.HTTPStatusError("429 Too Many Requests", request=r.request, response=r)
+            continue
+
+        # Non-429 errors bubble up to caller
+        r.raise_for_status()
+        return r.json() or {}
 
 # --- BEGIN PATCH ---
 # top-level globals (near other config)
@@ -182,28 +168,17 @@ class BirdeyeScanner:
 
         url = f"{API}/defi/tokenlist"
 
-        def _fetch(params):
-            # use the safe getter with RL/backoff
-            return _birdeye_get(url, params, HEADERS, max_retries=5)
-
         try:
-            # Primary attempt (createdAt), chain gate, smaller page size
+            # Use the *correct* sort field: createdTime
             params = {
                 "chain": "solana",
-                "sort_by": "createdAt",
+                "sort_by": "createdTime",   # <- FIXED
                 "sort_type": "desc",
                 "offset": 0,
-                "limit": 20,  # was 50; smaller helps reduce RL pressure
+                "limit": 20,                # smaller page to ease rate limit
             }
-            try:
-                data = _fetch(params)
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 400 and "sort_by" in e.response.text:
-                    logging.warning("[SCAN] Birdeye 400 on sort_by=%s, retrying with created_at", params["sort_by"])
-                    params["sort_by"] = "created_at"
-                    data = _fetch(params)
-                else:
-                    raise
+
+            data = _birdeye_get(url, params, HEADERS, max_retries=_MAX_RETRIES)
 
             # Normalize payload across variants
             items = (
@@ -227,20 +202,13 @@ class BirdeyeScanner:
                     })
 
             if new_tokens:
-                # Also feed through the permissive alerting path if you enabled it
-                try:
-                    process_birdeye_items(new_tokens, notify=lambda m: None)  # no-op notify here; your scanner may alert elsewhere
-                except Exception:
-                    pass
                 self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
 
             logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
 
         except httpx.HTTPStatusError as e:
-            logging.warning(
-                "[SCAN] Birdeye status=%s url=%s body=%s",
-                e.response.status_code, getattr(e.request, "url", url), getattr(e.response, "text", "")[:200]
-            )
+            logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
+                            e.response.status_code, str(getattr(e.request, "url", url)), e.response.text[:200])
             self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
         except Exception as e:
             logging.warning("[SCAN] Birdeye tick error: %s", e)

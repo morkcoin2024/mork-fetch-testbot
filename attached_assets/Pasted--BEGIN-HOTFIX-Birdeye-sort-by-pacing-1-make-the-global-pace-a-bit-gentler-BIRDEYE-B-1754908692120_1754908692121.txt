@@ -1,0 +1,98 @@
+# --- BEGIN HOTFIX: Birdeye sort_by + pacing ---
+
+# 1) make the global pace a bit gentler
+_BIRDEYE_BASE_SPACING = int(os.getenv("BIRDEYE_MIN_SPACING_SEC", "15"))  # was 8
+_MAX_RETRIES = 5
+
+def _sleep_until_allowed():
+    import time as _t
+    global _last_birdeye_call_ts
+    now = _t.time()
+    delta = now - _last_birdeye_call_ts
+    if delta < _BIRDEYE_BASE_SPACING:
+        _t.sleep(_BIRDEYE_BASE_SPACING - delta)
+
+def _birdeye_get(url, params, headers, max_retries=_MAX_RETRIES):
+    import time as _t
+    import random
+    global _last_birdeye_call_ts
+    attempt = 0
+    while True:
+        _sleep_until_allowed()
+        r = httpx.get(url, headers=headers, params=params, timeout=12)
+        _last_birdeye_call_ts = _t.time()
+
+        # Respect 429 with exponential backoff + jitter
+        if r.status_code == 429:
+            ra = r.headers.get("Retry-After")
+            if ra:
+                try:
+                    wait = float(ra)
+                except:
+                    wait = 4.0
+            else:
+                wait = min(60.0, (2 ** max(1, attempt)) * 2.0) + random.uniform(0.2, 0.8)
+            logging.warning("[SCAN] Birdeye 429; backing off %.2fs", wait)
+            _t.sleep(wait)
+            attempt += 1
+            if attempt >= max_retries:
+                raise httpx.HTTPStatusError("429 Too Many Requests", request=r.request, response=r)
+            continue
+
+        # Non-429 errors bubble up to caller
+        r.raise_for_status()
+        return r.json() or {}
+
+def tick(self):
+    if not self.running:
+        return
+    if not BIRDEYE_KEY:
+        self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
+        return
+
+    url = f"{API}/defi/tokenlist"
+    try:
+        # Use the *correct* sort field: createdTime
+        params = {
+            "chain": "solana",
+            "sort_by": "createdTime",   # <- FIXED
+            "sort_type": "desc",
+            "offset": 0,
+            "limit": 20,                # smaller page to ease rate limit
+        }
+
+        data = _birdeye_get(url, params, HEADERS, max_retries=_MAX_RETRIES)
+
+        items = (
+            data.get("data", {}).get("tokens")
+            or data.get("data", [])
+            or data.get("tokens", [])
+            or []
+        )
+
+        new_tokens = []
+        for it in items:
+            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+            if not mint:
+                continue
+            if self._mark_seen(mint):
+                new_tokens.append({
+                    "mint": mint,
+                    "symbol": it.get("symbol") or "?",
+                    "name": it.get("name") or "?",
+                    "price": it.get("priceUsd") or it.get("price") or None,
+                })
+
+        if new_tokens:
+            self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+        logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+
+    except httpx.HTTPStatusError as e:
+        logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
+                        e.response.status_code, str(getattr(e.request, "url", url)), e.response.text[:200])
+        self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
+    except Exception as e:
+        logging.warning("[SCAN] Birdeye tick error: %s", e)
+        self.publish("scan.birdeye.error", {"err": str(e)})
+
+# --- END HOTFIX ---
