@@ -755,6 +755,16 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         "source: Birdeye recent tokens"
                     )
 
+                elif text.strip().startswith("/scan_mode"):
+                    parts = text.split()
+                    mode = parts[1].lower() if len(parts) > 1 else ""
+                    try:
+                        from birdeye import set_scan_mode
+                        set_scan_mode(mode)
+                        response_text = f"🛠 Scan mode set to *{('all' if mode=='all' else 'strict')}*."
+                    except Exception as e:
+                        response_text = f"❌ scan_mode failed: {e}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
