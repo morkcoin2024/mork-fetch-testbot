@@ -1463,23 +1463,56 @@ def trigger_fetch():
 def start_services():
     """Auto-start both HTTP and WebSocket scanners on app boot"""
     try:
-        # HTTP scanner already started via background thread above
-        logger.info("HTTP scanner already started via background thread")
-        
-        # Start WebSocket scanner
-        from birdeye_ws import ws_client
+        # Start HTTP scanner (ensure it's running)
+        from birdeye import get_scanner
+        scanner = get_scanner(publish)
+        if not scanner.running:
+            scanner.start()
+            logger.info("Birdeye scanner auto-started on boot")
+        else:
+            logger.info("Birdeye scanner already running")
+    except Exception as e:
+        logger.warning("HTTP scanner start failed (ok to continue): %s", e)
+
+    # Start Birdeye WebSocket client
+    try:
         ws_client.start()
         logger.info("Birdeye WS scanner auto-started on boot")
-        
-        # Publish startup event
-        publish("app.services.started", {
-            "http_scanner": True,
-            "ws_scanner": True,
-            "timestamp": time.time()
-        })
-        
     except Exception as e:
-        logger.error("Failed to auto-start services: %s", e)
+        logger.warning("WS start failed: %s", e)
+
+    # Background forwarder: push WS alerts to admin chat
+    def _forward_ws():
+        q = BUS.subscribe()
+        while True:
+            try:
+                evt = q.get(timeout=30)
+                if not isinstance(evt, dict):
+                    continue
+                if evt.get("type") == "scan.birdeye.ws":
+                    data = evt.get("data", {})
+                    msg = data.get("alert")
+                    if msg:
+                        send_admin_md(msg)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.warning("WS alert forwarding error: %s", e)
+                time.sleep(1)
+
+    # Start WebSocket alert forwarding thread
+    import threading
+    t = threading.Thread(target=_forward_ws, daemon=True)
+    t.start()
+    logger.info("WebSocket alert forwarding thread started")
+    
+    # Publish startup event
+    publish("app.services.started", {
+        "http_scanner": True,
+        "ws_scanner": True,
+        "alert_forwarding": True,
+        "timestamp": time.time()
+    })
 
 # Auto-start services immediately after app creation
 with app.app_context():
