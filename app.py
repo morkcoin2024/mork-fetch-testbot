@@ -479,9 +479,128 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         except Exception as e:
                             response_text = f"❌ Status check failed: {str(e)}"
 
+                # /scan_start [interval_sec]
+                elif text.strip().startswith("/scan_start"):
+                    logger.info("[WEBHOOK] Routing /scan_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            interval = int(parts[1]) if len(parts) > 1 else None
+                            if interval:
+                                SCANNER.interval = max(5, interval)
+                            SCANNER.start()
+                            response_text = f"✅ Birdeye scanner started (every {SCANNER.interval}s)"
+                        except Exception as e:
+                            response_text = f"❌ scan_start failed: {e}"
+
+                # /scan_stop
+                elif text.strip().startswith("/scan_stop"):
+                    logger.info("[WEBHOOK] Routing /scan_stop")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            SCANNER.stop()
+                            response_text = "🛑 Birdeye scanner stopped"
+                        except Exception as e:
+                            response_text = f"❌ scan_stop failed: {e}"
+
                 # /scan_status (admin only)
                 elif text.strip().startswith("/scan_status"):
                     logger.info("[WEBHOOK] Routing /scan_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            st = SCANNER.status()
+                            from birdeye import SCAN_MODE
+                            response_text = (
+                                "🔍 Birdeye Scan Status\n"
+                                f"running: {st['running']}\n"
+                                f"interval: {st['interval']}s\n"
+                                f"seen_cache: {st['seen_cache']}\n"
+                                f"thread_alive: {st['thread_alive']}\n"
+                                f"mode: {SCAN_MODE}"
+                            )
+                        except Exception as e:
+                            response_text = f"❌ scan_status failed: {e}"
+
+                # /scan_mode [all|strict]
+                elif text.strip().startswith("/scan_mode"):
+                    logger.info("[WEBHOOK] Routing /scan_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = "Usage: /scan_mode all|strict"
+                            else:
+                                set_scan_mode(parts[1])
+                                response_text = f"⚙️ Scan mode set to {parts[1].lower()}"
+                        except Exception as e:
+                            response_text = f"❌ scan_mode failed: {e}"
+
+                # /birdeye_probe [limit]
+                elif text.strip().startswith("/birdeye_probe"):
+                    logger.info("[WEBHOOK] Routing /birdeye_probe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            limit = int(parts[1]) if len(parts) > 1 else 10
+                            res = birdeye_probe_once(limit=limit)
+                            if not res.get("ok"):
+                                response_text = f"❌ probe error: {res.get('err')}"
+                            else:
+                                items = res.get("items") or []
+                                if not items:
+                                    response_text = "ℹ️ probe ok, no items"
+                                else:
+                                    lines = ["🧪 Birdeye Probe (newest):", ""]
+                                    for it in items:
+                                        mint = it.get("mint")
+                                        sym  = it.get("symbol") or "?"
+                                        nm   = it.get("name") or "?"
+                                        be   = f"https://birdeye.so/token/{mint}?chain=solana"
+                                        lines.append(f"• {nm} ({sym})\n`{mint}`\n{be}")
+                                    response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ birdeye_probe failed: {e}"
+
+                # /scan_test (quick single-shot fetch preview)
+                elif text.strip().startswith("/scan_test"):
+                    logger.info("[WEBHOOK] Routing /scan_test")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            res = birdeye_probe_once(limit=5)
+                            if not res.get("ok"):
+                                response_text = f"❌ scan_test: {res.get('err')}"
+                            else:
+                                items = res.get("items") or []
+                                if not items:
+                                    response_text = "✅ scan_test ok — no new items right now"
+                                else:
+                                    lines = ["✅ scan_test ok — sample:", ""]
+                                    for it in items:
+                                        mint = it.get("mint")
+                                        sym  = it.get("symbol") or "?"
+                                        nm   = it.get("name") or "?"
+                                        be   = f"https://birdeye.so/token/{mint}?chain=solana"
+                                        pf   = f"https://pump.fun/{mint}"
+                                        lines.append(f"• *{nm}* ({sym})\n`{mint}`\n[Birdeye]({be}) • [Pump.fun]({pf})")
+                                    response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ scan_test failed: {e}"
+
+                # /system_scan_status (legacy data fetcher status)
+                elif text.strip().startswith("/system_scan_status"):
+                    logger.info("[WEBHOOK] Routing /system_scan_status")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
