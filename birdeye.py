@@ -217,118 +217,84 @@ class BirdeyeScanner:
     def tick(self):
         if not self.running:
             return
-        if is_ws_connected():
-            logging.info("[SCAN] Skipping HTTP tick (WS connected)")
-            return
         if not BIRDEYE_KEY:
-            self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
+            self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
             return
 
-        # we'll try without sort_by first (Birdeye sometimes rejects formats on free tier)
-        def _do_req(params):
-            url = f"{API}/defi/tokenlist"
-            r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-            r.raise_for_status()
-            return r.json() or {}
+        # Endpoint WITHOUT sort_by (Birdeye is flaky on that param)
+        url = f"{API}/defi/tokenlist"
+        params = {
+            "chain": "solana",
+            "offset": 0,
+            "limit": 20,   # keep this modest to avoid 429s
+        }
 
-        try:
-            # primary attempt: NO sort_by (default order is recent enough)
-            params = {
-                "chain": "solana",
-                "offset": 0,
-                "limit": 20,
-                # no sort_by at all (server sorts by recency)
-            }
-            data = _do_req(params)
+        # Small jittered backoff to play nice with 429s
+        attempts = 3
+        for i in range(attempts):
+            try:
+                r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
+                if r.status_code == 429:
+                    # Too many requests — back off with jitter then retry
+                    delay = 0.8 + random.random() * 0.7  # ~0.8–1.5s
+                    logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
+                    time.sleep(delay)
+                    continue
 
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code
-            body = (e.response.text or "")[:200]
-            logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
-                            code, str(e.request.url), body)
+                # If Birdeye returns 400, just log once and stop retrying.
+                if r.status_code == 400:
+                    logging.info(
+                        "[SCAN] Birdeye 400 (most likely sort_by related); "
+                        "using default ordering with params=%s", params
+                    )
+                    break  # no retry — response is final
 
-            # 429 – rate limit: back off and bail this tick
-            if code == 429:
-                backoff = 1.0
-                logging.warning("[SCAN] Birdeye 429; backing off %.2fs", backoff)
-                time.sleep(backoff)
-                self.publish("scan.birdeye.error", {"err": "HTTP 429"})
-                return
+                r.raise_for_status()
+                data = r.json() or {}
+                items = (
+                    data.get("data", {}).get("tokens")
+                    or data.get("data", [])
+                    or data.get("tokens", [])
+                    or []
+                )
 
-            # 400 – retry once with a guessy sort_by, then give up
-            if code == 400:
-                try:
-                    logging.warning("[SCAN] 400 without sort_by, retrying with sort_by=createdAt")
-                    params = {
-                        "chain": "solana",
-                        "sort_by": "createdAt",
-                        "sort_type": "desc",
-                        "offset": 0,
-                        "limit": 20,
-                    }
-                    data = _do_req(params)
-                except httpx.HTTPStatusError as e2:
-                    code2 = e2.response.status_code
-                    body2 = (e2.response.text or "")[:200]
-                    logging.warning("[SCAN] Birdeye status=%s sort_by=createdAt body=%s", code2, body2)
-                    self.publish("scan.birdeye.error", {"err": f"HTTP {code2}"})
-                    return
-            else:
-                self.publish("scan.birdeye.error", {"err": f"HTTP {code}"})
-                return
-        except Exception as e:
-            logging.warning("[SCAN] Birdeye tick error: %s", e)
-            self.publish("scan.birdeye.error", {"err": str(e)})
-            return
+                new_tokens = []
+                for it in items:
+                    mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+                    if not mint:
+                        continue
+                    if self._mark_seen(mint):
+                        new_tokens.append({
+                            "mint": mint,
+                            "symbol": it.get("symbol") or "?",
+                            "name": it.get("name") or "?",
+                            "price": it.get("priceUsd") or it.get("price") or None,
+                        })
 
-        # ---- normalize + local sort (by any created_* field if present) ----
-        items = (
-            data.get("data", {}).get("tokens")
-            or data.get("data", [])
-            or data.get("tokens", [])
-            or []
-        )
+                if new_tokens:
+                    self.publish("scan.birdeye.new",
+                                 {"count": len(new_tokens), "items": new_tokens[:10]})
+                logging.info("[SCAN] Birdeye tick ok: %s items, %s new",
+                             len(items), len(new_tokens))
+                return  # done
 
-        # locally sort by createdAt/created_at/createdTime desc if field exists, else leave order
-        def key_created(x):
-            return x.get("createdAt") or x.get("created_at") or x.get("createdTime") or 0
-        try:
-            items = sorted(items, key=key_created, reverse=True)
-        except Exception:
-            pass  # if fields are heterogeneous, keep server order
-
-        new_tokens = []
-        for it in items:
-            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
-            if not mint:
-                continue
-            if self._mark_seen(mint):
-                new_tokens.append({
-                    "mint": mint,
-                    "symbol": it.get("symbol") or "?",
-                    "name": it.get("name") or "?",
-                    "price": it.get("priceUsd") or it.get("price") or None,
-                })
-
-        # keep a fresh normalized snapshot for probing
-        snapshot = []
-        for it in items:
-            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
-            if not mint:
-                continue
-            snapshot.append({
-                "mint": mint,
-                "symbol": it.get("symbol") or "?",
-                "name": it.get("name") or "?",
-                "price": it.get("priceUsd") or it.get("price") or None,
-            })
-        self.last_items.clear()
-        self.last_items.extend(snapshot)
-
-        if new_tokens:
-            self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
-        
-        logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+            except httpx.HTTPStatusError as e:
+                logging.warning(
+                    "[SCAN] Birdeye status=%s url=%s body=%s",
+                    e.response.status_code, str(e.request.url),
+                    (e.response.text or "")[:200]
+                )
+                # Only retry on 5xx; others fall through
+                if 500 <= e.response.status_code < 600 and i < attempts - 1:
+                    time.sleep(0.6 + random.random() * 0.6)
+                    continue
+                break
+            except Exception as e:
+                logging.warning("[SCAN] Birdeye tick error: %s", e)
+                if i < attempts - 1:
+                    time.sleep(0.6 + random.random() * 0.6)
+                    continue
+                break
 
     def run_forever(self):
         while True:
