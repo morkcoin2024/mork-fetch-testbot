@@ -67,27 +67,15 @@ class BirdeyeScanner:
             self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
             return
         try:
-            # Try 1: official tokenlist, newest first
-            url = f"{API}/public/tokenlist"
+            # Use the correct free plan endpoint: /defi/tokenlist
+            url = f"{API}/defi/tokenlist"
             params = {
-                "chain": "solana",
                 "sort_by": "createdTime",
                 "sort_type": "desc",
                 "offset": 0,
                 "limit": 50,
             }
             r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-
-            if r.status_code == 404:
-                # Try 2: legacy-style recent endpoint (some keys use it)
-                url = f"{API}/public/token/solana/recent"
-                r = httpx.get(url, headers=HEADERS, timeout=12)
-
-            if r.status_code == 404:
-                # Try 3: generic recent w/ chain param (seen in some mirrors)
-                url = f"{API}/public/token/recent"
-                r = httpx.get(url, headers=HEADERS, params={"chain": "solana"}, timeout=12)
-
             r.raise_for_status()
             data = r.json() or {}
 
@@ -96,7 +84,6 @@ class BirdeyeScanner:
                 data.get("data", {}).get("tokens")
                 or data.get("data", [])
                 or data.get("tokens", [])
-                or data.get("items", [])
                 or []
             )
 
@@ -116,6 +103,10 @@ class BirdeyeScanner:
             if new_tokens:
                 self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
 
+        except httpx.HTTPStatusError as e:
+            logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
+                            e.response.status_code, str(e.request.url), e.response.text[:200])
+            self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
         except Exception as e:
             logging.warning("[SCAN] Birdeye tick error: %s", e)
             self.publish("scan.birdeye.error", {"err": str(e)})
