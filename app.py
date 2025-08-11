@@ -26,10 +26,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---- Birdeye scanner driver thread ----
-from birdeye import get_scanner, SCAN_INTERVAL
+# --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
+from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
+SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
+# --- END PATCH ---
 
-_scanner = get_scanner(publish)
+_scanner = SCANNER
 
 def _scanner_thread():
     while True:
