@@ -1228,8 +1228,8 @@ if __name__ == '__main__':
     if mork_bot and mork_bot.telegram_available and os.environ.get('REPLIT_ENVIRONMENT'):
         logger.info("Starting bot in polling mode...")
         # Use the bot's start method instead of run
-        if hasattr(mork_bot, 'start_polling'):
-            mork_bot.start_polling()
+        if hasattr(mork_bot, 'run'):
+            mork_bot.run()
         else:
             logger.warning("Bot polling not available, running Flask only")
             app.run(host='0.0.0.0', port=5000, debug=True)
