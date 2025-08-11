@@ -16,10 +16,14 @@ SCAN_MODE = "strict"   # "strict" | "all"
 SEEN_MINTS = set()     # process_birdeye_items() de-dupe for current run
 
 def set_scan_mode(mode: str):
-    """Switch between 'strict' and 'all' scanning."""
-    global SCAN_MODE
+    global SCAN_MODE, scanner_singleton
     SCAN_MODE = "all" if str(mode).lower() == "all" else "strict"
     logging.info("[SCAN] Scan mode set to %s", SCAN_MODE)
+    from eventbus import publish
+    publish("scan.mode", {"mode": SCAN_MODE})
+    # propagate to live scanner if running
+    if scanner_singleton:
+        scanner_singleton.mode = SCAN_MODE
     try:
         from eventbus import publish
         publish("scan.mode", {"mode": SCAN_MODE})
