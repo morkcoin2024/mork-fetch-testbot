@@ -586,6 +586,69 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error'''
                         except Exception as e:
                             response_text = f"❌ birdeye_probe failed: {e}"
 
+                # /scan_mode strict | all | ws
+                elif text.strip().startswith("/scan_mode"):
+                    logger.info("[WEBHOOK] Routing /scan_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        parts = text.strip().split()
+                        arg = parts[1].lower() if len(parts) > 1 else ""
+                        if arg in ("strict", "all"):
+                            try:
+                                from birdeye import set_scan_mode
+                                set_scan_mode(arg)
+                                response_text = f"✅ scan_mode set to *{arg}*"
+                            except Exception as e:
+                                response_text = f"❌ failed to set scan_mode: {e}"
+                        elif arg == "ws":
+                            # ensure WS is running
+                            try:
+                                ws_client.start()
+                                response_text = "✅ WebSocket scanner *started*"
+                            except Exception as e:
+                                response_text = f"❌ WS start failed: {e}"
+                        else:
+                            response_text = "Usage: /scan_mode strict|all|ws"
+
+                # /scan_probe_ws (WebSocket probe and pipeline test)
+                elif text.strip().startswith("/scan_probe_ws"):
+                    logger.info("[WEBHOOK] Routing /scan_probe_ws")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        # Quick probe of WS state; also send a synthetic alert to verify Telegram piping
+                        running = getattr(ws_client, "running", False)
+                        alive = getattr(ws_client, "thread", None)
+                        alive = alive.is_alive() if alive else False
+                        # synthetic test alert to ensure pipeline prints to Telegram
+                        _ = send_admin_md("🧪 *Probe:* WS pipeline OK (synthetic alert)")
+                        response_text = (
+                            "🔎 WS probe\n"
+                            f"running: {running}\n"
+                            f"thread_alive: {alive}\n"
+                            "Sent a synthetic alert to admin."
+                        )
+
+                # /ws_status (WebSocket status check)
+                elif text.strip().startswith("/ws_status"):
+                    logger.info("[WEBHOOK] Routing /ws_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        running = getattr(ws_client, "running", False)
+                        alive = getattr(ws_client, "thread", None)
+                        alive = alive.is_alive() if alive else False
+                        status = ws_client.status()
+                        response_text = (
+                            "📡 WS status\n"
+                            f"running: {running}\n"
+                            f"thread_alive: {alive}\n"
+                            f"mode: {status.get('mode', 'unknown')}\n"
+                            f"messages_received: {status.get('recv', 0)}\n"
+                            f"cache_size: {status.get('seen_cache', 0)}/8000"
+                        )
+
                 # /scan_test (quick single-shot fetch preview)
                 elif text.strip().startswith("/scan_test"):
                     logger.info("[WEBHOOK] Routing /scan_test")
