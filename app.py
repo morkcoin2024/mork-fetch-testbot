@@ -143,15 +143,17 @@ def _scanner_thread():
             if SCANNER:
                 SCANNER.tick()
             
-            # Jupiter scanner - runs independently
-            if JUPITER_SCANNER and JUPITER_SCANNER.running:
-                total, new = JUPITER_SCANNER.tick()
+            # Jupiter scanner - runs independently (check both global and registry)
+            jupiter_scanner = JUPITER_SCANNER or SCANNERS.get("jupiter")
+            if jupiter_scanner and jupiter_scanner.running:
+                total, new = jupiter_scanner.tick()
                 if total > 0:
                     logger.info(f"[SCAN] Jupiter tick ok: {total} items, {new} new")
             
             # Solscan scanner - only if enabled (API key provided)
-            if SOLSCAN_SCANNER and SOLSCAN_SCANNER.running:
-                total, new = SOLSCAN_SCANNER.tick()
+            solscan_scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+            if solscan_scanner and solscan_scanner.running:
+                total, new = solscan_scanner.tick()
                 if total > 0:
                     logger.info(f"[SCAN] Solscan tick ok: {total} items, {new} new")
             
@@ -165,11 +167,29 @@ if SCANNER:
     t = threading.Thread(target=_scanner_thread, daemon=True)
     t.start()
 
+# Ensure additional scanners are registered in SCANNERS registry
+def _ensure_scanners():
+    """Ensure Jupiter and Solscan scanners are created and registered"""
+    global SCANNERS
+    # Avoid duplicates
+    if "jupiter" not in SCANNERS:
+        SCANNERS["jupiter"] = JupiterScan(notify_fn=_notify_tokens, interval_sec=int(os.getenv("SCAN_INTERVAL_SEC","8")))
+        logger.info("Jupiter scanner registered in SCANNERS registry")
+    if "solscan" not in SCANNERS:
+        SCANNERS["solscan"] = SolscanScan(notify_fn=_notify_tokens, interval_sec=int(os.getenv("SCAN_INTERVAL_SEC","8")))
+        logger.info("Solscan scanner registered in SCANNERS registry")
+
+# Ensure scanners are in registry on boot
+_ensure_scanners()
+
 # Auto-start Jupiter scanner if enabled
 try:
     if JUPITER_SCANNER and JUPITER_SCANNER.enabled:
         JUPITER_SCANNER.start()
         logger.info("Jupiter scanner auto-started on boot")
+    elif "jupiter" in SCANNERS and SCANNERS["jupiter"].enabled:
+        SCANNERS["jupiter"].start()
+        logger.info("Jupiter scanner auto-started from registry")
 except Exception as e:
     logger.warning(f"Jupiter auto-start failed: {e}")
 
@@ -178,8 +198,11 @@ try:
     if SOLSCAN_SCANNER and SOLSCAN_SCANNER.enabled:
         SOLSCAN_SCANNER.start()
         logger.info("Solscan scanner auto-started on boot")
+    elif "solscan" in SCANNERS and SCANNERS["solscan"].enabled:
+        SCANNERS["solscan"].start() 
+        logger.info("Solscan scanner auto-started from registry")
     else:
-        if SOLSCAN_SCANNER:
+        if SOLSCAN_SCANNER or ("solscan" in SCANNERS):
             logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
         else:
             logger.info("Solscan scanner not initialized")
