@@ -1,0 +1,73 @@
+    def tick(self):
+        if not self.running:
+            return
+        if not BIRDEYE_KEY:
+            self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
+            return
+
+        tries = 3
+        backoff = 0.8 + random.random() * 0.7  # ~0.8–1.5s
+        last_err = None
+
+        while tries > 0:
+            try:
+                r = self._get_tokenlist(limit=20, offset=0)  # ✅ no sort_by ever
+                if r.status_code == 429:
+                    logging.warning("[SCAN] Birdeye 429; backing off %.2fs", backoff)
+                    time.sleep(backoff)
+                    backoff *= 1.6
+                    tries -= 1
+                    continue
+
+                r.raise_for_status()
+                data = r.json() or {}
+                items = (
+                    data.get("data", {}).get("tokens")
+                    or data.get("data", [])
+                    or data.get("tokens", [])
+                    or []
+                )
+
+                new_tokens = []
+                for it in items:
+                    mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+                    if not mint:
+                        continue
+                    if self._mark_seen(mint):
+                        new_tokens.append({
+                            "mint": mint,
+                            "symbol": it.get("symbol") or "?",
+                            "name": it.get("name") or "?",
+                            "price": it.get("priceUsd") or it.get("price") or None,
+                        })
+
+                if new_tokens:
+                    self.publish("scan.birdeye.new", {
+                        "count": len(new_tokens),
+                        "items": new_tokens[:10]
+                    })
+
+                logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+                return
+
+            except httpx.HTTPStatusError as e:
+                logging.warning(
+                    "[SCAN] Birdeye status=%s url=%s body=%s",
+                    e.response.status_code,
+                    str(e.request.url),
+                    e.response.text[:200]
+                )
+                last_err = e
+                time.sleep(backoff)
+                backoff *= 1.6
+                tries -= 1
+
+            except Exception as e:
+                logging.warning("[SCAN] Birdeye tick error: %s", e)
+                last_err = e
+                time.sleep(backoff)
+                backoff *= 1.6
+                tries -= 1
+
+        # Out of retries
+        self.publish("scan.birdeye.error", {"err": str(last_err) if last_err else "unknown"})

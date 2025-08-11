@@ -95,66 +95,25 @@ def _normalize_items(data: dict) -> list:
         })
     return out
 
-def _request_newest(limit: int, sort_by: str) -> list:
-    """Perform a single HTTP request with the given sort_by."""
-    # -- Birdeye request (no sort_by) --
+def _get_tokenlist() -> list:
+    """Clean HTTP GET to Birdeye tokenlist endpoint - NO sort_by parameters."""
     url = f"{API}/defi/tokenlist"
     params = {
-        "chain": "solana",
+        "chain": "solana", 
         "offset": 0,
         "limit": 20,
     }
-    logging.info("[SCAN] PATCH_nosort active params=%s", params)
-
+    
     r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
     if r.status_code == 429:
-        import random, time as _t
-        delay = 0.8 + random.random() * 0.7
+        delay = 0.8 + random.random() * 0.7  # 0.8-1.5s jitter
         logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
-        _t.sleep(delay)
+        time.sleep(delay)
         r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-
+    
     r.raise_for_status()
     data = r.json() or {}
     return _normalize_items(data)
-
-def _request_with_fallbacks(limit: int) -> list:
-    """
-    Try likely sort_by keys with helpful logging:
-    createdTime -> createdAt -> created_at
-    """
-    order = ["createdTime", "createdAt", "created_at"]
-    last_err = None
-
-    for idx, key in enumerate(order):
-        try:
-            return _request_newest(limit, key)
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code
-            body = e.response.text[:200]
-            logging.warning("[SCAN] Birdeye status=%s sort_by=%s body=%s", code, key, body)
-            if code == 429:
-                # back off briefly; keep it tiny to avoid blocking loop
-                delay = 0.8 + random.uniform(0.0, 0.4)
-                logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
-                time.sleep(delay)
-                last_err = e
-                continue
-            if code == 400 and idx < len(order) - 1:
-                # try next variant
-                logging.warning("[SCAN] 400 on sort_by=%s, retrying with %s", key, order[idx + 1])
-                last_err = e
-                continue
-            # other codes: bail
-            raise
-        except Exception as e:
-            last_err = e
-            logging.warning("[SCAN] Birdeye tick error: %s", e)
-
-    # if we get here, nothing worked
-    if last_err:
-        raise last_err
-    return []
 
 # --- scanner class ---
 
@@ -230,43 +189,12 @@ class BirdeyeScanner:
             self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
             return
 
-        # Endpoint WITHOUT sort_by (Birdeye is flaky on that param)
-        url = f"{API}/defi/tokenlist"
-        params = {
-            "chain": "solana",
-            "offset": 0,
-            "limit": 20,   # keep this modest to avoid 429s
-        }
-
-        # Small jittered backoff to play nice with 429s
+        # Use clean helper - NO sort_by anywhere
         attempts = 3
         for i in range(attempts):
             try:
-                r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-                if r.status_code == 429:
-                    # Too many requests — back off with jitter then retry
-                    delay = 0.8 + random.random() * 0.7  # ~0.8–1.5s
-                    logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
-                    time.sleep(delay)
-                    continue
-
-                # If Birdeye returns 400, just log once and stop retrying.
-                if r.status_code == 400:
-                    logging.info(
-                        "[SCAN] Birdeye 400 (most likely sort_by related); "
-                        "using default ordering with params=%s", params
-                    )
-                    break  # no retry — response is final
-
-                r.raise_for_status()
-                data = r.json() or {}
-                items = (
-                    data.get("data", {}).get("tokens")
-                    or data.get("data", [])
-                    or data.get("tokens", [])
-                    or []
-                )
-
+                items = _get_tokenlist()
+                
                 new_tokens = []
                 for it in items:
                     mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
@@ -295,13 +223,16 @@ class BirdeyeScanner:
                 )
                 # Only retry on 5xx; others fall through
                 if 500 <= e.response.status_code < 600 and i < attempts - 1:
-                    time.sleep(0.6 + random.random() * 0.6)
+                    delay = 0.6 + random.random() * 0.6
+                    logging.warning("[SCAN] Birdeye 5xx; backing off %.2fs", delay)
+                    time.sleep(delay)
                     continue
                 break
             except Exception as e:
                 logging.warning("[SCAN] Birdeye tick error: %s", e)
                 if i < attempts - 1:
-                    time.sleep(0.6 + random.random() * 0.6)
+                    delay = 0.6 + random.random() * 0.6
+                    time.sleep(delay)
                     continue
                 break
 
@@ -341,7 +272,7 @@ def birdeye_probe_once(limit=20):
     if not BIRDEYE_KEY:
         return {"ok": False, "err": "missing BIRDEYE_API_KEY", "items": []}
     try:
-        items = _request_with_fallbacks(limit=max(1, min(50, int(limit))))
+        items = _get_tokenlist()  # Use clean helper - NO sort_by
         return {"ok": True, "err": None, "items": items[:5]}
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
