@@ -1,0 +1,55 @@
+# 0) Show current basics
+python3 - <<'PY'
+import os, sys
+print("py:", sys.version)
+print("BIRDEYE_WS_KEY set:", bool(os.getenv("BIRDEYE_WS_KEY")))
+print("FEATURE_WS:", os.getenv("FEATURE_WS","(unset)"))
+print("TELEGRAM_BOT_TOKEN set:", bool(os.getenv("TELEGRAM_BOT_TOKEN")))
+PY
+
+# 1) Set env flags (use the user’s WS key)
+export BIRDEYE_WS_KEY='37c50ab5a1ac451980a1998b1c05fbf6'
+export FEATURE_WS='on'
+
+# 2) Fix dependency: ensure we have websocket-client (not 'websocket')
+python3 - <<'PY'
+import sys, subprocess, pkgutil
+def has(mod): 
+    return pkgutil.find_loader(mod) is not None
+print("has websocket:", has("websocket"))
+print("has websocket_client:", has("websocket"))
+PY
+pip -q uninstall -y websocket || true
+pip -q install -U "websocket-client==1.8.0"
+python3 - <<'PY'
+import websocket, pkgutil
+print("websocket module path:", getattr(websocket, "__file__", "n/a"))
+print("Has WebSocketApp:", hasattr(websocket, "WebSocketApp"))
+PY
+
+# 3) Kill any stray polling scripts so only Flask webhook handles updates
+pkill -f 'ultra_simple_bot' || true
+pkill -f 'simple_polling_bot.py' || true
+pkill -f 'final_working_bot.py' || true
+sleep 1
+ps aux | grep -E 'python.*(bot|poll)' | grep -v grep || true
+
+# 4) Clean app restart & show first boot lines
+# (use whatever you normally do to restart; if you have a run script, call it)
+# Here we'll send a SIGHUP to gunicorn if present, else rely on Replit runner.
+pkill -HUP -f 'gunicorn' || true
+sleep 2
+# Print last 80 lines so we can see WS boot and webhook readiness
+tail -n 80 logs/app.log || true
+
+# 5) Verify Telegram webhook is still set to our Flask endpoint
+TOKEN="$(python3 -c 'import os; print(os.getenv("TELEGRAM_BOT_TOKEN",""))')"
+curl -sS "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
+
+# 6) Confirm /ws_* handlers exist in app.py
+nl -ba app.py | grep -nE 'elif text\.strip\(\)\.startswith\("/ws_'
+FIRST=$(nl -ba app.py | awk '/startswith\("\/ws_/{print $1; exit}')
+if [ -n "$FIRST" ]; then START=$((FIRST-40)); [ $START -lt 1 ] && START=1; END=$((FIRST+80)); sed -n "${START},${END}p" app.py; else echo "NO /ws_* TELEGRAM HANDLERS FOUND IN app.py"; fi
+
+# 7) Final sanity: grep logs for WS lines + webhook lines
+grep -nE '\[WS\]|\[WEBHOOK\]' logs/app.log | tail -n 120 || true
