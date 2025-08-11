@@ -225,11 +225,16 @@ def webhook():
         # Import publish at function level to avoid import issues
         from eventbus import publish
         
-        # Log incoming webhook request
+        # Log incoming webhook request - ALWAYS log
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
         
         update_data = request.get_json()
-        logger.info(f"[WEBHOOK] Update data: {update_data}")
+        if update_data and update_data.get('message'):
+            msg_text = update_data['message'].get('text', '')
+            user_id = update_data['message'].get('from', {}).get('id', '')
+            logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
+        else:
+            logger.info(f"[WEBHOOK] Update data: {update_data}")
         
         if not mork_bot:
             logger.error("[WEBHOOK] Bot not initialized - missing TELEGRAM_BOT_TOKEN")
