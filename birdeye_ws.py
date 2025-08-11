@@ -4,10 +4,17 @@ from collections import deque
 
 # Global WebSocket connection status
 WS_CONNECTED = False
+WS_TAP_ENABLED = False
 
 def is_ws_connected():
     """Check if WebSocket is currently connected to Birdeye feed"""
     return WS_CONNECTED
+
+def set_ws_tap(enabled: bool):
+    """Enable or disable WebSocket message tapping for debug"""
+    global WS_TAP_ENABLED
+    WS_TAP_ENABLED = enabled
+    logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
 
 try:
     import websocket  # from websocket-client
@@ -126,6 +133,7 @@ class BirdeyeWS:
             "seen_cache": len(self._seen_set),
             "thread_alive": self._th.is_alive() if self._th else False,
             "mode": SCAN_MODE,
+            "tap_enabled": WS_TAP_ENABLED or os.getenv("WS_TAP") == "1",
         }
 
     # Birdeye Business plan usually authenticates via header "X-API-KEY".
@@ -158,6 +166,11 @@ class BirdeyeWS:
 
     def _on_message(self, _ws, msg):
         self.recv_count += 1
+        
+        # Debug tap: log raw messages when enabled
+        if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
+            logging.info("[WS_TAP] Raw message: %s", msg[:200] + "..." if len(msg) > 200 else msg)
+            
         try:
             data = json.loads(msg)
         except Exception:

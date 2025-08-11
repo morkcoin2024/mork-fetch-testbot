@@ -667,15 +667,19 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             f"cache_size: {status.get('seen_cache', 0)}/8000"
                         )
 
-                # /ds_start (DexScreener scanner start)
+                # /ds_start (DexScreener scanner start with optional interval)
                 elif text.strip().startswith("/ds_start"):
                     logger.info("[WEBHOOK] Routing /ds_start")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
                         try:
+                            parts = text.split()
+                            interval = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+                            if interval:
+                                DS_SCANNER.interval = max(10, interval)
                             DS_SCANNER.start()
-                            response_text = "✅ DexScreener scanner *started*"
+                            response_text = f"✅ Dexscreener scan started (every {DS_SCANNER.interval}s)"
                         except Exception as e:
                             response_text = f"❌ DS start failed: {e}"
 
@@ -687,7 +691,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     else:
                         try:
                             DS_SCANNER.stop()
-                            response_text = "✅ DexScreener scanner *stopped*"
+                            response_text = "🛑 Dexscreener scan stopped"
                         except Exception as e:
                             response_text = f"❌ DS stop failed: {e}"
 
@@ -697,15 +701,43 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        status = DS_SCANNER.status()
-                        response_text = (
-                            "🔍 *DexScreener Status*\n"
-                            f"running: {status.get('running', False)}\n"
-                            f"thread_alive: {status.get('threadalive', False)}\n"
-                            f"interval: {status.get('interval', 0)}s\n"
-                            f"window: {status.get('window_sec', 0)}s\n"
-                            f"cache_size: {status.get('seencache', 0)}/8000"
-                        )
+                        try:
+                            status = DS_SCANNER.status()
+                            response_text = (
+                                "🧭 *Dexscreener Status*\n"
+                                f"running: {status.get('running', False)}\n"
+                                f"interval: {status.get('interval', 0)}s\n"
+                                f"seencache: {status.get('seencache', 0)}/8000\n"
+                                f"threadalive: {status.get('threadalive', False)}\n"
+                                f"window: {status.get('window_sec', 0)}s"
+                            )
+                        except Exception as e:
+                            response_text = f"❌ DS status failed: {e}"
+
+                # /ws_tap (WebSocket debug tap - mirror WS messages to logs)
+                elif text.strip().startswith("/ws_tap"):
+                    logger.info("[WEBHOOK] Routing /ws_tap")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            mode = parts[1].lower() if len(parts) > 1 else "on"
+                            enabled = mode in ("on", "true", "1", "yes")
+                            try:
+                                # Try to use birdeye_ws helper if available
+                                from birdeye_ws import ws_client
+                                if hasattr(ws_client, 'set_tap_mode'):
+                                    ws_client.set_tap_mode(enabled)
+                                else:
+                                    # Fallback: store flag in environment
+                                    os.environ["WS_TAP"] = "1" if enabled else "0"
+                            except Exception:
+                                # Fallback: store flag in environment
+                                os.environ["WS_TAP"] = "1" if enabled else "0"
+                            response_text = f"🛰 WS tap {'enabled' if enabled else 'disabled'}"
+                        except Exception as e:
+                            response_text = f"❌ WS tap failed: {e}"
 
                 # /scan_test (quick single-shot fetch preview)
                 elif text.strip().startswith("/scan_test"):
