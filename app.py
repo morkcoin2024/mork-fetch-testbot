@@ -1240,6 +1240,58 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         except Exception as e:
                             response_text = f"❌ Debug command error: {e}"
 
+                # ======= ENHANCED WS DEBUG CONTROLS =======
+                elif text.strip().startswith("/ws_dump"):
+                    logger.info("[WEBHOOK] Routing /ws_dump")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from birdeye_ws import get_ws
+                            from eventbus import publish
+                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            
+                            # Parse number of messages to dump
+                            parts = text.strip().split()
+                            n = 10
+                            if len(parts) > 1 and parts[1].isdigit():
+                                n = int(parts[1])
+                            
+                            items = ws.get_debug_cache(n)
+                            if not items:
+                                response_text = "📦 *No WS debug cache yet*\nEnable debug mode first with `/ws_debug on`"
+                            else:
+                                # Format cached messages for display
+                                lines = [f"📦 *Last {len(items)} WS raw events:*"]
+                                for i, item in enumerate(items, 1):
+                                    event = item.get("event", "?")
+                                    # Compact JSON for readability
+                                    preview = json.dumps(item, separators=(',', ':'))[:300]
+                                    lines.append(f"{i}. `{event}`: {preview}...")
+                                response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ Debug dump error: {e}"
+
+                elif text.strip().startswith("/ws_probe"):
+                    logger.info("[WEBHOOK] Routing /ws_probe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from birdeye_ws import get_ws
+                            from eventbus import publish
+                            ws = get_ws(publish=publish, notify=lambda m: _reply(m))
+                            
+                            # Inject synthetic event for pipeline testing
+                            ws.inject_debug_event("manual-probe")
+                            response_text = (
+                                "🧪 *Debug probe injected*\n"
+                                "Synthetic WS event sent through pipeline\n"
+                                "Check logs with `/a_logs_tail` or cache with `/ws_dump`"
+                            )
+                        except Exception as e:
+                            response_text = f"❌ Debug probe error: {e}"
+
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
                     mode = parts[1].lower() if len(parts) > 1 else ""
@@ -1278,6 +1330,22 @@ Birdeye Scanner:
 /birdeye_stop - Stop token scanning
 /birdeye_status - Scanner status
 /birdeye_tick - Manual scan
+
+WebSocket Enhanced Controls:
+/ws_start, /ws_stop - WebSocket scanner controls  
+/ws_restart - Restart with Launchpad priority
+/ws_status - Enhanced connection and subscription stats
+/ws_sub [topics] - Set custom subscription topics
+/ws_mode [strict|all] - Set WebSocket filter mode
+/ws_tap [on|off] - Toggle message debug tap
+
+Advanced WebSocket Debug:
+/ws_debug on/off/inject/cache/status - Debug mode control
+/ws_dump [n] - View cached raw WebSocket messages
+/ws_probe - Inject synthetic test event
+
+DexScreener Scanner:
+/ds_start [seconds], /ds_stop, /ds_status - Pair scanner controls
 
 AI Assistant:
 /assistant_model [model] - Get/set assistant AI model
@@ -1681,6 +1749,95 @@ def live():
     if LIVE_TOKEN and tok != LIVE_TOKEN:
         return Response("unauthorized", status=401)
     return render_template_string(LIVE_HTML)
+
+# ========= Enhanced WS Debug Event Forwarding to Admin Chat =========
+_WS_DEBUG_FORWARDER_SET = False
+
+def _install_ws_debug_forwarder():
+    """Install one-time event bus subscriber for WS debug event forwarding"""
+    global _WS_DEBUG_FORWARDER_SET
+    if _WS_DEBUG_FORWARDER_SET:
+        return
+    _WS_DEBUG_FORWARDER_SET = True
+    
+    try:
+        admin_id = int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
+    except Exception:
+        admin_id = 0
+    if not admin_id:
+        logger.warning("[WS] No admin ID for debug forwarding")
+        return
+        
+    def _send_admin_debug(text: str):
+        """Send debug message to admin chat"""
+        try:
+            import requests
+            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            if not bot_token:
+                return
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={
+                    "chat_id": admin_id, 
+                    "text": text, 
+                    "parse_mode": "Markdown",
+                    "disable_notification": True  # Don't spam with notifications
+                },
+                timeout=8,
+            )
+        except Exception as e:
+            logger.debug("Admin debug send failed: %s", e)
+    
+    def _on_debug_event(evt):
+        """Handle WS debug events from event bus"""
+        if not isinstance(evt, dict):
+            return
+            
+        # Handle ws.debug events
+        if evt.get("type") == "ws.debug":
+            data = evt.get("data", {})
+            event_type = data.get("event", "?")
+            preview = data.get("preview", "")[:500]  # Limit length
+            timestamp = data.get("ts", "")
+            
+            debug_msg = (
+                f"🛰 *WS Debug Event*\n"
+                f"Event: `{event_type}`\n"
+                f"Time: {timestamp}\n"
+                f"```json\n{preview}\n```"
+            )
+            _send_admin_debug(debug_msg)
+            
+        # Handle ws.debug.mode events  
+        elif evt.get("type") == "ws.debug.mode":
+            data = evt.get("data", {})
+            mode_on = data.get("on", False)
+            status_msg = f"🔬 *WebSocket Debug Mode: {'ON' if mode_on else 'OFF'}*"
+            _send_admin_debug(status_msg)
+    
+    # Subscribe to event bus
+    try:
+        q = BUS.subscribe()
+        import threading
+        
+        def _debug_forwarder_worker():
+            """Background worker for debug event forwarding"""
+            while True:
+                try:
+                    evt = q.get(timeout=30)
+                    _on_debug_event(evt)
+                except Exception:
+                    continue  # Keep running on any error
+        
+        thread = threading.Thread(target=_debug_forwarder_worker, daemon=True)
+        thread.start()
+        logger.info("[WS] Debug event forwarder installed for admin chat")
+        
+    except Exception as e:
+        logger.warning("[WS] Debug forwarder setup failed: %s", e)
+
+# Install debug forwarder at startup
+_install_ws_debug_forwarder()
 
 @app.route('/api/trigger-fetch')
 def trigger_fetch():
