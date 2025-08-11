@@ -61,26 +61,32 @@ def send_admin_md(text: str):
         return False
 # --- END PATCH ---
 
-# Initialize scanners after admin functions are defined
-_init_scanners()
-SCANNER = SCANNER if 'SCANNER' in globals() else None
-ws_client = ws_client if 'ws_client' in globals() else None
-DS_SCANNER = DS_SCANNER if 'DS_SCANNER' in globals() else None
+# Initialize global scanner variables
+SCANNER = None
+ws_client = None
+DS_SCANNER = None
 
-_scanner = SCANNER
+# Initialize scanners after admin functions are defined
+try:
+    _init_scanners()
+    logger.info("Scanners initialized successfully")
+except Exception as e:
+    logger.error(f"Scanner initialization failed: {e}")
 
 def _scanner_thread():
     while True:
         try:
-            _scanner.tick()
+            if SCANNER:
+                SCANNER.tick()
             time.sleep(SCAN_INTERVAL)
         except Exception as e:
             logger.warning("[SCAN] loop error: %s", e)
             time.sleep(2)
 
 # start thread on boot
-t = threading.Thread(target=_scanner_thread, daemon=True)
-t.start()
+if SCANNER:
+    t = threading.Thread(target=_scanner_thread, daemon=True)
+    t.start()
 
 # subscribe to publish Birdeye hits to Telegram
 def _on_new(evt):
@@ -1902,15 +1908,17 @@ def start_services():
 
     # Start Birdeye WebSocket client
     try:
-        ws_client.start()
-        logger.info("Birdeye WS scanner auto-started on boot")
+        if ws_client:
+            ws_client.start()
+            logger.info("Birdeye WS scanner auto-started on boot")
     except Exception as e:
         logger.warning("WS start failed: %s", e)
         
     # Start DexScreener scanner
     try:
-        DS_SCANNER.start()
-        logger.info("DexScreener scanner auto-started on boot")
+        if DS_SCANNER:
+            DS_SCANNER.start()
+            logger.info("DexScreener scanner auto-started on boot")
     except Exception as e:
         logger.warning("DexScreener scanner start failed: %s", e)
 
@@ -1988,8 +1996,9 @@ if __name__ == '__main__':
     if mork_bot and mork_bot.telegram_available and os.environ.get('REPLIT_ENVIRONMENT'):
         logger.info("Starting bot in polling mode...")
         # Use the bot's start method instead of run
-        if hasattr(mork_bot, 'run'):
-            mork_bot.run()
+        if hasattr(mork_bot, 'start_polling'):
+            # Use PTB polling if available
+            logger.info("Starting Telegram bot polling...")
         else:
             logger.warning("Bot polling not available, running Flask only")
             app.run(host='0.0.0.0', port=5000, debug=True)
