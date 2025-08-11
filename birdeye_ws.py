@@ -197,6 +197,7 @@ class BirdeyeWS:
             )
             try:
                 self.notify(text)
+                logging.info("[WS] Alert sent: %s (%s) %s", name, sym, mint)
             except Exception:
                 pass
 
