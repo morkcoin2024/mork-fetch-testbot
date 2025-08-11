@@ -29,7 +29,11 @@ try:
     logging.info("Starting PTB v20.7 streamlined implementation...")
 
     # Kill any webhook so polling works
-    Bot(TOKEN).delete_webhook(drop_pending_updates=True)
+    import asyncio
+    async def cleanup_webhook():
+        bot = Bot(TOKEN)
+        await bot.delete_webhook(drop_pending_updates=True)
+    asyncio.run(cleanup_webhook())
 
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -74,7 +78,7 @@ try:
     logging.info(f"[MAIN] Admin ID configured: {ASSISTANT_ADMIN_TELEGRAM_ID}")
     
     if __name__ == '__main__':
-        app.run_polling(allowed_updates=constants.UpdateType.ALL_TYPES, drop_pending_updates=True)
+        app.run_polling(allowed_updates=constants.UpdateType.ALL, drop_pending_updates=True)
 
 except ImportError as e:
     logging.info(f"PTB streamlined mode not available ({e}) - using Flask fallback")
@@ -84,7 +88,8 @@ except ImportError as e:
     bot_logger.setLevel(logging.DEBUG)
     
     # Fallback to Flask application
-    from app import app
+    from app import app as flask_app
+    app = flask_app  # Export for gunicorn
     
     if __name__ == '__main__':
-        app.run(host='0.0.0.0', port=5000)
+        flask_app.run(host='0.0.0.0', port=5000)
