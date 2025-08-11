@@ -9,8 +9,9 @@ API = "https://public-api.birdeye.so"
 HEADERS = {"X-API-KEY": BIRDEYE_KEY, "accept":"application/json"}
 
 class BirdeyeScanner:
-    def __init__(self, publish):
-        self.publish = publish
+    def __init__(self, interval_sec=None, publish=None):
+        self.interval = max(5, int(interval_sec or SCAN_INTERVAL))
+        self.publish = publish or (lambda _t, _d: None)
         self.running = False
         self.seen = deque(maxlen=5000)      # recent mints memory
         self._seen_set = set()
@@ -20,7 +21,7 @@ class BirdeyeScanner:
     def _mark_seen(self, mint):
         if mint in self._seen_set: return False
         self.seen.append(mint); self._seen_set.add(mint)
-        if len(self._seen_set) > self.seen.maxlen:
+        if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
             # keep set bounded
             old = self.seen.popleft(); self._seen_set.discard(old)
         return True
@@ -31,8 +32,8 @@ class BirdeyeScanner:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._scan_loop, daemon=True)
         self._thread.start()
-        self.publish("scan.birdeye.start", {"interval": SCAN_INTERVAL})
-        logging.info("[SCAN] Birdeye scanner started (every %ss)", SCAN_INTERVAL)
+        self.publish("scan.birdeye.start", {"interval": self.interval})
+        logging.info("[SCAN] Birdeye scanner started (every %ss)", self.interval)
 
     def stop(self):
         if not self.running: return
@@ -45,7 +46,7 @@ class BirdeyeScanner:
     def status(self):
         return {
             "running": self.running,
-            "interval": SCAN_INTERVAL,
+            "interval": self.interval,
             "seen_cache": len(self._seen_set),
             "thread_alive": self._thread.is_alive() if self._thread else False,
         }
@@ -55,11 +56,11 @@ class BirdeyeScanner:
         while self.running and not self._stop_event.is_set():
             try:
                 self.tick()
-                self._stop_event.wait(SCAN_INTERVAL)
+                self._stop_event.wait(self.interval)
             except Exception as e:
                 logging.error("[SCAN] Background scan error: %s", e)
                 self.publish("scan.birdeye.error", {"err": f"background_scan: {e}"})
-                self._stop_event.wait(SCAN_INTERVAL)
+                self._stop_event.wait(self.interval)
 
     def tick(self):
         if not self.running: return
@@ -111,9 +112,19 @@ class BirdeyeScanner:
             logging.warning("[SCAN] Birdeye tick error: %s", e)
             self.publish("scan.birdeye.error", {"err": str(e)})
 
+    def run_forever(self):
+        """Run scanner forever in current thread (for manual threading)"""
+        while True:
+            try:
+                self.tick()
+                time.sleep(self.interval)
+            except Exception as e:
+                logging.error("[SCAN] Run forever error: %s", e)
+                time.sleep(self.interval)
+
 scanner_singleton = None
 def get_scanner(publish):
     global scanner_singleton
     if scanner_singleton is None:
-        scanner_singleton = BirdeyeScanner(publish)
+        scanner_singleton = BirdeyeScanner(interval_sec=SCAN_INTERVAL, publish=publish)
     return scanner_singleton
