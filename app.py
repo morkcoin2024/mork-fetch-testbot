@@ -663,7 +663,20 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             if interval:
                                 SCANNER.interval = max(5, interval)
                             SCANNER.start()
-                            response_text = f"✅ Birdeye scanner started (every {SCANNER.interval}s)"
+                            
+                            # Ensure all scanners are registered and start them
+                            _ensure_scanners()
+                            started_scanners = []
+                            for name, scanner in SCANNERS.items():
+                                try:
+                                    if hasattr(scanner, 'start') and hasattr(scanner, 'enabled') and scanner.enabled:
+                                        scanner.start()
+                                        started_scanners.append(name)
+                                except Exception as e:
+                                    app.logger.warning("[SCAN] %s start error: %s", name, e)
+                            
+                            scanner_list = ", ".join(started_scanners) if started_scanners else "birdeye only"
+                            response_text = f"✅ Scanners started: {scanner_list}\nBirdeye interval: {SCANNER.interval}s"
                         except Exception as e:
                             response_text = f"❌ scan_start failed: {e}"
 
