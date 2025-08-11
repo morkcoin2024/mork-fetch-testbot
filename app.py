@@ -888,6 +888,43 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             response_text = f"❌ Scan status failed: {e}"
 
                 elif text.strip().startswith("/scan_mode"):
+                    logger.info("[WEBHOOK] Routing /scan_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            mode = parts[1] if len(parts) > 1 else "strict"
+                            from birdeye import set_scan_mode, current_mode
+                            set_scan_mode(mode)
+                            response_text = f"✅ scan mode set → {current_mode()}"
+                        except Exception as e:
+                            response_text = f"❌ scan_mode failed: {e}"
+
+                elif text.strip().startswith("/scan_probe"):
+                    logger.info("[WEBHOOK] Routing /scan_probe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            parts = text.split()
+                            n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 5
+                            from birdeye import peek_last
+                            items = peek_last(n)
+                            if not items:
+                                response_text = "No cached items yet. Wait a few ticks after /scan_start."
+                            else:
+                                lines = ["🔎 Latest Birdeye items:"]
+                                for it in items[-n:]:
+                                    mint = it.get("mint") or "?"
+                                    sym  = it.get("symbol") or "?"
+                                    nm   = it.get("name") or "?"
+                                    lines.append(f"• {nm} ({sym}) — `{mint}`")
+                                response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"❌ scan_probe failed: {e}"
+
+                elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
                     mode = parts[1].lower() if len(parts) > 1 else ""
                     try:
