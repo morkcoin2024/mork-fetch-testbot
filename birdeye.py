@@ -163,56 +163,69 @@ class BirdeyeScanner:
         if not self.running:
             return
         if not BIRDEYE_KEY:
-            self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
+            self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
             return
 
         url = f"{API}/defi/tokenlist"
 
-        try:
-            # Use the *correct* sort field: createdTime
-            params = {
-                "chain": "solana",
-                "sort_by": "createdTime",   # <- FIXED
-                "sort_type": "desc",
-                "offset": 0,
-                "limit": 20,                # smaller page to ease rate limit
-            }
+        # Try minimal params first (most compatible), then fallbacks
+        param_variants = [
+            {"chain": "solana", "offset": 0, "limit": 20},                                 # 1) no sort_by at all
+            {"chain": "solana", "sort_type": "desc", "offset": 0, "limit": 20},            # 2) only sort_type
+            {"chain": "solana", "sort_by": "createdTime", "sort_type": "desc", "offset": 0, "limit": 20},  # 3) camel
+            {"chain": "solana", "sort_by": "created_at", "sort_type": "desc", "offset": 0, "limit": 20},   # 4) snake
+        ]
 
-            data = _birdeye_get(url, params, HEADERS, max_retries=_MAX_RETRIES)
+        last_err = None
+        data = None
 
-            # Normalize payload across variants
-            items = (
-                data.get("data", {}).get("tokens")
-                or data.get("data", [])
-                or data.get("tokens", [])
-                or []
-            )
+        for i, params in enumerate(param_variants, start=1):
+            try:
+                data = _birdeye_get(url, params, HEADERS, max_retries=_MAX_RETRIES)
+                break  # success
+            except httpx.HTTPStatusError as e:
+                sc = e.response.status_code
+                body = e.response.text[:200] if e.response is not None else ""
+                logging.warning(
+                    "[SCAN] Birdeye status=%s (try %d/%d) url=%s params=%s body=%s",
+                    sc, i, len(param_variants), str(getattr(e.request, "url", url)), params, body
+                )
+                last_err = f"HTTP {sc}"
+                # 429 handling happens inside _birdeye_get, so we just move on to next variant for 400s, etc.
+                continue
+            except Exception as e:
+                logging.warning("[SCAN] Birdeye tick error (try %d/%d): %s", i, len(param_variants), e)
+                last_err = str(e)
+                continue
 
-            new_tokens = []
-            for it in items:
-                mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
-                if not mint:
-                    continue
-                if self._mark_seen(mint):
-                    new_tokens.append({
-                        "mint": mint,
-                        "symbol": it.get("symbol") or "?",
-                        "name": it.get("name") or "?",
-                        "price": it.get("priceUsd") or it.get("price") or None,
-                    })
+        if data is None:
+            # All variants failed
+            self.publish("scan.birdeye.error", {"err": last_err or "unknown"})
+            return
 
-            if new_tokens:
-                self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+        items = (
+            data.get("data", {}).get("tokens")
+            or data.get("data", [])
+            or data.get("tokens", [])
+            or []
+        )
 
-            logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+        new_tokens = []
+        for it in items:
+            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+            if not mint:
+                continue
+            if self._mark_seen(mint):
+                new_tokens.append({
+                    "mint": mint,
+                    "symbol": it.get("symbol") or "?",
+                    "name": it.get("name") or "?",
+                    "price": it.get("priceUsd") or it.get("price") or None,
+                })
 
-        except httpx.HTTPStatusError as e:
-            logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
-                            e.response.status_code, str(getattr(e.request, "url", url)), e.response.text[:200])
-            self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
-        except Exception as e:
-            logging.warning("[SCAN] Birdeye tick error: %s", e)
-            self.publish("scan.birdeye.error", {"err": str(e)})
+        if new_tokens:
+            self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+        logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
 
     def run_forever(self):
         """Run scanner forever in current thread (for manual threading)"""
