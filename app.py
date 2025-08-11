@@ -139,23 +139,25 @@ except Exception as e:
 def _scanner_thread():
     while True:
         try:
-            # Birdeye scanner
+            # Birdeye scanner with error handling
             if SCANNER:
-                SCANNER.tick()
+                try:
+                    total, new = SCANNER.tick()
+                except Exception as e:
+                    total, new = 0, 0
+                    app.logger.warning("[SCAN] Birdeye tick error: %s", e)
             
-            # Jupiter scanner - runs independently (check both global and registry)
-            jupiter_scanner = JUPITER_SCANNER or SCANNERS.get("jupiter")
-            if jupiter_scanner and jupiter_scanner.running:
-                total, new = jupiter_scanner.tick()
-                if total > 0:
-                    logger.info(f"[SCAN] Jupiter tick ok: {total} items, {new} new")
-            
-            # Solscan scanner - only if enabled (API key provided)
-            solscan_scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
-            if solscan_scanner and solscan_scanner.running:
-                total, new = solscan_scanner.tick()
-                if total > 0:
-                    logger.info(f"[SCAN] Solscan tick ok: {total} items, {new} new")
+            # Run all other scanners in SCANNERS registry
+            for name, scanner in SCANNERS.items():
+                if scanner and hasattr(scanner, 'tick') and hasattr(scanner, 'running') and scanner.running:
+                    try:
+                        t, n = scanner.tick()
+                        if t > 0:
+                            logger.info(f"[SCAN] {name} tick ok: {t} items, {n} new")
+                        # Small jitter between sources to be courteous to APIs
+                        time.sleep(0.15)
+                    except Exception as e:
+                        app.logger.warning("[SCAN] %s tick error: %s", name, e)
             
             time.sleep(SCAN_INTERVAL)
         except Exception as e:
