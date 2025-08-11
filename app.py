@@ -12,12 +12,17 @@ from eventbus import publish, BUS
 import json
 import time
 import queue
-# Import bot conditionally to handle missing token gracefully
-try:
-    from bot import mork_bot
-except Exception as e:
-    print(f"Bot initialization failed: {e}")
+# Import bot conditionally - disable if POLLING_MODE is set
+POLLING_MODE = os.environ.get('POLLING_MODE', 'OFF').upper()
+if POLLING_MODE == 'ON':
+    print("POLLING_MODE enabled - skipping mork_bot initialization")
     mork_bot = None
+else:
+    try:
+        from bot import mork_bot
+    except Exception as e:
+        print(f"Bot initialization failed: {e}")
+        mork_bot = None
 
 # Configure logging
 logging.basicConfig(
