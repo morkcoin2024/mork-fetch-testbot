@@ -1,0 +1,92 @@
+python3 - <<'PY'
+import os, ssl, time
+from websocket import create_connection, WebSocketBadStatusException
+
+KEY = os.getenv("BIRDEYE_WS_KEY") or "REPLACE_ME"
+if KEY == "REPLACE_ME":
+    print("ERROR: BIRDEYE_WS_KEY not set in env")
+    raise SystemExit(1)
+
+# Candidate endpoints (seen in Birdeye docs/SDKs/production usage)
+ENDPOINTS = [
+    # generic socket
+    "wss://public-api.birdeye.so/socket",
+    # chain-scoped variants
+    "wss://public-api.birdeye.so/socket/solana",
+    "wss://public-api.birdeye.so/ws",            # sometimes /ws is used
+]
+
+# Header sets to try (Cloudflare can be picky)
+COMMON = {
+    "User-Agent": "Mozilla/5.0 (compatible; MorkFetchBot/1.0)",
+    "Origin": "https://birdeye.so",  # often required
+}
+
+HEADER_SETS = [
+    # 1) X-API-KEY only
+    {**COMMON, "X-API-KEY": KEY},
+
+    # 2) Authorization: Bearer
+    {**COMMON, "Authorization": f"Bearer {KEY}"},
+
+    # 3) Both X-API-KEY and Authorization
+    {**COMMON, "X-API-KEY": KEY, "Authorization": f"Bearer {KEY}"},
+
+    # 4) Sec-WebSocket-Protocol with the key (some gateways expect subprotocol)
+    #    websocket-client lets us pass this via 'subprotocols'
+    # (we'll apply this via subprotocols param below)
+]
+
+def try_connect(url, headers=None, subprotocols=None):
+    print(f"\n=== TRY ===")
+    print(f"URL: {url}")
+    print(f"HEADERS: {headers or {}}")
+    print(f"SUBPROTOCOLS: {subprotocols or []}")
+    try:
+        ws = create_connection(
+            url,
+            header=[f"{k}: {v}" for k,v in (headers or {}).items()],
+            subprotocols=subprotocols,
+            sslopt={"cert_reqs": ssl.CERT_REQUIRED},
+            timeout=8,
+        )
+        # If connected, try a no-op ping and close
+        try:
+            ws.ping()
+            time.sleep(0.2)
+        except Exception as e:
+            print("WARN: ping failed:", e)
+        ws.close()
+        print("RESULT: PASS (handshake OK)")
+    except WebSocketBadStatusException as e:
+        # e.status_code and e.response.headers often include Cloudflare detail
+        print(f"RESULT: FAIL (HTTP {getattr(e,'status_code', '??')}) {getattr(e,'message','')}")
+        try:
+            hdrs = getattr(e, 'response', None).headers
+            if hdrs:
+                print("RESP HEADERS:", dict(hdrs))
+        except Exception:
+            pass
+    except Exception as e:
+        print("RESULT: ERROR:", repr(e))
+
+def run():
+    # Variants 1–3 (no subprotocol)
+    for url in ENDPOINTS:
+        for hs in HEADER_SETS[:3]:
+            try_connect(url, headers=hs)
+
+    # Variant 4: subprotocol attempts with/without headers
+    for url in ENDPOINTS:
+        # common subprotocol patterns
+        for subs in [
+            [KEY],                         # key as protocol
+            ["birdeye.auth.v1", KEY],      # named + key
+            ["birdeye", KEY],              # generic + key
+        ]:
+            try_connect(url, headers=COMMON, subprotocols=subs)
+
+if __name__ == "__main__":
+    print("BIRDEYE_WS_KEY set:", bool(KEY))
+    run()
+PY
