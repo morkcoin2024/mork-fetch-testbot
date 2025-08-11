@@ -1,6 +1,7 @@
 # birdeye.py
 import os, time, logging, httpx, threading, random
 from collections import deque
+from birdeye_ws import is_ws_connected
 
 # --- config/env ---
 BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
@@ -214,7 +215,11 @@ class BirdeyeScanner:
                 self._stop_event.wait(self.interval)
 
     def tick(self):
-        if not self.running: return
+        if not self.running:
+            return
+        if is_ws_connected():
+            logging.info("[SCAN] Skipping HTTP tick (WS connected)")
+            return
         if not BIRDEYE_KEY:
             self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
             return
