@@ -182,6 +182,15 @@ class BirdeyeScanner:
                     pass
                 self._stop_event.wait(self.interval)
 
+    def _get_tokenlist(self, limit=20, offset=0):
+        """
+        Birdeye clean endpoint: NO sort_by. Keep this the single source of truth
+        for the tokenlist call so legacy paths can't reintroduce params.
+        """
+        url = f"{API}/defi/tokenlist"
+        params = {"chain": "solana", "offset": int(offset or 0), "limit": int(limit or 20)}
+        return httpx.get(url, headers=HEADERS, params=params, timeout=12)
+
     def tick(self):
         if not self.running:
             return
