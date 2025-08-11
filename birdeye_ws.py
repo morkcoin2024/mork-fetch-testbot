@@ -1,105 +1,151 @@
 # --- BEGIN FILE: birdeye_ws.py ---
-import os, json, time, threading, logging, re
-from collections import deque
-from typing import Any, Dict
+import os, logging
+FEATURE_WS = os.getenv("FEATURE_WS", "off").lower()
 
-# Global WebSocket connection status
-WS_CONNECTED = False
-WS_TAP_ENABLED = False
+class DisabledWS:
+    running = False
+    connected = False
+    thread_alive = False
+    subs = set()
+    def start(self, *a, **kw):
+        logging.info("[WS] Disabled by FEATURE_WS=%s; not starting", FEATURE_WS)
+    def stop(self, *a, **kw):
+        logging.info("[WS] Disabled; stop noop")
+    def status(self):
+        return {
+            "running": False, "connected": False, "threadalive": False,
+            "mode": "disabled", "messagesreceived": 0, "newtokens": 0, "cachesize": 0
+        }
+    def subscribe(self, *a, **kw):
+        logging.info("[WS] Disabled; subscribe noop")
 
-def is_ws_connected():
-    """Check if WebSocket is currently connected to Birdeye feed"""
-    return WS_CONNECTED
-
-def set_ws_tap(enabled: bool):
-    """Enable or disable WebSocket message tapping for debug"""
-    global WS_TAP_ENABLED
-    WS_TAP_ENABLED = enabled
-    logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
-
-try:
-    import websocket  # from websocket-client
-except Exception as e:
-    websocket = None
-    logging.warning("[WS] websocket-client not available: %s", e)
-
-BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
-BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "")  # e.g. wss://ws.birdeye.so/socket (your Business plan URL)
-
-# Auto-configure public API URL if no custom URL provided but API key exists
-if not BIRDEYE_WS_URL and BIRDEYE_KEY:
-    BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
-SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
-
-# share mode + filter helpers with HTTP scanner if present
-SCAN_MODE = "strict"     # "strict" | "all"
-SEEN_MINTS = set()
-
-def set_ws_mode(mode: str):
-    global SCAN_MODE
-    SCAN_MODE = "all" if str(mode).lower() == "all" else "strict"
-    logging.info("[WS] mode set -> %s", SCAN_MODE)
-    try:
-        from eventbus import publish
-        publish("scan.ws.mode", {"mode": SCAN_MODE})
-    except Exception:
-        pass
-
-def _passes_filters(tok: dict) -> bool:
-    if SCAN_MODE == "all":
-        return True
-    # keep/extend your strict rules here as needed
-    return True
-
-def _extract_token(obj):
-    """Try to extract a token-like payload (mint/address + meta) from any WS message."""
-    if not isinstance(obj, dict):
-        return None
-    # Common field names we might see
-    mint = obj.get("mint") or obj.get("address") or obj.get("tokenAddress")
-    if not mint:
-        # search nested dicts
-        for k, v in obj.items():
-            if isinstance(v, dict):
-                r = _extract_token(v)
-                if r: return r
-        return None
-    return {
-        "mint": mint,
-        "symbol": obj.get("symbol") or obj.get("ticker") or "?",
-        "name": obj.get("name") or "?",
-        "price": obj.get("price") or obj.get("priceUsd"),
-    }
-
-LINK_BE = "https://birdeye.so/token/{mint}?chain=solana"
-LINK_PF = "https://pump.fun/{mint}"
-
-class BirdeyeWS:
-    def __init__(self, publish=None, notify=None):
-        self.publish = publish or (lambda _t,_d: None)
-        self.notify  = notify  or (lambda _m: None)
-        self._ws   = None
-        self._th   = None
-        self._stop = threading.Event()
-        self.running = False
-        self.recv_count = 0
-        self.new_count  = 0
-        self.seen = deque(maxlen=8000)
-        self._seen_set = set()
+if FEATURE_WS != "on":
+    # Export a no-op singleton so imports don't break
+    ws_singleton = DisabledWS()
+    
+    # Global WebSocket connection status (disabled)
+    WS_CONNECTED = False
+    WS_TAP_ENABLED = False
+    
+    def is_ws_connected():
+        """Check if WebSocket is currently connected to Birdeye feed"""
+        return False
+    
+    def set_ws_tap(enabled: bool):
+        """Enable or disable WebSocket message tapping for debug"""
+        logging.info("[WS] Disabled; tap control noop")
         
-        # --- Enhanced Debug Support ---
-        self.ws_debug = False                 # on/off toggle
-        self._debug_cache = deque(maxlen=30)  # keep last 30 raw msgs for /ws_dump
-        self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
+    def get_ws(*args, **kwargs):
+        """Return disabled WebSocket singleton"""
+        return ws_singleton
+        
+    def get_ws_scanner(*args, **kwargs):
+        """Return disabled WebSocket scanner"""
+        return ws_singleton
+        
+else:
+    # existing implementation (unchanged)
+    import json, time, threading, re
+    from collections import deque
+    from typing import Any, Dict
 
-    def _mark_seen(self, mint):
-        if mint in self._seen_set: return False
-        self.seen.append(mint); self._seen_set.add(mint)
-        if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
-            old = self.seen.popleft(); self._seen_set.discard(old)
+    # Global WebSocket connection status
+    WS_CONNECTED = False
+    WS_TAP_ENABLED = False
+
+    def is_ws_connected():
+        """Check if WebSocket is currently connected to Birdeye feed"""
+        return WS_CONNECTED
+
+    def set_ws_tap(enabled: bool):
+        """Enable or disable WebSocket message tapping for debug"""
+        global WS_TAP_ENABLED
+        WS_TAP_ENABLED = enabled
+        logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
+
+    try:
+        import websocket  # from websocket-client
+    except Exception as e:
+        websocket = None
+        logging.warning("[WS] websocket-client not available: %s", e)
+
+    BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
+    BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "")  # e.g. wss://ws.birdeye.so/socket (your Business plan URL)
+
+    # Auto-configure public API URL if no custom URL provided but API key exists
+    if not BIRDEYE_WS_URL and BIRDEYE_KEY:
+        BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
+    SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
+
+    # share mode + filter helpers with HTTP scanner if present
+    SCAN_MODE = "strict"     # "strict" | "all"
+    SEEN_MINTS = set()
+
+    def set_ws_mode(mode: str):
+        global SCAN_MODE
+        SCAN_MODE = "all" if str(mode).lower() == "all" else "strict"
+        logging.info("[WS] mode set -> %s", SCAN_MODE)
+        try:
+            from eventbus import publish
+            publish("scan.ws.mode", {"mode": SCAN_MODE})
+        except Exception:
+            pass
+
+    def _passes_filters(tok: dict) -> bool:
+        if SCAN_MODE == "all":
+            return True
+        # keep/extend your strict rules here as needed
         return True
 
-    def start(self):
+    def _extract_token(obj):
+        """Try to extract a token-like payload (mint/address + meta) from any WS message."""
+        if not isinstance(obj, dict):
+            return None
+        # Common field names we might see
+        mint = obj.get("mint") or obj.get("address") or obj.get("tokenAddress")
+        if not mint:
+            # search nested dicts
+            for k, v in obj.items():
+                if isinstance(v, dict):
+                    r = _extract_token(v)
+                    if r: return r
+            return None
+        return {
+            "mint": mint,
+            "symbol": obj.get("symbol") or obj.get("ticker") or "?",
+            "name": obj.get("name") or "?",
+            "price": obj.get("price") or obj.get("priceUsd"),
+        }
+
+    LINK_BE = "https://birdeye.so/token/{mint}?chain=solana"
+    LINK_PF = "https://pump.fun/{mint}"
+
+    class BirdeyeWS:
+        def __init__(self, publish=None, notify=None):
+            self.publish = publish or (lambda _t,_d: None)
+            self.notify  = notify  or (lambda _m: None)
+            self._ws   = None
+            self._th   = None
+            self._stop = threading.Event()
+            self.running = False
+            self.recv_count = 0
+            self.new_count  = 0
+            self.seen = deque(maxlen=8000)
+            self._seen_set = set()
+            
+            # --- Enhanced Debug Support ---
+            self.ws_debug = False                 # on/off toggle
+            self._debug_cache = deque(maxlen=30)  # keep last 30 raw msgs for /ws_dump
+            self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
+
+        def _mark_seen(self, mint):
+            if mint in self._seen_set: return False
+            self.seen.append(mint); self._seen_set.add(mint)
+            if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
+                old = self.seen.popleft(); self._seen_set.discard(old)
+            return True
+
+        def start(self):
         if self.running: return
         if not websocket:
             logging.error("[WS] websocket-client lib missing")
