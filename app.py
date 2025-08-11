@@ -1075,10 +1075,10 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
 
                     response_text = f"✅ Birdeye scanner started (every {scanner.interval}s)"
 
-                elif text.strip().startswith("/scan_stop"):
+                elif text.startswith("/scan_stop"):
                     scanner = get_scanner(publish)
                     scanner.stop()
-                    response_text = "🛑 Birdeye scan stopped."
+                    response_text = "🔴 Birdeye scanner stopped."
 
                 elif text.strip().startswith("/scan_status") or text.strip().startswith("/a_scan_status"):
                     logger.info("[WEBHOOK] Routing /scan_status")
