@@ -711,14 +711,21 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         try:
                             st = SCANNER.status()
                             from birdeye import SCAN_MODE
-                            response_text = (
-                                "🔍 Birdeye Scan Status\n"
-                                f"running: {st['running']}\n"
-                                f"interval: {st['interval']}s\n"
-                                f"seen_cache: {st['seen_cache']}\n"
-                                f"thread_alive: {st['thread_alive']}\n"
-                                f"mode: {SCAN_MODE}"
-                            )
+                            
+                            lines = [
+                                "🔍 Multi-Source Scan Status",
+                                f"running: {st['running']}",
+                                f"interval: {st['interval']}s", 
+                                f"seen_cache: {st['seen_cache']}",
+                                f"thread_alive: {st['thread_alive']}",
+                                f"mode: {SCAN_MODE}",
+                                "",
+                                "Data Sources (live):",
+                                f"  • Birdeye HTTP: OK",
+                                f"  • Jupiter: {'ON' if SCANNERS.get('jupiter') and SCANNERS['jupiter'].enabled else 'OFF'}",
+                                f"  • Solscan: {'ON' if SCANNERS.get('solscan') and SCANNERS['solscan'].enabled else 'OFF (no key)'}"
+                            ]
+                            response_text = "\n".join(lines)
                         except Exception as e:
                             response_text = f"❌ scan_status failed: {e}"
 

@@ -16,8 +16,9 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
 - **Solscan Pro Scanner**: Enhanced implementation using Pro API v2.0, dormant until both FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
-- **Admin Commands**: Complete set for all scanners (/jupiter_start, /jupiter_stop, /jupiter_status, /solscan_start, /solscan_stop, /solscan_status)
-- **Unified Architecture**: All scanners integrated with existing de-dupe cache, notification system, and Telegram admin interface
+- **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management of all scanner instances with _ensure_scanners() auto-registration
+- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources)
+- **Fault-Tolerant Scanning Loop**: Multi-source scanning with individual error handling, API courtesy delays, and graceful failure recovery
 
 Key technical implementations include:
 - **AI Assistant**: A comprehensive AI assistant system with Flask webhook integration and dynamic model management, supporting multiple AI models (GPT-4o, Claude-3.5-Sonnet, GPT-5-Thinking) with intelligent fallback and persistent model storage.
