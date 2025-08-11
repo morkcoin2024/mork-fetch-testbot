@@ -115,22 +115,38 @@ class BirdeyeScanner:
                 self._stop_event.wait(self.interval)
 
     def tick(self):
-        if not self.running: return
-        if not BIRDEYE_KEY:
-            self.publish("scan.birdeye.error", {"err":"missing BIRDEYE_API_KEY"})
+        if not self.running:
             return
+        if not BIRDEYE_KEY:
+            self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
+            return
+
+        url = f"{API}/defi/tokenlist"
+
+        def _fetch(params):
+            r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
+            r.raise_for_status()
+            return r.json() or {}
+
         try:
-            # Use the correct free plan endpoint: /defi/tokenlist
-            url = f"{API}/defi/tokenlist"
+            # Primary attempt (Birdeye expects createdAt; include chain=solana)
             params = {
-                "sort_by": "createdTime",
+                "chain": "solana",
+                "sort_by": "createdAt",
                 "sort_type": "desc",
                 "offset": 0,
                 "limit": 50,
             }
-            r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-            r.raise_for_status()
-            data = r.json() or {}
+            try:
+                data = _fetch(params)
+            except httpx.HTTPStatusError as e:
+                # Fallback if Birdeye tweaks the field name again
+                if e.response.status_code == 400 and "sort_by" in e.response.text:
+                    logging.warning("[SCAN] Birdeye 400 on sort_by=%s, retrying with created_at", params["sort_by"])
+                    params["sort_by"] = "created_at"
+                    data = _fetch(params)
+                else:
+                    raise
 
             # Normalize payload across variants
             items = (
@@ -155,10 +171,13 @@ class BirdeyeScanner:
 
             if new_tokens:
                 self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+            logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
 
         except httpx.HTTPStatusError as e:
-            logging.warning("[SCAN] Birdeye status=%s url=%s body=%s",
-                            e.response.status_code, str(e.request.url), e.response.text[:200])
+            logging.warning(
+                "[SCAN] Birdeye status=%s url=%s body=%s",
+                e.response.status_code, str(e.request.url), e.response.text[:200]
+            )
             self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
         except Exception as e:
             logging.warning("[SCAN] Birdeye tick error: %s", e)
