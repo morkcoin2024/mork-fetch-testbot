@@ -35,10 +35,12 @@ logger = logging.getLogger(__name__)
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
 from birdeye_ws import get_ws
 from dexscreener_scanner import get_ds_client
+from jupiter_scan import JupiterScan
+from solscan_scanner import SolscanScanner
 
 # Initialize components after admin functions are defined
 def _init_scanners():
-    global SCANNER, ws_client, DS_SCANNER
+    global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
     
     # Only initialize WebSocket if enabled
@@ -51,6 +53,8 @@ def _init_scanners():
         logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
     
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
+    JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
+    SOLSCAN_SCANNER = SolscanScanner(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=10)  # Solscan scanner (dormant)
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
@@ -75,10 +79,38 @@ def send_admin_md(text: str):
         return False
 # --- END PATCH ---
 
+# Token notification handler for multi-source integration
+def _notify_tokens(items: list, title: str = "New tokens"):
+    """Universal token notification handler for all scanners"""
+    if not items:
+        return
+    
+    lines = [f"🟢 {title}:"]
+    for item in items[:5]:  # Limit to 5 tokens per notification
+        mint = item.get("mint", "?")
+        symbol = item.get("symbol", "?") 
+        name = item.get("name", "?")
+        source = item.get("source", "unknown")
+        
+        lines.append(f"• {symbol} | {name} | {mint}")
+        lines.append(f"  Birdeye: https://birdeye.so/token/{mint}?chain=solana")
+        lines.append(f"  Pump.fun: https://pump.fun/{mint}")
+        if source == "jupiter":
+            lines.append(f"  Jupiter: Listed token")
+    
+    try:
+        message_text = "\n".join(lines)
+        send_admin_md(message_text)
+        logger.info(f"[NOTIFY] Sent {title}: {len(items)} tokens")
+    except Exception as e:
+        logger.warning(f"Failed to send {title} notification: %s", e)
+
 # Initialize global scanner variables
 SCANNER = None
 ws_client = None
 DS_SCANNER = None
+JUPITER_SCANNER = None
+SOLSCAN_SCANNER = None
 
 # Initialize scanners after admin functions are defined
 try:
@@ -90,8 +122,22 @@ except Exception as e:
 def _scanner_thread():
     while True:
         try:
+            # Birdeye scanner
             if SCANNER:
                 SCANNER.tick()
+            
+            # Jupiter scanner - runs independently
+            if JUPITER_SCANNER and JUPITER_SCANNER.running:
+                total, new = JUPITER_SCANNER.tick()
+                if total > 0:
+                    logger.info(f"[SCAN] Jupiter tick ok: {total} items, {new} new")
+            
+            # Solscan scanner - only if enabled (API key provided)
+            if SOLSCAN_SCANNER and SOLSCAN_SCANNER.running:
+                total, new = SOLSCAN_SCANNER.tick()
+                if total > 0:
+                    logger.info(f"[SCAN] Solscan tick ok: {total} items, {new} new")
+            
             time.sleep(SCAN_INTERVAL)
         except Exception as e:
             logger.warning("[SCAN] loop error: %s", e)
@@ -101,6 +147,18 @@ def _scanner_thread():
 if SCANNER:
     t = threading.Thread(target=_scanner_thread, daemon=True)
     t.start()
+
+# Auto-start Jupiter scanner if enabled
+if JUPITER_SCANNER and JUPITER_SCANNER.enabled:
+    JUPITER_SCANNER.start()
+    logger.info("Jupiter scanner auto-started on boot")
+
+# Auto-start Solscan scanner if enabled (has API key)
+if SOLSCAN_SCANNER and SOLSCAN_SCANNER.enabled:
+    SOLSCAN_SCANNER.start()
+    logger.info("Solscan scanner auto-started on boot")
+else:
+    logger.info("Solscan scanner dormant (no SOLSCAN_API_KEY)")
 
 # subscribe to publish Birdeye hits to Telegram
 def _on_new(evt):
@@ -1340,6 +1398,112 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         except Exception as e:
                             response_text = f"❌ Debug probe error: {e}"
 
+                # Jupiter Scanner Commands
+                elif text.strip().startswith("/jupiter_start"):
+                    logger.info("[WEBHOOK] Routing /jupiter_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if JUPITER_SCANNER:
+                                JUPITER_SCANNER.start()
+                                response_text = "🪐 Jupiter scanner started successfully"
+                            else:
+                                response_text = "❌ Jupiter scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Jupiter start failed: {e}"
+
+                elif text.strip().startswith("/jupiter_stop"):
+                    logger.info("[WEBHOOK] Routing /jupiter_stop") 
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if JUPITER_SCANNER:
+                                JUPITER_SCANNER.stop()
+                                response_text = "🪐 Jupiter scanner stopped"
+                            else:
+                                response_text = "❌ Jupiter scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Jupiter stop failed: {e}"
+
+                elif text.strip().startswith("/jupiter_status"):
+                    logger.info("[WEBHOOK] Routing /jupiter_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if JUPITER_SCANNER:
+                                status = "🟢 Running" if JUPITER_SCANNER.running else "🔴 Stopped"
+                                enabled = "✅ Enabled" if JUPITER_SCANNER.enabled else "❌ Disabled"
+                                cache_size = len(JUPITER_SCANNER.seen)
+                                response_text = f"""🪐 **Jupiter Scanner Status**
+Status: {status}
+Feature: {enabled}
+Cache: {cache_size} seen tokens
+Interval: {JUPITER_SCANNER.interval}s
+URL: https://token.jup.ag/all?includeCommunity=true"""
+                            else:
+                                response_text = "❌ Jupiter scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Jupiter status failed: {e}"
+
+                # Solscan Scanner Commands
+                elif text.strip().startswith("/solscan_start"):
+                    logger.info("[WEBHOOK] Routing /solscan_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if SOLSCAN_SCANNER:
+                                if SOLSCAN_SCANNER.enabled:
+                                    SOLSCAN_SCANNER.start()
+                                    response_text = "🔍 Solscan scanner started successfully"
+                                else:
+                                    response_text = "❌ Solscan disabled (no SOLSCAN_API_KEY)\nProvide API key to enable"
+                            else:
+                                response_text = "❌ Solscan scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Solscan start failed: {e}"
+
+                elif text.strip().startswith("/solscan_stop"):
+                    logger.info("[WEBHOOK] Routing /solscan_stop")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if SOLSCAN_SCANNER:
+                                SOLSCAN_SCANNER.stop()
+                                response_text = "🔍 Solscan scanner stopped"
+                            else:
+                                response_text = "❌ Solscan scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Solscan stop failed: {e}"
+
+                elif text.strip().startswith("/solscan_status"):
+                    logger.info("[WEBHOOK] Routing /solscan_status")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            if SOLSCAN_SCANNER:
+                                status = "🟢 Running" if SOLSCAN_SCANNER.running else "🔴 Stopped"
+                                enabled = "✅ Enabled" if SOLSCAN_SCANNER.enabled else "❌ Disabled (no API key)"
+                                cache_size = len(SOLSCAN_SCANNER.seen)
+                                api_key_status = "✅ Provided" if SOLSCAN_SCANNER.api_key else "❌ Missing"
+                                response_text = f"""🔍 **Solscan Scanner Status**
+Status: {status}
+Feature: {enabled}
+API Key: {api_key_status}
+Cache: {cache_size} seen tokens
+Interval: {SOLSCAN_SCANNER.interval}s
+
+Note: Requires SOLSCAN_API_KEY environment variable"""
+                            else:
+                                response_text = "❌ Solscan scanner not initialized"
+                        except Exception as e:
+                            response_text = f"❌ Solscan status failed: {e}"
+
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
                     mode = parts[1].lower() if len(parts) > 1 else ""
@@ -1394,6 +1558,12 @@ Advanced WebSocket Debug:
 
 DexScreener Scanner:
 /ds_start [seconds], /ds_stop, /ds_status - Pair scanner controls
+
+Multi-Source Token Discovery:
+/jupiter_start, /jupiter_stop - Jupiter scanner controls
+/jupiter_status - Jupiter scanner status and metrics
+/solscan_start, /solscan_stop - Solscan scanner controls (requires API key)
+/solscan_status - Solscan scanner status
 
 AI Assistant:
 /assistant_model [model] - Get/set assistant AI model

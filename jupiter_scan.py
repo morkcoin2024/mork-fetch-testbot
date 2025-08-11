@@ -1,0 +1,84 @@
+# jupiter_scan.py
+import os, time, random, logging
+from typing import List, Dict
+import httpx
+
+log = logging.getLogger(__name__)
+
+JUP_ALL_URL = "https://token.jup.ag/all?includeCommunity=true"
+
+class JupiterScan:
+    """
+    Keyless scanner. We treat a token as 'new' if its mint hasn't been seen
+    by THIS process yet. We don't rely on timestamps since the endpoint
+    doesn't publish one.
+    """
+    def __init__(self, notify_fn, cache_limit:int=8000, interval_sec:int=8):
+        self.notify = notify_fn                # callable(list[dict]) -> None
+        self.interval = int(os.getenv("SCAN_INTERVAL_SEC", str(interval_sec)))
+        self.session = httpx.Client(timeout=15)
+        self.enabled = os.getenv("FEATURE_JUPITER", "on").lower() == "on"
+        self.seen: set[str] = set()
+        self.cache_limit = cache_limit
+        self.running = False
+
+    def _maybe_trim_cache(self):
+        # simple soft trim to avoid unbounded growth
+        if len(self.seen) > self.cache_limit:
+            # drop ~25% oldest by random sampling (cheap & good enough)
+            drop = max(1000, self.cache_limit // 4)
+            for _ in range(drop):
+                self.seen.pop()
+
+    def _fetch_all(self) -> List[Dict]:
+        r = self.session.get(JUP_ALL_URL, headers={"User-Agent": "mork-fetch/1.0"})
+        r.raise_for_status()
+        data = r.json()
+        # Response is a list of token dicts. We'll normalize to {mint, name, symbol, decimals}
+        out = []
+        for t in data:
+            mint = t.get("address") or t.get("mint")  # jup uses 'address'
+            if not mint: 
+                continue
+            out.append({
+                "mint": mint,
+                "name": t.get("name") or "",
+                "symbol": t.get("symbol") or "",
+                "decimals": t.get("decimals", 0),
+                "source": "jupiter",
+            })
+        return out
+
+    def tick(self):
+        if not self.enabled:
+            return 0, 0
+        try:
+            all_tokens = self._fetch_all()
+        except Exception as e:
+            log.warning("[SCAN] Jupiter fetch error: %s", e)
+            return 0, 0
+
+        new_items = []
+        for t in all_tokens[:2000]:  # safety cap
+            mint = t["mint"]
+            if mint not in self.seen:
+                self.seen.add(mint)
+                new_items.append(t)
+
+        # heuristic: only announce the first handful per tick to avoid firehose
+        announced = new_items[:10]
+        if announced:
+            self.notify(announced, title="New tokens (Jupiter)")
+
+        self._maybe_trim_cache()
+        return len(all_tokens), len(new_items)
+
+    def start(self):
+        self.running = True
+        log.info("[SCAN] Jupiter scanner started (every %ss)", self.interval)
+
+    def stop(self):
+        self.running = False
+        try: self.session.close()
+        except: pass
+        log.info("[SCAN] Jupiter scanner stopped")
