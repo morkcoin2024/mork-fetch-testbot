@@ -1662,8 +1662,8 @@ def trigger_fetch():
 # Auto-start services when Flask app boots up (modern Flask approach)
 def start_services():
     """Auto-start both HTTP and WebSocket scanners on app boot"""
+    # Start HTTP scanner (ensure it's running)
     try:
-        # Start HTTP scanner (ensure it's running)
         from birdeye import get_scanner
         scanner = get_scanner(publish)
         if not scanner.running:
@@ -1673,6 +1673,14 @@ def start_services():
             logger.info("Birdeye scanner already running")
     except Exception as e:
         logger.warning("HTTP scanner start failed (ok to continue): %s", e)
+    
+    # Auto-start enhanced WebSocket with Launchpad support
+    try:
+        from birdeye_ws import get_ws
+        get_ws(publish=publish, notify=lambda m: None).start()
+        logger.info("[WS] Birdeye WS auto-started on boot")
+    except Exception as e:
+        logger.warning("[WS] auto-start failed: %s", e)
 
     # Start Birdeye WebSocket client
     try:
