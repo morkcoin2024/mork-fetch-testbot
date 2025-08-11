@@ -239,4 +239,17 @@ def get_ws_scanner(publish, notify):
     if _ws_singleton is None:
         _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
     return _ws_singleton
+
+# Direct singleton instance for simple imports (compatibility)
+ws_client = None
+
+def get_ws_client():
+    global ws_client
+    if ws_client is None:
+        from eventbus import publish
+        ws_client = BirdeyeWS(publish=publish, notify=lambda msg: logging.info("[WS] %s", msg))
+    return ws_client
+
+# Make ws_client available immediately
+ws_client = get_ws_client()
 # --- END FILE: birdeye_ws.py ---

@@ -1444,15 +1444,31 @@ def trigger_fetch():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# --- BEGIN PATCH: optional auto-start on boot (place near `if __name__ == '__main__':` block) ---
-# Auto-start Birdeye scanner when app boots (optional; comment out if you prefer manual control)
-try:
-    if SCANNER and not SCANNER.running:
-        SCANNER.start()
-        logger.info("Birdeye scanner auto-started on boot")
-except Exception as _e:
-    logger.warning("Birdeye auto-start skipped: %s", _e)
-# --- END PATCH ---
+# Auto-start services when Flask app boots up (modern Flask approach)
+def start_services():
+    """Auto-start both HTTP and WebSocket scanners on app boot"""
+    try:
+        # HTTP scanner already started via background thread above
+        logger.info("HTTP scanner already started via background thread")
+        
+        # Start WebSocket scanner
+        from birdeye_ws import ws_client
+        ws_client.start()
+        logger.info("Birdeye WS scanner auto-started on boot")
+        
+        # Publish startup event
+        publish("app.services.started", {
+            "http_scanner": True,
+            "ws_scanner": True,
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        logger.error("Failed to auto-start services: %s", e)
+
+# Auto-start services immediately after app creation
+with app.app_context():
+    start_services()
 
 if __name__ == '__main__':
     # Start bot polling in development
