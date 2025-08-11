@@ -1641,30 +1641,57 @@ def start_services():
     except Exception as e:
         logger.warning("DexScreener scanner start failed: %s", e)
 
-    # Background forwarder: push WS alerts to admin chat
-    def _forward_ws():
+    # Background forwarder: push scanner alerts to admin chat
+    def _forward_scanner_alerts():
         q = BUS.subscribe()
         while True:
             try:
                 evt = q.get(timeout=30)
                 if not isinstance(evt, dict):
                     continue
-                if evt.get("type") == "scan.birdeye.ws":
-                    data = evt.get("data", {})
+                    
+                event_type = evt.get("type", "")
+                data = evt.get("data", {})
+                
+                # Handle Birdeye WebSocket alerts
+                if event_type == "scan.birdeye.ws":
                     msg = data.get("alert")
                     if msg:
                         send_admin_md(msg)
+                        
+                # Handle DexScreener new token alerts
+                elif event_type == "scan.dexscreener.new" and data.get("items"):
+                    lines = ["🟢 *New tokens (DexScreener):*"]
+                    for item in data["items"]:
+                        mint = item.get("mint") or ""
+                        name = item.get("name") or "?"
+                        symbol = item.get("symbol") or "?"
+                        price = item.get("price")
+                        
+                        lines.append(f"• *{name}* | `{symbol}` | `{mint}`")
+                        
+                        if mint:
+                            be_link = f"https://birdeye.so/token/{mint}?chain=solana"
+                            pf_link = f"https://pump.fun/{mint}"
+                            lines.append(f"  [Birdeye]({be_link}) • [Pump.fun]({pf_link})")
+                            
+                        if price:
+                            lines.append(f"  ~${price}")
+                    
+                    alert_text = "\n".join(lines)
+                    send_admin_md(alert_text)
+                    
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.warning("WS alert forwarding error: %s", e)
+                logger.warning("Scanner alert forwarding error: %s", e)
                 time.sleep(1)
 
-    # Start WebSocket alert forwarding thread
+    # Start scanner alert forwarding thread
     import threading
-    t = threading.Thread(target=_forward_ws, daemon=True)
+    t = threading.Thread(target=_forward_scanner_alerts, daemon=True)
     t.start()
-    logger.info("WebSocket alert forwarding thread started")
+    logger.info("Scanner alert forwarding thread started")
     
     # Publish startup event
     publish("app.services.started", {
@@ -1672,6 +1699,7 @@ def start_services():
         "ws_scanner": True,
         "ds_scanner": True,
         "alert_forwarding": True,
+        "event_bridge": True,
         "timestamp": time.time()
     })
 
