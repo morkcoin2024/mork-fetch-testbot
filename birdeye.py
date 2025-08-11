@@ -3,6 +3,9 @@ import os, time, logging, httpx, threading, random
 from collections import deque
 from birdeye_ws import is_ws_connected
 
+# Safety net: if any module tries to use a sorted endpoint, fail fast in logs
+BIRDEYE_BLOCK_SORTBY = True
+
 # --- config/env ---
 BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "6"))  # default 6s to be gentler on rate limit
