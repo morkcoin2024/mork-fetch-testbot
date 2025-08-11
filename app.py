@@ -342,7 +342,7 @@ def index():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Handle Telegram webhook updates with comprehensive logging"""
+    """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
     try:
         # Import publish at function level to avoid import issues
         from eventbus import publish
@@ -351,19 +351,19 @@ def webhook():
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
         
         update_data = request.get_json()
-        if update_data and update_data.get('message'):
+        if not update_data:
+            logger.warning("[WEBHOOK] No JSON data received")
+            return jsonify({"status": "error", "message": "No data received"}), 400
+        
+        if update_data.get('message'):
             msg_text = update_data['message'].get('text', '')
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
         
-        if not mork_bot:
-            logger.warning("[WEBHOOK] Bot object not available, proceeding with direct webhook processing")
-        
-        # Skip PTB dependency and handle webhook directly
-        if not mork_bot or not mork_bot.telegram_available:
-            logger.warning("[WEBHOOK] PTB disabled, using direct webhook processing")
+        # ALWAYS proceed with direct webhook processing - no dependency on mork_bot
+        logger.info("[WEBHOOK] Using direct webhook processing mode")
             
         # Process the update
         if 'message' in update_data:
@@ -1698,7 +1698,14 @@ Admin alias commands (a_*) available to avoid conflicts.'''
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Full webhook exception traceback:")
+        # Always return 200 OK to prevent Telegram retries, even on internal errors
+        return jsonify({
+            "status": "error_handled", 
+            "processed": True, 
+            "error_type": type(e).__name__,
+            "timestamp": int(__import__('time').time())
+        }), 200
 
 @app.route('/status')
 def status():

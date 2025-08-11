@@ -1,0 +1,54 @@
+I'm seeing no Telegram replies again. Please run this exact end-to-end incident drill and post the whole output.
+
+# ========== INCIDENT DRILL (Telegram webhook) ==========
+set -euo pipefail
+cd /home/runner/workspace || true
+echo "== $(date -u) | START INCIDENT =="
+python3 - <<'PY'
+import os,sys,datetime
+print("py:",sys.version.split()[0])
+print("FEATURE_WS:", os.getenv("FEATURE_WS", "(unset)"))
+print("TELEGRAM_BOT_TOKEN set:", bool(os.getenv("TELEGRAM_BOT_TOKEN")))
+print("REPLIT URL:", os.getenv("REPLIT_WEB_URL") or os.getenv("REPLIT_URL") or "n/a")
+PY
+
+echo; echo "== Step 1: App health =="
+code=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:5000/status || true)
+echo "Local /status HTTP:$code"
+tail -n 60 logs/app.log | sed -n 's/.*\(\[ERROR\]\|\[WARNING\]\|\[WEBHOOK\]\).*/\0/p' | tail -n 40 || true
+
+echo; echo "== Step 2: Telegram webhook info =="
+TOKEN="$(python3 -c 'import os; print(os.getenv("TELEGRAM_BOT_TOKEN",""))')"
+curl -sS "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
+echo
+
+echo; echo "== Step 3: Public webhook reachability =="
+PUB="$(python3 - <<'PY'
+import os; print((os.getenv("REPLIT_WEB_URL") or os.getenv("REPLIT_URL") or "").rstrip("/"))
+PY
+)"
+PUB="${PUB:-https://telegram-bot-morkcoin2024.replit.app}"
+curl -sS -w "\nHTTP:%{http_code}\n" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ping"}}' \
+  "$PUB/webhook"
+
+echo; echo "== Step 4: Log proof of webhook handling =="
+grep -n "\[WEBHOOK\]" logs/app.log | tail -n 30 || echo "NO [WEBHOOK] LINES"
+
+echo; echo "== Step 5: Direct Telegram sendMessage sanity (token/auth) =="
+curl -sS -H 'Content-Type: application/json' \
+  -d "{\"chat_id\":1653046781,\"text\":\"diag pong $(date -u +%H:%M:%S)\",\"disable_web_page_preview\":true}" \
+  "https://api.telegram.org/bot${TOKEN}/sendMessage"
+echo
+
+echo; echo "== Step 6: Command routing integrity check (grep) =="
+grep -n 'startswith("/scan_' -n app.py | sed -n '1,120p'
+grep -n 'def _reply' app.py | head -n 1
+
+echo; echo "== Step 7: Kill any polling/PTB conflicts =="
+ps aux | grep -E 'python.*(poll|ultra_simple_bot|python-telegram-bot)' | grep -v grep || true
+pkill -f 'python.*poll' || true
+pkill -f 'ultra_simple_bot' || true
+sleep 1
+ps aux | grep -E 'python.*(poll|ultra_simple_bot|python-telegram-bot)' | grep -v grep || true
+echo "== DONE =="
