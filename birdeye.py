@@ -305,6 +305,21 @@ class BirdeyeScanner:
                     "price": it.get("priceUsd") or it.get("price") or None,
                 })
 
+        # keep a fresh normalized snapshot for probing
+        snapshot = []
+        for it in items:
+            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+            if not mint:
+                continue
+            snapshot.append({
+                "mint": mint,
+                "symbol": it.get("symbol") or "?",
+                "name": it.get("name") or "?",
+                "price": it.get("priceUsd") or it.get("price") or None,
+            })
+        self.last_items.clear()
+        self.last_items.extend(snapshot)
+
         if new_tokens:
             self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
         
