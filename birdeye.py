@@ -97,17 +97,26 @@ def _normalize_items(data: dict) -> list:
 
 def _request_newest(limit: int, sort_by: str) -> list:
     """Perform a single HTTP request with the given sort_by."""
+    # -- Birdeye request (no sort_by) --
     url = f"{API}/defi/tokenlist"
     params = {
         "chain": "solana",
-        "sort_by": sort_by,
-        "sort_type": "desc",
         "offset": 0,
-        "limit": max(1, min(50, int(limit))),
+        "limit": 20,
     }
+    logging.info("[SCAN] PATCH_nosort active params=%s", params)
+
     r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
+    if r.status_code == 429:
+        import random, time as _t
+        delay = 0.8 + random.random() * 0.7
+        logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
+        _t.sleep(delay)
+        r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
+
     r.raise_for_status()
-    return _normalize_items(r.json())
+    data = r.json() or {}
+    return _normalize_items(data)
 
 def _request_with_fallbacks(limit: int) -> list:
     """
