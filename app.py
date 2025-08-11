@@ -44,10 +44,14 @@ def _init_scanners():
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
     
     # Only initialize WebSocket if enabled
-    feature_ws = os.environ.get('FEATURE_WS', 'on').lower()
-    if feature_ws != 'off':
-        ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
-        logger.info("[WS] WebSocket client enabled (FEATURE_WS not 'off')")
+    feature_ws = os.environ.get('FEATURE_WS', 'off').lower()  # Default to off
+    if feature_ws == 'on':
+        try:
+            ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+            logger.info("[WS] WebSocket client enabled (FEATURE_WS=on)")
+        except Exception as e:
+            ws_client = None
+            logger.warning(f"[WS] WebSocket initialization failed: {e}")
     else:
         ws_client = None
         logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
@@ -355,11 +359,10 @@ def webhook():
             logger.info(f"[WEBHOOK] Update data: {update_data}")
         
         if not mork_bot:
-            logger.error("[WEBHOOK] Bot not initialized - missing TELEGRAM_BOT_TOKEN")
-            return jsonify({"error": "Bot not available"}), 500
+            logger.warning("[WEBHOOK] Bot object not available, proceeding with direct webhook processing")
         
         # Skip PTB dependency and handle webhook directly
-        if not mork_bot.telegram_available:
+        if not mork_bot or not mork_bot.telegram_available:
             logger.warning("[WEBHOOK] PTB disabled, using direct webhook processing")
             
         # Process the update
