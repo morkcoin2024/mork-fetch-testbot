@@ -11,6 +11,12 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions for consistent experience. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes. UI/UX aligns with Mork Coin branding.
 
+**Current Configuration: HTTP-Only Mode (August 11, 2025)**
+- WebSocket functionality disabled via FEATURE_WS=off with DisabledWS class implementation
+- Birdeye REST API operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
+- All webhook commands (/scan_mode, /scan_start, /scan_status, /fetch_now, /a_logs_tail) confirmed working
+- WebSocket credentials preserved for future activation once service access is resolved
+
 Key technical implementations include:
 - **AI Assistant**: A comprehensive AI assistant system with Flask webhook integration and dynamic model management, supporting multiple AI models (GPT-4o, Claude-3.5-Sonnet, GPT-5-Thinking) with intelligent fallback and persistent model storage.
 - **Enhanced Tri-Source Token Engine with Solana RPC Integration**: A comprehensive tri-source token filtering and scoring architecture with real-time blockchain monitoring, intelligent fallback systems, and advanced Solana RPC enrichment. It integrates on-chain data, Pump.fun, and DexScreener, with advanced risk scoring and a smart ranking algorithm.

@@ -146,54 +146,54 @@ else:
             return True
 
         def start(self):
-        if self.running: return
-        if not websocket:
-            logging.error("[WS] websocket-client lib missing")
-            self.publish("scan.birdeye.ws.error", {"err":"lib_missing"})
-            return
-        if not BIRDEYE_KEY or not BIRDEYE_WS_URL:
-            logging.error("[WS] missing BIRDEYE_API_KEY or BIRDEYE_WS_URL")
-            self.publish("scan.birdeye.ws.error", {"err":"missing_env"})
-            return
+            if self.running: return
+            if not websocket:
+                logging.error("[WS] websocket-client lib missing")
+                self.publish("scan.birdeye.ws.error", {"err":"lib_missing"})
+                return
+            if not BIRDEYE_KEY or not BIRDEYE_WS_URL:
+                logging.error("[WS] missing BIRDEYE_API_KEY or BIRDEYE_WS_URL")
+                self.publish("scan.birdeye.ws.error", {"err":"missing_env"})
+                return
 
-        self.running = True
-        
-        # Enhanced subscription topics - prefer Launchpad if available
-        self.subscription_topics = [
-            "launchpad.created",  # Priority: Launchpad new tokens
-            "token.created",      # Fallback: Generic token events
-        ]
-        
-        self._stop.clear()
-        self._th = threading.Thread(target=self._run, daemon=True)
-        self._th.start()
-        self.publish("scan.birdeye.ws.start", {})
-        logging.info("[WS] Birdeye WS started with Launchpad priority")
+            self.running = True
+            
+            # Enhanced subscription topics - prefer Launchpad if available
+            self.subscription_topics = [
+                "launchpad.created",  # Priority: Launchpad new tokens
+                "token.created",      # Fallback: Generic token events
+            ]
+            
+            self._stop.clear()
+            self._th = threading.Thread(target=self._run, daemon=True)
+            self._th.start()
+            self.publish("scan.birdeye.ws.start", {})
+            logging.info("[WS] Birdeye WS started with Launchpad priority")
 
-    def stop(self):
-        self.running = False
-        self._stop.set()
-        try:
-            if self._ws:
-                self._ws.close()
-        except Exception:
-            pass
-        if self._th and self._th.is_alive():
-            self._th.join(timeout=2.0)
-        self.publish("scan.birdeye.ws.stop", {})
-        logging.info("[WS] Birdeye WS stopped")
+        def stop(self):
+            self.running = False
+            self._stop.set()
+            try:
+                if self._ws:
+                    self._ws.close()
+            except Exception:
+                pass
+            if self._th and self._th.is_alive():
+                self._th.join(timeout=2.0)
+            self.publish("scan.birdeye.ws.stop", {})
+            logging.info("[WS] Birdeye WS stopped")
 
-    def status(self):
-        return {
-            "running": self.running,
-            "connected": WS_CONNECTED,
-            "recv": self.recv_count,
-            "new": self.new_count,
-            "seen_cache": len(self._seen_set),
-            "thread_alive": self._th.is_alive() if self._th else False,
-            "mode": SCAN_MODE,
-            "tap_enabled": WS_TAP_ENABLED or os.getenv("WS_TAP") == "1",
-        }
+        def status(self):
+            return {
+                "running": self.running,
+                "connected": WS_CONNECTED,
+                "recv": self.recv_count,
+                "new": self.new_count,
+                "seen_cache": len(self._seen_set),
+                "thread_alive": self._th.is_alive() if self._th else False,
+                "mode": SCAN_MODE,
+                "tap_enabled": WS_TAP_ENABLED or os.getenv("WS_TAP") == "1",
+            }
 
     # Birdeye Business plan usually authenticates via header "X-API-KEY".
     # Some deployments also require an initial subscription message.
