@@ -2,6 +2,13 @@
 import os, json, time, threading, logging, re
 from collections import deque
 
+# Global WebSocket connection status
+WS_CONNECTED = False
+
+def is_ws_connected():
+    """Check if WebSocket is currently connected to Birdeye feed"""
+    return WS_CONNECTED
+
 try:
     import websocket  # from websocket-client
 except Exception as e:
@@ -113,6 +120,7 @@ class BirdeyeWS:
     def status(self):
         return {
             "running": self.running,
+            "connected": WS_CONNECTED,
             "recv": self.recv_count,
             "new": self.new_count,
             "seen_cache": len(self._seen_set),
@@ -123,7 +131,9 @@ class BirdeyeWS:
     # Birdeye Business plan usually authenticates via header "X-API-KEY".
     # Some deployments also require an initial subscription message.
     def _on_open(self, ws):
-        logging.info("[WS] open")
+        global WS_CONNECTED
+        WS_CONNECTED = True
+        logging.info("[WS] Connected to Birdeye feed")
         self.publish("scan.birdeye.ws.open", {})
         # If your plan needs a subscribe frame, set env BIRDEYE_WS_SUB JSON and we'll send it:
         sub = os.getenv("BIRDEYE_WS_SUB", "")
@@ -191,11 +201,15 @@ class BirdeyeWS:
                 pass
 
     def _on_error(self, _ws, err):
+        global WS_CONNECTED
+        WS_CONNECTED = False
         logging.warning("[WS] error: %s", err)
         self.publish("scan.birdeye.ws.error", {"err": str(err)})
 
     def _on_close(self, _ws, code, reason):
-        logging.info("[WS] closed code=%s reason=%s", code, reason)
+        global WS_CONNECTED
+        WS_CONNECTED = False
+        logging.info("[WS] Disconnected - code=%s reason=%s", code, reason)
         self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
     def _run(self):

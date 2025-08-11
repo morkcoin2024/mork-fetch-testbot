@@ -648,16 +648,20 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        running = getattr(ws_client, "running", False)
-                        alive = getattr(ws_client, "thread", None)
-                        alive = alive.is_alive() if alive else False
+                        from birdeye_ws import is_ws_connected
                         status = ws_client.status()
+                        connected = is_ws_connected()
+                        thread_alive = getattr(ws_client, "thread", None)
+                        thread_alive = thread_alive.is_alive() if thread_alive else False
+                        
                         response_text = (
-                            "📡 WS status\n"
-                            f"running: {running}\n"
-                            f"thread_alive: {alive}\n"
+                            "📡 *WebSocket Status*\n"
+                            f"running: {status.get('running', False)}\n"
+                            f"connected: {connected}\n"
+                            f"thread_alive: {thread_alive}\n"
                             f"mode: {status.get('mode', 'unknown')}\n"
                             f"messages_received: {status.get('recv', 0)}\n"
+                            f"new_tokens: {status.get('new', 0)}\n"
                             f"cache_size: {status.get('seen_cache', 0)}/8000"
                         )
 
