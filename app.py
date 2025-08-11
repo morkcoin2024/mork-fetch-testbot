@@ -31,6 +31,29 @@ from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVA
 SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
 # --- END PATCH ---
 
+# --- BEGIN PATCH: admin notifier + WS import ---
+import requests
+from birdeye_ws import ws_client
+from eventbus import BUS
+
+def send_admin_md(text: str):
+    """Send Markdown message to admin chat (no PTB needed)."""
+    try:
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        admin_id  = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
+        if not bot_token or not admin_id:
+            return False
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True},
+            timeout=10
+        )
+        return True
+    except Exception as e:
+        logger.exception("send_admin_md failed: %s", e)
+        return False
+# --- END PATCH ---
+
 _scanner = SCANNER
 
 def _scanner_thread():
@@ -63,15 +86,7 @@ def _on_new(evt):
         # Send notification to admin via Telegram
         import requests
         message_text = "\n".join(lines)
-        if TELEGRAM_BOT_TOKEN and ASSISTANT_ADMIN_TELEGRAM_ID:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": ASSISTANT_ADMIN_TELEGRAM_ID,
-                "text": message_text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True
-            }
-            requests.post(url, json=payload, timeout=5)
+        send_admin_md(message_text)
     except Exception as e:
         logger.warning("Failed to send Birdeye notification: %s", e)
 
