@@ -1,0 +1,135 @@
+# --- BEGIN PATCH: Birdeye rate-limit handling ---
+
+import random
+_last_birdeye_call_ts = 0.0
+_MIN_CALL_SPACING_SEC = int(os.getenv("BIRDEYE_MIN_SPACING_SEC", "8"))  # pace gate
+
+def _sleep_until_allowed():
+    """Ensure at least _MIN_CALL_SPACING_SEC between Birdeye calls."""
+    import time as _t
+    global _last_birdeye_call_ts
+    now = _t.time()
+    delta = now - _last_birdeye_call_ts
+    if delta < _MIN_CALL_SPACING_SEC:
+        _t.sleep(_MIN_CALL_SPACING_SEC - delta)
+
+def _birdeye_get(url, params, headers, max_retries=4):
+    """
+    GET with 429 handling: honors Retry-After, backs off exponentially with jitter.
+    Returns parsed JSON dict.
+    """
+    import time as _t
+
+    global _last_birdeye_call_ts
+    attempt = 0
+    while True:
+        _sleep_until_allowed()
+        try:
+            r = httpx.get(url, headers=headers, params=params, timeout=12)
+            _last_birdeye_call_ts = _t.time()
+            if r.status_code == 429:
+                retry_after = r.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait = float(retry_after)
+                    except:
+                        wait = 2.0
+                else:
+                    # exp backoff with jitter
+                    wait = min(20.0, (2 ** attempt)) + random.uniform(0.1, 0.6)
+                logging.warning("[SCAN] Birdeye 429; backing off %.2fs", wait)
+                _t.sleep(wait)
+                attempt += 1
+                if attempt > max_retries:
+                    raise httpx.HTTPStatusError("429 Too Many Requests", request=r.request, response=r)
+                continue
+
+            r.raise_for_status()
+            return r.json() or {}
+
+        except httpx.HTTPStatusError as e:
+            # Let caller handle 400s/others (we already do in tick()).
+            raise
+        except Exception as e:
+            # transient errors: short sleep and retry
+            wait = min(8.0, 1.0 + attempt * 1.5) + random.uniform(0.05, 0.3)
+            logging.warning("[SCAN] Birdeye GET error: %s; retrying in %.2fs", e, wait)
+            _t.sleep(wait)
+            attempt += 1
+            if attempt > max_retries:
+                raise
+
+def tick(self):
+    if not self.running:
+        return
+    if not BIRDEYE_KEY:
+        self.publish("scan.birdeye.error", {"err": "missing BIRDEYE_API_KEY"})
+        return
+
+    url = f"{API}/defi/tokenlist"
+
+    def _fetch(params):
+        # use the safe getter with RL/backoff
+        return _birdeye_get(url, params, HEADERS, max_retries=5)
+
+    try:
+        # Primary attempt (createdAt), chain gate, smaller page size
+        params = {
+            "chain": "solana",
+            "sort_by": "createdAt",
+            "sort_type": "desc",
+            "offset": 0,
+            "limit": 20,  # was 50; smaller helps reduce RL pressure
+        }
+        try:
+            data = _fetch(params)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400 and "sort_by" in e.response.text:
+                logging.warning("[SCAN] Birdeye 400 on sort_by=%s, retrying with created_at", params["sort_by"])
+                params["sort_by"] = "created_at"
+                data = _fetch(params)
+            else:
+                raise
+
+        # Normalize payload across variants
+        items = (
+            data.get("data", {}).get("tokens")
+            or data.get("data", [])
+            or data.get("tokens", [])
+            or []
+        )
+
+        new_tokens = []
+        for it in items:
+            mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
+            if not mint:
+                continue
+            if self._mark_seen(mint):
+                new_tokens.append({
+                    "mint": mint,
+                    "symbol": it.get("symbol") or "?",
+                    "name": it.get("name") or "?",
+                    "price": it.get("priceUsd") or it.get("price") or None,
+                })
+
+        if new_tokens:
+            # Also feed through the permissive alerting path if you enabled it
+            try:
+                process_birdeye_items(new_tokens, notify=lambda m: None)  # no-op notify here; your scanner may alert elsewhere
+            except Exception:
+                pass
+            self.publish("scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]})
+
+        logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+
+    except httpx.HTTPStatusError as e:
+        logging.warning(
+            "[SCAN] Birdeye status=%s url=%s body=%s",
+            e.response.status_code, getattr(e.request, "url", url), getattr(e.response, "text", "")[:200]
+        )
+        self.publish("scan.birdeye.error", {"err": f"HTTP {e.response.status_code}"})
+    except Exception as e:
+        logging.warning("[SCAN] Birdeye tick error: %s", e)
+        self.publish("scan.birdeye.error", {"err": str(e)})
+
+# --- END PATCH ---
