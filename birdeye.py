@@ -153,6 +153,9 @@ class BirdeyeScanner:
         self._seen_set = set()
         self._thread = None
         self._stop_event = threading.Event()
+        # NEW: keep the latest normalized items so /scan_probe can show them
+        self.last_items = deque(maxlen=200)
+        self.mode = SCAN_MODE
 
     def _mark_seen(self, mint):
         if mint in self._seen_set:
