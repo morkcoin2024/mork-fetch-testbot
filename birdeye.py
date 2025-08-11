@@ -5,6 +5,58 @@ from collections import deque
 BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "5"))
 
+# --- BEGIN PATCH ---
+# top-level globals (near other config)
+SCAN_MODE = "strict"   # "strict" | "all"
+SEEN_MINTS = set()     # in-memory de-dupe for this run
+
+def set_scan_mode(mode: str):
+    global SCAN_MODE
+    SCAN_MODE = "all" if str(mode).lower() == "all" else "strict"
+    logging.info("[SCAN] Scan mode set to %s", SCAN_MODE)
+    from eventbus import publish
+    publish("scan.mode", {"mode": SCAN_MODE})
+
+def _passes_filters(tok: dict) -> bool:
+    """Return True if token should alert, based on current mode."""
+    if SCAN_MODE == "all":
+        return True  # no gates in promiscuous mode
+
+    # ---- existing strict filters stay here ----
+    # examples (keep your current logic):
+    # if tok.get("liquidity", 0) < 1000: return False
+    # if not tok.get("is_pumpfun"): return False
+    # if tok.get("mcap", 0) < 5_000: return False
+    return True
+
+def process_birdeye_items(items: list, notify):
+    """items: list of tokens from Birdeye. notify(m) sends a telegram message."""
+    alerts = 0
+    for it in items:
+        mint = it.get("mint") or it.get("address") or it.get("tokenAddress")
+        if not mint:
+            continue
+        if mint in SEEN_MINTS:
+            continue
+        SEEN_MINTS.add(mint)
+
+        if _passes_filters(it):
+            alerts += 1
+            # Build a simple alert (adjust fields to your payload)
+            name = it.get("name") or "?"
+            sym  = it.get("symbol") or "?"
+            link_be = f"https://birdeye.so/token/{mint}?chain=solana"
+            link_pf = f"https://pump.fun/{mint}"
+            msg = (
+                f"🔔 *New token detected*\n"
+                f"*{name}* ({sym})\n"
+                f"`{mint}`\n"
+                f"[Birdeye]({link_be}) • [Pump.fun]({link_pf})"
+            )
+            notify(msg)
+    logging.info("[SCAN] birdeye processed: %s items, %s alerts", len(items), alerts)
+# --- END PATCH ---
+
 API = "https://public-api.birdeye.so"
 HEADERS = {"X-API-KEY": BIRDEYE_KEY, "accept":"application/json"}
 
