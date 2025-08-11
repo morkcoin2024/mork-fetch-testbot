@@ -11,7 +11,7 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions for consistent experience. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes. UI/UX aligns with Mork Coin branding.
 
-**Current Configuration: Multi-Source Token Discovery (August 11, 2025)**
+**Current Configuration: Multi-Source Token Discovery + Webhook Restoration (August 11, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
 - **Solscan Pro Scanner**: Enhanced implementation using Pro API v2.0, dormant until both FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
@@ -26,7 +26,7 @@ Key technical implementations include:
 - **Live Monitoring Dashboard**: A professional real-time monitoring interface with secure token-gated event streaming via Server-Sent Events (SSE).
 - **Compact Live Console Interface**: An ultra-lightweight real-time event console with token-gated secure access and optimized performance.
 - **Comprehensive Event Publishing System**: Real-time event tracking across all system components, publishing detailed events for user interactions, commands, errors, data fetching, and system performance.
-- **Telegram Integration**: Robust PTB v20+ integration with webhook cleanup, group-based priority, graceful Flask fallback, and comprehensive async admin monitoring commands.
+- **Telegram Integration**: Direct webhook processing with bypassed PTB dependency, comprehensive admin command routing, dual endpoint deployment (/webhook, /webhook_v2), and real-time Telegram API integration.
 - **Enhanced Logging System**: Dual-layer logging with RotatingFileHandler and RingBufferHandler for efficient log access and reliability.
 - **Enhanced Multi-Source Diagnostics**: A complete diagnostic system for live module reloading, version tracking, real-time endpoint monitoring, and debugging.
 - **Comprehensive Scan Command System**: Full scan diagnostic infrastructure for system health monitoring and validation.

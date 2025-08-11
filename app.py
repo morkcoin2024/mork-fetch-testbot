@@ -340,6 +340,11 @@ def index():
     </html>
     """
 
+@app.route('/webhook_v2', methods=['POST'])
+def webhook_v2():
+    """New webhook endpoint to bypass deployment caching issues"""
+    return webhook()
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
