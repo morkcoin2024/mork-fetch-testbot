@@ -1061,12 +1061,23 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     except Exception as e:
                         response_text = f"Birdeye tick failed: {e}"
 
-                elif text.strip().startswith("/scan_start"):
-                    _scanner.start()
-                    response_text = f"📡 Birdeye scan started (every {SCAN_INTERVAL}s)."
+                elif text.startswith("/scan_start"):
+                    try:
+                        parts = text.split()
+                        secs = int(parts[1]) if len(parts) > 1 else None
+                    except Exception:
+                        secs = None
+
+                    scanner = get_scanner(publish)        # <-- new singleton
+                    if secs:
+                        scanner.interval = max(5, int(secs))
+                    scanner.start()
+
+                    response_text = f"✅ Birdeye scanner started (every {scanner.interval}s)"
 
                 elif text.strip().startswith("/scan_stop"):
-                    _scanner.stop()
+                    scanner = get_scanner(publish)
+                    scanner.stop()
                     response_text = "🛑 Birdeye scan stopped."
 
                 elif text.strip().startswith("/scan_status") or text.strip().startswith("/a_scan_status"):
