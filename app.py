@@ -1084,6 +1084,61 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     _reply(cmd_fetch_now_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
+                # /pumpfunstatus (admin only)
+                elif text.startswith("/pumpfunstatus"):
+                    logger.info("[WEBHOOK] Routing /pumpfunstatus")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    try:
+                        from data_fetcher import probe_pumpfun_sources
+                        result = probe_pumpfun_sources(limit=5)
+                        
+                        lines = ["🔍 Pump.fun Source Status:"]
+                        for source in result.get("sources", []):
+                            status_icon = "✅" if source.get("status") == 200 else "❌"
+                            lines.append(f"{status_icon} {source.get('label', 'Unknown')}: {source.get('status')} ({source.get('ms', 'N/A')}ms)")
+                            
+                            # Show sample tokens if available
+                            samples = source.get("samples", [])
+                            if samples:
+                                lines.append(f"   Samples: {len(samples)} tokens retrieved")
+                                for sample in samples[:2]:
+                                    symbol = sample.get("symbol", "?")
+                                    name = sample.get("name", "?")
+                                    lines.append(f"   • {symbol} - {name}")
+                        
+                        response_text = "\n".join(lines)
+                    except Exception as e:
+                        response_text = f"❌ pumpfunstatus failed: {e}"
+
+                # /pumpfunprobe (admin only)
+                elif text.startswith("/pumpfunprobe"):
+                    logger.info("[WEBHOOK] Routing /pumpfunprobe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    try:
+                        from data_fetcher import fetch_candidates_from_pumpfun
+                        tokens = fetch_candidates_from_pumpfun(limit=10, offset=0)
+                        
+                        if not tokens:
+                            response_text = "❌ No tokens retrieved from Pump.fun"
+                        else:
+                            lines = [f"🟢 Pump.fun Probe Results: {len(tokens)} tokens"]
+                            lines.append("symbol | name | holders | mcap$ | age_min")
+                            for token in tokens[:5]:
+                                symbol = token.get("symbol", "?")
+                                name = token.get("name", "?")[:15]
+                                holders = token.get("holders", "?")
+                                mcap = token.get("mcap_usd", "?")
+                                age = token.get("age_min", "?")
+                                lines.append(f"{symbol} | {name} | {holders} | {mcap} | {age}")
+                            
+                            response_text = "```\n" + "\n".join(lines) + "\n```"
+                    except Exception as e:
+                        response_text = f"❌ pumpfunprobe failed: {e}"
+
                 # /fetch_source (admin only)
                 elif text.startswith("/fetch_source"):
                     logger.info("[WEBHOOK] Routing /fetch_source")
