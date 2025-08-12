@@ -3,6 +3,7 @@ import time
 import json
 import os
 import logging
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ class BirdeyeWS:
 
         # Track last message time
         self.last_msg_time = None
+        
+        # last message timestamp (monotonic + wall clock)
+        self._last_msg_monotonic = None
+        self._last_msg_wall = None  # datetime.utcnow()
 
     def status(self):
         """Return current connection status in a JSON-serialisable dict."""
@@ -36,7 +41,7 @@ class BirdeyeWS:
         if self.last_msg_time is not None:
             last_msg_ago = round(now - self.last_msg_time, 2)
 
-        return {
+        data = {
             "running": self._running,
             "connected": self._connected_event.is_set(),
             "recv": self.recv_count,
@@ -48,6 +53,20 @@ class BirdeyeWS:
             "last_msg_time": self.last_msg_time,
             "last_msg_ago": last_msg_ago
         }
+        
+        # compute last_msg_ago (seconds) if we have a timestamp
+        if self._last_msg_monotonic is not None:
+            data["last_msg_ago_secs"] = round(max(0.0, time.monotonic() - self._last_msg_monotonic), 2)
+        else:
+            data["last_msg_ago_secs"] = None
+        
+        # also expose wall-clock time for operators
+        if self._last_msg_wall is not None:
+            data["last_msg_iso"] = self._last_msg_wall.isoformat().replace("+00:00", "Z")
+        else:
+            data["last_msg_iso"] = None
+            
+        return data
 
     def start(self):
         if self._running:
@@ -89,10 +108,13 @@ class BirdeyeWS:
                     time.sleep(1)
                     connection_duration += 1
                     
-                    # Simulate periodic message receipt with last_msg_time tracking
+                    # Simulate periodic message receipt with enhanced timestamp tracking
                     if connection_duration % 10 == 0:
                         self.recv_count += 1
                         self.last_msg_time = time.time()
+                        # record last message time (both monotonic and wall)
+                        self._last_msg_monotonic = time.monotonic()
+                        self._last_msg_wall = datetime.utcnow().replace(tzinfo=timezone.utc)
                         log.info("[WS] Message received: threading.Event status accurate")
                         
                 # Simulate connection drop for reconnection testing
@@ -144,20 +166,10 @@ class BirdeyeWS:
 
     def _send(self, obj):
         try:
-            self._ws.send(json.dumps(obj))
+            if self._ws:
+                self._ws.send(json.dumps(obj))
         except Exception as e:
             log.warning("[WS] Send failed: %s", e)
-
-    # Helper methods for admin commands
-    def injectdebugevent(self, event):
-        log.info("[WS] Injected debug event: %r", event)
-        return True
-
-    def getdebugcache(self):
-        return list(self.seen_cache)
-
-    def set_debug(self, value: bool):
-        log.info("[WS] Debug mode set to %s", value)
 
     # Helper methods for admin commands
     def injectdebugevent(self, event):
