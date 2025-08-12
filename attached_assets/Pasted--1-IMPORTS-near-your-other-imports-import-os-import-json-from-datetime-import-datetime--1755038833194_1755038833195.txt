@@ -1,0 +1,159 @@
+# --- 1) IMPORTS (near your other imports) ---
+import os
+import json
+from datetime import datetime
+
+# Try to use an existing wallet module if you already have one.
+# If it’s missing, we’ll use the lightweight JSON store below.
+try:
+    from wallets import get_or_create_wallet, get_wallet_address, get_wallet_balance  # existing project API (if present)
+except Exception:
+    get_or_create_wallet = get_wallet_address = get_wallet_balance = None
+
+# --- 2) SAFE TELEGRAM SEND (drop-in wrapper used by _reply / _send_chunk) ---
+def _send_safe(text, parse_mode="Markdown", no_preview=True):
+    """
+    Sends a message; if Telegram rejects Markdown/length, retry as plain text.
+    Returns True on success, False otherwise.
+    """
+    try:
+        ok = _send_chunk(text, parse_mode=parse_mode, no_preview=no_preview)
+        if ok:
+            return True
+    except Exception:
+        pass
+    # Fallback: plain text, no parse mode
+    try:
+        return _send_chunk(text, parse_mode=None, no_preview=True)
+    except Exception:
+        return False
+
+# OPTIONAL: if your code calls _reply() directly, make it use the safe sender.
+def _reply(text, parse_mode="Markdown", no_preview=True):
+    return _send_safe(text, parse_mode=parse_mode, no_preview=no_preview)
+
+# --- 3) SIMPLE JSON WALLET BACKEND (only used if no project wallet module found) ---
+WALLET_DB_PATH = os.getenv("WALLET_STORE_PATH", "data/wallets.json")
+
+def _json_load(path):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _json_save(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+def _fallback_get_or_create_wallet(user_id: str) -> str:
+    """
+    Creates a *burner placeholder* address if no wallet module exists.
+    NOTE: Replace with your real wallet service when available.
+    """
+    db = _json_load(WALLET_DB_PATH)
+    rec = db.get(str(user_id))
+    if rec and "address" in rec:
+        return rec["address"]
+    # Placeholder address: deterministic fake (so users see something) – replace with real keypair create.
+    fake_addr = f"FALLBACK_{user_id}_ADDR"
+    db[str(user_id)] = {"address": fake_addr, "created_at": datetime.utcnow().isoformat() + "Z"}
+    _json_save(WALLET_DB_PATH, db)
+    return fake_addr
+
+def _fallback_get_wallet_address(user_id: str) -> str | None:
+    db = _json_load(WALLET_DB_PATH)
+    rec = db.get(str(user_id))
+    return rec.get("address") if rec else None
+
+def _fallback_get_wallet_balance(user_id: str) -> float:
+    """
+    Placeholder returns 0.0. Replace with real Solana RPC balance look‑up in your wallet module.
+    """
+    return 0.0
+
+# unified adapters (prefer real module if present)
+def _wallet_create(user_id: int) -> str:
+    if get_or_create_wallet:
+        return get_or_create_wallet(user_id)
+    return _fallback_get_or_create_wallet(user_id)
+
+def _wallet_addr(user_id: int) -> str | None:
+    if get_wallet_address:
+        return get_wallet_address(user_id)
+    return _fallback_get_wallet_address(user_id)
+
+def _wallet_balance(user_id: int) -> float:
+    if get_wallet_balance:
+        return get_wallet_balance(user_id)
+    return _fallback_get_wallet_balance(user_id)
+
+# --- 4) BUS TEST helper (publish synthetic NEW_TOKEN if BUS exists) ---
+def _bus_publish_synthetic():
+    try:
+        BUS  # noqa: F821 (exists in your app)
+    except NameError:
+        return False
+    payload = {
+        "source": "synthetic",
+        "symbol": "TEST",
+        "name": "Synthetic Token",
+        "mint": "TEST" + datetime.utcnow().strftime("%H%M%S"),
+        "holders": 123,
+        "mcap_usd": 123456,
+        "liquidity_usd": 50000,
+        "age_min": 1.0,
+        "risk": 25.0,
+        "urls": {"birdeye": "https://birdeye.so/token/TEST?chain=solana"}
+    }
+    try:
+        BUS.publish("NEW_TOKEN", payload)
+        return True
+    except Exception:
+        return False
+
+# --- 5) WEBHOOK ROUTING: add these in your message handler where other commands are checked ---
+# assume: `text` is the incoming message text, `user_id` is sender id
+
+t = text.strip()
+
+# WALLET: /wallet_new
+if t.startswith("/wallet_new") or t.startswith("/walletnew"):
+    addr = _wallet_create(user_id)
+    _reply(
+        "🆕 *Burner wallet created*\n"
+        f"`{addr}`\n\n"
+        "_Keep this for testing only. For production, replace fallback with real key storage._"
+    )
+    return "ok"
+
+# WALLET: /wallet_addr
+elif t.startswith("/wallet_addr") or t.startswith("/walletaddr"):
+    addr = _wallet_addr(user_id)
+    if addr:
+        _reply("🏦 *Your wallet address*\n" f"`{addr}`")
+    else:
+        _reply("⚠️ No wallet yet. Use /wallet_new first.")
+    return "ok"
+
+# WALLET: /wallet_balance
+elif t.startswith("/wallet_balance") or t.startswith("/walletbalance"):
+    addr = _wallet_addr(user_id)
+    if not addr:
+        _reply("⚠️ No wallet yet. Use /wallet_new first.")
+        return "ok"
+    bal = _wallet_balance(user_id)
+    _reply(f"💰 *Wallet balance*\n`{addr}`\nSOL: *{bal:.6f}*")
+    return "ok"
+
+# BUS: /bus_test
+elif t.startswith("/bus_test") or t.startswith("/bustest"):
+    ok = _bus_publish_synthetic()
+    if ok:
+        _reply("🧪 Event Bus test: *NEW_TOKEN* published. Check for a synthetic token notification.")
+    else:
+        _reply("⚠️ Event Bus not available in this process. Skipped.")
+    return "ok"
+
+# (keep your existing handlers below…)
