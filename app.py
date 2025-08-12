@@ -150,6 +150,16 @@ SCANNERS = {}
 try:
     _init_scanners()
     logger.info("Scanners initialized successfully")
+    # Ensure SCANNERS registry is populated after initialization
+    if not SCANNERS:
+        SCANNERS = {
+            'birdeye': SCANNER,
+            'jupiter': JUPITER_SCANNER,
+            'solscan': SOLSCAN_SCANNER,
+            'dexscreener': DS_SCANNER,
+            'websocket': ws_client
+        }
+        logger.info("SCANNERS registry populated after initialization")
 except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
     # Continue without scanners if initialization fails

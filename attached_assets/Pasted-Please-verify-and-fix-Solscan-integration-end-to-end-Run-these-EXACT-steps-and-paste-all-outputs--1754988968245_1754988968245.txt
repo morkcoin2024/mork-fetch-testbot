@@ -1,0 +1,55 @@
+Please verify and fix Solscan integration end-to-end. Run these EXACT steps and paste all outputs.
+
+# 1) Env sanity (should be FEATURE_SOLSCAN=on and key present)
+python3 - <<'PY'
+import os, re
+feat = os.getenv("FEATURE_SOLSCAN","(unset)")
+key  = os.getenv("SOLSCAN_API_KEY","")
+print("FEATURE_SOLSCAN =", feat)
+print("SOLSCAN_API_KEY set:", bool(key), "len:", len(key))
+print("SOLSCAN_API_KEY masked head:", (key[:6]+"…") if key else "(none)")
+PY
+
+# 2) Confirm scanner class exposes required fields/methods
+nl -ba solscan.py | sed -n '1,200p'
+grep -nE "class +SolscanScanner|def +status|def +fetch_new_tokens|self.enabled|self.key|self.seen" -n solscan.py
+
+# 3) Confirm singleton + registry wiring in app.py
+grep -n "get_solscan_scanner" -n app.py solscan.py
+grep -n "SCANNERS *=" app.py
+sed -n '1,240p' app.py | sed -n '/SCANNERS *=/{=;p; n; n; n; p}'   # show the SCANNERS block
+grep -nE "/solscanstats|/solscan_start|/solscan_stop" app.py | sed -n '1,200p'
+
+# 4) Restart app cleanly
+echo "== restarting app =="
+curl -sS http://localhost:5000/status > /dev/null 2>&1  # touch app
+sleep 3
+
+# 5) Show init logs (case-insensitive for 'Solscan')
+echo "== recent Solscan init logs (i) =="
+tail -n 300 logs/app.log | sed -n '/Solscan/Ip'
+
+# 6) Hit status endpoints via webhook
+echo "== /scan_status =="
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/scan_status"}}'
+
+echo "== /solscanstats =="
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/solscanstats"}}'
+
+# 7) If still OFF, print explicit reason from scanner.status()
+python3 - <<'PY'
+from solscan import get_solscan_scanner
+s = get_solscan_scanner()
+print("SolscanScanner fields:",
+      "enabled=", getattr(s,'enabled',None),
+      "has_key=", bool(getattr(s,'key',None)),
+      "seen=", getattr(s,'seen',None))
+try:
+    print("status():", s.status())
+except Exception as e:
+    print("status() raised:", type(e).__name__, e)
+PY
