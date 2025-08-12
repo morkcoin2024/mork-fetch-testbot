@@ -1109,7 +1109,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             f"messages_received: {status.get('recv', 0)}\n"
                             f"new_tokens: {status.get('new', 0)}\n"
                             f"cache_size: {status.get('seen_cache', 0)}/8000\n"
-                            f"{last_line}"
+                            f"{last_line}\n"
+                            f"watchdog: {status.get('watchdog', False)}\n"
+                            f"stale_after: {status.get('stale_after', 0)}s\n"
+                            f"restart_count: {status.get('restart_count', 0)}"
                         )
 
                 # /ds_start (DexScreener scanner start with optional interval)
@@ -1158,6 +1161,38 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             )
                         except Exception as e:
                             response_text = f"❌ DS status failed: {e}"
+
+                # /ws_stale (Set watchdog stale window)
+                elif text.strip().startswith("/ws_stale "):
+                    logger.info("[WEBHOOK] Routing /ws_stale")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            secs = float(text.split(" ", 1)[1].strip())
+                            ws = SCANNERS.get("websocket")
+                            if not ws:
+                                response_text = "❌ No WS scanner registered"
+                            else:
+                                ws._stale_after = max(5.0, secs)
+                                response_text = f"✅ WS stale window set to {ws._stale_after:.1f}s"
+                        except Exception as e:
+                            response_text = f"❌ ws_stale error: {e}"
+
+                # /ws_force_stale (Force stale state for testing)
+                elif text.strip().startswith("/ws_force_stale"):
+                    logger.info("[WEBHOOK] Routing /ws_force_stale")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        import time
+                        ws = SCANNERS.get("websocket")
+                        if not ws:
+                            response_text = "❌ No WS scanner registered"
+                        else:
+                            # push last-msg timestamp back in time to trigger watchdog quickly
+                            ws._last_msg_monotonic = time.monotonic() - (ws._stale_after + 1.0)
+                            response_text = "🧪 Forced stale state; watchdog should restart shortly."
 
                 # /ws_tap (WebSocket debug tap - mirror WS messages to logs)
                 elif text.strip().startswith("/ws_tap"):
