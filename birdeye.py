@@ -279,7 +279,7 @@ class BirdeyeScanner:
 
 # --- singleton accessor ---
 scanner_singleton = None
-def get_scanner(publish):
+def get_scanner(publish=None):
     global scanner_singleton
     if scanner_singleton is None:
         scanner_singleton = BirdeyeScanner(interval_sec=SCAN_INTERVAL, publish=publish)

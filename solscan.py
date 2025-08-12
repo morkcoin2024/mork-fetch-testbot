@@ -490,3 +490,9 @@ def get_solscan_scanner(api_key: str) -> Optional[SolscanScanner]:
     except Exception as e:
         log.error("[SOLSCAN] Failed to create scanner: %r", e)
         return None
+
+def get_scanner(api_key: str = None) -> Optional[SolscanScanner]:
+    """Alias for get_solscan_scanner for consistency with other modules"""
+    if api_key is None:
+        api_key = os.getenv("SOLSCAN_API_KEY", "")
+    return get_solscan_scanner(api_key)

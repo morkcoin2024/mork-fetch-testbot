@@ -1038,8 +1038,21 @@ def cmd_fetch_now_sync() -> str:
         rules = load_rules()
         N = int(rules.get("output", {}).get("max_results", 10))
         
-        # Use enhanced fetch_and_rank for multi-source integration
-        filtered = fetch_and_rank(rules)
+        # Use enhanced fetch_and_rank for multi-source integration with timeout
+        import signal
+        def timeout_handler(signum, frame):
+            raise TimeoutError("fetch_and_rank timed out")
+        
+        # Set 8 second timeout for fetch_and_rank to prevent webhook timeouts
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(8)
+        try:
+            filtered = fetch_and_rank(rules)
+        except TimeoutError:
+            return "❌ Token discovery timed out after 8 seconds. Try again."
+        finally:
+            signal.alarm(0)  # Cancel the alarm
+        
         filtered = filtered[:N]
         
         # Format output with source column and green tag

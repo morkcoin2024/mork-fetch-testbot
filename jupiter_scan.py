@@ -82,3 +82,27 @@ class JupiterScan:
         try: self.session.close()
         except: pass
         log.info("[SCAN] Jupiter scanner stopped")
+
+    def status(self):
+        return {"enabled": self.enabled, "running": self.running}
+
+# Use a safer class name that matches the existing pattern
+class JupiterScanner(JupiterScan):
+    pass
+
+# Global scanner instance
+scanner = JupiterScanner(lambda *args, **kwargs: None)  # Default no-op notify function
+
+def get_scanner():
+    """Get the global Jupiter scanner instance"""
+    return scanner
+
+# Register scanner after imports to avoid circular import
+def _register_scanner():
+    try:
+        from app import SCANNERS
+        SCANNERS["jupiter"] = scanner
+    except ImportError:
+        pass  # SCANNERS not available yet, will be registered later
+
+_register_scanner()

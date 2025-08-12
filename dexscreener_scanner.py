@@ -156,7 +156,7 @@ class DexScreenerScanner:
             logging.warning("[DS] Alert send failed: %s", e)
 
 _scanner_singleton = None
-def get_scanner(publish):
+def get_scanner(publish=None):
     global _scanner_singleton
     if _scanner_singleton is None:
         _scanner_singleton = DexScreenerScanner(publish=publish)
