@@ -2159,26 +2159,28 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         response_text = "Not authorized."
                     else:
                         try:
-                            import wallet
                             user_id = str(user.get('id'))
-                            burner = wallet.ensure_burner(user_id)
-                            balance = wallet.get_balance_sol(burner["pubkey"])
-                            
-                            if balance >= 0:
-                                balance_str = f"{balance:.4f} SOL"
+                            wallet = get_wallet(user_id)
+                            if not wallet:
+                                response_text = "No burner wallet yet. Use /wallet_new to create one."
                             else:
-                                balance_str = "Error checking balance"
-                            
-                            created_ts = burner.get("created", 0)
-                            if created_ts:
-                                from datetime import datetime
-                                created_date = datetime.fromtimestamp(created_ts).strftime("%Y-%m-%d %H:%M")
-                            else:
-                                created_date = "Unknown"
-                            
-                            response_text = f"""💰 **Burner Wallet Info**
+                                balance = get_balance_sol(wallet["address"])
+                                
+                                if balance >= 0:
+                                    balance_str = f"{balance:.6f} SOL"
+                                else:
+                                    balance_str = "RPC error"
+                                
+                                created_ts = wallet.get("created_at", 0)
+                                if created_ts:
+                                    from datetime import datetime
+                                    created_date = datetime.fromtimestamp(created_ts).strftime("%Y-%m-%d %H:%M")
+                                else:
+                                    created_date = "Unknown"
+                                
+                                response_text = f"""💰 **Burner Wallet Info**
 
-Address: `{burner["pubkey"]}`
+Address: `{wallet["address"]}`
 Balance: {balance_str}
 Created: {created_date}
 
