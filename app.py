@@ -528,17 +528,20 @@ def webhook():
                 try:
                     import requests
                     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                    chat_id = message["chat"]["id"]
                     payload = {
-                        "chat_id": message["chat"]["id"],
+                        "chat_id": chat_id,
                         "text": txt,
                         "parse_mode": parse_mode,
                         "disable_web_page_preview": no_preview,
                     }
+                    logger.info(f"[WEBHOOK] Sending message to chat_id={chat_id}, text_len={len(txt)}")
                     r = requests.post(
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
                         json=payload,
                         timeout=15,
                     )
+                    logger.info(f"[WEBHOOK] Telegram API response: status={r.status_code}, response={r.text[:200]}")
                     return r.status_code == 200
                 except Exception as e:
                     logger.exception("sendMessage failed: %s", e)
@@ -639,6 +642,37 @@ def webhook():
                                 single_response = f"💰 Wallet: {burner['pubkey'][:12]}... | {balance_str} SOL"
                             except Exception as e:
                                 single_response = f"💰 Wallet error: {e}"
+                        elif text.strip() == "/wallet_new":
+                            try:
+                                from wallets import get_or_create_wallet
+                                uid = str(user.get('id'))
+                                w = get_or_create_wallet(uid)
+                                single_response = f"🪪 Wallet created: {w['address'][:12]}..."
+                            except Exception as e:
+                                single_response = f"❌ Wallet creation error: {e}"
+                        elif text.strip() == "/wallet_addr":
+                            try:
+                                from wallets import get_wallet
+                                uid = str(user.get('id'))
+                                w = get_wallet(uid)
+                                if w:
+                                    single_response = f"📬 Address: {w['address'][:12]}..."
+                                else:
+                                    single_response = "❌ No wallet found"
+                            except Exception as e:
+                                single_response = f"❌ Address error: {e}"
+                        elif text.strip() == "/wallet_balance":
+                            try:
+                                from wallets import get_wallet, get_balance_sol
+                                uid = str(user.get('id'))
+                                w = get_wallet(uid)
+                                if w:
+                                    bal = get_balance_sol(w["address"])
+                                    single_response = f"💰 Balance: {bal:.6f} SOL"
+                                else:
+                                    single_response = "❌ No wallet found"
+                            except Exception as e:
+                                single_response = f"❌ Balance error: {e}"
                         
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
@@ -2230,18 +2264,22 @@ Not for production custody."""
 
                 # /wallet_new - Create new burner wallet
                 elif text.strip().startswith("/wallet_new"):
+                    logger.info(f"[WEBHOOK] Processing /wallet_new for user {user.get('id')}")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
                         try:
                             uid = str(user.get('id'))
+                            logger.info(f"[WEBHOOK] Creating wallet for uid={uid}")
                             w = get_or_create_wallet(uid)
                             response_text = (
                                 "🪪 *Burner wallet created*\n"
                                 f"• Address: `{w['address']}`\n"
                                 "_(Private key stored server-side for testing; will move to secure storage before trading.)_"
                             )
+                            logger.info(f"[WEBHOOK] Wallet created successfully, response_text length: {len(response_text)}")
                         except Exception as e:
+                            logger.exception(f"[WEBHOOK] Wallet creation error: {e}")
                             response_text = f"❌ Wallet creation error: {e}"
 
                 # /wallet_addr - Get wallet address
@@ -2300,6 +2338,67 @@ Not for production custody."""
                             response_text = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
                         except Exception as e:
                             response_text = f"❌ Bus test error: {e}"
+
+                # Wallet Commands (single command processing)
+                elif text.strip().startswith("/wallet_new"):
+                    logger.info(f"[WEBHOOK] Processing /wallet_new for user {user.get('id')}")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from wallets import get_or_create_wallet
+                            uid = str(user.get('id'))
+                            logger.info(f"[WEBHOOK] Creating wallet for uid={uid}")
+                            w = get_or_create_wallet(uid)
+                            response_text = (
+                                "🪪 *Burner wallet created*\n"
+                                f"• Address: `{w['address']}`\n"
+                                "_(Private key stored server-side for testing; will move to secure storage before trading.)_"
+                            )
+                            logger.info(f"[WEBHOOK] Wallet created successfully, response_text length: {len(response_text)}")
+                        except Exception as e:
+                            logger.exception(f"[WEBHOOK] Wallet creation error: {e}")
+                            response_text = f"❌ Wallet creation error: {e}"
+
+                elif text.strip().startswith("/wallet_addr"):
+                    logger.info(f"[WEBHOOK] Processing /wallet_addr for user {user.get('id')}")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from wallets import get_wallet
+                            uid = str(user.get('id'))
+                            w = get_wallet(uid)
+                            if w:
+                                response_text = f"📬 *Your burner wallet address*\n`{w['address']}`"
+                            else:
+                                response_text = "❌ No wallet found. Use /wallet_new to create one first."
+                        except Exception as e:
+                            logger.exception(f"[WEBHOOK] Wallet address error: {e}")
+                            response_text = f"❌ Wallet address error: {e}"
+
+                elif text.strip().startswith("/wallet_balance"):
+                    logger.info(f"[WEBHOOK] Processing /wallet_balance for user {user.get('id')}")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            from wallets import get_wallet, get_balance_sol
+                            uid = str(user.get('id'))
+                            w = get_wallet(uid)
+                            if w:
+                                bal = get_balance_sol(w["address"])
+                                response_text = (
+                                    f"💰 *Wallet balance*\n"
+                                    f"Address: `{w['address']}`\n"
+                                    f"Balance: `{bal:.6f} SOL`"
+                                    f"\n\n_⚠️ Burner wallet for testing only. Private keys stored server-side._"
+                                )
+                            else:
+                                response_text = "❌ No wallet found. Use /wallet_new to create one first."
+                        except Exception as e:
+                            logger.exception(f"[WEBHOOK] Wallet balance error: {e}")
+                            response_text = f"❌ Wallet balance error: {e}"
 
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
