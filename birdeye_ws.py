@@ -45,8 +45,31 @@ class BirdeyeWS:
         self._restart_lock = threading.Lock()
         self._restart_count = 0
 
-    def status(self):
+    def status(self) -> dict:
         """Return current connection status in a JSON-serialisable dict."""
+        # thread: legacy threading worker
+        th_alive = bool(getattr(self, "_th", None) and self._th.is_alive())
+
+        # asyncio loop/task: new websockets worker
+        loop_running = False
+        try:
+            loop = getattr(self, "_loop", None)
+            if loop and hasattr(loop, "is_running"):
+                loop_running = loop.is_running()
+        except Exception:
+            loop_running = False
+
+        task_alive = False
+        try:
+            task = getattr(self, "_task", None)
+            if task is not None:
+                # done() False == still alive
+                task_alive = (not task.done())
+        except Exception:
+            task_alive = False
+
+        threadalive = th_alive or loop_running or task_alive
+
         now = time.time()
         last_msg_ago = None
         if self.last_msg_time is not None:
@@ -58,7 +81,7 @@ class BirdeyeWS:
             "recv": self.recv_count,
             "new": self.new_count,
             "seen_cache": len(self.seen_cache),
-            "thread_alive": bool(self._th and self._th.is_alive()),
+            "thread_alive": threadalive,  # ← updated truthy check
             "mode": "strict",
             "tap_enabled": now < self._tap_until,
             "last_msg_time": self.last_msg_time,
