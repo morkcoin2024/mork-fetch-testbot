@@ -482,6 +482,19 @@ def webhook():
             if text and text.startswith('/'):
                 publish("command.route", {"cmd": text.split()[0]})
             
+            # Check for multiple commands in one message
+            commands_in_message = []
+            if text:
+                # Split by whitespace and find all commands (starting with /)
+                words = text.split()
+                for word in words:
+                    if word.startswith('/'):
+                        commands_in_message.append(word)
+            
+            # If multiple commands detected, log it
+            if len(commands_in_message) > 1:
+                logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
+
             # Helper functions for sending replies (with auto-split)
             def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
                 try:
@@ -532,6 +545,63 @@ def webhook():
                 # Process admin commands directly without PTB
                 chat_id = message['chat']['id']
                 response_text = None
+                
+                # Handle multiple commands in one message
+                if len(commands_in_message) > 1:
+                    logger.info(f"[WEBHOOK] Processing {len(commands_in_message)} commands sequentially")
+                    responses = []
+                    
+                    # Process each command separately by calling webhook recursively
+                    for cmd in commands_in_message:
+                        # Create a modified message for single command processing
+                        temp_text = text
+                        text = cmd  # Temporarily set text to single command
+                        
+                        # Process the single command using existing logic
+                        single_response = None
+                        
+                        # Process actual commands for multiple command handling
+                        if text.strip() == "/fetch":
+                            try:
+                                from data_fetcher import fetch_candidates_from_all_sources
+                                results = fetch_candidates_from_all_sources()
+                                count = len(results.get('candidates', []))
+                                single_response = f"🎯 F.E.T.C.H scan: {count} tokens found"
+                            except Exception as e:
+                                single_response = f"🎯 F.E.T.C.H scan failed: {e}"
+                        elif text.strip() == "/fetch_now":
+                            try:
+                                from data_fetcher import fetch_candidates_from_all_sources
+                                results = fetch_candidates_from_all_sources()
+                                count = len(results.get('candidates', []))
+                                single_response = f"⚡ Manual fetch: {count} tokens found"
+                            except Exception as e:
+                                single_response = f"⚡ Manual fetch failed: {e}"
+                        elif text.strip() == "/ping":
+                            single_response = "🎯 Pong!"
+                        elif text.strip() == "/solscanstats":
+                            try:
+                                if "solscan" in SCANNERS:
+                                    scanner = SCANNERS["solscan"]
+                                    single_response = f"📊 Solscan: {getattr(scanner, 'running', False)}"
+                                else:
+                                    single_response = "📊 Solscan: Not initialized"
+                            except Exception as e:
+                                single_response = f"📊 Solscan error: {e}"
+                        
+                        if single_response:
+                            responses.append(f"**{cmd}:** {single_response}")
+                        
+                        text = temp_text  # Restore original text
+                    
+                    if responses:
+                        response_text = "\n\n".join(responses)
+                    else:
+                        response_text = f"Processed {len(commands_in_message)} commands"
+                    
+                    # Skip the rest of the command processing for multiple commands
+                    _reply(response_text)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True, "multiple_commands": len(commands_in_message)})
                 
                 # DEBUG: Track command routing for solscanstats
                 if text.strip() == "/solscanstats":
