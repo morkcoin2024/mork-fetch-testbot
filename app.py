@@ -2255,6 +2255,19 @@ Not for production custody."""
                     except Exception as e:
                         response_text = f"❌ Wallet balance error: {e}"
 
+                # /bus_test - Test event bus with fake token
+                elif text.strip().startswith("/bus_test"):
+                    try:
+                        fake = _normalize_token("test", {
+                            "mint": "So11111111111111111111111111111111111111112",
+                            "symbol": "TEST", "name": "Bus Test", "age_min": 5, "liq_usd": 7000, "mcap_usd": 15000,
+                            "holders": 80, "freeze": False, "mint": False, "blacklist": False, "renounced": True
+                        })
+                        BUS.publish("NEW_TOKEN", fake)
+                        response_text = "Published test token."
+                    except Exception as e:
+                        response_text = f"❌ Bus test error: {e}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
