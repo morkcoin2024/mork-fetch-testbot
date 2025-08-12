@@ -216,18 +216,15 @@ class SolscanScanner:
             return {"error": str(e), "new": 0, "seen": len(self.seen)}
 
     # --- mode management -----------------------------------------------------
-    def set_mode(self, mode: str) -> bool:
-        """Set scanner mode: auto|new|trending"""
-        mode = mode.lower()
-        if mode in ("auto", "new", "trending"):
-            self._mode = mode
-            log.info("[SOLSCAN] mode set to: %s", mode)
-            return True
-        return False
-    
     def get_mode(self) -> str:
-        """Get current scanner mode"""
-        return self._mode
+        return getattr(self, "_mode", "auto")
+
+    def set_mode(self, mode: str) -> None:
+        mode = (mode or "auto").lower()
+        if mode not in ("auto", "new", "trending"):
+            mode = "auto"
+        self._mode = mode
+        self._last_new_endpoint = None  # reset probe state
 
     # --- core fetch ----------------------------------------------------------
     def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -391,36 +388,7 @@ class SolscanScanner:
         
         return self._trending_cache
 
-    def enrich_token(self, token_address: str) -> Optional[Dict[str, Any]]:
-        """Enrich a token with Solscan trending data"""
-        if not token_address:
-            return None
-            
-        trending_tokens = self.get_trending_cache()
-        
-        # Look for this token in trending list
-        for rank, trending_token in enumerate(trending_tokens, 1):
-            trending_addr = trending_token.get("address") or ""
-            if trending_addr.lower() == token_address.lower():
-                return {
-                    "solscan_trending_rank": rank,
-                    "solscan_trending_total": len(trending_tokens),
-                    "solscan_score": 0.15 - (rank * 0.005),  # Higher rank = higher score, diminishing
-                    "solscan_trending": True
-                }
-        
-        return None
 
-    def get_enrichment_badge(self, enrichment: Dict[str, Any]) -> str:
-        """Generate a badge string for Solscan trending enrichment"""
-        if not enrichment:
-            return ""
-        
-        rank = enrichment.get("solscan_trending_rank")
-        if rank:
-            return f"Solscan: trending #{rank}"
-        
-        return ""
 
     # --- helpers -------------------------------------------------------------
     @staticmethod
