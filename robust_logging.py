@@ -85,7 +85,7 @@ def get_ring_buffer_stats():
         "available": True,
         "current_size": len(_ring_buffer_handler.buffer),
         "max_capacity": _ring_buffer_handler.buffer.maxlen,
-        "usage_percent": round(len(_ring_buffer_handler.buffer) / _ring_buffer_handler.buffer.maxlen * 100, 1)
+        "usage_percent": round(len(_ring_buffer_handler.buffer) / (_ring_buffer_handler.buffer.maxlen or 1) * 100, 1)
     }
 
 # Initialize logging when module is imported
