@@ -150,7 +150,7 @@ Ready to fetch some profits? 🚀"""
 
 🎯 **Trading Commands:**
 • `/snipe <mint> <sol>` - Manual token sniping
-• `/fetch` - Auto-discover and trade tokens
+• `/fetch` or `/fetch_now` - Discover trending tokens (admin only)
 • `/validate <mint>` - Check if token is tradeable
 
 🛡️ **Safety & System:**
@@ -163,7 +163,7 @@ Ready to fetch some profits? 🚀"""
 
 📋 **Requirements:**
 • Manual trading (/snipe): 0.1 SOL worth of MORK
-• Auto trading (/fetch): 1.0 SOL worth of MORK
+• Token discovery (/fetch): Admin access only
 
 🔒 **Security:** Your private keys never leave this secure environment."""
         
