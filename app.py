@@ -1200,9 +1200,9 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     _reply(cmd_rules_reload_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
-                # /fetch_now (admin only)
-                elif text.strip().startswith("/fetch_now"):
-                    logger.info("[WEBHOOK] /fetch_now entered")
+                # /fetch_now or /fetch (admin only)
+                elif text.strip().startswith("/fetch_now") or text.strip().startswith("/fetch"):
+                    logger.info(f"[WEBHOOK] {text.strip()} entered")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
