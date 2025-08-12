@@ -1,108 +1,86 @@
-"""
-Minimal burner wallet helper for Mork F.E.T.C.H Bot
-Generates ed25519 keypairs and stores per-user wallets safely
-"""
-import os
-import json
-import time
-import base58
-from pathlib import Path
+# wallets.py
+import os, json, time, base64, pathlib
+from typing import Optional, Dict
 from nacl.signing import SigningKey
-from nacl.encoding import RawEncoder
+from nacl.public import PublicKey
+import base58
 import httpx
-import logging
 
-WALLETS_DIR = Path("./data")
-WALLETS_FILE = WALLETS_DIR / "wallets.json"
+DATA_DIR = pathlib.Path("./data")
+WALLETS_PATH = DATA_DIR / "wallets.json"
+SOLANA_RPC = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
-log = logging.getLogger(__name__)
+def _ensure_store():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not WALLETS_PATH.exists():
+        WALLETS_PATH.write_text(json.dumps({"version":1,"wallets":{}}))
 
-def ensure_data_dir():
-    """Create data directory if it doesn't exist"""
-    WALLETS_DIR.mkdir(exist_ok=True)
+def _load()->Dict:
+    _ensure_store()
+    return json.loads(WALLETS_PATH.read_text())
 
-def load_wallets():
-    """Load wallets from JSON file"""
-    ensure_data_dir()
-    if not WALLETS_FILE.exists():
-        return {}
-    try:
-        with open(WALLETS_FILE, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        log.warning(f"Failed to load wallets: {e}")
-        return {}
+def _save(data:Dict):
+    WALLETS_PATH.write_text(json.dumps(data, indent=2))
 
-def save_wallets(wallets):
-    """Save wallets to JSON file"""
-    ensure_data_dir()
-    try:
-        with open(WALLETS_FILE, 'w') as f:
-            json.dump(wallets, f, indent=2)
-    except Exception as e:
-        log.error(f"Failed to save wallets: {e}")
+def _pubkey_from_seed(seed_bytes:bytes)->str:
+    sk = SigningKey(seed_bytes)
+    pk = sk.verify_key
+    # Solana address is base58 of the 32-byte ed25519 public key
+    return base58.b58encode(bytes(pk)).decode()
 
-def ensure_burner(user_id):
-    """Ensure user has a burner wallet, create if needed"""
-    user_id = str(user_id)
-    wallets = load_wallets()
+def get_or_create_wallet(user_id:str)->Dict:
+    data = _load()
+    if "wallets" not in data:
+        data["wallets"] = {}
     
-    if user_id not in wallets:
-        # Generate new ed25519 keypair
-        signing_key = SigningKey.generate()
-        private_key = signing_key.encode(encoder=RawEncoder)
-        public_key = signing_key.verify_key.encode(encoder=RawEncoder)
-        
-        # Encode keys as base58
-        private_b58 = base58.b58encode(private_key).decode('utf-8')
-        public_b58 = base58.b58encode(public_key).decode('utf-8')
-        
-        wallets[user_id] = {
-            "private_key": private_b58,  # Never expose this in chat
-            "public_key": public_b58,
-            "created_at": str(int(time.time()))
-        }
-        save_wallets(wallets)
-        log.info(f"Created new burner wallet for user {user_id}")
+    w = data["wallets"].get(user_id)
+    if w:
+        return w
     
-    return wallets[user_id]
+    # create new 32-byte seed; store **encrypted later** (for now, base64 with clear warning)
+    seed = os.urandom(32)
+    addr = _pubkey_from_seed(seed)
+    entry = {
+        "address": addr,
+        "seed_b64": base64.b64encode(seed).decode(),  # TODO: replace with KMS/secret-box
+        "created_at": int(time.time())
+    }
+    data["wallets"][user_id] = entry
+    _save(data)
+    return entry
 
-def get_pubkey(user_id):
-    """Get user's public key (address)"""
-    user_id = str(user_id)
-    wallets = load_wallets()
-    if user_id in wallets:
-        return wallets[user_id]["public_key"]
-    return None
+def get_wallet(user_id:str)->Optional[Dict]:
+    data = _load()
+    if "wallets" not in data:
+        return None
+    return data["wallets"].get(user_id)
 
-def get_balance_sol(pubkey):
-    """Get SOL balance for address"""
-    rpc_url = os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-    
+async def get_balance(address:str)->float:
+    # returns SOL (lamports -> SOL)
     try:
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getBalance",
-            "params": [pubkey]
-        }
-        
-        with httpx.Client(timeout=5.0) as client:
-            response = client.post(rpc_url, json=payload)
-            
-        if response.status_code == 200:
-            data = response.json()
-            if "result" in data and "value" in data["result"]:
-                lamports = data["result"]["value"]
-                sol = lamports / 1_000_000_000  # Convert lamports to SOL
-                return sol
-            else:
-                log.warning(f"Unexpected RPC response: {data}")
-                return -1.0
-        else:
-            log.warning(f"RPC request failed: {response.status_code}")
-            return -1.0
-            
-    except Exception as e:
-        log.error(f"Balance check failed: {e}")
+        payload = {"jsonrpc":"2.0","id":1,"method":"getBalance","params":[address]}
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(SOLANA_RPC, json=payload)
+        lamports = r.json()["result"]["value"]
+        return float(lamports) / 1_000_000_000.0
+    except Exception:
+        return 0.0
+
+# Sync wrapper for compatibility with existing webhook handlers
+def get_balance_sol(address:str)->float:
+    import asyncio
+    try:
+        return asyncio.run(get_balance(address))
+    except Exception:
         return -1.0
+
+# Legacy function names for compatibility
+def ensure_burner(user_id:str)->Dict:
+    """Legacy compatibility function"""
+    wallet = get_or_create_wallet(user_id)
+    return {"public_key": wallet["address"]}
+
+def get_pubkey(user_id:str)->Optional[str]:
+    """Legacy compatibility function"""
+    wallet = get_wallet(user_id)
+    return wallet["address"] if wallet else None

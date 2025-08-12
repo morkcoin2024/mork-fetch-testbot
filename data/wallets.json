@@ -3,5 +3,22 @@
     "private_key": "BdNkx5VQBaLMQMCdN9AwT2kkBekR3JXjHmdD18pNkrqS",
     "public_key": "Ce9fBZQtgahCnG9mMzu9rhkv31m1Rmf9VrL9mgNyBPst",
     "created_at": "1755033144"
+  },
+  "wallets": {
+    "test_user_fixed": {
+      "address": "ACZ3Ck7usbMjyYKv6rJtd7PKX9Sxa8DtfzgB2S9Eevph",
+      "seed_b64": "wdikpmjcUGnmlMkb9drA6oOrlCWYBAG+AtBklXC7xPM=",
+      "created_at": 1755033255
+    },
+    "test_user_legacy": {
+      "address": "BLhShpTcdzatxJ5j6iV3SXGCHexspJaDAQg3MeohceKW",
+      "seed_b64": "oUeEM7rqqFpGHoJ183zMmegpWdNa/B/Xwp5dXI1FwVU=",
+      "created_at": 1755033255
+    },
+    "1653046781": {
+      "address": "HS8itzXvDLJ4d59TYR7T1qkdt3HpDBdxjTemBx99UjtD",
+      "seed_b64": "t84z9svP2pOnAhJWmMGIFyiK17p0kpPXJQAeO8JnzwY=",
+      "created_at": 1755033256
+    }
   }
 }
