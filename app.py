@@ -674,7 +674,10 @@ def webhook():
                 # Telegram limit ~4096; stay under 3900 to be safe with code fences
                 MAX = 3900
                 if len(text) <= MAX:
-                    return _send_chunk(text, parse_mode, no_preview)
+                    ok = _send_chunk(text, parse_mode=parse_mode, no_preview=no_preview)
+                    if not ok and parse_mode:  # retry in plain text if Telegram rejects Markdown
+                        ok = _send_chunk(text, parse_mode=None, no_preview=True)
+                    return ok
                 # split on paragraph boundaries where possible
                 i = 0
                 ok = True
@@ -687,7 +690,10 @@ def webhook():
                         i += cut + 1
                     else:
                         i += len(chunk)
-                    ok = _send_chunk(chunk, parse_mode, no_preview) and ok
+                    chunk_ok = _send_chunk(chunk, parse_mode=parse_mode, no_preview=no_preview)
+                    if not chunk_ok and parse_mode:  # retry in plain text if Telegram rejects Markdown
+                        chunk_ok = _send_chunk(chunk, parse_mode=None, no_preview=True)
+                    ok = chunk_ok and ok
                 return ok
 
             # Simple admin command processing for immediate testing
