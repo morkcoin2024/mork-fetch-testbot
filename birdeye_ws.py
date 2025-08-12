@@ -1,6 +1,6 @@
 # --- BEGIN FILE: birdeye_ws.py ---
 import os, logging
-FEATURE_WS = os.getenv("FEATURE_WS", "off").lower()
+FEATURE_WS = os.getenv("FEATURE_WS", "on").lower()
 
 class DisabledWS:
     running = False
@@ -342,8 +342,29 @@ else:
     def _on_error(self, _ws, err):
         global WS_CONNECTED
         WS_CONNECTED = False
-        logging.warning("[WS] error: %s", err)
-        self.publish("scan.birdeye.ws.error", {"err": str(err)})
+        # Enhanced error logging to capture full handshake details
+        error_details = {
+            "error": str(err),
+            "type": type(err).__name__,
+            "ws_url": BIRDEYE_WS_URL,
+            "headers": WS_HEADERS,
+            "subprotocols": WS_SUBPROTOCOLS
+        }
+        
+        # Check if this is a handshake error (403 Forbidden, etc.)
+        if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
+            logging.error("[WS] HANDSHAKE ERROR: %s", err)
+            logging.error("[WS] Full error details: %s", error_details)
+            # Send detailed error to admin for debugging
+            try:
+                if hasattr(self, 'notify') and self.notify:
+                    self.notify(f"🚨 *WebSocket Handshake Error*\n```\n{err}\n```\nURL: `{BIRDEYE_WS_URL}`\nHeaders: {WS_HEADERS}\nSubprotocols: {WS_SUBPROTOCOLS}")
+            except:
+                pass
+        else:
+            logging.warning("[WS] error: %s", err)
+        
+        self.publish("scan.birdeye.ws.error", error_details)
 
     def _on_close(self, _ws, code, reason):
         global WS_CONNECTED
