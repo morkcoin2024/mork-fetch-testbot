@@ -48,6 +48,7 @@ class BirdeyeWS:
         self._connected_event = threading.Event()  # Thread-safe connection status
         self.recv_count = 0
         self.new_count = 0
+        self.last_msg_time = None  # Timestamp of last received message
         self._debug = False
         self._tap_until = 0
         
@@ -88,6 +89,8 @@ class BirdeyeWS:
             "thread_alive": bool(self._th and self._th.is_alive()),
             "mode": "strict",
             "tap_enabled": time.time() < self._tap_until,
+            "last_msg_time": self.last_msg_time,
+            "last_msg_ago": int(time.time() - self.last_msg_time) if self.last_msg_time else None,
         }
 
     def set_debug(self, on: bool):
@@ -169,6 +172,7 @@ class BirdeyeWS:
     def _on_message(self, ws, message):
         global WS_DEBUG_CACHE
         self.recv_count += 1
+        self.last_msg_time = time.time()
         
         # Store in debug cache
         WS_DEBUG_CACHE.append({
