@@ -836,13 +836,21 @@ def webhook():
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
                 elif text.strip().startswith("/wallet_new"):
-                    response_text = handle_wallet_new(user.get('id'))
+                    response_text = handle_wallet_new(chat_id)
+                    _reply(response_text, parse_mode=None, no_preview=True)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/wallet_addr"):
-                    response_text = handle_wallet_addr(user.get('id'))
+                    response_text = handle_wallet_addr(chat_id)
+                    _reply(response_text, parse_mode=None, no_preview=True)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/wallet_balance"):
-                    response_text = handle_wallet_balance(user.get('id'))
+                    response_text = handle_wallet_balance(chat_id)
+                    _reply(response_text, parse_mode=None, no_preview=True)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/bus_test"):
                     response_text = handle_bus_test()
+                    _reply(response_text, parse_mode=None, no_preview=True)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip() in ['/status', '/a_status']:
                     publish("admin.command", {"command": "status", "user": user.get("username", "?")})
                     response_text = f'''🤖 Mork F.E.T.C.H Bot Status
@@ -2593,11 +2601,7 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                 
                 if response_text:
                     logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
-                    # Use plain text for wallet and bus commands to avoid Markdown parsing issues
-                    if text.strip().startswith(("/wallet_new", "/wallet_addr", "/wallet_balance", "/bus_test")):
-                        sent_ok = _reply(response_text, parse_mode=None, no_preview=True)
-                    else:
-                        sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
+                    sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
                     logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {'200' if sent_ok else '500'}")
                     if not sent_ok:
                         logger.error(f"[WEBHOOK] Failed to send response to Telegram for command: {text}")
