@@ -194,16 +194,22 @@ else:
             backoff = 1.0
             while not self._stop.is_set():
                 try:
-                    # WebSocket connection uses ONLY the required Origin headers and subprotocols
-                    # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
+                    # WebSocket connection with required headers including X-API-KEY as requested by Birdeye support
                     if websocket:
                         # Use getattr to safely access WebSocketApp
                         WebSocketApp = getattr(websocket, 'WebSocketApp', None)
                         if WebSocketApp:
+                            # Build headers with X-API-KEY as required by Birdeye support
+                            headers = [
+                                "Origin: ws://public-api.birdeye.so",
+                                "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
+                                f"X-API-KEY: {BIRDEYE_KEY}",
+                            ]
+                            
                             self._ws = WebSocketApp(
                                 BIRDEYE_WS_URL,
-                                header=WS_HEADERS,
-                                subprotocols=WS_SUBPROTOCOLS,
+                                header=headers,
+                                subprotocols=["echo-protocol"],   # as Birdeye instructed
                                 on_open=self._on_open,
                                 on_message=self._on_message,
                                 on_error=self._on_error,
