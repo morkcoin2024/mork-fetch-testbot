@@ -1,0 +1,112 @@
+cd /home/runner/workspace
+
+echo "=== 1) Environment sanity ==="
+python3 - <<'PY'
+import os, sys
+print("py:", sys.version.split()[0])
+print("BIRDEYE_WS_URL:", os.getenv("BIRDEYE_WS_URL","(unset)"))
+print("BIRDEYE_WS_KEY set:", bool(os.getenv("BIRDEYE_WS_KEY")))
+print("FEATURE_WS:", os.getenv("FEATURE_WS","(unset)"))
+PY
+
+echo
+echo "=== 2) Library sanity (websocket-client) ==="
+python3 - <<'PY'
+import websocket, inspect
+print("websocket module:", websocket.__file__)
+print("Has WebSocketApp:", hasattr(websocket, "WebSocketApp"))
+PY
+
+echo
+echo "=== 3) BirdeyeWS object surface ==="
+python3 - <<'PY'
+import os
+from importlib import import_module
+mod = import_module("birdeye_ws")
+cls = getattr(mod, "BirdeyeWS", None)
+print("BirdeyeWS class present:", bool(cls))
+if cls:
+    ws = cls(
+        api_key=os.getenv("BIRDEYE_WS_KEY",""),
+        url=os.getenv("BIRDEYE_WS_URL","wss://public-api.birdeye.so/socket"),
+        debug=True
+    )
+    # Check helper methods (Telegram said missing earlier)
+    for name in ("injectdebugevent","getdebugcache","set_debug","start","stop"):
+        print(f"Has {name}:", hasattr(ws, name))
+PY
+
+echo
+echo "=== 4) Direct handshake probe with Birdeye-required headers ==="
+python3 - <<'PY'
+import os, ssl, websocket, json, time
+URL = os.getenv("BIRDEYE_WS_URL","wss://public-api.birdeye.so/socket")
+KEY = os.getenv("BIRDEYE_WS_KEY","")
+hdrs = [
+    "Origin: ws://public-api.birdeye.so",
+    "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
+    "X-API-KEY: " + KEY,
+]
+print("Probe URL:", URL)
+print("Headers:", hdrs)
+
+err = None
+connected = False
+def on_open(ws): 
+    global connected
+    connected = True
+    print("[probe] open")
+def on_error(ws, e): 
+    global err
+    err = e
+    print("[probe] error:", e)
+def on_close(ws, *a): 
+    print("[probe] close")
+
+ws = websocket.WebSocketApp(
+    URL,
+    header=hdrs,
+    subprotocols=["echo-protocol"],  # per Birdeye support note
+    on_open=on_open,
+    on_error=on_error,
+    on_close=on_close,
+)
+try:
+    ws.run_forever(sslopt={"cert_reqs": ssl.CERT_REQUIRED})
+except Exception as e:
+    err = e
+
+print("Connected:", connected)
+print("Error:", repr(err))
+PY
+
+echo
+echo "=== 5) Show any WS logs that might have been produced ==="
+grep -E "\[WS\]" -n logs/app.log | tail -n 40 || true
+
+echo
+echo "=== 6) Force in-app WS restart with debug headers applied ==="
+# Turn on verbose WS debug, stop & start, then sample status
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ws_debug on"}}'
+
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ws_stop"}}'
+
+sleep 2
+
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ws_start"}}'
+
+sleep 4
+
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ws_status"}}'
+
+echo
+echo "=== 7) Tail fresh WS logs ==="
+grep -E "\[WS\]" -n logs/app.log | tail -n 80 || true

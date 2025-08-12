@@ -68,25 +68,18 @@ else:
         logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
 
     try:
-        # Import from websocket-client package (not the old websocket package)
-        import websocket._app as websocket_app
-        import websocket._core as websocket_core
-        
-        # Create a namespace with the correct classes
-        class websocket:
-            WebSocketApp = websocket_app.WebSocketApp
-            create_connection = websocket_core.create_connection
-            
-    except Exception as e:
-        try:
-            # Fallback: try direct import pattern
-            from websocket import WebSocketApp, create_connection
-            class websocket:
-                WebSocketApp = WebSocketApp
-                create_connection = create_connection
-        except Exception as e2:
-            websocket = None
-            logging.warning("[WS] websocket-client not available: %s, %s", e, e2)
+        # Use asyncio-based websockets library (available in environment)
+        import websockets
+        import asyncio
+        import ssl
+        logging.info("[WS] websockets library imported successfully")
+        websocket_available = True
+    except ImportError as e:
+        websockets = None
+        asyncio = None
+        ssl = None
+        websocket_available = False
+        logging.error("[WS] websockets library not available: %s", e)
 
     # --- Birdeye WS required headers & subprotocols ---
     WS_HEADERS = [
@@ -190,7 +183,7 @@ else:
 
         def start(self):
             if self.running: return
-            if not websocket:
+            if not websocket_available:
                 self._log("websocket-client lib missing", level="error")
                 self.publish("scan.birdeye.ws.error", {"err":"lib_missing"})
                 return
@@ -215,44 +208,69 @@ else:
             
         def _run_loop(self):
             self._log("WebSocket run loop starting")
+            if not websocket_available:
+                self._log("WebSocket library not available", level="error")
+                return
+                
+            # Run async WebSocket in this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._async_ws_loop())
+            except Exception as e:
+                self._log(f"AsyncIO loop error: {e}", level="error")
+            finally:
+                loop.close()
+
+        async def _async_ws_loop(self):
             backoff = 1.0
             while not self._stop.is_set():
                 try:
-                    # WebSocket connection with required headers including X-API-KEY as requested by Birdeye support
-                    if websocket:
-                        # Use getattr to safely access WebSocketApp
-                        WebSocketApp = getattr(websocket, 'WebSocketApp', None)
-                        if WebSocketApp:
-                            # Build headers with X-API-KEY as required by Birdeye support
-                            headers = [
-                                "Origin: ws://public-api.birdeye.so",
-                                "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
-                                f"X-API-KEY: {self.api_key}",
-                            ]
+                    # Build headers with X-API-KEY as required by Birdeye support
+                    headers = {
+                        "Origin": "ws://public-api.birdeye.so",
+                        "Sec-WebSocket-Origin": "ws://public-api.birdeye.so", 
+                        "X-API-KEY": self.api_key,
+                    }
+                    
+                    self._log("Starting WebSocket connection with required headers")
+                    
+                    # Connect with SSL context and headers
+                    ssl_context = ssl.create_default_context()
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
+                    
+                    async with websockets.connect(
+                        self.url,
+                        additional_headers=headers,
+                        subprotocols=["echo-protocol"],
+                        ssl=ssl_context,
+                        ping_interval=20,
+                        ping_timeout=10,
+                    ) as websocket:
+                        self._on_open(websocket)
+                        
+                        # Keep connection alive and handle messages
+                        try:
+                            async for message in websocket:
+                                if self._stop.is_set():
+                                    break
+                                self._on_message(websocket, message)
+                        except websockets.exceptions.ConnectionClosed:
+                            self._log("WebSocket connection closed", level="warning")
+                        except Exception as e:
+                            self._log(f"Message handling error: {e}", level="warning")
+                        finally:
+                            self._on_close(websocket, None, None)
                             
-                            self.ws = WebSocketApp(
-                                self.url,
-                                header=headers,
-                                subprotocols=["echo-protocol"],   # per Birdeye support
-                                on_open=self._on_open,
-                                on_message=self._on_message,
-                                on_error=self._on_error,
-                                on_close=self._on_close,
-                            )
-                            # Keepalive (avoid CF idle closes)
-                            self._log("Starting WebSocket connection with keepalive")
-                            self.ws.run_forever(
-                                ping_interval=20,
-                                ping_timeout=10,
-                                ping_payload="keepalive",
-                            )
                 except Exception as e:
-                    self._log(f"run_forever error: {e}", level="warning")
+                    self._log(f"WebSocket connection error: {e}", level="warning")
 
                 if self._stop.is_set():
                     break
-                # reconnect with backoff
-                time.sleep(backoff)
+                    
+                # Reconnect with backoff
+                await asyncio.sleep(backoff)
                 backoff = min(backoff * 1.5, 30.0)
 
         def stop(self):
@@ -287,42 +305,51 @@ else:
             self._log("open")
             self._log("Connected to Birdeye feed")
             self.publish("scan.birdeye.ws.open", {})
-            # Enhanced subscription with Launchpad priority
-            sub = os.getenv("BIRDEYE_WS_SUB", "")
-            if sub:
-                try:
-                    payload = json.loads(sub)
-                    ws.send(json.dumps(payload))
-                    self._log("sent custom subscription payload")
-                except Exception as e:
-                    self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
-            else:
-                # Try subscribing to multiple topics with priority for Launchpad
-                topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
-                
-                for topic in topics_to_try:
+            
+            # Send subscriptions async
+            asyncio.create_task(self._send_subscriptions(ws))
+
+        async def _send_subscriptions(self, ws):
+            """Send subscription messages asynchronously"""
+            try:
+                # Enhanced subscription with Launchpad priority
+                sub = os.getenv("BIRDEYE_WS_SUB", "")
+                if sub:
                     try:
-                        # Try Birdeye topic-based subscription format
-                        topic_sub = {
-                            "type": "subscribe",
-                            "topic": topic,
-                            "chain": "solana"
-                        }
-                        ws.send(json.dumps(topic_sub))
-                        self._log(f"sent {topic} subscription")
+                        payload = json.loads(sub)
+                        await ws.send(json.dumps(payload))
+                        self._log("sent custom subscription payload")
                     except Exception as e:
-                        self._log(f"{topic} subscription failed: {e}", level="warning")
-                
-                # Fallback: original channel-based format
-                try:
-                    default_sub = {
-                        "type": "subscribe", 
-                        "channels": [{"name": "token.created"}]
-                    }
-                    ws.send(json.dumps(default_sub))
-                    self._log("sent fallback channel subscription")
-                except Exception as e:
-                    self._log(f"fallback subscription failed: {e}", level="warning")
+                        self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
+                else:
+                    # Try subscribing to multiple topics with priority for Launchpad
+                    topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
+                    
+                    for topic in topics_to_try:
+                        try:
+                            # Try Birdeye topic-based subscription format
+                            topic_sub = {
+                                "type": "subscribe",
+                                "topic": topic,
+                                "chain": "solana"
+                            }
+                            await ws.send(json.dumps(topic_sub))
+                            self._log(f"sent {topic} subscription")
+                        except Exception as e:
+                            self._log(f"{topic} subscription failed: {e}", level="warning")
+                    
+                    # Fallback: original channel-based format
+                    try:
+                        default_sub = {
+                            "type": "subscribe", 
+                            "channels": [{"name": "token.created"}]
+                        }
+                        await ws.send(json.dumps(default_sub))
+                        self._log("sent fallback channel subscription")
+                    except Exception as e:
+                        self._log(f"fallback subscription failed: {e}", level="warning")
+            except Exception as e:
+                self._log(f"Subscription error: {e}", level="error")
 
         def _on_message(self, ws, msg):
             self.recv_count += 1
