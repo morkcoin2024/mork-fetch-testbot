@@ -643,58 +643,46 @@ def webhook():
                                 single_response = f"💰 Wallet: {w['address'][:12]}... | {balance_str} SOL"
                             except Exception as e:
                                 single_response = f"💰 Wallet error: {e}"
-                        elif text.strip() == "/wallet_new":
-                            try:
-                                from wallets import get_or_create_wallet
-                                uid = str(user.get('id'))
-                                w = get_or_create_wallet(uid)
-                                single_response = f"🪪 Wallet created: {w['address'][:12]}..."
-                            except Exception as e:
-                                single_response = f"❌ Wallet creation error: {e}"
-                        elif text.strip() == "/wallet_addr":
-                            try:
-                                from wallets import get_wallet
-                                uid = str(user.get('id'))
-                                w = get_wallet(uid)
-                                if w:
-                                    single_response = f"📬 Address: {w['address'][:12]}..."
-                                else:
-                                    single_response = "❌ No wallet found"
-                            except Exception as e:
-                                single_response = f"❌ Address error: {e}"
-                        elif text.strip() == "/wallet_balance":
-                            try:
-                                from wallets import get_wallet, get_balance_sol
-                                uid = str(user.get('id'))
-                                w = get_wallet(uid)
-                                if w:
-                                    bal = get_balance_sol(w["address"])
-                                    single_response = f"💰 Balance: {bal:.6f} SOL"
-                                else:
-                                    single_response = "❌ No wallet found"
-                            except Exception as e:
-                                single_response = f"❌ Balance error: {e}"
-                        elif text.strip() == "/bus_test":
-                            try:
-                                from events import BUS
-                                import time
-                                fake_token = {
-                                    "symbol": "TESTCOIN",
-                                    "name": "Bus Test Token",
-                                    "mint": f"Test{int(time.time())}",
-                                    "holders": 1,
-                                    "mcaps": 0,
-                                    "liq$": 0,
-                                    "age_min": 0,
-                                    "risk": "low",
-                                    "solscan": None,
-                                    "links": {"pumpfun": None, "birdeye": None},
-                                    "ts": int(time.time())
-                                }
-                                BUS.publish("NEW_TOKEN", fake_token)
-                                single_response = "🧪 Bus test published"
-                            except Exception as e:
-                                single_response = f"❌ Bus test error: {e}"
+                        elif text.strip().startswith("/wallet_new"):
+                            uid = str(user_id)
+                            w = get_or_create_wallet(uid)
+                            single_response = (
+                                "🪪 *Burner wallet created*\n"
+                                f"• Address: `{w['address']}`\n"
+                                "_(Private key stored server-side for testing; will be moved to secure storage before trading.)_"
+                            )
+                        elif text.strip().startswith("/wallet_addr"):
+                            uid = str(user_id)
+                            w = get_wallet(uid)
+                            if not w:
+                                single_response = "⚠️ No wallet yet. Use /wallet_new first."
+                            else:
+                                single_response = f"📬 *Your burner wallet address*\n`{w['address']}`"
+                        elif text.strip().startswith("/wallet_balance"):
+                            uid = str(user_id)
+                            w = get_wallet(uid)
+                            if not w:
+                                single_response = "⚠️ No wallet yet. Use /wallet_new first."
+                            else:
+                                bal = get_balance_sol(w["address"])
+                                single_response = f"💰 *Wallet balance*\nAddress: `{w['address']}`\nBalance: `{bal:.6f} SOL`"
+                        elif text.strip().startswith("/bus_test"):
+                            fake = {
+                                "source": "TEST",
+                                "symbol": "TESTCOIN",
+                                "name": "Synthetic Test Token",
+                                "mint": "TestMint1111111111111111111111111111111111",
+                                "holders": 1,
+                                "mcaps": 0,
+                                "liq$": 0,
+                                "age_min": 0,
+                                "risk": "low",
+                                "solscan": None,
+                                "links": {"pumpfun": None, "birdeye": None},
+                                "ts": int(time.time())
+                            }
+                            BUS.publish("NEW_TOKEN", fake)
+                            single_response = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
                         
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
