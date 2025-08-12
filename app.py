@@ -1309,8 +1309,8 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     _reply(cmd_rules_reload_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
-                # /fetch or /fetch_now (admin only)
-                elif text.strip().startswith("/fetch") or text.strip().startswith("/fetch_now"):
+                # /fetch or /fetch_now (admin only) - but only for single commands, multiple commands handled above
+                elif (text.strip().startswith("/fetch") or text.strip().startswith("/fetch_now")) and len(commands_in_message) <= 1:
                     logger.info("[WEBHOOK] /fetch alias entered (raw='%s')", text.strip())
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
