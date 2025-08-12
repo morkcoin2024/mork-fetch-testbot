@@ -11,15 +11,15 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions for consistent experience. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes. UI/UX aligns with Mork Coin branding.
 
-**Current Configuration: Multi-Source Token Discovery + Enhanced Admin Commands (August 12, 2025)**
+**Current Configuration: Multi-Source Token Discovery + Unified Single-Process Architecture (August 12, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
-- **Solscan Pro Scanner**: **FULLY OPERATIONAL** - Production-ready implementation with multi-endpoint support, safe header handling, retry logic, and **enterprise-grade multi-worker support**. Fixed Gunicorn worker process isolation issue with _ensure_scanners() function. Auto-initializes when FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
+- **Solscan Pro Scanner**: **FULLY OPERATIONAL** - Production-ready implementation with multi-endpoint support, safe header handling, retry logic. Operates in same process as webhook handlers for unified access to SCANNERS registry
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
-- **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management of all scanner instances with _ensure_scanners() multi-worker initialization
-- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources), plus comprehensive diagnostic commands (/pumpfunstatus, /pumpfunprobe, /solscanstats, /solscan_start, /solscan_stop)
-- **Multi-Worker Architecture**: Fixed process isolation issues in Gunicorn deployment with worker-aware scanner initialization
-- **Fault-Tolerant Scanning Loop**: Multi-source scanning with individual error handling, API courtesy delays, and graceful failure recovery
+- **Unified Process Architecture**: **CRITICAL FIX IMPLEMENTED** - Single-worker Gunicorn configuration ensures webhook handlers and scanner threads share the same process and SCANNERS dictionary, resolving process isolation issues
+- **Enhanced Admin Commands**: All Telegram commands (/scan_status, /solscanstats, /a_logs_tail) now work correctly with unified process architecture providing real-time access to scanner states
+- **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management with scanners and webhooks in same process (PID 14357)
+- **Single-Worker Configuration**: Gunicorn --workers 1 ensures webhook handlers and scanner threads operate in unified process space for seamless state sharing
 
 Key technical implementations include:
 - **AI Assistant**: A comprehensive AI assistant system with Flask webhook integration and dynamic model management, supporting multiple AI models (GPT-4o, Claude-3.5-Sonnet, GPT-5-Thinking) with intelligent fallback and persistent model storage.
