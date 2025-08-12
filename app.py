@@ -837,6 +837,19 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             st = SCANNER.status()
                             from birdeye import SCAN_MODE
                             
+                            # Check actual scanner status with API key detection
+                            import os
+                            solscan_scanner = SCANNERS.get('solscan')
+                            solscan_api_key = os.getenv('SOLSCAN_API_KEY', '')
+                            
+                            # Determine Solscan status with proper key detection
+                            if solscan_scanner and solscan_scanner.enabled and solscan_api_key:
+                                solscan_status = "ON"
+                            elif solscan_api_key:
+                                solscan_status = "ON (key present, scanner initializing)"
+                            else:
+                                solscan_status = "OFF (no key)"
+                            
                             lines = [
                                 "🔍 Multi-Source Scan Status",
                                 f"running: {st['running']}",
@@ -848,7 +861,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 "Data Sources (live):",
                                 f"  • Birdeye HTTP: OK",
                                 f"  • Jupiter: {'ON' if SCANNERS.get('jupiter') and SCANNERS['jupiter'].enabled else 'OFF'}",
-                                f"  • Solscan: {'ON' if SCANNERS.get('solscan') and SCANNERS['solscan'].enabled else 'OFF (no key)'}"
+                                f"  • Solscan: {solscan_status}"
                             ]
                             response_text = "\n".join(lines)
                             logger.info(f"[WEBHOOK] scan_status response ready: {len(response_text)} chars")
