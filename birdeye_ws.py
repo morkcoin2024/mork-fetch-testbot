@@ -182,6 +182,40 @@ else:
             self._th.start()
             self.publish("scan.birdeye.ws.start", {})
             logging.info("[WS] Birdeye WS started with Launchpad priority")
+            
+        def _run_loop(self):
+            backoff = 1.0
+            while not self._stop.is_set():
+                try:
+                    # WebSocket connection uses ONLY the required Origin headers and subprotocols
+                    # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
+                    if websocket:
+                        # Use getattr to safely access WebSocketApp
+                        WebSocketApp = getattr(websocket, 'WebSocketApp', None)
+                        if WebSocketApp:
+                            self._ws = WebSocketApp(
+                                BIRDEYE_WS_URL,
+                                header=WS_HEADERS,
+                                subprotocols=WS_SUBPROTOCOLS,
+                                on_open=self._on_open,
+                                on_message=self._on_message,
+                                on_error=self._on_error,
+                                on_close=self._on_close,
+                            )
+                            # Keepalive (avoid CF idle closes)
+                            self._ws.run_forever(
+                                ping_interval=20,
+                                ping_timeout=10,
+                                ping_payload="keepalive",
+                            )
+                except Exception as e:
+                    logging.warning("[WS] run_forever error: %s", e)
+
+                if self._stop.is_set():
+                    break
+                # reconnect with backoff
+                time.sleep(backoff)
+                backoff = min(backoff * 1.5, 30.0)
 
         def stop(self):
             self.running = False
@@ -376,39 +410,7 @@ else:
         logging.info("[WS] Disconnected - code=%s reason=%s", code, reason)
         self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
-    def _run_loop(self):
-        backoff = 1.0
-        while not self._stop.is_set():
-            try:
-                # WebSocket connection uses ONLY the required Origin headers and subprotocols
-                # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
-                if websocket:
-                    # Use getattr to safely access WebSocketApp
-                    WebSocketApp = getattr(websocket, 'WebSocketApp', None)
-                    if WebSocketApp:
-                        self._ws = WebSocketApp(
-                            BIRDEYE_WS_URL,
-                            header=WS_HEADERS,
-                            subprotocols=WS_SUBPROTOCOLS,
-                            on_open=self._on_open,
-                            on_message=self._on_message,
-                            on_error=self._on_error,
-                            on_close=self._on_close,
-                        )
-                        # Keepalive (avoid CF idle closes)
-                        self._ws.run_forever(
-                            ping_interval=20,
-                            ping_timeout=10,
-                            ping_payload="keepalive",
-                        )
-            except Exception as e:
-                logging.warning("[WS] run_forever error: %s", e)
 
-            if self._stop.is_set():
-                break
-            # reconnect with backoff
-            time.sleep(backoff)
-            backoff = min(backoff * 1.5, 30.0)
 
     # ===== Debug helpers (called from app.py) =====
     def set_debug(self, on: bool):
