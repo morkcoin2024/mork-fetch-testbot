@@ -575,16 +575,21 @@ def webhook():
                                 single_response = f"🎯 F.E.T.C.H scan failed: {str(e)[:50]}..."
                         elif text.strip() == "/fetch_now":
                             try:
-                                import data_fetcher
-                                # Use the actual function name from data_fetcher
-                                if hasattr(data_fetcher, 'fetch_candidates_from_pumpfun'):
-                                    results = data_fetcher.fetch_candidates_from_pumpfun(limit=50)
-                                    count = len(results) if isinstance(results, list) else 0
-                                    single_response = f"⚡ Manual fetch: {count} tokens found"
+                                # Use the comprehensive multi-source fetch command
+                                from alerts.telegram import cmd_fetch_now_sync
+                                result_text = cmd_fetch_now_sync()
+                                if result_text and result_text.strip():
+                                    # Extract just the summary for multi-command response
+                                    lines = result_text.split('\n')
+                                    summary_line = next((line for line in lines if 'tokens' in line and ('multi-source' in line or 'found' in line)), None)
+                                    if summary_line:
+                                        single_response = f"⚡ {summary_line.strip()}"
+                                    else:
+                                        single_response = "⚡ Comprehensive fetch completed"
                                 else:
-                                    single_response = "⚡ Manual fetch: Data fetcher available"
+                                    single_response = "⚡ No candidates found from multi-source fetch"
                             except Exception as e:
-                                single_response = f"⚡ Manual fetch failed: {str(e)[:50]}..."
+                                single_response = f"⚡ Fetch failed: {str(e)[:50]}..."
                         elif text.strip() == "/ping":
                             single_response = "🎯 Pong!"
                         elif text.strip() == "/solscanstats":
