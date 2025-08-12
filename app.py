@@ -675,10 +675,10 @@ Admin router with comprehensive logging active.'''
                         pid = os.getpid()
                         process = psutil.Process(pid)
                         memory_mb = process.memory_info().rss / 1024 / 1024
-                        cpu_percent = process.cpu_percent()
+                        # Skip cpu_percent() as it requires measurement time and causes delay
                         
-                        # Ultra-simple format to avoid Telegram errors
-                        response_text = f"System Info: PID {pid}, Memory {memory_mb:.1f}MB, CPU {cpu_percent:.1f}%, Python {sys.version.split()[0]}, {psutil.cpu_count()} cores, {psutil.virtual_memory().total / 1024 / 1024 / 1024:.1f}GB total memory"
+                        # Ultra-fast format for immediate response like /ping
+                        response_text = f"System: PID {pid}, Memory {memory_mb:.1f}MB, Python {sys.version.split()[0]}, {psutil.cpu_count()} cores, {psutil.virtual_memory().total / 1024 / 1024 / 1024:.1f}GB RAM"
                     except Exception as e:
                         response_text = f"whoami_sys error: {e}"
                 elif text.strip().startswith("/whoami"):
