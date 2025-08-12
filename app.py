@@ -1689,6 +1689,32 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         except Exception as e:
                             response_text = f"❌ Solscan status failed: {e}"
 
+                # --- Admin: Process Diagnostic --------------------------------------------------
+                elif text.strip().startswith("/diag"):
+                    logger.info("[WEBHOOK] Routing /diag")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        import os
+                        scanner_keys = list(SCANNERS.keys()) if 'SCANNERS' in globals() else []
+                        solscan_info = {}
+                        if 'SCANNERS' in globals() and 'solscan' in SCANNERS:
+                            scanner = SCANNERS['solscan']
+                            solscan_info = {
+                                "enabled": scanner.enabled,
+                                "running": scanner.running,
+                                "object_id": id(scanner)
+                            }
+                        
+                        response_text = (
+                            f"🔍 *Process Diagnostic*\n"
+                            f"FEATURE_SOLSCAN={os.getenv('FEATURE_SOLSCAN', 'off')}\n"
+                            f"SOLSCAN_API_KEY len={len(os.getenv('SOLSCAN_API_KEY', ''))}\n"
+                            f"pid={os.getpid()}\n"
+                            f"SCANNERS keys={scanner_keys}\n"
+                            f"solscan: enabled={solscan_info.get('enabled')}, running={solscan_info.get('running')}, id={solscan_info.get('object_id')}"
+                        )
+
                 # --- Admin: Solscan status --------------------------------------------------
                 elif text.strip().startswith("/solscanstats"):
                     logger.info("[WEBHOOK] Routing /solscanstats")
