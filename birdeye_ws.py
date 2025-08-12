@@ -443,6 +443,16 @@ else:
             self._debug_mode = bool(on)
             self._log(f"debug mode -> {self._debug_mode}")
 
+        def injectdebugevent(self, payload: dict):
+            """Allow /ws_probe to inject a synthetic event into the debug cache."""
+            try:
+                self._log(f"probe inject: {payload}")
+                self._debug_cache.append(f"inject {payload}")
+                return True
+            except Exception as e:
+                self._log(f"probe inject failed: {e}", level="error")
+                return False
+
     # ===== Debug helpers (called from app.py) =====
     def set_debug_legacy(self, on: bool):
         """Enable/disable debug mode with rate-limited message forwarding"""
@@ -480,16 +490,7 @@ else:
         })
         logging.info("[WS] injected synthetic debug event")
 
-        # --- New helpers expected by /ws_* commands ---
-        def injectdebugevent(self, payload: dict):
-            """Allow /ws_probe to inject a synthetic event into the debug cache."""
-            try:
-                self._log(f"probe inject: {payload}")
-                self._debug_cache.append(f"inject {payload}")
-                return True
-            except Exception as e:
-                self._log(f"probe inject failed: {e}", level="error")
-                return False
+
 
 # singleton helper
 _ws_singleton = None
