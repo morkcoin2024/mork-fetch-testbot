@@ -205,47 +205,9 @@ if SCANNER:
     t = threading.Thread(target=_scanner_thread, daemon=True)
     t.start()
 
-# Ensure additional scanners are registered in SCANNERS registry
-def _ensure_scanners():
-    """Ensure Jupiter and Solscan scanners are created and registered"""
-    global SCANNERS
-    # Avoid duplicates
-    if "jupiter" not in SCANNERS:
-        SCANNERS["jupiter"] = JupiterScan(notify_fn=_notify_tokens, interval_sec=int(os.getenv("SCAN_INTERVAL_SEC","8")))
-        logger.info("Jupiter scanner registered in SCANNERS registry")
-    if "solscan" not in SCANNERS:
-        SCANNERS["solscan"] = SolscanScan(notify_fn=_notify_tokens, interval_sec=int(os.getenv("SCAN_INTERVAL_SEC","8")))
-        logger.info("Solscan scanner registered in SCANNERS registry")
+# Remove duplicate scanner registration - already handled in _init_scanners()
 
-# Ensure scanners are in registry on boot
-_ensure_scanners()
-
-# Auto-start Jupiter scanner if enabled
-try:
-    if JUPITER_SCANNER and JUPITER_SCANNER.enabled:
-        JUPITER_SCANNER.start()
-        logger.info("Jupiter scanner auto-started on boot")
-    elif "jupiter" in SCANNERS and SCANNERS["jupiter"].enabled:
-        SCANNERS["jupiter"].start()
-        logger.info("Jupiter scanner auto-started from registry")
-except Exception as e:
-    logger.warning(f"Jupiter auto-start failed: {e}")
-
-# Auto-start Solscan scanner if enabled (has API key and feature flag)
-try:
-    if SOLSCAN_SCANNER and SOLSCAN_SCANNER.enabled:
-        SOLSCAN_SCANNER.start()
-        logger.info("Solscan scanner auto-started on boot")
-    elif "solscan" in SCANNERS and SCANNERS["solscan"].enabled:
-        SCANNERS["solscan"].start() 
-        logger.info("Solscan scanner auto-started from registry")
-    else:
-        if SOLSCAN_SCANNER or ("solscan" in SCANNERS):
-            logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
-        else:
-            logger.info("Solscan scanner not initialized")
-except Exception as e:
-    logger.warning(f"Solscan auto-start failed: {e}")
+# Auto-start scanners - already handled in _init_scanners()
 
 # subscribe to publish Birdeye hits to Telegram
 def _on_new(evt):

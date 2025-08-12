@@ -98,14 +98,23 @@ class SolscanScanner:
             "base_url": self.base_url
         }
     
-    def fetch_new_tokens(self, count: int = 10) -> List[Dict[str, Any]]:
-        """Fetch new tokens for status/sample display"""
+    def tick(self) -> tuple[int, int]:
+        """Scanner tick method for main scanning loop integration"""
+        if not self._running:
+            return 0, 0
+        
         try:
-            tokens = self.tick()
-            return tokens[:count] if tokens else []
+            tokens = self.fetch_new_tokens()
+            new_count = 0
+            for token in tokens:
+                addr = token.get('address', '')
+                if addr and addr not in self.seen:
+                    self.seen.add(addr)
+                    new_count += 1
+            return len(tokens), new_count
         except Exception as e:
-            log.warning("[SOLSCAN] fetch_new_tokens error: %r", e)
-            return []
+            log.warning("[SOLSCAN] tick error: %r", e)
+            return 0, 0
 
     # --- core fetch ----------------------------------------------------------
     def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
