@@ -165,13 +165,18 @@ def _ensure_scanners():
     """Ensure scanners are initialized in this worker process."""
     global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
     
+    current_pid = os.getpid()
+    logger.info(f"[INIT] _ensure_scanners called in PID={current_pid}, existing SCANNERS keys: {list(SCANNERS.keys())}")
+    
     # Check if already initialized
     if SOLSCAN_SCANNER is not None and SCANNERS:
+        logger.info(f"[INIT] Scanners already initialized in PID={current_pid}")
         return
     
     try:
         _init_scanners()
-        logger.info("Scanners initialized in worker process")
+        logger.info(f"[INIT] Scanners initialized in worker process PID={current_pid}")
+        
         # Ensure SCANNERS registry is populated after initialization
         SCANNERS = {
             'birdeye': SCANNER,
@@ -180,9 +185,15 @@ def _ensure_scanners():
             'dexscreener': DS_SCANNER,
             'websocket': ws_client
         }
-        logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
+        
+        # Enhanced logging for Solscan specifically
+        if SOLSCAN_SCANNER:
+            logger.info(f"[INIT][SOLSCAN] Worker PID={current_pid}, object={SOLSCAN_SCANNER}, enabled={getattr(SOLSCAN_SCANNER, 'enabled', 'UNKNOWN')}, running={getattr(SOLSCAN_SCANNER, 'running', 'UNKNOWN')}")
+        
+        logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
+        
     except Exception as e:
-        logger.error(f"Scanner initialization failed in worker: {e}")
+        logger.error(f"Scanner initialization failed in worker PID={current_pid}: {e}")
         # Continue without scanners if initialization fails
         SCANNER = None
         JUPITER_SCANNER = None 
@@ -393,6 +404,15 @@ def debug_scanners():
         "solscan_enabled": getattr(SCANNERS.get("solscan", None), "enabled", None)
     })
 
+@app.route('/debug_pid', methods=['GET'])
+def debug_pid():
+    """Simple PID endpoint for process debugging"""
+    return jsonify({
+        "webhook_pid": os.getpid(),
+        "scanners_count": len(SCANNERS),
+        "has_solscan": "solscan" in SCANNERS
+    })
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
@@ -401,6 +421,9 @@ def webhook():
     timestamp = time.time()
     print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
     app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
+    
+    # Ensure scanners are initialized in this worker process
+    _ensure_scanners()
     
     try:
         # Import publish at function level to avoid import issues
