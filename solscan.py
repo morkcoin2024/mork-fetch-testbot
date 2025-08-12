@@ -10,7 +10,12 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 
-log = logging.getLogger(__name__)
+# Use root logger to ensure logs appear in /a_logs_tail ring buffer
+log = logging.getLogger()
+# Also ensure any named logger propagates to root
+_named_log = logging.getLogger("solscan")
+_named_log.propagate = True
+_named_log.setLevel(logging.INFO)
 
 _DEFAULT_BASE = os.getenv("SOLSCAN_BASE_URL", "https://pro-api.solscan.io")
 _TIMEOUT = 12.0
@@ -104,7 +109,7 @@ class SolscanScanner:
         if not self._running:
             return 0, 0
         
-        log.info("[SOLSCAN] tick")
+        log.info("[SOLSCAN] tick base=%s seen=%d", self.base_url, len(self.seen))
         try:
             tokens = self.fetch_new_tokens()
             new_count = 0
