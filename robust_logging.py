@@ -24,21 +24,26 @@ def setup_robust_logging():
     """Set up robust logging with file rotation and ring buffer"""
     global _ring_buffer_handler
     
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    # Get ROOT logger for capturing all named loggers (including solscan)
+    ROOT = logging.getLogger()
+    ROOT.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     # Attach file handler once
-    if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+    if not any(isinstance(h, RotatingFileHandler) for h in ROOT.handlers):
         fh = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
         fh.setFormatter(fmt)
-        root.addHandler(fh)
+        ROOT.addHandler(fh)
 
-    # Attach ring buffer handler once
-    if not any(isinstance(h, RingBufferHandler) for h in root.handlers):
+    # Attach ring buffer handler to ROOT logger once (captures all named loggers)
+    if not any(isinstance(h, RingBufferHandler) for h in ROOT.handlers):
         _ring_buffer_handler = RingBufferHandler(capacity=12000)
         _ring_buffer_handler.setFormatter(fmt)
-        root.addHandler(_ring_buffer_handler)
+        ROOT.addHandler(_ring_buffer_handler)
+    
+    # Ensure ring buffer handler is attached to ROOT logger
+    if _ring_buffer_handler and not any(h is _ring_buffer_handler for h in ROOT.handlers):
+        ROOT.addHandler(_ring_buffer_handler)
 
     logging.info("Boot logging ready: file=%s + ring-buffer", LOG_FILE)
 
