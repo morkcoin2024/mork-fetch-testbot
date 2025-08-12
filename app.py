@@ -1208,9 +1208,17 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     
                     try:
+                        # Set fast mode to avoid webhook timeouts
+                        import os
+                        os.environ['SOLSCAN_FAST_MODE'] = '1'
+                        
                         # Import the command function from alerts.telegram
                         from alerts.telegram import cmd_fetch_now_sync
                         result_text = cmd_fetch_now_sync()
+                        
+                        # Clear fast mode
+                        if 'SOLSCAN_FAST_MODE' in os.environ:
+                            del os.environ['SOLSCAN_FAST_MODE']
                         
                         if not result_text or not result_text.strip():
                             result_text = "No candidates found (multi-source fetch_now returned empty)."
