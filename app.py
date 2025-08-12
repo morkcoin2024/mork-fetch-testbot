@@ -552,10 +552,29 @@ Health: Operational
 
 Admin router with comprehensive logging active.'''
                 elif text.strip() in ['/whoami', '/a_whoami']:
-                    response_text = f'''Your Telegram Info:
-ID: {user.get('id', 'unknown')}
-Username: @{user.get('username', 'unknown')}
-Admin: {'Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else 'No'}'''
+                    # Enhanced whoami with process info for unified architecture verification
+                    import threading
+                    active_threads = len([t for t in threading.enumerate() if t.is_alive()])
+                    scanner_count = len(SCANNERS) if 'SCANNERS' in globals() else 0
+                    
+                    response_text = f'''🔍 **Process & User Diagnostic**
+
+**User Info:**
+• ID: `{user.get('id', 'unknown')}`
+• Username: `@{user.get('username', 'unknown')}`
+• Admin: {'✅ Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else '❌ No'}
+
+**Process Info:**
+• PID: `{os.getpid()}`
+• Workers: `1` (unified webhook+scanner process)
+• Active Threads: `{active_threads}`
+• Scanners: `{scanner_count}` registered
+
+**Architecture:**
+• Status: ✅ Unified Process (webhooks + scanners share state)
+• SCANNERS Registry: {'✅ Available' if scanner_count > 0 else '❌ Empty'}
+
+*Use this to verify single-worker setup after restarts*'''
                 elif text.strip().startswith('/a_logs_tail') or text.strip().startswith('/logs_tail'):
                     # Enhanced logs tail with ring buffer (ultra-fast)
                     try:

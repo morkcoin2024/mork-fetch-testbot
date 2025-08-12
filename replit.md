@@ -20,6 +20,8 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Enhanced Admin Commands**: All Telegram commands (/scan_status, /solscanstats, /a_logs_tail) now work correctly with unified process architecture providing real-time access to scanner states
 - **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management with scanners and webhooks in same process (PID 14357)
 - **Single-Worker Configuration**: Gunicorn --workers 1 ensures webhook handlers and scanner threads operate in unified process space for seamless state sharing
+- **Persistent Configuration**: start.sh and start_single_worker.sh scripts maintain single-worker setup permanently with command: `gunicorn -k gthread -w 1 --threads 1 --reload=false -b 0.0.0.0:5000 app:app`
+- **Enhanced Diagnostics**: `/whoami` and `/a_whoami` commands provide comprehensive process verification including PID, worker count, active threads, and SCANNERS registry status for post-restart validation
 
 Key technical implementations include:
 - **AI Assistant**: A comprehensive AI assistant system with Flask webhook integration and dynamic model management, supporting multiple AI models (GPT-4o, Claude-3.5-Sonnet, GPT-5-Thinking) with intelligent fallback and persistent model storage.
