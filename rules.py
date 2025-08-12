@@ -1,99 +1,65 @@
 # rules.py
-import logging, yaml
-from pathlib import Path
-from typing import Dict, Any, Tuple
+import yaml, time, os
+from dataclasses import dataclass
 
-RULES_PATH = Path("rules.yaml")
-_cache: Dict[str, Any] = {"data": None, "mtime": None, "version": None}
+_RULES_PATH = os.getenv("RULES_PATH", "rules.yaml")
+_RULES = None
+_RULES_MTIME = 0
 
-DEFAULT_RULES = """version: 1
-updated_at: "2025-08-10T00:00:00Z"
-network: solana
-sources: [pump.fun, dexscreener, jup.ag]
-scan:
-  max_age_minutes: 180
-  holders_min: 75
-  holders_max: 5000
-  mcap_min_usd: 50000
-  mcap_max_usd: 2000000
-  liquidity_min_usd: 10000
-  renounced_mint_auth: true
-  renounced_freeze_auth: true
-  blacklist_contracts: []
-  include_keywords: []
-  exclude_keywords: [rug, scam]
-risk:
-  max_score: 70
-  weights: {age: 0.2, holders: 0.2, liquidity: 0.25, mcap: 0.25, renounce: 0.1}
-output:
-  max_results: 10
-  columns: [symbol, name, holders, mcap_usd, liquidity_usd, age_min, risk]
-"""
-
-def ensure_default_rules():
-    if not RULES_PATH.exists():
-        RULES_PATH.write_text(DEFAULT_RULES, encoding="utf-8")
-        logging.info("[RULES] Created default rules.yaml")
-
-def _validate(d: Dict[str, Any]) -> Tuple[bool, str]:
-    # Support both old format (version, network, scan, risk, output) and new simplified format
-    if "version" in d and "network" in d:
-        # Old format validation
-        for k in ["version", "network", "scan", "risk", "output"]:
-            if k not in d:
-                return False, f"Missing key: {k}"
-    else:
-        # New simplified format validation
-        required_keys = ["min_liq_usd", "min_holders", "max_age_min", "min_mcap_usd", "risk"]
-        for k in required_keys:
-            if k not in d:
-                return False, f"Missing key: {k}"
-        # Validate risk sub-object
-        if not isinstance(d.get("risk"), dict):
-            return False, "risk must be an object"
-    return True, "ok"
-
-def load_rules(force: bool=False) -> Dict[str, Any]:
-    ensure_default_rules()
-    m = RULES_PATH.stat().st_mtime
-    if not force and _cache["data"] is not None and _cache["mtime"] == m:
-        return _cache["data"]
-    data = yaml.safe_load(RULES_PATH.read_text(encoding="utf-8")) or {}
-    ok, msg = _validate(data)
-    if not ok:
-        raise ValueError(f"rules.yaml invalid: {msg}")
-    
-    # Normalize data format for backward compatibility
-    if "version" not in data:
-        # Convert new simplified format to expected structure
-        normalized = {
-            "version": "simplified",
-            "network": "solana",
-            "scan": {
-                "max_age_minutes": data.get("max_age_min", 60),
-                "holders_min": data.get("min_holders", 50),
-                "mcap_min_usd": data.get("min_mcap_usd", 10000),
-                "liquidity_min_usd": data.get("min_liq_usd", 5000),
-                "renounced_mint_auth": not data.get("risk", {}).get("allow_mint", True),
-                "renounced_freeze_auth": not data.get("risk", {}).get("allow_freeze", True),
-            },
-            "risk": data.get("risk", {}),
-            "output": {"max_results": 10}
-        }
-        data = normalized
-    
-    _cache.update({"data": data, "mtime": m, "version": data.get("version")})
-    logging.info("[RULES] Loaded (v%s)", data.get("version"))
-    return data
-
-def render_rules() -> str:
+def load_rules(force=False):
+    global _RULES, _RULES_MTIME
     try:
-        txt = RULES_PATH.read_text(encoding="utf-8")
-        return txt if len(txt) < 3800 else txt[:3700] + "\n…(truncated)…"
-    except Exception as e:
-        return f"# rules.yaml read error: {e}"
+        st = os.stat(_RULES_PATH)
+        if force or st.st_mtime != _RULES_MTIME or _RULES is None:
+            with open(_RULES_PATH, "r") as f:
+                _RULES = yaml.safe_load(f) or {}
+            _RULES_MTIME = st.st_mtime
+    except FileNotFoundError:
+        _RULES = {}
+    return _RULES
 
-def get_rules_version() -> str:
-    if _cache["version"] is None:
-        load_rules()
-    return str(_cache["version"])
+@dataclass
+class RuleResult:
+    passed: bool
+    reasons: list
+    snapshot: dict
+
+def _bool(v, default=False):
+    if v is None: return default
+    return bool(v)
+
+def check_token(token:dict) -> RuleResult:
+    """
+    token fields expected (normalized):
+      mint, symbol, name, source, ts
+      age_min, liq_usd, mcap_usd, holders
+      risk: {freeze, mint, blacklist, renounced}
+    """
+    R = load_rules()
+    reasons = []
+
+    liq_ok = (token.get("liq_usd") or 0) >= (R.get("min_liq_usd") or 0)
+    if not liq_ok: reasons.append(f"liq_usd<{R.get('min_liq_usd')}")
+
+    holders_ok = (token.get("holders") or 0) >= (R.get("min_holders") or 0)
+    if not holders_ok: reasons.append(f"holders<{R.get('min_holders')}")
+
+    mcap_ok = (token.get("mcap_usd") or 0) >= (R.get("min_mcap_usd") or 0)
+    if not mcap_ok: reasons.append(f"mcap_usd<{R.get('min_mcap_usd')}")
+
+    age_ok = (token.get("age_min") or 9e9) <= (R.get("max_age_min") or 9e9)
+    if not age_ok: reasons.append(f"age_min>{R.get('max_age_min')}")
+
+    risk = token.get("risk") or {}
+    risk_cfg = (R.get("risk") or {})
+    if not _bool(risk_cfg.get("allow_freeze"), False) and _bool(risk.get("freeze"), False):
+        reasons.append("risk.freeze")
+    if not _bool(risk_cfg.get("allow_mint"), False) and _bool(risk.get("mint"), False):
+        reasons.append("risk.mint")
+    if not _bool(risk_cfg.get("allow_blacklist"), False) and _bool(risk.get("blacklist"), False):
+        reasons.append("risk.blacklist")
+    if _bool(risk_cfg.get("allow_renounce_only"), True) and not _bool(risk.get("renounced"), False):
+        reasons.append("risk.not_renounced")
+
+    passed = len(reasons) == 0
+    return RuleResult(passed, reasons, {"rules": R, "token": token})
