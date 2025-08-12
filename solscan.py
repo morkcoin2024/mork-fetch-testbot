@@ -76,7 +76,7 @@ class SolscanScanner:
     def start(self) -> None:
         log.info("[SOLSCAN] start called; enabled=%s", self.enabled)
         self._running = True
-        log.info("[SOLSCAN] started base=%s keylen=%d", self.base_url, len(self.api_key or ""))
+        log.info("[SOLSCAN] started base=%s keylen=%d", self.base_url, len(self.key or ""))
 
     def stop(self) -> None:
         self._running = False
@@ -123,7 +123,7 @@ class SolscanScanner:
             return 0, 0
         
         self._last_tick_ts = time.time()
-        log.info("[SOLSCAN] tick base=%s seen=%d", self.base_url, len(self.seen))
+        log.info("[SOLSCAN] tick")
         try:
             tokens = self.fetch_new_tokens()
             new_count = 0
@@ -212,7 +212,8 @@ class SolscanScanner:
                     else:
                         self._requests_err += 1
                         self._last_status_code = r.status_code
-                        log.warning("[SOLSCAN] %s status=%s body=%s", path, r.status_code, r.text[:240])
+                        safe_body = r.text[:240] if r.text else ""
+                        log.warning("[SOLSCAN] %s status=%s body=%s", path, r.status_code, safe_body)
                         if r.status_code == 401 or r.status_code == 403:
                             self._last_err = {"when": time.time(), "code": r.status_code, "path": path}
                             # auth issues won't improve by trying other paths — bail fast
