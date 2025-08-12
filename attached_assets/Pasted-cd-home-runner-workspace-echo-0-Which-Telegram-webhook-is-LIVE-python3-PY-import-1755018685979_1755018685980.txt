@@ -1,0 +1,60 @@
+cd /home/runner/workspace
+
+echo "=== 0) Which Telegram webhook is LIVE? ==="
+python3 - <<'PY'
+import os, json, urllib.request
+token = os.getenv("TELEGRAM_BOT_TOKEN","")
+if not token:
+    print("!! TELEGRAM_BOT_TOKEN missing"); raise SystemExit(1)
+with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getWebhookInfo") as r:
+    info = json.load(r)
+print(json.dumps(info, indent=2))
+PY
+
+echo
+echo "=== 1) Show gunicorn worker (we want a SINGLE worker) ==="
+ps -o pid,ppid,etimes,command -C gunicorn || true
+
+echo
+echo "=== 2) Force BirdeyeWS to start with Birdeye headers + x-api-key URL and mark logs ==="
+python3 - <<'PY'
+import os, time, logging
+import app  # imports the running Flask+scanners process
+ws = app.SCANNERS.get("websocket")
+print("WS object in SCANNERS:", type(ws).__name__ if ws else None, "pid=", os.getpid())
+if not ws: raise SystemExit("No 'websocket' in SCANNERS")
+
+# Show the connection config the instance will use
+print("WS url:", getattr(ws, "url", None))
+print("API key set:", bool(getattr(ws, "api_key", "")))
+
+# Enable verbose, start, wait a bit
+if hasattr(ws, "set_debug"): ws.set_debug(True)
+if hasattr(ws, "start"): ws.start()
+time.sleep(6)
+
+status = ws.status()
+print("STATUS AFTER START:", status)
+
+# Write an unmistakable line into the SAME logger the bot exposes
+logging.getLogger().info("[WS] TEST_MARK pid=%s connected=%s recv=%s",
+                         os.getpid(), status.get("connected"), status.get("recv"))
+PY
+
+echo
+echo "=== 3) Ask the SAME process via webhook to report /ws_status (use the LIVE webhook URL above) ==="
+# Replace <WEBHOOK_URL_FROM_STEP0> with the exact "url" returned in step 0:
+WH="<WEBHOOK_URL_FROM_STEP0>"
+curl -sS "$WH" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/ws_status"}}'
+echo
+
+echo
+echo "=== 4) Tail the app log for our TEST_MARK and any [WS] lines ==="
+if [ -f logs/app.log ]; then
+  grep -n "\[WS\]" logs/app.log | tail -n 80 || true
+else
+  echo "No logs/app.log found. Listing logs dir:"
+  ls -la logs/ || true
+fi
