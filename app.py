@@ -75,18 +75,15 @@ def handle_wallet_balance(uid: int):
 
 def handle_bus_test():
     """Test event bus integration with synthetic NEW_TOKEN event"""
-    try:
-        test_token = {
-            "mint": f"test{int(time.time())}",
-            "symbol": "TEST",
-            "name": "Test Token",
-            "source": "bus_test",
-            "timestamp": int(time.time())
-        }
-        publish("NEW_TOKEN", test_token)
-        return f"Event bus test completed. Published synthetic NEW_TOKEN event for {test_token['symbol']}."
-    except Exception as e:
-        return f"Event bus test failed: {str(e)}"
+    if not BUS: 
+        return "Event bus not available."
+    BUS.publish("NEW_TOKEN", {
+        "source":"synthetic","symbol":"TEST","name":"Synthetic Token",
+        "mint":"TestMint11111111111111111111111111111111111",
+        "holders":123,"mcap_usd":123456,"liquidity_usd":98765,
+        "age_min":1.2,"risk":12.3,"links":{}
+    })
+    return "Published NEW_TOKEN (synthetic)."
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
