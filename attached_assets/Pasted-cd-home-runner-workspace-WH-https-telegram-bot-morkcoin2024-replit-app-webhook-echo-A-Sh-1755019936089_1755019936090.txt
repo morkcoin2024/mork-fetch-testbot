@@ -1,0 +1,88 @@
+cd /home/runner/workspace
+WH="https://telegram-bot-morkcoin2024.replit.app/webhook"
+
+echo "=== A) Show effective WS config from the running app ==="
+python3 - <<'PY'
+import app, json, inspect
+ws = app.SCANNERS.get("websocket")
+print("Have WS:", bool(ws))
+if ws:
+    print("status:", ws.status())
+    print("url:", getattr(ws, "url", None))
+    # Try to read currently configured headers if exposed
+    for name in ("_headers","headers","_handshake_headers"):
+        if hasattr(ws, name):
+            print(f"{name}:", getattr(ws, name))
+            break
+    print("connect fn source (first 40 lines):")
+    src = inspect.getsource(type(ws).connect) if hasattr(type(ws), "connect") else "<no connect()>"
+    print("\n".join(src.splitlines()[:40]))
+PY
+echo
+
+echo "=== B) Standalone handshake PROBE with Birdeye-required headers ==="
+python3 - <<'PY'
+import asyncio, os, ssl, json
+import websockets
+
+URL = f"wss://public-api.birdeye.so/socket?x-api-key={os.getenv('BIRDEYE_API_KEY','')}"
+REQ_HEADERS = {
+    "Origin": "ws://public-api.birdeye.so",
+    "Sec-WebSocket-Origin": "ws://public-api.birdeye.so",
+}
+print("Probe URL:", URL)
+print("Probe headers:", REQ_HEADERS)
+
+async def main():
+    try:
+        sslctx = ssl.create_default_context()
+        async with websockets.connect(
+            URL,
+            additional_headers=REQ_HEADERS,
+            subprotocols=["echo-protocol"],
+            ssl=sslctx,
+            ping_interval=20,
+            ping_timeout=10,
+        ) as ws:
+            print("✅ PROBE connected")
+            sub = {"type":"subscribe","topic":"token.created","chain":"solana"}
+            await ws.send(json.dumps(sub))
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=8.0)
+                print("✅ PROBE got message:", (msg[:120] + "...") if isinstance(msg,str) else type(msg))
+            except asyncio.TimeoutError:
+                print("⚠️ PROBE no message within 8s (still connected)")
+            return 0
+    except Exception as e:
+        print("❌ PROBE failed:", repr(e))
+        return 1
+
+raise SystemExit(asyncio.run(main()))
+PY
+echo
+
+echo "=== C) If PROBE succeeded or headers differ, patch birdeye_ws.py to use Birdeye’s exact header set ==="
+# Show current snippet first
+nl -ba birdeye_ws.py | sed -n '1,220p' | sed -n '1,220p' | grep -nE "websockets\.connect|additional_headers|subprotocols|public-api\.birdeye\.so|x-api-key" || true
+
+# No automatic write here; just tell us what to change based on the probe result.
+echo
+echo "=== D) Restart WS cleanly and verify live connection ==="
+curl -sS "$WH" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781},"text":"/ws_debug on"}}' >/dev/null
+curl -sS "$WH" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781},"text":"/ws_stop"}}' >/dev/null
+sleep 2
+curl -sS "$WH" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781},"text":"/ws_start"}}' >/dev/null
+sleep 8
+echo "- /ws_status ->"
+curl -sS "$WH" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781},"text":"/ws_status"}}'
+echo
+echo "- last 40 [WS] lines ->"
+if [ -f logs/app.log ]; then grep -n "\[WS\]" logs/app.log | tail -n 40 || true; else echo "no logs/app.log"; fi
+echo
+echo "=== E) One-shot 30s tap for visible proof in chat ==="
+curl -sS "$WH" -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781},"text":"/ws_tap on 30"}}' ; echo

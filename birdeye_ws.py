@@ -209,19 +209,72 @@ else:
             
         def _run_loop(self):
             self._log("WebSocket run loop starting")
-            if not websocket_available:
+            if not websockets:
                 self._log("WebSocket library not available", level="error")
                 return
                 
-            # Run async WebSocket in this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # Use the same approach that works in standalone test
             try:
-                loop.run_until_complete(self._async_ws_loop())
+                self._log("Setting up clean asyncio environment")
+                
+                # Create fresh event loop (like standalone test)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._log("Event loop created and set for WebSocket thread")
+                
+                # Run a simple connection test first
+                test_result = loop.run_until_complete(self._test_connection())
+                if test_result:
+                    self._log("Connection test passed, starting main loop")
+                    loop.run_until_complete(self._async_ws_loop())
+                else:
+                    self._log("Connection test failed, aborting", level="error")
+                    
             except Exception as e:
-                self._log(f"AsyncIO loop error: {e}", level="error")
+                self._log(f"Thread error: {type(e).__name__}: {e}", level="error")
+                import traceback
+                self._log(f"Full traceback: {traceback.format_exc()}", level="error")
             finally:
-                loop.close()
+                try:
+                    loop = asyncio.get_event_loop()
+                    if not loop.is_closed():
+                        loop.close()
+                    self._log("Event loop closed cleanly")
+                except Exception as e:
+                    self._log(f"Error closing loop: {e}", level="warning")
+        
+        async def _test_connection(self):
+            """Quick connection test using same logic as standalone test"""
+            try:
+                self._log("Running connection test...")
+                headers = {
+                    "Origin": "ws://public-api.birdeye.so",
+                    "Sec-WebSocket-Origin": "ws://public-api.birdeye.so",
+                }
+                
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                
+                async with websockets.connect(
+                    self.url,
+                    additional_headers=headers,
+                    subprotocols=["echo-protocol"],
+                    ssl=ssl_context,
+                    open_timeout=5,
+                    ping_interval=None,
+                ) as ws:
+                    self._log("✅ Connection test successful!")
+                    try:
+                        await asyncio.wait_for(ws.recv(), timeout=3.0)
+                        self._log("✅ Message received in test!")
+                        return True
+                    except asyncio.TimeoutError:
+                        self._log("⚠️ No message in test (but connected)")
+                        return True
+            except Exception as e:
+                self._log(f"❌ Connection test failed: {type(e).__name__}: {e}", level="error")
+                return False
 
         async def _async_ws_loop(self):
             backoff = 1.0
@@ -229,40 +282,51 @@ else:
                 try:
                     # Build headers with WebSocket-specific auth (URL-based auth, minimal headers)
                     headers = {
-                        "Origin": "https://public-api.birdeye.so",
+                        "Origin": "ws://public-api.birdeye.so",
+                        "Sec-WebSocket-Origin": "ws://public-api.birdeye.so",
                         "User-Agent": "Mork-FETCH-Bot/1.0",
                     }
                     
-                    self._log("Starting WebSocket connection with required headers")
+                    self._log(f"Starting WebSocket connection to {self.url}")
+                    self._log(f"Using headers: {headers}")
                     
                     # Connect with SSL context and headers
                     ssl_context = ssl.create_default_context()
                     ssl_context.check_hostname = False
                     ssl_context.verify_mode = ssl.CERT_NONE
                     
-                    async with websockets.connect(
-                        self.url,
-                        additional_headers=headers,
-                        subprotocols=["echo-protocol"],
-                        ssl=ssl_context,
-                        ping_interval=20,
-                        ping_timeout=10,
-                    ) as websocket:
-                        self._log("WebSocket connection established")
-                        self._on_open(websocket)
+                    self._log("Attempting websockets.connect...")
+                    try:
+                        # Add timeout wrapper to catch hanging connections
+                        websocket_future = websockets.connect(
+                            self.url,
+                            additional_headers=headers,
+                            subprotocols=["echo-protocol"],
+                            ssl=ssl_context,
+                            ping_interval=20,
+                            ping_timeout=10,
+                            open_timeout=8,
+                            close_timeout=5,
+                        )
                         
-                        # Keep connection alive and handle messages
-                        try:
-                            async for message in websocket:
-                                if self._stop.is_set():
-                                    break
-                                self._on_message(websocket, message)
-                        except websockets.exceptions.ConnectionClosed:
-                            self._log("WebSocket connection closed", level="warning")
-                        except Exception as e:
-                            self._log(f"Message handling error: {e}", level="warning")
-                        finally:
-                            self._on_close(websocket, None, None)
+                        async with await asyncio.wait_for(websocket_future, timeout=12.0) as websocket:
+                            self._log("WebSocket connection established")
+                            self._on_open(websocket)
+                            
+                            # Keep connection alive and handle messages
+                            try:
+                                async for message in websocket:
+                                    if self._stop.is_set():
+                                        break
+                                    self._on_message(websocket, message)
+                            except websockets.exceptions.ConnectionClosed:
+                                self._log("WebSocket connection closed", level="warning")
+                            except Exception as e:
+                                self._log(f"Message handling error: {e}", level="warning")
+                            finally:
+                                self._on_close(websocket, None, None)
+                    except Exception as e:
+                        self._log(f"WebSocket connect error: {type(e).__name__}: {e}", level="warning")
                             
                 except Exception as e:
                     self._log(f"WebSocket connection error: {e}", level="warning")
