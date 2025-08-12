@@ -1633,6 +1633,61 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             f"topics: {', '.join(topics)}"
                         )
 
+                elif text.strip().startswith("/ws_debug"):
+                    logger.info("[WEBHOOK] Routing /ws_debug")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        arg = text.split(maxsplit=1)[1].lower() if " " in text else "status"
+                        from birdeye_ws import get_ws
+                        ws = get_ws(publish=lambda *_: None, notify=lambda *_: None)
+                        if arg in ("on","true","1"):
+                            try:
+                                ws.set_debug(True)
+                                response_text = "🧪 WS debug: ON"
+                            except Exception as e:
+                                response_text = f"❌ WS debug on failed: {e}"
+                        elif arg in ("off","false","0"):
+                            try:
+                                ws.set_debug(False)
+                                response_text = "🧪 WS debug: OFF"
+                            except Exception as e:
+                                response_text = f"❌ WS debug off failed: {e}"
+                        else:
+                            response_text = f"🧪 WS debug: {getattr(ws,'_debug_mode', False)}"
+
+                elif text.strip().startswith("/ws_probe"):
+                    logger.info("[WEBHOOK] Routing /ws_probe")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        import time
+                        from birdeye_ws import get_ws
+                        ws = get_ws(publish=lambda *_: None, notify=lambda *_: None)
+                        ok = False
+                        try:
+                            ok = ws.injectdebugevent({"type":"probe","ts":time.time()})
+                        except Exception as e:
+                            response_text = f"❌ Debug probe error: {e}"
+                        if ok:
+                            response_text = "🧪 Probe injected"
+                        elif "response_text" not in locals():
+                            response_text = "❌ Probe failed"
+
+                elif text.strip().startswith("/ws_dump"):
+                    logger.info("[WEBHOOK] Routing /ws_dump")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        from birdeye_ws import get_ws
+                        ws = get_ws(publish=lambda *_: None, notify=lambda *_: None)
+                        try:
+                            lines = ws.getdebugcache()
+                            tail = "\n".join(lines[-20:]) if lines else "(empty)"
+                            response_text = f"🧾 WS debug cache (last {len(lines)}):\n{tail}"
+                        except Exception as e:
+                            response_text = f"❌ Debug dump error: {e}"
+
                 elif text.strip().startswith("/ws_mode"):
                     # /ws_mode all  or /ws_mode strict
                     logger.info("[WEBHOOK] Routing /ws_mode")
