@@ -364,10 +364,15 @@ class SolscanScanner:
                 
                 # If all auth schemes failed for this endpoint, try next endpoint
                 
-            # Small jittered backoff between attempts
-            sleep = backoff + random.random() * 0.4
-            time.sleep(sleep)
-            backoff *= 1.6
+            # Small jittered backoff between attempts (skip in fast mode)
+            if not os.getenv('SOLSCAN_FAST_MODE'):
+                sleep = backoff + random.random() * 0.4
+                time.sleep(sleep)
+                backoff *= 1.6
+            else:
+                # In fast mode, use minimal delays to avoid webhook timeouts
+                if attempt > 0:  # Only delay after first attempt
+                    time.sleep(0.1)
 
         self._last_err = {"when": time.time(), "code": "exhausted"}
         return []

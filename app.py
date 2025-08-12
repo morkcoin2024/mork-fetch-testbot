@@ -1208,56 +1208,54 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     
                     try:
-                        from data_fetcher import fetch_and_rank  # existing import path
-                        from rules import load_rules, get_rules_version  # same helper used elsewhere
-                        rules = load_rules()  # same helper used elsewhere
-                        rows = fetch_and_rank(rules)  # returns list
-                        if not rows:
-                            response_text = "No candidates found."
+                        # Webhook-friendly approach using active scanners
+                        scanner_data = []
+                        
+                        # Get data from active scanners
+                        if 'birdeye' in SCANNERS and SCANNERS['birdeye']:
+                            birdeye_scanner = SCANNERS['birdeye']
+                            if hasattr(birdeye_scanner, 'get_recent_tokens'):
+                                recent = birdeye_scanner.get_recent_tokens(limit=5)
+                                for token in recent:
+                                    scanner_data.append({
+                                        'source': 'birdeye',
+                                        'symbol': token.get('symbol', '?'),
+                                        'name': token.get('name', '?')[:15],
+                                        'address': token.get('address', '?')[:8] + '...'
+                                    })
+                        
+                        # Get data from Solscan if available
+                        if 'solscan' in SCANNERS and SCANNERS['solscan']:
+                            solscan_scanner = SCANNERS['solscan']
+                            if hasattr(solscan_scanner, 'get_trending_cache'):
+                                trending = solscan_scanner.get_trending_cache()[:3]
+                                for i, token in enumerate(trending):
+                                    scanner_data.append({
+                                        'source': 'solscan',
+                                        'symbol': token.get('symbol', '?'),
+                                        'name': token.get('name', '?')[:15],
+                                        'rank': f"#{i+1}"
+                                    })
+                        
+                        if not scanner_data:
+                            response_text = "No active scanner data available."
                         else:
-                            # Format results inline (same logic as cmd_fetch_now_sync)
-                            lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk | solscan"]
-                            for t in rows:
-                                src = t.get("source", "?")
-                                tag = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
-                                sym = t.get("symbol", "?")
-                                name = (t.get("name") or sym)[:20]
-                                holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
-                                mcap = t.get("mcap_usd")
-                                liq = t.get("liquidity_usd")
-                                age = t.get("age_min")
-                                risk = t.get("risk", "?")
-                                
-                                # Add Solscan enrichment badge
-                                solscan_badge = "-"
-                                try:
-                                    if 'solscan' in SCANNERS:
-                                        scanner = SCANNERS['solscan']
-                                        if scanner and hasattr(scanner, 'get_enrichment_badge'):
-                                            address = t.get('address')
-                                            if address:
-                                                badge = scanner.get_enrichment_badge(address)
-                                                if badge:
-                                                    if "NEW" in badge:
-                                                        solscan_badge = "NEW"
-                                                    elif "trending #" in badge:
-                                                        rank = badge.split("#")[1] if "#" in badge else "?"
-                                                        solscan_badge = f"#{rank}"
-                                                    else:
-                                                        solscan_badge = badge[:10]
-                                except Exception:
-                                    if t.get("solscan_trending_rank"):
-                                        solscan_badge = f"#{t.get('solscan_trending_rank')}"
-                                    elif t.get("solscan_trending"):
-                                        solscan_badge = "trend"
-                                
-                                lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk} | {solscan_badge}")
+                            lines = ["*F.E.T.C.H Quick Results*", ""]
+                            lines.append("Recent tokens from active scanners:")
+                            for i, token in enumerate(scanner_data[:8], 1):
+                                source = token['source']
+                                symbol = token['symbol']
+                                name = token['name']
+                                extra = token.get('rank', token.get('address', ''))
+                                lines.append(f"{i}. {source.upper()} | {symbol} | {name} | {extra}")
                             
-                            body = "\n".join(lines)
-                            if len(body) > 3800:
-                                body = body[:3800] + "\n…(truncated)…"
-                            response_text = f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(rows)} tokens (multi-source):\n```\n{body}\n```"
-                        _reply(response_text, parse_mode="Markdown")
+                            # Add scanner status
+                            active_count = len([s for s in SCANNERS.values() if getattr(s, 'running', False)])
+                            lines.append("")
+                            lines.append(f"Scanner status: {active_count} active")
+                            
+                            response_text = "\n".join(lines)
+                        _reply(response_text)
                     except Exception as e:
                         logger.exception("fetch_now error in webhook")
                         _reply(f"❌ fetch_now failed: {e}")
