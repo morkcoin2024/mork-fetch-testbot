@@ -437,7 +437,7 @@ def webhook():
     try:
         # Import publish at function level to avoid import issues
         # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
         
         # Log incoming webhook request - ALWAYS log
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
@@ -1349,7 +1349,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             # Test event publishing
                             try:
                                 # Enhanced events system with deduplication
-        # Using global publish function
+                                def publish(topic, payload): return BUS.publish(topic, payload)
                                 def get_subscriber_count(): return len([sub for subs in BUS._subs.values() for sub in subs])
                                 publish("test.scan", {"test_id": "scan_test", "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
                                 subscriber_count = get_subscriber_count()
@@ -1645,7 +1645,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         response_text = "Not authorized."
                     else:
                         # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
                         from birdeye_ws import get_ws
                         def notify_admin(msg):
                             _reply(msg)
@@ -1761,7 +1761,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         try:
                             from birdeye_ws import get_ws
                             # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
                             ws = get_ws(publish=publish, notify=lambda m: _reply(m))
                             ws.stop()
                             time.sleep(0.5)
@@ -1779,7 +1779,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         try:
                             from birdeye_ws import get_ws
                             # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
                             ws = get_ws(publish=publish, notify=lambda m: _reply(m))
                             
                             parts = text.split(maxsplit=1)
