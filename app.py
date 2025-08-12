@@ -1092,6 +1092,14 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         thread_alive = getattr(ws_client, "thread", None)
                         thread_alive = thread_alive.is_alive() if thread_alive else False
                         
+                        # human friendly last_msg_ago
+                        ago = status.get("last_msg_ago_secs")
+                        last_line = "last_msg_ago: —"
+                        if ago is not None:
+                            # show up to 2 decimals; also show ISO timestamp when available
+                            iso = status.get("last_msg_iso")
+                            last_line = f"last_msg_ago: {ago}s" + (f" (at {iso})" if iso else "")
+
                         response_text = (
                             "📡 *WebSocket Status*\n"
                             f"running: {status.get('running', False)}\n"
@@ -1100,7 +1108,8 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             f"mode: {status.get('mode', 'unknown')}\n"
                             f"messages_received: {status.get('recv', 0)}\n"
                             f"new_tokens: {status.get('new', 0)}\n"
-                            f"cache_size: {status.get('seen_cache', 0)}/8000"
+                            f"cache_size: {status.get('seen_cache', 0)}/8000\n"
+                            f"{last_line}"
                         )
 
                 # /ds_start (DexScreener scanner start with optional interval)
