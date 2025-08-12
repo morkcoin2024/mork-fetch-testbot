@@ -72,7 +72,7 @@ def _init_scanners():
             from solscan import get_solscan_scanner
             SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
             if SOLSCAN_SCANNER:
-                SCANNERS["solscan"] = SOLSCAN_SCANNER
+                # SCANNERS registry will be populated after init
                 logger.info("[INIT][SOLSCAN] created=True id=%s", id(SOLSCAN_SCANNER))
                 SOLSCAN_SCANNER.start()
                 logger.info("[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
@@ -228,21 +228,25 @@ def _scanner_thread():
             if SCANNER:
                 try:
                     result = SCANNER.tick()
-                    if result and len(result) == 2:
+                    if result and isinstance(result, (tuple, list)) and len(result) == 2:
                         total, new = result
+                        if total > 0:
+                            logger.info(f"[SCAN] birdeye tick ok: {total} items, {new} new")
                     else:
                         total, new = 0, 0
                 except Exception as e:
                     total, new = 0, 0
-                    app.logger.warning("[SCAN] Birdeye tick error: %s", e)
+                    app.logger.warning("[SCAN] birdeye tick error: %s", e)
             
             # Run all other scanners in SCANNERS registry
             for name, scanner in SCANNERS.items():
                 if scanner and hasattr(scanner, 'tick') and hasattr(scanner, 'running') and scanner.running:
                     try:
-                        t, n = scanner.tick()
-                        if t > 0:
-                            logger.info(f"[SCAN] {name} tick ok: {t} items, {n} new")
+                        result = scanner.tick()
+                        if result and isinstance(result, (tuple, list)) and len(result) == 2:
+                            t, n = result
+                            if t > 0:
+                                logger.info(f"[SCAN] {name} tick ok: {t} items, {n} new")
                         # Small jitter between sources to be courteous to APIs
                         time.sleep(0.15)
                     except Exception as e:
@@ -1471,10 +1475,10 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         response_text = "Not authorized."
                     else:
                         from eventbus import publish
-                        from birdeye_ws import get_ws_scanner
+                        from birdeye_ws import get_ws
                         def notify_admin(msg):
                             _reply(msg)
-                        ws = get_ws_scanner(publish, notify_admin)
+                        ws = get_ws(publish=publish, notify=notify_admin)
                         ws.start()
                         response_text = "🟢 Birdeye WS started."
 
@@ -1483,9 +1487,9 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        from birdeye_ws import get_ws_scanner
+                        from birdeye_ws import get_ws
                         def _notify(_): pass
-                        ws = get_ws_scanner(lambda *_: None, _notify)
+                        ws = get_ws(publish=lambda *_: None, notify=_notify)
                         ws.stop()
                         response_text = "🔴 Birdeye WS stopped."
 
@@ -1494,8 +1498,8 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        from birdeye_ws import get_ws_scanner
-                        ws = get_ws_scanner(lambda *_: None, lambda *_: None)
+                        from birdeye_ws import get_ws
+                        ws = get_ws(publish=lambda *_: None, notify=lambda *_: None)
                         st = ws.status()
                         # Get subscription topics
                         topics = getattr(ws, 'subscription_topics', ['token.created'])
@@ -2550,6 +2554,7 @@ def start_services():
             logger.info("[WS] Birdeye WS not available")
     except Exception as e:
         logger.warning("[WS] auto-start failed: %s", e)
+        # Continue without failing the app boot
 
     # Start Birdeye WebSocket client
     try:
