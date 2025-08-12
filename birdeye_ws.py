@@ -199,6 +199,7 @@ else:
             self._log("Birdeye WS started with Launchpad priority")
             
         def _run_loop(self):
+            self._log("WebSocket run loop starting")
             backoff = 1.0
             while not self._stop.is_set():
                 try:
@@ -224,6 +225,7 @@ else:
                                 on_close=self._on_close,
                             )
                             # Keepalive (avoid CF idle closes)
+                            self._log("Starting WebSocket connection with keepalive")
                             self.ws.run_forever(
                                 ping_interval=20,
                                 ping_timeout=10,
@@ -309,6 +311,7 @@ else:
 
     def _on_message(self, ws, msg):
         self.recv_count += 1
+        self._log(f"Message received ({len(msg)} bytes)")
         
         # Debug tap: log raw messages when enabled
         if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
@@ -401,6 +404,7 @@ else:
     def _on_error(self, ws, err):
         global WS_CONNECTED
         WS_CONNECTED = False
+        self._log(f"WebSocket error occurred: {err}", level="error")
         # Enhanced error logging to capture full handshake details
         error_details = {
             "error": str(err),
