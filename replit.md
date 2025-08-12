@@ -13,12 +13,14 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 
 **Latest Updates:**
 - **COMPLETED**: Enhanced EventBus migration to new events.py with deduplication cache, thread-safe operations, and backward compatibility
-- **COMPLETED**: Implemented wallet.py burner wallet MVP with per-user Solana keypair generation, balance checking, and JSON persistence (development use only)
-- **COMPLETED**: Integrated wallet system with Telegram bot via `/wallet` command for admin access to burner wallet info
+- **COMPLETED**: Implemented wallets.py production-ready wallet system with PyNaCl ed25519 keypairs, secure base64 seed storage, and async Solana RPC balance fetching
+- **COMPLETED**: Fixed critical webhook routing conflict - all wallet commands now fully operational in both single and multi-command scenarios
+- **COMPLETED**: Integrated wallet system with comprehensive Telegram bot commands: /wallet_new, /wallet_addr, /wallet_balance, and legacy /wallet (all admin-restricted)
+- **COMPLETED**: Added /bus_test command for wallet + event bus integration testing with synthetic token publishing
 - **COMPLETED**: Patched app.py with event bus integration including imports for BUS, rules, and wallet modules
 - **COMPLETED**: Implemented _normalize_token() helper function and _on_new_token() subscriber for NEW_TOKEN events with rules validation and Telegram notifications
 - **COMPLETED**: Added NEW_TOKEN publishing to all scanners (Birdeye WS/HTTP, Solscan, DexScreener, Jupiter) with source-specific normalization
-- **COMPLETED**: Integrated comprehensive admin command interface for rules management (/rules_show, /rules_reload, /rules_test) and wallet operations (/wallet_new, /wallet_addr, /wallet_balance) with proper error handling and Telegram formatting
+- **COMPLETED**: Integrated comprehensive admin command interface for rules management (/rules_show, /rules_reload, /rules_test) and wallet operations with proper error handling and Telegram formatting
 
 **Core Architectural Decisions & Features:**
 - **Unified Single-Process Architecture:** Gunicorn configured for single-worker to ensure webhook handlers and scanner threads share the same process and data, resolving process isolation issues.

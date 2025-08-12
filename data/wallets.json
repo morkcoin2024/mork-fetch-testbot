@@ -24,6 +24,11 @@
       "address": "4T8S9LtadRjTvBARdZ7QXeqvzLDpR87CJw6ERY4de1im",
       "seed_b64": "fFCWsqq0GDCpH7WcjGkKwy6oTA5RE0MUbJqjA2YCFTA=",
       "created_at": 1755034485
+    },
+    "test_user": {
+      "address": "3ibvWknDyaeULBWarCa6nTf4rKxiXyMy7TdhpF2LuSv1",
+      "seed_b64": "mAWYTTozNZi5PsvZW8Hh/rz4zVbMkRrEKkHguJV3PF0=",
+      "created_at": 1755035459
     }
   }
 }

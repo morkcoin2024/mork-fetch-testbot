@@ -634,12 +634,12 @@ def webhook():
                                 single_response = f"📊 Solscan error: {e}"
                         elif text.strip() == "/wallet":
                             try:
-                                import wallet
+                                from wallets import get_or_create_wallet, get_balance_sol
                                 user_id = str(user.get('id'))
-                                burner = wallet.ensure_burner(user_id)
-                                balance = wallet.get_balance_sol(burner["pubkey"])
+                                w = get_or_create_wallet(user_id)
+                                balance = get_balance_sol(w["address"])
                                 balance_str = f"{balance:.4f}" if balance >= 0 else "error"
-                                single_response = f"💰 Wallet: {burner['pubkey'][:12]}... | {balance_str} SOL"
+                                single_response = f"💰 Wallet: {w['address'][:12]}... | {balance_str} SOL"
                             except Exception as e:
                                 single_response = f"💰 Wallet error: {e}"
                         elif text.strip() == "/wallet_new":
@@ -673,6 +673,27 @@ def webhook():
                                     single_response = "❌ No wallet found"
                             except Exception as e:
                                 single_response = f"❌ Balance error: {e}"
+                        elif text.strip() == "/bus_test":
+                            try:
+                                from events import BUS
+                                import time
+                                fake_token = {
+                                    "symbol": "TESTCOIN",
+                                    "name": "Bus Test Token",
+                                    "mint": f"Test{int(time.time())}",
+                                    "holders": 1,
+                                    "mcaps": 0,
+                                    "liq$": 0,
+                                    "age_min": 0,
+                                    "risk": "low",
+                                    "solscan": None,
+                                    "links": {"pumpfun": None, "birdeye": None},
+                                    "ts": int(time.time())
+                                }
+                                BUS.publish("NEW_TOKEN", fake_token)
+                                single_response = "🧪 Bus test published"
+                            except Exception as e:
+                                single_response = f"❌ Bus test error: {e}"
                         
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
