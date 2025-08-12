@@ -666,7 +666,7 @@ Logging: Enhanced (active)
 Health: Operational
 
 Admin router with comprehensive logging active.'''
-                elif text.strip().startswith("/whoami_sys"):
+                elif text.strip() == "/whoami_sys":
                     try:
                         import platform
                         import sys
@@ -677,23 +677,10 @@ Admin router with comprehensive logging active.'''
                         memory_mb = process.memory_info().rss / 1024 / 1024
                         cpu_percent = process.cpu_percent()
                         
-                        response_text = (
-                            "🖥️ *System Information*\n\n"
-                            "*Process Info:*\n"
-                            f"PID: `{pid}`\n"
-                            f"Memory: `{memory_mb:.1f} MB`\n"
-                            f"CPU: `{cpu_percent:.1f}%`\n\n"
-                            "*Python Environment:*\n"
-                            f"Version: `{sys.version.split()[0]}`\n"
-                            f"Platform: `{platform.platform()}`\n"
-                            f"Architecture: `{platform.architecture()[0]}`\n\n"
-                            "*System Resources:*\n"
-                            f"CPU Cores: `{psutil.cpu_count()}`\n"
-                            f"Total Memory: `{psutil.virtual_memory().total / 1024 / 1024 / 1024:.1f} GB`\n"
-                            f"Available Memory: `{psutil.virtual_memory().available / 1024 / 1024 / 1024:.1f} GB`"
-                        )
+                        # Ultra-simple format to avoid Telegram errors
+                        response_text = f"System Info: PID {pid}, Memory {memory_mb:.1f}MB, CPU {cpu_percent:.1f}%, Python {sys.version.split()[0]}, {psutil.cpu_count()} cores, {psutil.virtual_memory().total / 1024 / 1024 / 1024:.1f}GB total memory"
                     except Exception as e:
-                        response_text = f"❌ whoami_sys error: {e}"
+                        response_text = f"whoami_sys error: {e}"
                 elif text.strip().startswith("/whoami"):
                     try:
                         pid = os.getpid()
