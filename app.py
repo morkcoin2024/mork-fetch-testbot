@@ -1200,35 +1200,28 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     _reply(cmd_rules_reload_sync())
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
-                # /fetch_now or /fetch (admin only)
-                elif text.strip().startswith("/fetch_now") or text.strip().startswith("/fetch"):
-                    logger.info(f"[WEBHOOK] {text.strip()} entered")
+                # /fetch or /fetch_now (admin only)
+                elif text.strip().startswith("/fetch") or text.strip().startswith("/fetch_now"):
+                    logger.info("[WEBHOOK] /fetch alias entered (raw='%s')", text.strip())
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     
                     try:
-                        # Set fast mode to avoid webhook timeouts
-                        import os
-                        os.environ['SOLSCAN_FAST_MODE'] = '1'
-                        
-                        # Import the command function from alerts.telegram
                         from alerts.telegram import cmd_fetch_now_sync
-                        result_text = cmd_fetch_now_sync()
-                        
-                        # Clear fast mode
-                        if 'SOLSCAN_FAST_MODE' in os.environ:
-                            del os.environ['SOLSCAN_FAST_MODE']
-                        
-                        if not result_text or not result_text.strip():
-                            result_text = "No candidates found (multi-source fetch_now returned empty)."
-                        
-                        logger.info("[WEBHOOK] /fetch_now about to reply: %d chars", len(result_text))
-                        _reply(result_text, parse_mode="Markdown", no_preview=True)
-                        logger.info("[WEBHOOK] /fetch_now replied OK")
                     except Exception as e:
-                        logger.exception("[WEBHOOK] /fetch_now error: %s", e)
-                        _reply("❌ fetch_now failed: %s" % (str(e)[:300]), parse_mode=None, no_preview=True)
+                        logger.exception("[WEBHOOK] import cmd_fetch_now_sync failed: %s", e)
+                        _reply("❌ fetch failed: internal import error.", parse_mode=None, no_preview=True)
+                    else:
+                        try:
+                            result_text = cmd_fetch_now_sync()
+                            if not result_text or not result_text.strip():
+                                result_text = "No candidates found (multi-source fetch returned empty)."
+                            _reply(result_text, parse_mode="Markdown", no_preview=True)
+                            logger.info("[WEBHOOK] /fetch replied OK (len=%d)", len(result_text))
+                        except Exception as e:
+                            logger.exception("[WEBHOOK] /fetch error: %s", e)
+                            _reply(f"❌ fetch failed: {str(e)[:300]}", parse_mode=None, no_preview=True)
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
                 # /pumpfunstatus (admin only)
