@@ -265,194 +265,183 @@ else:
                 "tap_enabled": WS_TAP_ENABLED or os.getenv("WS_TAP") == "1",
             }
 
-    # Birdeye Business plan usually authenticates via header "X-API-KEY".
-    # Some deployments also require an initial subscription message.
-    def _on_open(self, ws):
-        global WS_CONNECTED
-        WS_CONNECTED = True
-        self._log("Connected to Birdeye feed")
-        self.publish("scan.birdeye.ws.open", {})
-        # Enhanced subscription with Launchpad priority
-        sub = os.getenv("BIRDEYE_WS_SUB", "")
-        if sub:
-            try:
-                payload = json.loads(sub)
-                ws.send(json.dumps(payload))
-                self._log("sent custom subscription payload")
-            except Exception as e:
-                self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
-        else:
-            # Try subscribing to multiple topics with priority for Launchpad
-            topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
-            
-            for topic in topics_to_try:
+        def _on_open(self, ws):
+            """Birdeye Business plan usually authenticates via header "X-API-KEY"."""
+            global WS_CONNECTED
+            WS_CONNECTED = True
+            self._log("Connected to Birdeye feed")
+            self.publish("scan.birdeye.ws.open", {})
+            # Enhanced subscription with Launchpad priority
+            sub = os.getenv("BIRDEYE_WS_SUB", "")
+            if sub:
                 try:
-                    # Try Birdeye topic-based subscription format
-                    topic_sub = {
-                        "type": "subscribe",
-                        "topic": topic,
-                        "chain": "solana"
+                    payload = json.loads(sub)
+                    ws.send(json.dumps(payload))
+                    self._log("sent custom subscription payload")
+                except Exception as e:
+                    self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
+            else:
+                # Try subscribing to multiple topics with priority for Launchpad
+                topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
+                
+                for topic in topics_to_try:
+                    try:
+                        # Try Birdeye topic-based subscription format
+                        topic_sub = {
+                            "type": "subscribe",
+                            "topic": topic,
+                            "chain": "solana"
+                        }
+                        ws.send(json.dumps(topic_sub))
+                        self._log(f"sent {topic} subscription")
+                    except Exception as e:
+                        self._log(f"{topic} subscription failed: {e}", level="warning")
+                
+                # Fallback: original channel-based format
+                try:
+                    default_sub = {
+                        "type": "subscribe", 
+                        "channels": [{"name": "token.created"}]
                     }
-                    ws.send(json.dumps(topic_sub))
-                    self._log(f"sent {topic} subscription")
+                    ws.send(json.dumps(default_sub))
+                    self._log("sent fallback channel subscription")
                 except Exception as e:
-                    self._log(f"{topic} subscription failed: {e}", level="warning")
-            
-            # Fallback: original channel-based format
-            try:
-                default_sub = {
-                    "type": "subscribe", 
-                    "channels": [{"name": "token.created"}]
-                }
-                ws.send(json.dumps(default_sub))
-                self._log("sent fallback channel subscription")
-            except Exception as e:
-                self._log(f"fallback subscription failed: {e}", level="warning")
+                    self._log(f"fallback subscription failed: {e}", level="warning")
 
-    def _on_message(self, ws, msg):
-        self.recv_count += 1
-        self._log(f"Message received ({len(msg)} bytes)")
-        
-        # Debug tap: log raw messages when enabled
-        if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
-            self._log(f"[TAP] Raw message: {msg[:200] + '...' if len(msg) > 200 else msg}")
+        def _on_message(self, ws, msg):
+            self.recv_count += 1
+            self._log(f"Message received ({len(msg)} bytes)")
             
-        try:
-            data = json.loads(msg)
-        except Exception:
-            # non-JSON message; ignore but keep alive
-            return
-
-        # --- ENHANCED DEBUG ECHO ---
-        if self.ws_debug:
-            # Store in debug cache (raw)
+            # Debug tap: log raw messages when enabled
+            if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
+                self._log(f"[TAP] Raw message: {msg[:200] + '...' if len(msg) > 200 else msg}")
+                
             try:
-                self._debug_cache.append(data)
+                data = json.loads(msg)
             except Exception:
-                pass
-            # Simple rate limit: max 6 debug pushes / minute
-            now = time.time()
-            win = self._debug_rate
-            if now - win.get("window_start", 0) > 60:
-                win["window_start"] = now
-                win["count_min"] = 0
-            if win["count_min"] < 6:
-                win["count_min"] += 1
-                # Publish a compact summary to app -> Telegram
+                # non-JSON message; ignore but keep alive
+                return
+
+            # --- ENHANCED DEBUG ECHO ---
+            if self.ws_debug:
+                # Store in debug cache (raw)
                 try:
-                    event = data.get("event") or data.get("type", "?")
-                    # Trim payload to keep Telegram happy
-                    preview = json.dumps(data)[:900]
-                    self.publish("ws.debug", {
-                        "ts": int(now),
-                        "event": event,
-                        "preview": preview
-                    })
-                    self._log(f"debug echo sent ({event})")
-                except Exception as e:
-                    self._log(f"debug echo error: {e}", level="warning")
+                    self._debug_cache.append(data)
+                except Exception:
+                    pass
+                # Simple rate limit: max 6 debug pushes / minute
+                now = time.time()
+                win = self._debug_rate
+                if now - win.get("window_start", 0) > 60:
+                    win["window_start"] = now
+                    win["count_min"] = 0
+                if win["count_min"] < 6:
+                    win["count_min"] += 1
+                    # Publish a compact summary to app -> Telegram
+                    try:
+                        event = data.get("event") or data.get("type", "?")
+                        # Trim payload to keep Telegram happy
+                        preview = json.dumps(data)[:900]
+                        self.publish("ws.debug", {
+                            "ts": int(now),
+                            "event": event,
+                            "preview": preview
+                        })
+                        self._log(f"debug echo sent ({event})")
+                    except Exception as e:
+                        self._log(f"debug echo error: {e}", level="warning")
 
-        # Enhanced event handling for multiple topic types
-        event_type = data.get("type") or data.get("topic", "")
-        
-        # Handle specific Launchpad and token creation events
-        if event_type in ("launchpad.created", "token.created"):
-            tok_data = data.get("data", {})
-            tok = {
-                "mint": tok_data.get("address") or tok_data.get("mint"),
-                "symbol": tok_data.get("symbol") or "?",
-                "name": tok_data.get("name") or "?",
-                "price": tok_data.get("price") or tok_data.get("priceUsd"),
-                "source": event_type  # Track which topic provided the token
+            # Enhanced event handling for multiple topic types
+            event_type = data.get("type") or data.get("topic", "")
+            
+            # Handle specific Launchpad and token creation events
+            if event_type in ("launchpad.created", "token.created"):
+                tok_data = data.get("data", {})
+                tok = {
+                    "mint": tok_data.get("address") or tok_data.get("mint"),
+                    "symbol": tok_data.get("symbol") or "?",
+                    "name": tok_data.get("name") or "?",
+                    "price": tok_data.get("price") or tok_data.get("priceUsd"),
+                    "source": event_type  # Track which topic provided the token
+                }
+            else:
+                # Fallback to generic token extraction
+                tok = _extract_token(data)
+                if tok:
+                    tok["source"] = "generic"
+                
+            if not tok or not tok.get("mint"):
+                return
+                
+            mint = tok["mint"]
+            if not self._mark_seen(mint):
+                return
+
+            if _passes_filters(tok):
+                self.new_count += 1
+                self.publish("scan.birdeye.ws.new", {"token": tok})
+                name = tok["name"] or "?"
+                sym  = tok["symbol"] or "?"
+                source = tok.get("source", "ws")
+                
+                # Enhanced alert with source information
+                source_emoji = "🚀" if source == "launchpad.created" else "⚡"
+                source_text = "Launchpad" if source == "launchpad.created" else "WS"
+                
+                text = (
+                    f"{source_emoji} *Birdeye {source_text} — New token*\n"
+                    f"*{name}* ({sym})\n"
+                    f"`{mint}`\n"
+                    f"[Birdeye]({LINK_BE.format(mint=mint)}) • [Pump.fun]({LINK_PF.format(mint=mint)})"
+                )
+                try:
+                    self.notify(text)
+                    self._log(f"Alert sent: {name} ({sym}) {mint}")
+                except Exception:
+                    pass
+
+        def _on_error(self, ws, err):
+            global WS_CONNECTED
+            WS_CONNECTED = False
+            self._log(f"WebSocket error occurred: {err}", level="error")
+            # Enhanced error logging to capture full handshake details
+            error_details = {
+                "error": str(err),
+                "type": type(err).__name__,
+                "ws_url": BIRDEYE_WS_URL,
+                "headers": WS_HEADERS,
+                "subprotocols": WS_SUBPROTOCOLS
             }
-        else:
-            # Fallback to generic token extraction
-            tok = _extract_token(data)
-            if tok:
-                tok["source"] = "generic"
             
-        if not tok or not tok.get("mint"):
-            return
+            # Check if this is a handshake error (403 Forbidden, etc.)
+            if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
+                self._log(f"HANDSHAKE ERROR: {err}", level="error")
+                self._log(f"Full error details: {error_details}", level="error")
+                # Send detailed error to admin for debugging
+                try:
+                    if hasattr(self, 'notify') and self.notify:
+                        self.notify(f"🚨 *WebSocket Handshake Error*\n```\n{err}\n```\nURL: `{BIRDEYE_WS_URL}`\nHeaders: {WS_HEADERS}\nSubprotocols: {WS_SUBPROTOCOLS}")
+                except:
+                    pass
+            else:
+                self._log(f"error: {err}", level="warning")
             
-        mint = tok["mint"]
-        if not self._mark_seen(mint):
-            return
+            self.publish("scan.birdeye.ws.error", error_details)
 
-        if _passes_filters(tok):
-            self.new_count += 1
-            self.publish("scan.birdeye.ws.new", {"token": tok})
-            name = tok["name"] or "?"
-            sym  = tok["symbol"] or "?"
-            source = tok.get("source", "ws")
-            
-            # Enhanced alert with source information
-            source_emoji = "🚀" if source == "launchpad.created" else "⚡"
-            source_text = "Launchpad" if source == "launchpad.created" else "WS"
-            
-            text = (
-                f"{source_emoji} *Birdeye {source_text} — New token*\n"
-                f"*{name}* ({sym})\n"
-                f"`{mint}`\n"
-                f"[Birdeye]({LINK_BE.format(mint=mint)}) • [Pump.fun]({LINK_PF.format(mint=mint)})"
-            )
-            try:
-                self.notify(text)
-                self._log(f"Alert sent: {name} ({sym}) {mint}")
-            except Exception:
-                pass
+        def _on_close(self, ws, code, reason):
+            global WS_CONNECTED
+            WS_CONNECTED = False
+            self._log(f"Disconnected - code={code} reason={reason}")
+            self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
-    def _on_error(self, ws, err):
-        global WS_CONNECTED
-        WS_CONNECTED = False
-        self._log(f"WebSocket error occurred: {err}", level="error")
-        # Enhanced error logging to capture full handshake details
-        error_details = {
-            "error": str(err),
-            "type": type(err).__name__,
-            "ws_url": BIRDEYE_WS_URL,
-            "headers": WS_HEADERS,
-            "subprotocols": WS_SUBPROTOCOLS
-        }
-        
-        # Check if this is a handshake error (403 Forbidden, etc.)
-        if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
-            self._log(f"HANDSHAKE ERROR: {err}", level="error")
-            self._log(f"Full error details: {error_details}", level="error")
-            # Send detailed error to admin for debugging
-            try:
-                if hasattr(self, 'notify') and self.notify:
-                    self.notify(f"🚨 *WebSocket Handshake Error*\n```\n{err}\n```\nURL: `{BIRDEYE_WS_URL}`\nHeaders: {WS_HEADERS}\nSubprotocols: {WS_SUBPROTOCOLS}")
-            except:
-                pass
-        else:
-            self._log(f"error: {err}", level="warning")
-        
-        self.publish("scan.birdeye.ws.error", error_details)
+        # add the three helpers expected by the /ws_* commands
+        def getdebugcache(self):
+            """Used by /ws_dump to read recent debug lines."""
+            return list(self._debug_cache)
 
-    def _on_close(self, ws, code, reason):
-        global WS_CONNECTED
-        WS_CONNECTED = False
-        self._log(f"Disconnected - code={code} reason={reason}")
-        self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
-
-    # add the three helpers expected by the /ws_* commands
-    def injectdebugevent(self, payload: dict):
-        """Used by /ws_probe to inject a synthetic event."""
-        try:
-            self._log(f"probe inject: {payload}")
-            self._debug_cache.append(f"inject {payload}")
-            return True
-        except Exception as e:
-            self._log(f"probe inject failed: {e}", level="error")
-            return False
-
-    def getdebugcache(self):
-        """Used by /ws_dump to read recent debug lines."""
-        return list(self._debug_cache)
-
-    def set_debug(self, on: bool):
-        self._debug_mode = bool(on)
-        self._log(f"debug mode -> {self._debug_mode}")
+        def set_debug(self, on: bool):
+            self._debug_mode = bool(on)
+            self._log(f"debug mode -> {self._debug_mode}")
 
     # ===== Debug helpers (called from app.py) =====
     def set_debug_legacy(self, on: bool):
@@ -491,20 +480,16 @@ else:
         })
         logging.info("[WS] injected synthetic debug event")
 
-    # --- New helpers expected by /ws_* commands ---
-    def injectdebugevent(self, payload: dict):
-        """Allow /ws_probe to inject a synthetic event into the debug cache."""
-        self._log(f"probe inject: {payload}")
-        self._debug_cache.append(f"inject {payload}")
-        return True
-
-    def getdebugcache(self):
-        """Return a list of recent debug lines for /ws_dump."""
-        return list(self._debug_cache)
-
-    def set_debug(self, on: bool):
-        self._debug_mode = bool(on)
-        self._log(f"debug mode -> {self._debug_mode}")
+        # --- New helpers expected by /ws_* commands ---
+        def injectdebugevent(self, payload: dict):
+            """Allow /ws_probe to inject a synthetic event into the debug cache."""
+            try:
+                self._log(f"probe inject: {payload}")
+                self._debug_cache.append(f"inject {payload}")
+                return True
+            except Exception as e:
+                self._log(f"probe inject failed: {e}", level="error")
+                return False
 
 # singleton helper
 _ws_singleton = None
