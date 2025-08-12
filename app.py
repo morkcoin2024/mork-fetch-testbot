@@ -383,6 +383,11 @@ def webhook_v2():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
+    # ULTRA BASIC DEBUG - First line of function
+    import time
+    timestamp = time.time()
+    print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
+    
     try:
         # Import publish at function level to avoid import issues
         from eventbus import publish
@@ -399,6 +404,10 @@ def webhook():
             msg_text = update_data['message'].get('text', '')
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
+            
+            # ULTRA DEBUG: Track /solscanstats at the earliest possible point
+            if msg_text and msg_text.strip() == "/solscanstats":
+                logger.info(f"[WEBHOOK-ULTRA-DEBUG] /solscanstats detected at entry! user_id={user_id}")
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
         
@@ -475,6 +484,15 @@ def webhook():
                 # Process admin commands directly without PTB
                 chat_id = message['chat']['id']
                 response_text = None
+                
+                # DEBUG: Track command routing for solscanstats
+                if text.strip() == "/solscanstats":
+                    logger.info(f"[WEBHOOK-DEBUG] /solscanstats detected! About to enter command routing...")
+                    logger.info(f"[WEBHOOK-DEBUG] Admin ID check: user={user.get('id')}, admin={ASSISTANT_ADMIN_TELEGRAM_ID}")
+                
+                # DEBUG: Log ALL command attempts for debugging
+                if text.startswith('/'):
+                    logger.info(f"[WEBHOOK-COMMAND-DEBUG] Processing command: '{text}' from user {user.get('id')}")
                 
                 if text.strip() in ['/ping', '/a_ping']:
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
@@ -1665,6 +1683,65 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                         except Exception as e:
                             response_text = f"❌ Solscan stop failed: {e}"
 
+                # --- Admin: Solscan status (specific patterns first to avoid collision) --------------------------------------------------
+                elif text.strip().startswith("/solscanstats"):
+                    # CRITICAL DEBUG: Track if we reach this handler
+                    logger.info(f"[CRITICAL-DEBUG] /solscanstats handler reached! text='{text}'")
+                    logger.info("[WEBHOOK] Routing /solscanstats")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            # Force scanner initialization in this worker process
+                            _ensure_scanners()
+                            # Use SOLSCAN_SCANNER or scanners registry
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+                            
+                            if scanner and hasattr(scanner, 'status'):
+                                st = scanner.status()
+                                # Simple status response without complex formatting
+                                response_text = (
+                                    f"📊 *Solscan Pro Scanner Status*\n"
+                                    f"Running: `{st.get('running', False)}`\n"
+                                    f"Base URL: `{st.get('base', 'unknown')}`\n"
+                                    f"Ready: `True`"
+                                )
+                            else:
+                                response_text = "⚠️ Solscan scanner not initialized. Enable with FEATURE_SOLSCAN=on and provide SOLSCAN_API_KEY."
+                        except Exception as e:
+                            response_text = f"❌ solscanstats failed: {e}"
+
+                # --- Admin: Process Diagnostic --------------------------------------------------
+                elif text.strip().startswith("/diag"):
+                    logger.info("[WEBHOOK] Routing /diag")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        import os
+                        # Force scanner initialization in this worker process
+                        _ensure_scanners()
+                        
+                        scanner_keys = list(SCANNERS.keys()) if 'SCANNERS' in globals() else []
+                        solscan_info = {}
+                        if 'SCANNERS' in globals() and 'solscan' in SCANNERS:
+                            scanner = SCANNERS['solscan']
+                            if scanner:
+                                solscan_info = {
+                                    "enabled": getattr(scanner, 'enabled', False),
+                                    "running": getattr(scanner, 'running', False), 
+                                    "object_id": id(scanner)
+                                }
+                        
+                        response_text = (
+                            f"🔍 *Process Diagnostic*\n"
+                            f"FEATURE_SOLSCAN={os.getenv('FEATURE_SOLSCAN', 'off')}\n"
+                            f"SOLSCAN_API_KEY len={len(os.getenv('SOLSCAN_API_KEY', ''))}\n"
+                            f"pid={os.getpid()}\n"
+                            f"SCANNERS keys={scanner_keys}\n"
+                            f"solscan: enabled={solscan_info.get('enabled')}, running={solscan_info.get('running')}, id={solscan_info.get('object_id')}"
+                        )
+
+                # --- Admin: Solscan status (moved after solscanstats to avoid collision) ------------------------------------------
                 elif text.strip().startswith("/solscan_status"):
                     logger.info("[WEBHOOK] Routing /solscan_status")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
@@ -1689,85 +1766,6 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         except Exception as e:
                             response_text = f"❌ Solscan status failed: {e}"
 
-                # --- Admin: Process Diagnostic --------------------------------------------------
-                elif text.strip().startswith("/diag"):
-                    logger.info("[WEBHOOK] Routing /diag")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        import os
-                        scanner_keys = list(SCANNERS.keys()) if 'SCANNERS' in globals() else []
-                        solscan_info = {}
-                        if 'SCANNERS' in globals() and 'solscan' in SCANNERS:
-                            scanner = SCANNERS['solscan']
-                            solscan_info = {
-                                "enabled": scanner.enabled,
-                                "running": scanner.running,
-                                "object_id": id(scanner)
-                            }
-                        
-                        response_text = (
-                            f"🔍 *Process Diagnostic*\n"
-                            f"FEATURE_SOLSCAN={os.getenv('FEATURE_SOLSCAN', 'off')}\n"
-                            f"SOLSCAN_API_KEY len={len(os.getenv('SOLSCAN_API_KEY', ''))}\n"
-                            f"pid={os.getpid()}\n"
-                            f"SCANNERS keys={scanner_keys}\n"
-                            f"solscan: enabled={solscan_info.get('enabled')}, running={solscan_info.get('running')}, id={solscan_info.get('object_id')}"
-                        )
-
-                # --- Admin: Solscan status --------------------------------------------------
-                elif text.strip().startswith("/solscanstats"):
-                    logger.info("[WEBHOOK] Routing /solscanstats")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            # Ensure scanners are initialized in this worker process
-                            _ensure_scanners()
-                            # Use SOLSCAN_SCANNER or scanners registry
-                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
-                            
-                            if scanner and hasattr(scanner, 'status'):
-                                st = scanner.status()
-                                sample = []
-                                try:
-                                    if hasattr(scanner, 'fetch_new_tokens'):
-                                        sample = scanner.fetch_new_tokens(count=3)
-                                except Exception as e:
-                                    logger.warning("[WEBHOOK] /solscanstats sample error: %r", e)
-
-                                # Format status display
-                                last_ok = st.get('last_ok')
-                                last_err = st.get('last_err')
-                                
-                                ok_display = "never"
-                                if last_ok:
-                                    if isinstance(last_ok, dict) and 'when' in last_ok:
-                                        ok_display = f"{last_ok.get('count', 0)} items via {last_ok.get('path', 'unknown')}"
-                                    else:
-                                        ok_display = str(last_ok)
-                                
-                                err_display = "none"
-                                if last_err:
-                                    if isinstance(last_err, dict):
-                                        err_display = f"code {last_err.get('code', 'unknown')}"
-                                    else:
-                                        err_display = str(last_err)
-
-                                response_text = (
-                                    f"📊 *Solscan Pro Scanner Status*\n"
-                                    f"Running: `{st.get('running', False)}`\n"
-                                    f"Base URL: `{st.get('base', 'unknown')}`\n"
-                                    f"Last OK: `{ok_display}`\n"
-                                    f"Last Error: `{err_display}`\n"
-                                    f"Sample tokens: "
-                                    + ", ".join([f"`{t.get('symbol', 'unknown')}`" for t in sample if t.get("symbol")]) or "none"
-                                )
-                            else:
-                                response_text = "⚠️ Solscan scanner not initialized. Enable with FEATURE_SOLSCAN=on and provide SOLSCAN_API_KEY."
-                        except Exception as e:
-                            response_text = f"❌ solscanstats failed: {e}"
-
                 # --- Admin: Solscan start/stop ------------------------------------------
                 elif text.strip().startswith("/solscan_start"):
                     logger.info("[WEBHOOK] Routing /solscan_start")
@@ -1775,6 +1773,8 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         response_text = "Not authorized."
                     else:
                         try:
+                            # Force scanner initialization in this worker process
+                            _ensure_scanners()
                             scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
                             if scanner and hasattr(scanner, 'start'):
                                 scanner.start()
