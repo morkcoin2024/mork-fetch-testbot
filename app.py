@@ -151,6 +151,35 @@ SOLSCAN_SCANNER = None
 # Centralized scanner registry
 SCANNERS = {}
 
+# Function to ensure scanners are initialized (for multi-worker setup)
+def _ensure_scanners():
+    """Ensure scanners are initialized in this worker process."""
+    global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
+    
+    # Check if already initialized
+    if SOLSCAN_SCANNER is not None and SCANNERS:
+        return
+    
+    try:
+        _init_scanners()
+        logger.info("Scanners initialized in worker process")
+        # Ensure SCANNERS registry is populated after initialization
+        SCANNERS = {
+            'birdeye': SCANNER,
+            'jupiter': JUPITER_SCANNER,
+            'solscan': SOLSCAN_SCANNER,
+            'dexscreener': DS_SCANNER,
+            'websocket': ws_client
+        }
+        logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
+    except Exception as e:
+        logger.error(f"Scanner initialization failed in worker: {e}")
+        # Continue without scanners if initialization fails
+        SCANNER = None
+        JUPITER_SCANNER = None 
+        SOLSCAN_SCANNER = None
+        SCANNERS = {}
+
 # Initialize scanners after admin functions are defined
 try:
     _init_scanners()
@@ -718,6 +747,8 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
+                        # Ensure scanners are initialized in this worker process
+                        _ensure_scanners()
                         try:
                             st = SCANNER.status()
                             from birdeye import SCAN_MODE
@@ -1657,6 +1688,8 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         response_text = "Not authorized."
                     else:
                         try:
+                            # Ensure scanners are initialized in this worker process
+                            _ensure_scanners()
                             # Use SOLSCAN_SCANNER or scanners registry
                             scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
                             
