@@ -1,30 +1,10 @@
-version: 1
-updated_at: "2025-08-10T00:00:00Z"
-network: solana
-sources:
-  - pump.fun
-  - dexscreener
-  - jup.ag
-scan:
-  max_age_minutes: 180       # only consider tokens <= 3 hours old
-  holders_min: 75
-  holders_max: 5000
-  mcap_min_usd: 50000
-  mcap_max_usd: 2000000
-  liquidity_min_usd: 10000
-  renounced_mint_auth: true
-  renounced_freeze_auth: true
-  blacklist_contracts: []
-  include_keywords: []
-  exclude_keywords: [rug, scam]
+# rules.yaml — edit freely
+min_liq_usd: 5000
+min_holders: 50
+max_age_min: 60        # token must be <= 60 minutes old
+min_mcap_usd: 10000
 risk:
-  max_score: 70              # lower is safer (0..100)
-  weights:
-    age: 0.2
-    holders: 0.2
-    liquidity: 0.25
-    mcap: 0.25
-    renounce: 0.1
-output:
-  max_results: 10
-  columns: [symbol, name, holders, mcap_usd, liquidity_usd, age_min, risk]
+  allow_freeze: false
+  allow_mint: false
+  allow_blacklist: false
+  allow_renounce_only: true

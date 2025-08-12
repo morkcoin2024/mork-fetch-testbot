@@ -36,9 +36,21 @@ def ensure_default_rules():
         logging.info("[RULES] Created default rules.yaml")
 
 def _validate(d: Dict[str, Any]) -> Tuple[bool, str]:
-    for k in ["version", "network", "scan", "risk", "output"]:
-        if k not in d:
-            return False, f"Missing key: {k}"
+    # Support both old format (version, network, scan, risk, output) and new simplified format
+    if "version" in d and "network" in d:
+        # Old format validation
+        for k in ["version", "network", "scan", "risk", "output"]:
+            if k not in d:
+                return False, f"Missing key: {k}"
+    else:
+        # New simplified format validation
+        required_keys = ["min_liq_usd", "min_holders", "max_age_min", "min_mcap_usd", "risk"]
+        for k in required_keys:
+            if k not in d:
+                return False, f"Missing key: {k}"
+        # Validate risk sub-object
+        if not isinstance(d.get("risk"), dict):
+            return False, "risk must be an object"
     return True, "ok"
 
 def load_rules(force: bool=False) -> Dict[str, Any]:
@@ -50,6 +62,26 @@ def load_rules(force: bool=False) -> Dict[str, Any]:
     ok, msg = _validate(data)
     if not ok:
         raise ValueError(f"rules.yaml invalid: {msg}")
+    
+    # Normalize data format for backward compatibility
+    if "version" not in data:
+        # Convert new simplified format to expected structure
+        normalized = {
+            "version": "simplified",
+            "network": "solana",
+            "scan": {
+                "max_age_minutes": data.get("max_age_min", 60),
+                "holders_min": data.get("min_holders", 50),
+                "mcap_min_usd": data.get("min_mcap_usd", 10000),
+                "liquidity_min_usd": data.get("min_liq_usd", 5000),
+                "renounced_mint_auth": not data.get("risk", {}).get("allow_mint", True),
+                "renounced_freeze_auth": not data.get("risk", {}).get("allow_freeze", True),
+            },
+            "risk": data.get("risk", {}),
+            "output": {"max_results": 10}
+        }
+        data = normalized
+    
     _cache.update({"data": data, "mtime": m, "version": data.get("version")})
     logging.info("[RULES] Loaded (v%s)", data.get("version"))
     return data
