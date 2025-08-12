@@ -3,7 +3,9 @@ import os, time, logging, httpx, threading
 from collections import deque
 from datetime import datetime, timezone
 
-DS_API = "https://api.dexscreener.com/latest/dex/pairs/solana"
+# DexScreener API - Using a working endpoint for Solana token data
+# Note: The old /latest/dex/pairs/solana endpoint is deprecated
+DS_API = "https://api.dexscreener.com/latest/dex/search?q=sol"
 SCAN_INTERVAL = int(os.getenv("DS_SCAN_INTERVAL_SEC", "15"))
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) MorkFetchBot/1.0"
@@ -74,10 +76,17 @@ class DexScreenerScanner:
 
     def tick(self):
         now = _now_ms()
-        r = httpx.get(DS_API, headers=HEADERS, timeout=12)
-        r.raise_for_status()
-        data = r.json() or {}
-        pairs = data.get("pairs", []) or []
+        try:
+            r = httpx.get(DS_API, headers=HEADERS, timeout=12)
+            r.raise_for_status()
+            data = r.json() or {}
+            pairs = data.get("pairs", []) or []
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # DexScreener endpoint may be down, skip this tick gracefully
+                logging.debug("[DS] API endpoint unavailable (404), skipping tick")
+                return  # Exit early on 404
+            raise
 
         new_items = []
         for p in pairs:

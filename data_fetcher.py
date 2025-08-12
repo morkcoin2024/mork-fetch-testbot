@@ -474,16 +474,21 @@ def fetch_and_rank(rules):
     for t in filtered:
         t["risk"] = _score_token(t, rules)
         
-    # SOLSCAN ENRICHMENT: Add Solscan trending data
-    try:
-        from enrich_with_solscan import enrich_with_solscan
-        filtered = enrich_with_solscan(filtered)
-        enriched_count = sum(1 for t in filtered if t.get("solscan_trending"))
-        publish("enrichment_complete", {"source": "solscan", "enriched_count": enriched_count})
-        logging.info("[FETCH] Solscan enrichment complete: %d tokens enriched", enriched_count)
-    except Exception as e:
-        logging.warning("[FETCH] Solscan enrichment failed: %r", e)
-        publish("enrichment_error", {"source": "solscan", "error": str(e)})
+    # SOLSCAN ENRICHMENT: Add Solscan trending data (with performance safeguard)
+    skip_enrichment = os.getenv("SKIP_SOLSCAN_ENRICHMENT", "false").lower() == "true"
+    if not skip_enrichment and os.getenv("FEATURE_SOLSCAN", "off").lower() == "on":
+        try:
+            from enrich_with_solscan import enrich_with_solscan
+            filtered = enrich_with_solscan(filtered)
+            enriched_count = sum(1 for t in filtered if t.get("solscan_trending"))
+            publish("enrichment_complete", {"source": "solscan", "enriched_count": enriched_count})
+            logging.info("[FETCH] Solscan enrichment complete: %d tokens enriched", enriched_count)
+        except Exception as e:
+            logging.warning("[FETCH] Solscan enrichment failed: %r", e)
+            publish("enrichment_error", {"source": "solscan", "error": str(e)})
+    else:
+        logging.info("[FETCH] Solscan enrichment skipped (disabled or performance mode)")
+        publish("enrichment_skipped", {"source": "solscan", "reason": "disabled_or_performance"})
         
     # Continue with original scoring
     for t in filtered:

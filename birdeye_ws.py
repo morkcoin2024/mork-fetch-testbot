@@ -359,13 +359,13 @@ else:
                     
                 if websocket:
                     self._ws = websocket.WebSocketApp(
-                    BIRDEYE_WS_URL,
-                    header=[f"{k}: {v}" for k,v in hdrs.items()],
-                    on_open=self._on_open,
-                    on_message=self._on_message,
-                    on_error=self._on_error,
-                    on_close=self._on_close,
-                )
+                        BIRDEYE_WS_URL,
+                        header=[f"{k}: {v}" for k,v in hdrs.items()],
+                        on_open=self._on_open,
+                        on_message=self._on_message,
+                        on_error=self._on_error,
+                        on_close=self._on_close,
+                    )
                     self._ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
                 logging.warning("[WS] run_forever error: %s", e)

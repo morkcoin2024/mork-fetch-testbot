@@ -279,7 +279,8 @@ class SolscanScanner:
                 if since_last < required_delay:
                     sleep_time = required_delay - since_last
                     log.debug("[SOLSCAN] rate limit delay %.1fs for %s", sleep_time, path)
-                    time.sleep(sleep_time)
+                    # Reduced sleep time for /fetch_now performance
+                    time.sleep(min(sleep_time, 0.5))  # Cap at 500ms max
                 
                 # Build params based on endpoint requirements
                 request_params = {}
