@@ -148,8 +148,15 @@ else:
             
             # --- Enhanced Debug Support ---
             self.ws_debug = False                 # on/off toggle
-            self._debug_cache = deque(maxlen=30)  # keep last 30 raw msgs for /ws_dump
+            self._debug_cache = deque(maxlen=100) # store recent WS messages/events
+            self._debug_mode = False
             self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
+
+        def _log(self, msg):
+            """Unified logging with debug cache support"""
+            logging.info(f"[WS] {msg}")              # unify tag so /a_logs_tail contains=[WS] works
+            if self._debug_mode:
+                self._debug_cache.append(f"{time.time():.0f} {msg}")
 
         def _mark_seen(self, mint):
             if mint in self._seen_set: return False
@@ -448,6 +455,21 @@ else:
             "preview": json.dumps(payload)[:900]
         })
         logging.info("[WS] injected synthetic debug event")
+
+    # --- New helpers expected by /ws_* commands ---
+    def injectdebugevent(self, payload: dict):
+        """Allow /ws_probe to inject a synthetic event into the debug cache."""
+        self._log(f"probe inject: {payload}")
+        self._debug_cache.append(f"inject {payload}")
+        return True
+
+    def getdebugcache(self):
+        """Return a list of recent debug lines for /ws_dump."""
+        return list(self._debug_cache)
+
+    def set_debug(self, on: bool):
+        self._debug_mode = bool(on)
+        self._log(f"debug mode -> {self._debug_mode}")
 
 # singleton helper
 _ws_singleton = None
