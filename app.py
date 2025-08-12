@@ -1755,6 +1755,10 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                 last_tick = st.get('last_tick_ts')
                                 last_tick_str = "never" if not last_tick else datetime.datetime.fromtimestamp(last_tick).strftime("%H:%M:%S")
                                 
+                                # Enhanced stats display
+                                new_cache_age = st.get('new_tokens_cache_age')
+                                new_cache_age_str = f"{new_cache_age:.1f}s" if new_cache_age is not None else "N/A"
+                                
                                 response_text = (
                                     f"📊 *Solscan Pro Scanner Status*\n"
                                     f"Enabled: `{st.get('enabled', False)}`\n"
@@ -1763,6 +1767,10 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                     f"Base URL: `{st.get('base_url', 'unknown')}`\n"
                                     f"Last tick: `{last_tick_str}`\n"
                                     f"Last endpoint: `{st.get('last_successful_endpoint', 'none')}`\n"
+                                    f"Last new endpoint: `{st.get('last_new_endpoint', 'none')}`\n"
+                                    f"Last new count: `{st.get('last_new_count', 0)}`\n"
+                                    f"Fallbacks: `{st.get('fallback_count', 0)}`\n"
+                                    f"New tokens cache: `{st.get('new_tokens_cache_size', 0)}` items (age: `{new_cache_age_str}`)\n"
                                     f"Requests OK/Err: `{st.get('requests_ok', 0)}/{st.get('requests_err', 0)}`\n"
                                     f"Last status: `{st.get('last_status', 'N/A')}`\n"
                                     f"Seen count: `{st.get('seen_cache', 0)}`"
