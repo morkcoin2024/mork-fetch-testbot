@@ -2363,10 +2363,13 @@ F.E.T.C.H Rules System:
 /fetch, /fetch_now, /a_fetch_now - Run token filtering demo
 
 Wallet System:
-/wallet - Show burner wallet info (development only)
+/wallet - Show comprehensive burner wallet info (development only)
 /wallet_new - Create new burner wallet
-/wallet_addr - Get your wallet address
+/wallet_addr - Get your wallet address  
 /wallet_balance - Check wallet balance
+
+Event Bus Testing:
+/bus_test - Test complete event pipeline with synthetic token
 
 /help - This help message
 
