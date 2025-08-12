@@ -63,6 +63,9 @@ def _init_scanners():
     solscan_api_key = os.getenv("SOLSCAN_API_KEY")
     feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
     
+    # Unmistakable boot logs for debugging
+    logger.info("[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or ""))
+    
     if feature_solscan and solscan_api_key:
         try:
             from solscan import get_solscan_scanner
@@ -82,6 +85,11 @@ def _init_scanners():
     else:
         SOLSCAN_SCANNER = None
         logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
+    
+    # Boot status logs
+    logger.info("[INIT][SOLSCAN] created=%s", bool(SOLSCAN_SCANNER))
+    if SOLSCAN_SCANNER:
+        logger.info("[INIT][SOLSCAN] enabled=%s running=%s", SOLSCAN_SCANNER.enabled, SOLSCAN_SCANNER.running)
     
     # Register scanners in centralized registry
     SCANNERS = {

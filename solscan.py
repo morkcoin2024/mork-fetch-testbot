@@ -60,6 +60,7 @@ class SolscanScanner:
 
     # --- lifecycle -----------------------------------------------------------
     def start(self) -> None:
+        log.info("[SOLSCAN] start called; enabled=%s", self.enabled)
         self._running = True
         log.info("[SOLSCAN] scanner started (base=%s)", self.base_url)
 
@@ -103,6 +104,7 @@ class SolscanScanner:
         if not self._running:
             return 0, 0
         
+        log.info("[SOLSCAN] tick")
         try:
             tokens = self.fetch_new_tokens()
             new_count = 0
