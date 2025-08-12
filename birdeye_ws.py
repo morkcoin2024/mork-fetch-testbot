@@ -35,13 +35,17 @@ if FEATURE_WS != "on":
         """Enable or disable WebSocket message tapping for debug"""
         logging.info("[WS] Disabled; tap control noop")
         
-    def get_ws(*args, **kwargs):
+    def get_ws_disabled(*args, **kwargs):
         """Return disabled WebSocket singleton"""
         return ws_singleton
         
-    def get_ws_scanner(*args, **kwargs):
+    def get_ws_scanner_disabled(*args, **kwargs):
         """Return disabled WebSocket scanner"""
         return ws_singleton
+    
+    # Aliases for compatibility
+    get_ws = get_ws_disabled
+    get_ws_scanner = get_ws_scanner_disabled
         
 else:
     # existing implementation (unchanged)
@@ -174,7 +178,7 @@ else:
             ]
             
             self._stop.clear()
-            self._th = threading.Thread(target=self.run, daemon=True)
+            self._th = threading.Thread(target=self._run_loop, daemon=True)
             self._th.start()
             self.publish("scan.birdeye.ws.start", {})
             logging.info("[WS] Birdeye WS started with Launchpad priority")
@@ -372,28 +376,31 @@ else:
         logging.info("[WS] Disconnected - code=%s reason=%s", code, reason)
         self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
-    def run(self):
+    def _run_loop(self):
         backoff = 1.0
         while not self._stop.is_set():
             try:
                 # WebSocket connection uses ONLY the required Origin headers and subprotocols
                 # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
-                if websocket and hasattr(websocket, 'WebSocketApp'):
-                    self._ws = websocket.WebSocketApp(
-                        BIRDEYE_WS_URL,
-                        header=WS_HEADERS,
-                        subprotocols=WS_SUBPROTOCOLS,
-                        on_open=self._on_open,
-                        on_message=self._on_message,
-                        on_error=self._on_error,
-                        on_close=self._on_close,
-                    )
-                    # Keepalive (avoid CF idle closes)
-                    self._ws.run_forever(
-                        ping_interval=20,
-                        ping_timeout=10,
-                        ping_payload="keepalive",
-                    )
+                if websocket:
+                    # Use getattr to safely access WebSocketApp
+                    WebSocketApp = getattr(websocket, 'WebSocketApp', None)
+                    if WebSocketApp:
+                        self._ws = WebSocketApp(
+                            BIRDEYE_WS_URL,
+                            header=WS_HEADERS,
+                            subprotocols=WS_SUBPROTOCOLS,
+                            on_open=self._on_open,
+                            on_message=self._on_message,
+                            on_error=self._on_error,
+                            on_close=self._on_close,
+                        )
+                        # Keepalive (avoid CF idle closes)
+                        self._ws.run_forever(
+                            ping_interval=20,
+                            ping_timeout=10,
+                            ping_payload="keepalive",
+                        )
             except Exception as e:
                 logging.warning("[WS] run_forever error: %s", e)
 
@@ -450,14 +457,6 @@ def get_ws_scanner(publish, notify):
         _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
         ws_client_singleton = _ws_singleton  # Set alternative reference
     return _ws_singleton
-
-def get_ws(publish=None, notify=None):
-    """Enhanced WebSocket client accessor with debug capabilities"""
-    global _ws_singleton, ws_client_singleton
-    if _ws_singleton is None and publish and notify:
-        _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
-        ws_client_singleton = _ws_singleton
-    return _ws_singleton or ws_client_singleton
 
 def get_ws(publish=None, notify=None):
     """Enhanced WebSocket client accessor with debug capabilities"""
