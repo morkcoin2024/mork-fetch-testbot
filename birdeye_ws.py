@@ -44,6 +44,10 @@ class BirdeyeWS:
         self._wd_thread   = None
         self._restart_lock = threading.Lock()
         self._restart_count = 0
+        
+        # Optional callback functions for compatibility
+        self.publish = None  # Event publishing function
+        self.notify = None   # Admin notification function
 
     def status(self) -> dict:
         """Return current connection status in a JSON-serialisable dict."""
