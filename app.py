@@ -3321,9 +3321,13 @@ def _on_new_token(ev: dict):
 BUS.subscribe("NEW_TOKEN", _on_new_token)
 logger.info("Subscribed to NEW_TOKEN events on bus")
 
-# Auto-start services immediately after app creation
+# Auto-start services if enabled by environment variable
 with app.app_context():
-    start_services()
+    if os.getenv("AUTO_START_SCANS", "false").lower() == "true":
+        start_services()
+        logger.info("Auto-start scans enabled (AUTO_START_SCANS=true)")
+    else:
+        logger.info("Auto-start scans disabled (AUTO_START_SCANS=false or unset)")
 
 # Export app for gunicorn
 application = app
