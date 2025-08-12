@@ -146,7 +146,11 @@ def _scanner_thread():
             # Birdeye scanner with error handling
             if SCANNER:
                 try:
-                    total, new = SCANNER.tick()
+                    result = SCANNER.tick()
+                    if result and len(result) == 2:
+                        total, new = result
+                    else:
+                        total, new = 0, 0
                 except Exception as e:
                     total, new = 0, 0
                     app.logger.warning("[SCAN] Birdeye tick error: %s", e)
@@ -1351,9 +1355,9 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     else:
                         from eventbus import publish
                         from birdeye_ws import get_ws_scanner
-                        def _notify(msg):
+                        def notify_admin(msg):
                             _reply(msg)
-                        ws = get_ws_scanner(publish, _notify)
+                        ws = get_ws_scanner(publish, notify_admin)
                         ws.start()
                         response_text = "🟢 Birdeye WS started."
 
@@ -2297,8 +2301,12 @@ def start_services():
     # Auto-start enhanced WebSocket with Launchpad support
     try:
         from birdeye_ws import get_ws
-        get_ws(publish=publish, notify=lambda m: None).start()
-        logger.info("[WS] Birdeye WS auto-started on boot")
+        ws_instance = get_ws(publish=publish, notify=lambda m: None)
+        if ws_instance and hasattr(ws_instance, 'start'):
+            ws_instance.start()
+            logger.info("[WS] Birdeye WS auto-started on boot")
+        else:
+            logger.info("[WS] Birdeye WS not available")
     except Exception as e:
         logger.warning("[WS] auto-start failed: %s", e)
 
