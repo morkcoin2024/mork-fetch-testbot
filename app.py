@@ -2003,7 +2003,7 @@ AI Assistant:
 F.E.T.C.H Rules System:
 /rules_show, /a_rules_show - Display current rules configuration
 /rules_reload, /a_rules_reload - Reload rules from rules.yaml
-/fetch_now, /a_fetch_now - Run token filtering demo
+/fetch, /fetch_now, /a_fetch_now - Run token filtering demo
 
 /help - This help message
 
@@ -2029,7 +2029,7 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                     return jsonify({"status": "ok", "command": text, "response_sent": bool(sent_ok)})
                 else:
                     logger.info(f"[WEBHOOK] Unknown admin command: {text}")
-                    response_text = f"Unknown command: {text}\n\nAvailable commands: /ping, /status, /scan_status, /scan_test, /pumpfun_status, /pumpfun_probe, /help\n\nType /help for full command list."
+                    response_text = f"Unknown command: {text}\n\nAvailable commands: /ping, /status, /scan_status, /scan_test, /fetch, /fetch_now, /pumpfun_status, /pumpfun_probe, /help\n\nType /help for full command list."
                 
                 # Send response if we have one
                 if response_text:
