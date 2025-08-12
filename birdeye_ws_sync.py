@@ -45,7 +45,7 @@ class BirdeyeWS:
         self._ws = None
         self._th = None
         self._running = False
-        self._connected = False
+        self._connected_event = threading.Event()  # Thread-safe connection status
         self.recv_count = 0
         self.new_count = 0
         self._debug = False
@@ -81,7 +81,7 @@ class BirdeyeWS:
     def status(self):
         return {
             "running": self._running,
-            "connected": self._connected,
+            "connected": self._connected_event.is_set(),
             "recv": self.recv_count,
             "new": self.new_count,
             "seen_cache": len(self.seen_tokens),
@@ -129,7 +129,7 @@ class BirdeyeWS:
     def _run_once(self):
         global WS_CONNECTED
         WS_CONNECTED = False
-        self._connected = False
+        self._connected_event.clear()
         
         self._log("Creating WebSocket connection...")
         self._ws = websocket.WebSocketApp(
@@ -149,7 +149,7 @@ class BirdeyeWS:
     def _on_open(self, ws):
         global WS_CONNECTED
         WS_CONNECTED = True
-        self._connected = True
+        self._connected_event.set()
         self._log("✅ Connected to Birdeye WebSocket feed")
         
         # Send subscriptions for Launchpad priority
@@ -213,13 +213,13 @@ class BirdeyeWS:
     def _on_error(self, ws, error):
         global WS_CONNECTED
         WS_CONNECTED = False
-        self._connected = False
+        self._connected_event.clear()
         self._log(f"❌ WebSocket error: {type(error).__name__}: {error}", level="error")
 
     def _on_close(self, ws, close_status_code, close_msg):
         global WS_CONNECTED
         WS_CONNECTED = False
-        self._connected = False
+        self._connected_event.clear()
         self._log(f"🔌 Disconnected - code={close_status_code} reason={close_msg}")
 
 # Factory function for compatibility
