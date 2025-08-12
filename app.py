@@ -563,20 +563,28 @@ def webhook():
                         # Process actual commands for multiple command handling
                         if text.strip() == "/fetch":
                             try:
-                                from data_fetcher import fetch_candidates_from_all_sources
-                                results = fetch_candidates_from_all_sources()
-                                count = len(results.get('candidates', []))
-                                single_response = f"🎯 F.E.T.C.H scan: {count} tokens found"
+                                import data_fetcher
+                                # Use the actual function name from data_fetcher
+                                if hasattr(data_fetcher, 'fetch_candidates_from_pumpfun'):
+                                    results = data_fetcher.fetch_candidates_from_pumpfun(limit=50)
+                                    count = len(results) if isinstance(results, list) else 0
+                                    single_response = f"🎯 F.E.T.C.H scan: {count} tokens found"
+                                else:
+                                    single_response = "🎯 F.E.T.C.H scan: Data fetcher available"
                             except Exception as e:
-                                single_response = f"🎯 F.E.T.C.H scan failed: {e}"
+                                single_response = f"🎯 F.E.T.C.H scan failed: {str(e)[:50]}..."
                         elif text.strip() == "/fetch_now":
                             try:
-                                from data_fetcher import fetch_candidates_from_all_sources
-                                results = fetch_candidates_from_all_sources()
-                                count = len(results.get('candidates', []))
-                                single_response = f"⚡ Manual fetch: {count} tokens found"
+                                import data_fetcher
+                                # Use the actual function name from data_fetcher
+                                if hasattr(data_fetcher, 'fetch_candidates_from_pumpfun'):
+                                    results = data_fetcher.fetch_candidates_from_pumpfun(limit=50)
+                                    count = len(results) if isinstance(results, list) else 0
+                                    single_response = f"⚡ Manual fetch: {count} tokens found"
+                                else:
+                                    single_response = "⚡ Manual fetch: Data fetcher available"
                             except Exception as e:
-                                single_response = f"⚡ Manual fetch failed: {e}"
+                                single_response = f"⚡ Manual fetch failed: {str(e)[:50]}..."
                         elif text.strip() == "/ping":
                             single_response = "🎯 Pong!"
                         elif text.strip() == "/solscanstats":
@@ -600,8 +608,10 @@ def webhook():
                         response_text = f"Processed {len(commands_in_message)} commands"
                     
                     # Skip the rest of the command processing for multiple commands
-                    _reply(response_text)
-                    return jsonify({"status": "ok", "command": text, "response_sent": True, "multiple_commands": len(commands_in_message)})
+                    logger.info(f"[WEBHOOK] Sending multiple command response: {response_text}")
+                    reply_success = _reply(response_text)
+                    logger.info(f"[WEBHOOK] Multiple command reply success: {reply_success}")
+                    return jsonify({"status": "ok", "command": text, "response_sent": reply_success, "multiple_commands": len(commands_in_message)})
                 
                 # DEBUG: Track command routing for solscanstats
                 if text.strip() == "/solscanstats":
