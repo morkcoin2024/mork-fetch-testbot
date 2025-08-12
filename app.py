@@ -10,7 +10,7 @@ from flask import Flask, request, jsonify, Response, stream_with_context, render
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
 import rules
-import wallets
+from wallets import get_or_create_wallet, get_wallet, get_balance_sol
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -2232,7 +2232,7 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            entry = wallets.get_or_create_wallet(str(user.get('id')))
+                            entry = get_or_create_wallet(str(user.get('id')))
                             response_text = f"🧪 Burner created\n`{entry['address']}`"
                         except Exception as e:
                             response_text = f"❌ Wallet creation error: {e}"
@@ -2243,7 +2243,7 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            wallet = wallets.get_wallet(str(user.get('id')))
+                            wallet = get_wallet(str(user.get('id')))
                             response_text = "No burner yet. Use /wallet_new." if not wallet else f"`{wallet['address']}`"
                         except Exception as e:
                             response_text = f"❌ Wallet address error: {e}"
@@ -2254,11 +2254,11 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            wallet = wallets.get_wallet(str(user.get('id')))
+                            wallet = get_wallet(str(user.get('id')))
                             if not wallet: 
                                 response_text = "No burner yet. Use /wallet_new."
                             else:
-                                bal = wallets.get_balance_sol(wallet['address'])
+                                bal = get_balance_sol(wallet['address'])
                                 response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
                         except Exception as e:
                             response_text = f"❌ Wallet balance error: {e}"
