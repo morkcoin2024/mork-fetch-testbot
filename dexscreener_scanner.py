@@ -112,6 +112,14 @@ class DexScreenerScanner:
                 "created_ms": created,
             }
             new_items.append(item)
+            
+            # Publish NEW_TOKEN event for each new item
+            try:
+                from app import _normalize_token
+                ev = _normalize_token("dexscreener", p)
+                self.publish("NEW_TOKEN", ev)
+            except Exception as norm_e:
+                logging.warning("[DS] NEW_TOKEN publish failed: %s", norm_e)
 
         if new_items:
             self.publish("scan.dexscreener.new", {

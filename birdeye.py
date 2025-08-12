@@ -236,6 +236,14 @@ class BirdeyeScanner:
                             "name": it.get("name") or "?",
                             "price": it.get("priceUsd") or it.get("price") or None,
                         })
+                        
+                        # Publish individual NEW_TOKEN event
+                        try:
+                            from app import _normalize_token
+                            ev = _normalize_token("birdeye-http", it)
+                            self.publish("NEW_TOKEN", ev)
+                        except Exception as norm_e:
+                            logging.warning("[SCAN] NEW_TOKEN publish failed: %s", norm_e)
 
                 if new_tokens:
                     self.publish("scan.birdeye.new", {

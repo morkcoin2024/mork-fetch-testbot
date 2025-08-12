@@ -177,6 +177,15 @@ class SolscanScanner:
                 if addr and addr not in self.seen:
                     self.seen.add(addr)
                     new_count += 1
+                    
+                    # Publish NEW_TOKEN event
+                    if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                        try:
+                            from app import _normalize_token
+                            ev = _normalize_token("solscan", token)
+                            self.publish("NEW_TOKEN", ev)
+                        except Exception as norm_e:
+                            log.warning("[SOLSCAN] NEW_TOKEN publish failed: %s", norm_e)
             log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", True, new_count, len(self.seen))
             return len(tokens), new_count
         except Exception as e:
@@ -200,6 +209,15 @@ class SolscanScanner:
                 if addr and addr not in self.seen:
                     self.seen.add(addr)
                     new_count += 1
+                    
+                    # Publish NEW_TOKEN event
+                    if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                        try:
+                            from app import _normalize_token
+                            ev = _normalize_token("solscan", token)
+                            self.publish("NEW_TOKEN", ev)
+                        except Exception as norm_e:
+                            log.warning("[SOLSCAN] NEW_TOKEN publish failed: %s", norm_e)
             
             log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", True, new_count, len(self.seen))
             

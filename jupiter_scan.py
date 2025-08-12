@@ -64,6 +64,15 @@ class JupiterScan:
             if mint not in self.seen:
                 self.seen.add(mint)
                 new_items.append(t)
+                
+                # Publish NEW_TOKEN event
+                if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                    try:
+                        from app import _normalize_token
+                        ev = _normalize_token("jupiter", t)
+                        self.publish("NEW_TOKEN", ev)
+                    except Exception as norm_e:
+                        log.warning("[JUPITER] NEW_TOKEN publish failed: %s", norm_e)
 
         # heuristic: only announce the first handful per tick to avoid firehose
         announced = new_items[:10]

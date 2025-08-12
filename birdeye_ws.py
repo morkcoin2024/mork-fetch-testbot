@@ -212,10 +212,21 @@ class BirdeyeWS:
             data = json.loads(message)
             if self._is_new_token_event(data):
                 self.new_count += 1
-                token_id = data.get("token", {}).get("address")
+                token_data = data.get("token", {})
+                token_id = token_data.get("address")
                 if token_id:
                     self.seen_cache.add(token_id)
                     log.info("[WS] New token: %s", token_id)
+                    
+                    # Publish NEW_TOKEN event to the bus
+                    if self.publish:
+                        try:
+                            # Import here to avoid circular imports
+                            from app import _normalize_token
+                            ev = _normalize_token("birdeye-ws", token_data)
+                            self.publish("NEW_TOKEN", ev)
+                        except Exception as norm_e:
+                            log.warning("[WS] NEW_TOKEN publish failed: %s", norm_e)
         except Exception as e:
             log.warning("[WS] Failed to process message: %s", e)
 
