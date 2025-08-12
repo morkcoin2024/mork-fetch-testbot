@@ -69,11 +69,20 @@ else:
         websocket = None
         logging.warning("[WS] websocket-client not available: %s", e)
 
+    # --- Birdeye WS required headers & subprotocols ---
+    WS_HEADERS = [
+        "Origin: ws://public-api.birdeye.so",
+        "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
+        # NOTE: Sec-WebSocket-Protocol is negotiated via the 'subprotocols' arg below
+    ]
+
+    WS_SUBPROTOCOLS = ["echo-protocol"]
+
     BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
-    BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "")  # e.g. wss://ws.birdeye.so/socket (your Business plan URL)
+    BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "wss://public-api.birdeye.so/socket")
 
     # Auto-configure public API URL if no custom URL provided but API key exists
-    if not BIRDEYE_WS_URL and BIRDEYE_KEY:
+    if BIRDEYE_WS_URL == "wss://public-api.birdeye.so/socket" and BIRDEYE_KEY:
         BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
     SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
 
@@ -360,13 +369,19 @@ else:
                 if websocket:
                     self._ws = websocket.WebSocketApp(
                         BIRDEYE_WS_URL,
-                        header=[f"{k}: {v}" for k,v in hdrs.items()],
+                        header=WS_HEADERS,
+                        subprotocols=WS_SUBPROTOCOLS,
                         on_open=self._on_open,
                         on_message=self._on_message,
                         on_error=self._on_error,
                         on_close=self._on_close,
                     )
-                    self._ws.run_forever(ping_interval=30, ping_timeout=10)
+                    # Keepalive (avoid CF idle closes)
+                    self._ws.run_forever(
+                        ping_interval=20,
+                        ping_timeout=10,
+                        ping_payload="keepalive",
+                    )
             except Exception as e:
                 logging.warning("[WS] run_forever error: %s", e)
 
