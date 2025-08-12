@@ -389,7 +389,7 @@ def index():
 
 @app.route('/webhook_v2', methods=['POST'])
 def webhook_v2():
-    """New webhook endpoint to bypass deployment caching issues"""
+    """New webhook endpoint to bypass deployment caching issues - FORCE REFRESH"""
     return webhook()
 
 @app.route('/debug_scanners', methods=['GET'])
