@@ -2585,7 +2585,7 @@ Not for production custody."""
                             response_text = f"❌ Wallet balance error: {e}"
 
                 elif text.strip() in ['/help']:
-                    response_text = '''🐕 Mork F.E.T.C.H Bot Commands
+                    help_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
 Admin Commands:
 /ping, /a_ping - Test responsiveness
@@ -2658,6 +2658,10 @@ Event Bus Testing:
 
 Bot is operational with direct webhook processing.
 Admin alias commands (a_*) available to avoid conflicts.'''
+                    
+                    # Use _reply() to handle chunking automatically
+                    _reply(help_text, parse_mode="Markdown", no_preview=True)
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 
                 if response_text:
                     logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
