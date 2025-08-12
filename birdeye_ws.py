@@ -137,6 +137,8 @@ else:
         def __init__(self, publish=None, notify=None):
             self.publish = publish or (lambda _t,_d: None)
             self.notify  = notify  or (lambda _m: None)
+            self.api_key = BIRDEYE_KEY
+            self.url = BIRDEYE_WS_URL
             self._ws   = None
             self._th   = None
             self._stop = threading.Event()
@@ -152,11 +154,17 @@ else:
             self._debug_mode = False
             self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
 
-        def _log(self, msg):
-            """Unified logging with debug cache support"""
-            logging.info(f"[WS] {msg}")              # unify tag so /a_logs_tail contains=[WS] works
+        def _log(self, msg, level="info"):
+            line = f"[WS] {msg}"
+            if level == "error":
+                logging.error(line)
+            elif level == "warning":
+                logging.warning(line)
+            else:
+                logging.info(line)
             if self._debug_mode:
-                self._debug_cache.append(f"{time.time():.0f} {msg}")
+                # keep a lightweight trail for /ws_dump
+                self._debug_cache.append(f"{int(time.time())} {msg}")
 
         def _mark_seen(self, mint):
             if mint in self._seen_set: return False
@@ -168,11 +176,11 @@ else:
         def start(self):
             if self.running: return
             if not websocket:
-                logging.error("[WS] websocket-client lib missing")
+                self._log("websocket-client lib missing", level="error")
                 self.publish("scan.birdeye.ws.error", {"err":"lib_missing"})
                 return
             if not BIRDEYE_KEY or not BIRDEYE_WS_URL:
-                logging.error("[WS] missing BIRDEYE_API_KEY or BIRDEYE_WS_URL")
+                self._log("missing BIRDEYE_API_KEY or BIRDEYE_WS_URL", level="error")
                 self.publish("scan.birdeye.ws.error", {"err":"missing_env"})
                 return
 
@@ -188,7 +196,7 @@ else:
             self._th = threading.Thread(target=self._run_loop, daemon=True)
             self._th.start()
             self.publish("scan.birdeye.ws.start", {})
-            logging.info("[WS] Birdeye WS started with Launchpad priority")
+            self._log("Birdeye WS started with Launchpad priority")
             
         def _run_loop(self):
             backoff = 1.0
@@ -203,26 +211,26 @@ else:
                             headers = [
                                 "Origin: ws://public-api.birdeye.so",
                                 "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
-                                f"X-API-KEY: {BIRDEYE_KEY}",
+                                f"X-API-KEY: {self.api_key}",
                             ]
                             
-                            self._ws = WebSocketApp(
-                                BIRDEYE_WS_URL,
+                            self.ws = WebSocketApp(
+                                self.url,
                                 header=headers,
-                                subprotocols=["echo-protocol"],   # as Birdeye instructed
+                                subprotocols=["echo-protocol"],   # per Birdeye support
                                 on_open=self._on_open,
                                 on_message=self._on_message,
                                 on_error=self._on_error,
                                 on_close=self._on_close,
                             )
                             # Keepalive (avoid CF idle closes)
-                            self._ws.run_forever(
+                            self.ws.run_forever(
                                 ping_interval=20,
                                 ping_timeout=10,
                                 ping_payload="keepalive",
                             )
                 except Exception as e:
-                    logging.warning("[WS] run_forever error: %s", e)
+                    self._log(f"run_forever error: {e}", level="warning")
 
                 if self._stop.is_set():
                     break
@@ -241,7 +249,7 @@ else:
             if self._th and self._th.is_alive():
                 self._th.join(timeout=2.0)
             self.publish("scan.birdeye.ws.stop", {})
-            logging.info("[WS] Birdeye WS stopped")
+            self._log("Birdeye WS stopped")
 
         def status(self):
             return {
@@ -260,7 +268,7 @@ else:
     def _on_open(self, ws):
         global WS_CONNECTED
         WS_CONNECTED = True
-        logging.info("[WS] Connected to Birdeye feed")
+        self._log("Connected to Birdeye feed")
         self.publish("scan.birdeye.ws.open", {})
         # Enhanced subscription with Launchpad priority
         sub = os.getenv("BIRDEYE_WS_SUB", "")
@@ -268,9 +276,9 @@ else:
             try:
                 payload = json.loads(sub)
                 ws.send(json.dumps(payload))
-                logging.info("[WS] sent custom subscription payload")
+                self._log("sent custom subscription payload")
             except Exception as e:
-                logging.warning("[WS] bad BIRDEYE_WS_SUB: %s", e)
+                self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
         else:
             # Try subscribing to multiple topics with priority for Launchpad
             topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
@@ -284,9 +292,9 @@ else:
                         "chain": "solana"
                     }
                     ws.send(json.dumps(topic_sub))
-                    logging.info("[WS] sent %s subscription", topic)
+                    self._log(f"sent {topic} subscription")
                 except Exception as e:
-                    logging.debug("[WS] %s subscription failed: %s", topic, e)
+                    self._log(f"{topic} subscription failed: {e}", level="warning")
             
             # Fallback: original channel-based format
             try:
@@ -295,16 +303,16 @@ else:
                     "channels": [{"name": "token.created"}]
                 }
                 ws.send(json.dumps(default_sub))
-                logging.info("[WS] sent fallback channel subscription")
+                self._log("sent fallback channel subscription")
             except Exception as e:
-                logging.warning("[WS] fallback subscription failed: %s", e)
+                self._log(f"fallback subscription failed: {e}", level="warning")
 
-    def _on_message(self, _ws, msg):
+    def _on_message(self, ws, msg):
         self.recv_count += 1
         
         # Debug tap: log raw messages when enabled
         if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
-            logging.info("[WS_TAP] Raw message: %s", msg[:200] + "..." if len(msg) > 200 else msg)
+            self._log(f"[TAP] Raw message: {msg[:200] + '...' if len(msg) > 200 else msg}")
             
         try:
             data = json.loads(msg)
@@ -337,9 +345,9 @@ else:
                         "event": event,
                         "preview": preview
                     })
-                    logging.info("[WS] debug echo sent (%s)", event)
+                    self._log(f"debug echo sent ({event})")
                 except Exception as e:
-                    logging.warning("[WS] debug echo error: %s", e)
+                    self._log(f"debug echo error: {e}", level="warning")
 
         # Enhanced event handling for multiple topic types
         event_type = data.get("type") or data.get("topic", "")
@@ -386,11 +394,11 @@ else:
             )
             try:
                 self.notify(text)
-                logging.info("[WS] Alert sent: %s (%s) %s", name, sym, mint)
+                self._log(f"Alert sent: {name} ({sym}) {mint}")
             except Exception:
                 pass
 
-    def _on_error(self, _ws, err):
+    def _on_error(self, ws, err):
         global WS_CONNECTED
         WS_CONNECTED = False
         # Enhanced error logging to capture full handshake details
@@ -404,8 +412,8 @@ else:
         
         # Check if this is a handshake error (403 Forbidden, etc.)
         if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
-            logging.error("[WS] HANDSHAKE ERROR: %s", err)
-            logging.error("[WS] Full error details: %s", error_details)
+            self._log(f"HANDSHAKE ERROR: {err}", level="error")
+            self._log(f"Full error details: {error_details}", level="error")
             # Send detailed error to admin for debugging
             try:
                 if hasattr(self, 'notify') and self.notify:
@@ -413,20 +421,37 @@ else:
             except:
                 pass
         else:
-            logging.warning("[WS] error: %s", err)
+            self._log(f"error: {err}", level="warning")
         
         self.publish("scan.birdeye.ws.error", error_details)
 
-    def _on_close(self, _ws, code, reason):
+    def _on_close(self, ws, code, reason):
         global WS_CONNECTED
         WS_CONNECTED = False
-        logging.info("[WS] Disconnected - code=%s reason=%s", code, reason)
+        self._log(f"Disconnected - code={code} reason={reason}")
         self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
+    # add the three helpers expected by the /ws_* commands
+    def injectdebugevent(self, payload: dict):
+        """Used by /ws_probe to inject a synthetic event."""
+        try:
+            self._log(f"probe inject: {payload}")
+            self._debug_cache.append(f"inject {payload}")
+            return True
+        except Exception as e:
+            self._log(f"probe inject failed: {e}", level="error")
+            return False
 
+    def getdebugcache(self):
+        """Used by /ws_dump to read recent debug lines."""
+        return list(self._debug_cache)
+
+    def set_debug(self, on: bool):
+        self._debug_mode = bool(on)
+        self._log(f"debug mode -> {self._debug_mode}")
 
     # ===== Debug helpers (called from app.py) =====
-    def set_debug(self, on: bool):
+    def set_debug_legacy(self, on: bool):
         """Enable/disable debug mode with rate-limited message forwarding"""
         self.ws_debug = bool(on)
         logging.info("[WS] debug mode: %s", "ON" if self.ws_debug else "OFF")
