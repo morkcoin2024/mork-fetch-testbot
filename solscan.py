@@ -49,6 +49,9 @@ class SolscanScanner:
         self._running = False
         self._last_ok = None
         self._last_err = None
+        # Cache for deduplication
+        self.seen = set()
+        self.interval = 10  # Default scan interval in seconds
         # Use HTTP/2 if available, fallback to HTTP/1.1
         try:
             self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
@@ -71,28 +74,38 @@ class SolscanScanner:
     @property
     def running(self) -> bool:
         return self._running
-
-    def tick(self) -> tuple[int, int]:
-        """Scanner tick method for integration with main scanning loop"""
-        if not self._running:
-            return 0, 0
-        
-        try:
-            tokens = self.fetch_new_tokens()
-            return len(tokens), len(tokens)  # total, new (simplified for now)
-        except Exception as e:
-            log.warning("[SOLSCAN] tick error: %r", e)
-            return 0, 0
-
-    # --- public API used by /scan_status ------------------------------------
+    
+    @property
+    def enabled(self) -> bool:
+        """Check if scanner is enabled (has valid API key)"""
+        return bool(self.api_key and self.api_key.strip())
+    
+    @property
+    def key(self) -> str:
+        """Return API key (for status checking)"""
+        return self.api_key
+    
     def status(self) -> Dict[str, Any]:
+        """Return current scanner status"""
         return {
-            "name": "Solscan Pro",
             "running": self._running,
-            "base": self.base_url,
+            "enabled": self.enabled,
+            "api_key": bool(self.api_key),
+            "seen_cache": len(self.seen),
+            "interval": self.interval,
             "last_ok": self._last_ok,
             "last_err": self._last_err,
+            "base_url": self.base_url
         }
+    
+    def fetch_new_tokens(self, count: int = 10) -> List[Dict[str, Any]]:
+        """Fetch new tokens for status/sample display"""
+        try:
+            tokens = self.tick()
+            return tokens[:count] if tokens else []
+        except Exception as e:
+            log.warning("[SOLSCAN] fetch_new_tokens error: %r", e)
+            return []
 
     # --- core fetch ----------------------------------------------------------
     def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
