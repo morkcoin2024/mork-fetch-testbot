@@ -2234,8 +2234,13 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            entry = get_or_create_wallet(str(user.get('id')))
-                            response_text = f"🧪 Burner created\n`{entry['address']}`"
+                            uid = str(user.get('id'))
+                            w = get_or_create_wallet(uid)
+                            response_text = (
+                                "🪪 *Burner wallet created*\n"
+                                f"• Address: `{w['address']}`\n"
+                                "_(Private key stored server-side for testing; will move to secure storage before trading.)_"
+                            )
                         except Exception as e:
                             response_text = f"❌ Wallet creation error: {e}"
 
@@ -2245,8 +2250,12 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            wallet = get_wallet(str(user.get('id')))
-                            response_text = "No burner yet. Use /wallet_new." if not wallet else f"`{wallet['address']}`"
+                            uid = str(user.get('id'))
+                            w = get_wallet(uid)
+                            if not w:
+                                response_text = "⚠️ No wallet yet. Use /wallet_new first."
+                            else:
+                                response_text = f"📬 *Your burner wallet address*\n`{w['address']}`"
                         except Exception as e:
                             response_text = f"❌ Wallet address error: {e}"
 
@@ -2256,12 +2265,13 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            wallet = get_wallet(str(user.get('id')))
-                            if not wallet: 
-                                response_text = "No burner yet. Use /wallet_new."
+                            uid = str(user.get('id'))
+                            w = get_wallet(uid)
+                            if not w:
+                                response_text = "⚠️ No wallet yet. Use /wallet_new first."
                             else:
-                                bal = get_balance_sol(wallet['address'])
-                                response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
+                                bal = get_balance_sol(w["address"])
+                                response_text = f"💰 *Wallet balance*\nAddress: `{w['address']}`\nBalance: `{bal:.6f} SOL`"
                         except Exception as e:
                             response_text = f"❌ Wallet balance error: {e}"
 
@@ -2271,13 +2281,23 @@ Not for production custody."""
                         response_text = "Not authorized."
                     else:
                         try:
-                            fake = _normalize_token("test", {
-                                "mint": "So11111111111111111111111111111111111111112",
-                                "symbol": "TEST", "name": "Bus Test", "age_min": 5, "liq_usd": 7000, "mcap_usd": 15000,
-                                "holders": 80, "freeze": False, "mint": False, "blacklist": False, "renounced": True
-                            })
+                            # publish a synthetic NEW_TOKEN event to prove the end-to-end path
+                            fake = {
+                                "source": "TEST",
+                                "symbol": "TESTCOIN",
+                                "name": "Synthetic Test Token",
+                                "mint": "TestMint1111111111111111111111111111111111",
+                                "holders": 1,
+                                "mcaps": 0,
+                                "liq$": 0,
+                                "age_min": 0,
+                                "risk": "low",
+                                "solscan": None,
+                                "links": {"pumpfun": None, "birdeye": None},
+                                "ts": int(time.time())
+                            }
                             BUS.publish("NEW_TOKEN", fake)
-                            response_text = "🧪 Published test token to event bus."
+                            response_text = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
                         except Exception as e:
                             response_text = f"❌ Bus test error: {e}"
 
