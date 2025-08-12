@@ -57,6 +57,11 @@ class SolscanScanner:
         # Cache for deduplication
         self.seen = set()
         self.interval = 10  # Default scan interval in seconds
+        # Enhanced tracking for /solscanstats
+        self._last_tick_ts = None
+        self._requests_ok = 0
+        self._requests_err = 0
+        self._last_status_code = None
         # Use HTTP/2 if available, fallback to HTTP/1.1
         try:
             self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
@@ -67,7 +72,7 @@ class SolscanScanner:
     def start(self) -> None:
         log.info("[SOLSCAN] start called; enabled=%s", self.enabled)
         self._running = True
-        log.info("[SOLSCAN] scanner started (base=%s)", self.base_url)
+        log.info("[SOLSCAN] started base=%s keylen=%d", self.base_url, len(self.api_key or ""))
 
     def stop(self) -> None:
         self._running = False
@@ -101,7 +106,11 @@ class SolscanScanner:
             "interval": self.interval,
             "last_ok": self._last_ok,
             "last_err": self._last_err,
-            "base_url": self.base_url
+            "base_url": self.base_url,
+            "last_tick_ts": self._last_tick_ts,
+            "requests_ok": self._requests_ok,
+            "requests_err": self._requests_err,
+            "last_status": self._last_status_code
         }
     
     def tick(self) -> tuple[int, int]:
@@ -109,6 +118,7 @@ class SolscanScanner:
         if not self._running:
             return 0, 0
         
+        self._last_tick_ts = time.time()
         log.info("[SOLSCAN] tick base=%s seen=%d", self.base_url, len(self.seen))
         try:
             tokens = self.fetch_new_tokens()
@@ -122,6 +132,34 @@ class SolscanScanner:
         except Exception as e:
             log.warning("[SOLSCAN] tick error: %r", e)
             return 0, 0
+    
+    def ping(self) -> Dict[str, Any]:
+        """Manual ping command - force immediate tick and return stats"""
+        log.info("[SOLSCAN] ping forced-tick at %s", time.time())
+        
+        if not self._running:
+            return {"error": "Scanner not running", "new": 0, "seen": len(self.seen)}
+        
+        try:
+            tokens = self.fetch_new_tokens()
+            new_count = 0
+            
+            for token in tokens:
+                addr = token.get('address')
+                if addr and addr not in self.seen:
+                    self.seen.add(addr)
+                    new_count += 1
+            
+            return {
+                "success": True,
+                "new": new_count,
+                "seen": len(self.seen),
+                "total_fetched": len(tokens),
+                "base_url": self.base_url
+            }
+        except Exception as e:
+            log.error("[SOLSCAN] ping error: %r", e)
+            return {"error": str(e), "new": 0, "seen": len(self.seen)}
 
     # --- core fetch ----------------------------------------------------------
     def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -150,17 +188,22 @@ class SolscanScanner:
                             out = [self._normalize(tok) for tok in items]
                             self._last_ok = {"when": time.time(), "count": len(out), "path": path}
                             self._last_err = None
+                            self._requests_ok += 1
+                            self._last_status_code = 200
                             log.info("[SOLSCAN] %s ok: %d items", path, len(out))
                             return out
                         else:
                             log.warning("[SOLSCAN] %s unexpected payload shape", path)
                     else:
+                        self._requests_err += 1
+                        self._last_status_code = r.status_code
                         log.warning("[SOLSCAN] %s status=%s body=%s", path, r.status_code, r.text[:240])
                         if r.status_code == 401 or r.status_code == 403:
                             self._last_err = {"when": time.time(), "code": r.status_code, "path": path}
                             # auth issues won't improve by trying other paths — bail fast
                             return []
                 except Exception as e:
+                    self._requests_err += 1
                     log.warning("[SOLSCAN] %s error: %r", path, e)
 
             # small jittered backoff between attempts

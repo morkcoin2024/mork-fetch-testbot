@@ -1751,17 +1751,46 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                             
                             if scanner and hasattr(scanner, 'status'):
                                 st = scanner.status()
-                                # Simple status response without complex formatting
+                                import datetime
+                                last_tick = st.get('last_tick_ts')
+                                last_tick_str = "never" if not last_tick else datetime.datetime.fromtimestamp(last_tick).strftime("%H:%M:%S")
+                                
                                 response_text = (
                                     f"📊 *Solscan Pro Scanner Status*\n"
+                                    f"Enabled: `{st.get('enabled', False)}`\n"
                                     f"Running: `{st.get('running', False)}`\n"
-                                    f"Base URL: `{st.get('base', 'unknown')}`\n"
-                                    f"Ready: `True`"
+                                    f"Base URL: `{st.get('base_url', 'unknown')}`\n"
+                                    f"Last tick: `{last_tick_str}`\n"
+                                    f"Requests OK/Err: `{st.get('requests_ok', 0)}/{st.get('requests_err', 0)}`\n"
+                                    f"Last status: `{st.get('last_status', 'N/A')}`\n"
+                                    f"Seen count: `{st.get('seen_cache', 0)}`"
                                 )
                             else:
                                 response_text = "⚠️ Solscan scanner not initialized. Enable with FEATURE_SOLSCAN=on and provide SOLSCAN_API_KEY."
                         except Exception as e:
                             response_text = f"❌ solscanstats failed: {e}"
+
+                # /solscan_ping - Manual ping command
+                elif text.strip().startswith("/solscan_ping"):
+                    logger.info("[WEBHOOK] Routing /solscan_ping")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            # Force scanner initialization in this worker process
+                            _ensure_scanners()
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+                            
+                            if scanner and hasattr(scanner, 'ping'):
+                                result = scanner.ping()
+                                if result.get('success'):
+                                    response_text = f"🏓 Solscan ping → pong + tick ok ({result.get('new', 0)} new tokens | {result.get('seen', 0)} seen)"
+                                else:
+                                    response_text = f"❌ Solscan ping failed: {result.get('error', 'unknown')}"
+                            else:
+                                response_text = "⚠️ Solscan scanner not available for ping"
+                        except Exception as e:
+                            response_text = f"❌ solscan_ping failed: {e}"
 
                 # --- Admin: Process Diagnostic --------------------------------------------------
                 elif text.strip().startswith("/diag"):
