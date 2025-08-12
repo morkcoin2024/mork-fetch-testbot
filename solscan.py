@@ -66,6 +66,10 @@ class SolscanScanner:
         self._requests_ok = 0
         self._requests_err = 0
         self._last_status_code = None
+        # Trending cache for enrichment (cache for 30 seconds)
+        self._trending_cache = []
+        self._trending_cache_ts = 0
+        self._trending_cache_ttl = 30  # seconds
         # Use HTTP/2 if available, fallback to HTTP/1.1
         try:
             self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
@@ -102,6 +106,7 @@ class SolscanScanner:
     
     def status(self) -> Dict[str, Any]:
         """Return current scanner status"""
+        cache_age = time.time() - self._trending_cache_ts if self._trending_cache_ts else None
         return {
             "running": self._running,
             "enabled": self.enabled,
@@ -114,7 +119,9 @@ class SolscanScanner:
             "last_tick_ts": self._last_tick_ts,
             "requests_ok": self._requests_ok,
             "requests_err": self._requests_err,
-            "last_status": self._last_status_code
+            "last_status": self._last_status_code,
+            "trending_cache_size": len(self._trending_cache),
+            "trending_cache_age": cache_age
         }
     
     def tick(self) -> tuple[int, int]:
@@ -234,6 +241,53 @@ class SolscanScanner:
 
         self._last_err = {"when": time.time(), "code": "exhausted"}
         return []
+
+    # --- enrichment methods --------------------------------------------------
+    def get_trending_cache(self) -> List[Dict[str, Any]]:
+        """Get cached trending tokens for enrichment (refreshes if stale)"""
+        now = time.time()
+        if (now - self._trending_cache_ts) > self._trending_cache_ttl:
+            # Cache is stale, refresh it
+            try:
+                self._trending_cache = self.fetch_new_tokens()
+                self._trending_cache_ts = now
+                log.info("[SOLSCAN] trending cache refreshed: %d items", len(self._trending_cache))
+            except Exception as e:
+                log.warning("[SOLSCAN] trending cache refresh failed: %r", e)
+                # Keep old cache if refresh fails
+        
+        return self._trending_cache
+
+    def enrich_token(self, token_address: str) -> Optional[Dict[str, Any]]:
+        """Enrich a token with Solscan trending data"""
+        if not token_address:
+            return None
+            
+        trending_tokens = self.get_trending_cache()
+        
+        # Look for this token in trending list
+        for rank, trending_token in enumerate(trending_tokens, 1):
+            trending_addr = trending_token.get("address") or ""
+            if trending_addr.lower() == token_address.lower():
+                return {
+                    "solscan_trending_rank": rank,
+                    "solscan_trending_total": len(trending_tokens),
+                    "solscan_score": 0.15 - (rank * 0.005),  # Higher rank = higher score, diminishing
+                    "solscan_trending": True
+                }
+        
+        return None
+
+    def get_enrichment_badge(self, enrichment: Dict[str, Any]) -> str:
+        """Generate a badge string for Solscan trending enrichment"""
+        if not enrichment:
+            return ""
+        
+        rank = enrichment.get("solscan_trending_rank")
+        if rank:
+            return f"Solscan: trending #{rank}"
+        
+        return ""
 
     # --- helpers -------------------------------------------------------------
     @staticmethod

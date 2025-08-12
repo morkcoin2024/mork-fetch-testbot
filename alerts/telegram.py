@@ -980,7 +980,7 @@ async def cmd_fetch_source_sync(update, context):
             await update.message.reply_text("Usage: /fetch_source pumpfun|dexscreener")
             return "ok"
 
-        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min"]
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | solscan"]
         for t in items[:20]:
             src  = t.get("source", "?")
             tag  = "🟢 pumpfun" if src == "pumpfun" else src
@@ -988,7 +988,17 @@ async def cmd_fetch_source_sync(update, context):
             name = (t.get("name") or sym)[:20]
             holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
             mcap = t.get("mcap_usd"); liq = t.get("liquidity_usd"); age = t.get("age_min")
-            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'}")
+            
+            # Add Solscan trending badge
+            solscan_badge = ""
+            if t.get("solscan_trending_rank"):
+                solscan_badge = f"trending #{t.get('solscan_trending_rank')}"
+            elif t.get("solscan_trending"):
+                solscan_badge = "trending"
+            else:
+                solscan_badge = "-"
+                
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {solscan_badge}")
 
         block = "```\n" + "\n".join(lines) + "\n```"
         await update.message.reply_text(block, parse_mode="Markdown")
@@ -1036,7 +1046,7 @@ def cmd_fetch_now_sync() -> str:
         if not filtered:
             return f"*F.E.T.C.H Results (v{get_rules_version()})* — No tokens match current filters"
         
-        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk"]
+        lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk | solscan"]
         for t in filtered:
             src  = t.get("source", "?")
             tag  = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
@@ -1045,7 +1055,17 @@ def cmd_fetch_now_sync() -> str:
             holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
             mcap = t.get("mcap_usd"); liq = t.get("liquidity_usd"); age = t.get("age_min")
             risk = t.get("risk", "?")
-            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk}")
+            
+            # Add Solscan trending badge
+            solscan_badge = ""
+            if t.get("solscan_trending_rank"):
+                solscan_badge = f"trending #{t.get('solscan_trending_rank')}"
+            elif t.get("solscan_trending"):
+                solscan_badge = "trending"
+            else:
+                solscan_badge = "-"
+                
+            lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk} | {solscan_badge}")
         
         body = "\n".join(lines)
         if len(body) > 3800: body = body[:3800] + "\n…(truncated)…"

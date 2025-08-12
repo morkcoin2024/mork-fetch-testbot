@@ -473,6 +473,20 @@ def fetch_and_rank(rules):
     # Score + coerce types
     for t in filtered:
         t["risk"] = _score_token(t, rules)
+        
+    # SOLSCAN ENRICHMENT: Add Solscan trending data
+    try:
+        from enrich_with_solscan import enrich_with_solscan
+        filtered = enrich_with_solscan(filtered)
+        enriched_count = sum(1 for t in filtered if t.get("solscan_trending"))
+        publish("enrichment_complete", {"source": "solscan", "enriched_count": enriched_count})
+        log.info("[FETCH] Solscan enrichment complete: %d tokens enriched", enriched_count)
+    except Exception as e:
+        log.warning("[FETCH] Solscan enrichment failed: %r", e)
+        publish("enrichment_error", {"source": "solscan", "error": str(e)})
+        
+    # Continue with original scoring
+    for t in filtered:
         if t.get("mcap_usd") is not None:
             t["mcap_usd"] = int(t["mcap_usd"])
         if t.get("liquidity_usd") is not None:
