@@ -606,6 +606,16 @@ def webhook():
                                     single_response = "📊 Solscan: Not initialized"
                             except Exception as e:
                                 single_response = f"📊 Solscan error: {e}"
+                        elif text.strip() == "/wallet":
+                            try:
+                                import wallet
+                                user_id = str(user.get('id'))
+                                burner = wallet.ensure_burner(user_id)
+                                balance = wallet.get_balance_sol(burner["pubkey"])
+                                balance_str = f"{balance:.4f}" if balance >= 0 else "error"
+                                single_response = f"💰 Wallet: {burner['pubkey'][:12]}... | {balance_str} SOL"
+                            except Exception as e:
+                                single_response = f"💰 Wallet error: {e}"
                         
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
@@ -2119,6 +2129,42 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                     except Exception as e:
                         response_text = f"❌ scan_mode failed: {e}"
 
+                # /wallet - Simple wallet info command
+                elif text.strip() == "/wallet":
+                    logger.info("[WEBHOOK] Routing /wallet")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            import wallet
+                            user_id = str(user.get('id'))
+                            burner = wallet.ensure_burner(user_id)
+                            balance = wallet.get_balance_sol(burner["pubkey"])
+                            
+                            if balance >= 0:
+                                balance_str = f"{balance:.4f} SOL"
+                            else:
+                                balance_str = "Error checking balance"
+                            
+                            created_ts = burner.get("created", 0)
+                            if created_ts:
+                                from datetime import datetime
+                                created_date = datetime.fromtimestamp(created_ts).strftime("%Y-%m-%d %H:%M")
+                            else:
+                                created_date = "Unknown"
+                            
+                            response_text = f"""💰 **Burner Wallet Info**
+
+Address: `{burner["pubkey"]}`
+Balance: {balance_str}
+Created: {created_date}
+
+⚠️ **Development Only**
+This is a temporary wallet for testing.
+Not for production custody."""
+                        except Exception as e:
+                            response_text = f"❌ Wallet error: {e}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
@@ -2178,6 +2224,9 @@ F.E.T.C.H Rules System:
 /rules_show, /a_rules_show - Display current rules configuration
 /rules_reload, /a_rules_reload - Reload rules from rules.yaml
 /fetch, /fetch_now, /a_fetch_now - Run token filtering demo
+
+Wallet System:
+/wallet - Show burner wallet info (development only)
 
 /help - This help message
 

@@ -11,6 +11,11 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
+**Latest Updates:**
+- **COMPLETED**: Enhanced EventBus migration to new events.py with deduplication cache, thread-safe operations, and backward compatibility
+- **COMPLETED**: Implemented wallet.py burner wallet MVP with per-user Solana keypair generation, balance checking, and JSON persistence (development use only)
+- **COMPLETED**: Integrated wallet system with Telegram bot via `/wallet` command for admin access to burner wallet info
+
 **Core Architectural Decisions & Features:**
 - **Unified Single-Process Architecture:** Gunicorn configured for single-worker to ensure webhook handlers and scanner threads share the same process and data, resolving process isolation issues.
 - **Multi-Source Token Discovery:** Integrates Birdeye (HTTP & WebSocket), Jupiter, and Solscan Pro for comprehensive token discovery, enrichment, and scoring. Birdeye WebSocket includes launchpad stream priority, real-time processing, and automatic reconnection. Solscan Pro features auth header rotation, rate-limited discovery, and intelligent caching.
