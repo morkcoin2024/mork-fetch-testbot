@@ -228,8 +228,8 @@ def _scanner_thread():
             if SCANNER:
                 try:
                     result = SCANNER.tick()
-                    if result and isinstance(result, (tuple, list)) and len(result) == 2:
-                        total, new = result
+                    if result and isinstance(result, (tuple, list)) and len(result) >= 2:
+                        total, new = result[0], result[1]
                         if total > 0:
                             logger.info(f"[SCAN] birdeye tick ok: {total} items, {new} new")
                     else:

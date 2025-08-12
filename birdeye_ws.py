@@ -174,7 +174,7 @@ else:
             ]
             
             self._stop.clear()
-            self._th = threading.Thread(target=self._run, daemon=True)
+            self._th = threading.Thread(target=self.run, daemon=True)
             self._th.start()
             self.publish("scan.birdeye.ws.start", {})
             logging.info("[WS] Birdeye WS started with Launchpad priority")
@@ -372,13 +372,13 @@ else:
         logging.info("[WS] Disconnected - code=%s reason=%s", code, reason)
         self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
-    def _run(self):
+    def run(self):
         backoff = 1.0
         while not self._stop.is_set():
             try:
                 # WebSocket connection uses ONLY the required Origin headers and subprotocols
                 # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
-                if websocket:
+                if websocket and hasattr(websocket, 'WebSocketApp'):
                     self._ws = websocket.WebSocketApp(
                         BIRDEYE_WS_URL,
                         header=WS_HEADERS,
