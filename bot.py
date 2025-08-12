@@ -65,6 +65,7 @@ class MorkFetchBot:
         self.app.add_handler(CommandHandler("wallet", self.wallet_command))
         self.app.add_handler(CommandHandler("snipe", self.snipe_command))
         self.app.add_handler(CommandHandler("fetch", self.fetch_command))
+        self.app.add_handler(CommandHandler("fetch_now", self.fetch_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("emergency", self.emergency_command))
         # Lightweight assistant command
@@ -305,70 +306,27 @@ Your tokens are now in your wallet! 🚀"""
             await update.message.reply_text(f"❌ Error executing snipe: {str(e)}")
     
     async def fetch_command(self, update, context):
-        """Handle /fetch command"""
-        from jupiter_engine import jupiter_engine
-        from discovery import discovery
-        from wallet_manager import wallet_manager
-        from safety_system import safety
+        """Handle /fetch and /fetch_now commands for token discovery"""
+        user_id = update.effective_user.id
         
-        user_id = str(update.effective_user.id)
-        
-        if not wallet_manager.has_wallet(user_id):
-            await update.message.reply_text("❌ No wallet found. Use `/wallet create` or `/wallet import` first.")
+        # Admin authorization check
+        if user_id != ASSISTANT_ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("❌ Not authorized.")
             return
-        
-        wallet_info = wallet_manager.get_wallet_info(user_id)
-        wallet_address = wallet_info["default"]["pubkey"]
-        
-        # Check MORK holdings for FETCH
-        mork_ok, mork_msg = safety.check_mork_holdings(wallet_address, 1.0)
-        if not mork_ok:
-            await update.message.reply_text(f"❌ **F.E.T.C.H Mode Locked**\n\n{mork_msg}\n\nRequirement: 1.0 SOL worth of MORK for automated trading.")
-            return
-        
-        await update.message.reply_text("🤖 **F.E.T.C.H Mode Activated**\n\nScanning for tradeable tokens...")
         
         try:
-            # Find tradeable token
-            token = discovery.find_tradeable_token()
+            # Import the same function used by the webhook handler
+            from alerts.telegram import cmd_fetch_now_sync
             
-            if not token:
-                await update.message.reply_text("❌ No suitable tokens found in current scan.\n\nThis is normal - will keep monitoring for opportunities.")
-                return
+            # Call the token discovery function
+            result = cmd_fetch_now_sync()
             
-            amount_sol = 0.02  # Default FETCH amount
+            # Send the result to the user
+            await update.message.reply_text(result, parse_mode='Markdown')
             
-            message = f"""🎯 **Token Discovered**
-
-**Symbol:** {token['symbol']}
-**Market Cap:** ${token['market_cap']:,.0f}
-**Expected Tokens:** ~{token.get('expected_tokens_per_sol', 0):,.0f}
-
-Executing F.E.T.C.H trade with {amount_sol} SOL..."""
-            
-            await update.message.reply_text(message)
-            
-            # Execute trade
-            private_key = wallet_manager.get_private_key(user_id, "default")
-            result = jupiter_engine.safe_swap(private_key, token["mint"], amount_sol)
-            
-            if result["success"]:
-                safety.record_trade(user_id, amount_sol)
-                
-                success_message = f"""🎉 **F.E.T.C.H Successful!**
-
-**Token:** {token['symbol']}
-**Transaction:** `{result['signature']}`
-**Tokens Received:** {result['delta_raw']:,}
-
-The degen's best friend just fetched you some profits! 🐕🚀"""
-                
-                await update.message.reply_text(success_message, parse_mode='Markdown')
-            else:
-                await update.message.reply_text(f"❌ **F.E.T.C.H Failed**\n\n{result['error']}")
-                
         except Exception as e:
-            await update.message.reply_text(f"❌ Error in F.E.T.C.H mode: {str(e)}")
+            logger.error(f"Fetch command error: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
     
     async def status_command(self, update, context):
         """Handle /status command"""
