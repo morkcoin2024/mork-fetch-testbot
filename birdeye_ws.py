@@ -68,10 +68,25 @@ else:
         logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
 
     try:
-        import websocket  # from websocket-client
+        # Import from websocket-client package (not the old websocket package)
+        import websocket._app as websocket_app
+        import websocket._core as websocket_core
+        
+        # Create a namespace with the correct classes
+        class websocket:
+            WebSocketApp = websocket_app.WebSocketApp
+            create_connection = websocket_core.create_connection
+            
     except Exception as e:
-        websocket = None
-        logging.warning("[WS] websocket-client not available: %s", e)
+        try:
+            # Fallback: try direct import pattern
+            from websocket import WebSocketApp, create_connection
+            class websocket:
+                WebSocketApp = WebSocketApp
+                create_connection = create_connection
+        except Exception as e2:
+            websocket = None
+            logging.warning("[WS] websocket-client not available: %s, %s", e, e2)
 
     # --- Birdeye WS required headers & subprotocols ---
     WS_HEADERS = [
