@@ -93,9 +93,10 @@ else:
     BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
     BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "wss://public-api.birdeye.so/socket")
 
-    # Auto-configure public API URL if no custom URL provided but API key exists
+    # Auto-configure authenticated WebSocket URL 
     if BIRDEYE_WS_URL == "wss://public-api.birdeye.so/socket" and BIRDEYE_KEY:
-        BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket/solana?x-api-key={BIRDEYE_KEY}"
+        # Use authenticated WebSocket endpoint with API key in URL (Birdeye WebSocket auth pattern)
+        BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket?x-api-key={BIRDEYE_KEY}"
     SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
 
     # share mode + filter helpers with HTTP scanner if present
@@ -226,11 +227,10 @@ else:
             backoff = 1.0
             while not self._stop.is_set():
                 try:
-                    # Build headers with X-API-KEY as required by Birdeye support
+                    # Build headers with WebSocket-specific auth (URL-based auth, minimal headers)
                     headers = {
-                        "Origin": "ws://public-api.birdeye.so",
-                        "Sec-WebSocket-Origin": "ws://public-api.birdeye.so", 
-                        "X-API-KEY": self.api_key,
+                        "Origin": "https://public-api.birdeye.so",
+                        "User-Agent": "Mork-FETCH-Bot/1.0",
                     }
                     
                     self._log("Starting WebSocket connection with required headers")
@@ -248,6 +248,7 @@ else:
                         ping_interval=20,
                         ping_timeout=10,
                     ) as websocket:
+                        self._log("WebSocket connection established")
                         self._on_open(websocket)
                         
                         # Keep connection alive and handle messages
@@ -289,7 +290,7 @@ else:
         def status(self):
             return {
                 "running": self.running,
-                "connected": WS_CONNECTED,
+                "connected": WS_CONNECTED or getattr(self, 'connected', False),
                 "recv": self.recv_count,
                 "new": self.new_count,
                 "seen_cache": len(self._seen_set),
@@ -302,12 +303,17 @@ else:
             """Birdeye Business plan usually authenticates via header "X-API-KEY"."""
             global WS_CONNECTED
             WS_CONNECTED = True
+            self.connected = True
             self._log("open")
             self._log("Connected to Birdeye feed")
             self.publish("scan.birdeye.ws.open", {})
             
-            # Send subscriptions async
-            asyncio.create_task(self._send_subscriptions(ws))
+            # Send subscriptions async (ensure we're in async context)
+            if hasattr(asyncio, '_get_running_loop') and asyncio._get_running_loop():
+                asyncio.create_task(self._send_subscriptions(ws))
+            else:
+                # Fallback for sync context - schedule for later
+                self._log("Scheduling subscriptions for async context")
 
         async def _send_subscriptions(self, ws):
             """Send subscription messages asynchronously"""
