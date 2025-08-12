@@ -269,6 +269,7 @@ else:
             """Birdeye Business plan usually authenticates via header "X-API-KEY"."""
             global WS_CONNECTED
             WS_CONNECTED = True
+            self._log("open")
             self._log("Connected to Birdeye feed")
             self.publish("scan.birdeye.ws.open", {})
             # Enhanced subscription with Launchpad priority
@@ -310,6 +311,7 @@ else:
 
         def _on_message(self, ws, msg):
             self.recv_count += 1
+            self._log(f"msg len={len(msg)}")
             self._log(f"Message received ({len(msg)} bytes)")
             
             # Debug tap: log raw messages when enabled
@@ -403,6 +405,7 @@ else:
         def _on_error(self, ws, err):
             global WS_CONNECTED
             WS_CONNECTED = False
+            self._log(f"error: {err}", level="error")
             self._log(f"WebSocket error occurred: {err}", level="error")
             # Enhanced error logging to capture full handshake details
             error_details = {
@@ -431,6 +434,7 @@ else:
         def _on_close(self, ws, code, reason):
             global WS_CONNECTED
             WS_CONNECTED = False
+            self._log("close")
             self._log(f"Disconnected - code={code} reason={reason}")
             self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
 
