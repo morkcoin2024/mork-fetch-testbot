@@ -1056,14 +1056,32 @@ def cmd_fetch_now_sync() -> str:
             mcap = t.get("mcap_usd"); liq = t.get("liquidity_usd"); age = t.get("age_min")
             risk = t.get("risk", "?")
             
-            # Add Solscan trending badge
-            solscan_badge = ""
-            if t.get("solscan_trending_rank"):
-                solscan_badge = f"trending #{t.get('solscan_trending_rank')}"
-            elif t.get("solscan_trending"):
-                solscan_badge = "trending"
-            else:
-                solscan_badge = "-"
+            # Add Solscan enrichment badge
+            solscan_badge = "-"
+            try:
+                # Try to get enrichment data from global SCANNERS registry
+                from app import SCANNERS
+                if 'solscan' in SCANNERS:
+                    scanner = SCANNERS['solscan']
+                    if scanner and hasattr(scanner, 'get_enrichment_badge'):
+                        address = t.get('address')
+                        if address:
+                            badge = scanner.get_enrichment_badge(address)
+                            if badge:
+                                # Extract just the key part for table format
+                                if "NEW" in badge:
+                                    solscan_badge = "NEW"
+                                elif "trending #" in badge:
+                                    rank = badge.split("#")[1] if "#" in badge else "?"
+                                    solscan_badge = f"#{rank}"
+                                else:
+                                    solscan_badge = badge[:10]  # Truncate long badges
+            except Exception:
+                # Fallback to original logic if new system unavailable
+                if t.get("solscan_trending_rank"):
+                    solscan_badge = f"#{t.get('solscan_trending_rank')}"
+                elif t.get("solscan_trending"):
+                    solscan_badge = "trend"
                 
             lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk} | {solscan_badge}")
         
