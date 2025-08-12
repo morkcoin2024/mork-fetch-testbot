@@ -2473,12 +2473,12 @@ F.E.T.C.H Rules System:
 
 Wallet System:
 /wallet - Show comprehensive burner wallet info (development only)
-/wallet_new - Create new burner wallet
-/wallet_addr - Get your wallet address  
-/wallet_balance - Check wallet balance
+/wallet_new - create a burner wallet
+/wallet_addr - show your wallet address
+/wallet_balance - show SOL balance
 
 Event Bus Testing:
-/bus_test - Test complete event pipeline with synthetic token
+/bus_test - publish a synthetic NEW_TOKEN event
 
 /help - This help message
 
