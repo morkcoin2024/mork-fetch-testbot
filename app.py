@@ -1206,8 +1206,61 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
-                    from alerts.telegram import cmd_fetch_now_sync
-                    _reply(cmd_fetch_now_sync())
+                    
+                    try:
+                        from data_fetcher import fetch_and_rank  # existing import path
+                        from rules import load_rules, get_rules_version  # same helper used elsewhere
+                        rules = load_rules()  # same helper used elsewhere
+                        rows = fetch_and_rank(rules)  # returns list
+                        if not rows:
+                            response_text = "No candidates found."
+                        else:
+                            # Format results inline (same logic as cmd_fetch_now_sync)
+                            lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk | solscan"]
+                            for t in rows:
+                                src = t.get("source", "?")
+                                tag = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
+                                sym = t.get("symbol", "?")
+                                name = (t.get("name") or sym)[:20]
+                                holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+                                mcap = t.get("mcap_usd")
+                                liq = t.get("liquidity_usd")
+                                age = t.get("age_min")
+                                risk = t.get("risk", "?")
+                                
+                                # Add Solscan enrichment badge
+                                solscan_badge = "-"
+                                try:
+                                    if 'solscan' in SCANNERS:
+                                        scanner = SCANNERS['solscan']
+                                        if scanner and hasattr(scanner, 'get_enrichment_badge'):
+                                            address = t.get('address')
+                                            if address:
+                                                badge = scanner.get_enrichment_badge(address)
+                                                if badge:
+                                                    if "NEW" in badge:
+                                                        solscan_badge = "NEW"
+                                                    elif "trending #" in badge:
+                                                        rank = badge.split("#")[1] if "#" in badge else "?"
+                                                        solscan_badge = f"#{rank}"
+                                                    else:
+                                                        solscan_badge = badge[:10]
+                                except Exception:
+                                    if t.get("solscan_trending_rank"):
+                                        solscan_badge = f"#{t.get('solscan_trending_rank')}"
+                                    elif t.get("solscan_trending"):
+                                        solscan_badge = "trend"
+                                
+                                lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk} | {solscan_badge}")
+                            
+                            body = "\n".join(lines)
+                            if len(body) > 3800:
+                                body = body[:3800] + "\n…(truncated)…"
+                            response_text = f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(rows)} tokens (multi-source):\n```\n{body}\n```"
+                        _reply(response_text, parse_mode="Markdown")
+                    except Exception as e:
+                        logger.exception("fetch_now error in webhook")
+                        _reply(f"❌ fetch_now failed: {e}")
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
 
                 # /pumpfunstatus (admin only)

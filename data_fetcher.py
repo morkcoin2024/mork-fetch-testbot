@@ -480,9 +480,9 @@ def fetch_and_rank(rules):
         filtered = enrich_with_solscan(filtered)
         enriched_count = sum(1 for t in filtered if t.get("solscan_trending"))
         publish("enrichment_complete", {"source": "solscan", "enriched_count": enriched_count})
-        log.info("[FETCH] Solscan enrichment complete: %d tokens enriched", enriched_count)
+        logging.info("[FETCH] Solscan enrichment complete: %d tokens enriched", enriched_count)
     except Exception as e:
-        log.warning("[FETCH] Solscan enrichment failed: %r", e)
+        logging.warning("[FETCH] Solscan enrichment failed: %r", e)
         publish("enrichment_error", {"source": "solscan", "error": str(e)})
         
     # Continue with original scoring
