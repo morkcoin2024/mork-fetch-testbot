@@ -59,6 +59,7 @@ def _init_scanners():
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
     JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
     # Initialize Solscan Pro scanner if configured
+    global SOLSCAN_SCANNER
     solscan_api_key = os.getenv("SOLSCAN_API_KEY")
     feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
     
@@ -68,6 +69,10 @@ def _init_scanners():
             SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
             if SOLSCAN_SCANNER:
                 logger.info("Solscan Pro scanner initialized and ready")
+                # Auto-start if enabled
+                if SOLSCAN_SCANNER.enabled:
+                    SOLSCAN_SCANNER.start()
+                    logger.info("Solscan scanner auto-started on boot")
             else:
                 SOLSCAN_SCANNER = None
                 logger.warning("Failed to create Solscan Pro scanner instance")
@@ -151,15 +156,14 @@ try:
     _init_scanners()
     logger.info("Scanners initialized successfully")
     # Ensure SCANNERS registry is populated after initialization
-    if not SCANNERS:
-        SCANNERS = {
-            'birdeye': SCANNER,
-            'jupiter': JUPITER_SCANNER,
-            'solscan': SOLSCAN_SCANNER,
-            'dexscreener': DS_SCANNER,
-            'websocket': ws_client
-        }
-        logger.info("SCANNERS registry populated after initialization")
+    SCANNERS = {
+        'birdeye': SCANNER,
+        'jupiter': JUPITER_SCANNER,
+        'solscan': SOLSCAN_SCANNER,
+        'dexscreener': DS_SCANNER,
+        'websocket': ws_client
+    }
+    logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
 except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
     # Continue without scanners if initialization fails

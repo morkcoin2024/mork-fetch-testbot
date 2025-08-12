@@ -1,0 +1,92 @@
+We still get:
+- /solscanstats -> “Solscan scanner not initialized”
+- /scan_status -> “Solscan: OFF (no key)”
+- No "[SOLSCAN]" lines in logs
+
+Please run these EXACT steps and paste ALL outputs.
+
+# 1) Verify env actually present in the running process
+python3 - <<'PY'
+import os
+print("FEATURE_SOLSCAN =", os.getenv("FEATURE_SOLSCAN","(unset)"))
+k = os.getenv("SOLSCAN_API_KEY","")
+print("SOLSCAN_API_KEY set:", bool(k), "len:", len(k))
+print("SOLSCAN_API_KEY head:", (k[:8]+"…") if k else "(none)")
+PY
+
+# 2) Import scanner directly and inspect fields/methods
+python3 - <<'PY'
+import importlib, traceback
+try:
+    sc = importlib.import_module("solscan")
+    s = sc.get_solscan_scanner()
+    print("instance:", type(s).__name__)
+    for f in ("enabled","key","seen","status","start","stop","fetch_new_tokens"):
+        v = getattr(s,f,None)
+        print(f"{f}:",
+              ("callable" if callable(v) else v if v is not None else "MISSING"))
+    # Call status() safely
+    try:
+        print("status():", s.status())
+    except Exception as e:
+        print("status() raised:", type(e).__name__, e)
+except Exception:
+    traceback.print_exc()
+PY
+
+# 3) Confirm registry + handlers are wired in app.py
+echo "== SCANNERS registry block =="
+grep -n "SCANNERS *=" -n app.py
+sed -n '1,260p' app.py | sed -n '/SCANNERS *=/{=;p; n; n; n; p}'
+
+echo "== get_solscan_scanner references =="
+grep -n "get_solscan_scanner" -n app.py solscan.py
+
+echo "== solscan webhook handlers =="
+grep -nE "/solscanstats|/solscan_start|/solscan_stop" app.py
+
+# 4) Force init + start programmatically (bypassing webhook)
+python3 - <<'PY'
+from solscan import get_solscan_scanner
+s = get_solscan_scanner()
+print("Before start -> enabled:", getattr(s,"enabled",None))
+try:
+    s.start()
+    print("Called s.start() OK")
+except Exception as e:
+    print("s.start() raised:", type(e).__name__, e)
+print("After start -> enabled:", getattr(s,"enabled",None))
+try:
+    print("status():", s.status())
+except Exception as e:
+    print("status() raised:", type(e).__name__, e)
+PY
+
+# 5) Show any Solscan lines from logs (case-insensitive)
+echo "== recent Solscan logs =="
+tail -n 300 logs/app.log | sed -n '/Solscan/Ip'
+
+# 6) If FEATURE_SOLSCAN or key is unset in step #1, export and restart now:
+# (only run if needed)
+# export FEATURE_SOLSCAN=on
+# export SOLSCAN_API_KEY='<PASTE KEY>'
+# touch app to reload:
+# curl -sS http://localhost:5000/status > /dev/null
+
+# 7) Webhook tests
+echo "== /solscanstats =="
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/solscanstats"}}'
+
+echo "== /scan_status =="
+curl -sS https://telegram-bot-morkcoin2024.replit.app/webhook \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"chat":{"id":1653046781},"from":{"id":1653046781,"username":"Drahcir196"},"text":"/scan_status"}}'
+
+# If any of the following are true, please fix and confirm:
+# - FEATURE_SOLSCAN != 'on'
+# - SOLSCAN_API_KEY missing/empty inside the process
+# - SolscanScanner.enabled never becomes True after start()
+# - SCANNERS registry doesn’t include ('solscan', get_solscan_scanner)
+# - Webhook handlers for /solscanstats|/solscan_start|/solscan_stop missing
