@@ -41,6 +41,7 @@ from jupiter_scan import JupiterScan
 # Initialize components after admin functions are defined
 def _init_scanners():
     global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, SCANNERS
+    SCANNERS.clear()
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
     
     # Only initialize WebSocket if enabled
@@ -71,17 +72,17 @@ def _init_scanners():
             from solscan import get_solscan_scanner
             SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
             if SOLSCAN_SCANNER:
-                logger.info("Solscan Pro scanner initialized and ready")
-                # Auto-start if enabled
-                if SOLSCAN_SCANNER.enabled:
-                    SOLSCAN_SCANNER.start()
-                    logger.info("Solscan scanner auto-started on boot")
+                SCANNERS["solscan"] = SOLSCAN_SCANNER
+                logger.info("[INIT][SOLSCAN] created=True id=%s", id(SOLSCAN_SCANNER))
+                SOLSCAN_SCANNER.start()
+                logger.info("[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
+                           getattr(SOLSCAN_SCANNER, "enabled", None), getattr(SOLSCAN_SCANNER, "running", None), os.getpid())
             else:
                 SOLSCAN_SCANNER = None
                 logger.warning("Failed to create Solscan Pro scanner instance")
         except Exception as e:
             SOLSCAN_SCANNER = None
-            logger.warning("Solscan Pro scanner initialization failed: %s", e)
+            logger.exception("[INIT][SOLSCAN] failed: %s", e)
     else:
         SOLSCAN_SCANNER = None
         logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
@@ -157,7 +158,7 @@ JUPITER_SCANNER = None
 SOLSCAN_SCANNER = None
 
 # Centralized scanner registry
-SCANNERS = {}
+SCANNERS = {}  # global, single source of truth
 
 # Function to ensure scanners are initialized (for multi-worker setup)
 def _ensure_scanners():
@@ -380,6 +381,18 @@ def webhook_v2():
     """New webhook endpoint to bypass deployment caching issues"""
     return webhook()
 
+@app.route('/debug_scanners', methods=['GET'])
+def debug_scanners():
+    """Debug endpoint to check SCANNERS state"""
+    return jsonify({
+        "pid": os.getpid(),
+        "scanners_keys": list(SCANNERS.keys()),
+        "has_solscan": "solscan" in SCANNERS,
+        "solscan_obj": str(SCANNERS.get("solscan", None)),
+        "solscan_running": getattr(SCANNERS.get("solscan", None), "running", None),
+        "solscan_enabled": getattr(SCANNERS.get("solscan", None), "enabled", None)
+    })
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
@@ -387,6 +400,7 @@ def webhook():
     import time
     timestamp = time.time()
     print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
+    app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
     
     try:
         # Import publish at function level to avoid import issues
@@ -408,6 +422,12 @@ def webhook():
             # ULTRA DEBUG: Track /solscanstats at the earliest possible point
             if msg_text and msg_text.strip() == "/solscanstats":
                 logger.info(f"[WEBHOOK-ULTRA-DEBUG] /solscanstats detected at entry! user_id={user_id}")
+                # Add SCANNERS registry debugging for /solscanstats
+                try:
+                    logger.info("[WEBHOOK][SOLSCAN] pid=%s keys=%s has_solscan=%s",
+                               os.getpid(), list(SCANNERS.keys()), "solscan" in SCANNERS)
+                except Exception:
+                    pass
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
         
