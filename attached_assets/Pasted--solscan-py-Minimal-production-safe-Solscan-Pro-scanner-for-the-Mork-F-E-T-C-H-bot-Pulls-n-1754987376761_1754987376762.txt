@@ -1,0 +1,155 @@
+# solscan.py
+# Minimal, production-safe Solscan Pro scanner for the Mork F.E.T.C.H bot.
+# - Pulls "new tokens / recently listed" from Solscan Pro.
+# - Safe header handling (supports both 'token' and 'X-API-KEY' styles).
+# - Retries + jitter. Returns normalized token dicts the rest of the bot expects.
+
+from __future__ import annotations
+import os, time, random, logging
+from typing import List, Dict, Any, Optional
+
+import httpx
+
+log = logging.getLogger(__name__)
+
+_DEFAULT_BASE = os.getenv("SOLSCAN_BASE_URL", "https://pro-api.solscan.io")
+_TIMEOUT = 12.0
+
+# Candidate endpoints to try (Solscan Pro has a few surfaces that expose new listings).
+# We try them in order until we get a 200 with a list-shaped payload.
+_CANDIDATE_PATHS = [
+    # (path, json_list_key)
+    ("/v1/market/new-tokens", "data"),          # common Pro endpoint
+    ("/v1/market/tokens/new", "data"),          # alt spelling
+    ("/v2/market/new-tokens", "data"),          # newer versions sometimes use /v2
+    ("/v1/token/new", "data"),
+]
+
+def _build_headers(api_key: str) -> Dict[str, str]:
+    # Solscan Pro usually accepts header "token: <API_KEY>".
+    # Some gateways also accept "X-API-KEY" or "Authorization: Bearer <key>".
+    return {
+        "token": api_key,
+        "X-API-KEY": api_key,
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "User-Agent": "mork-fetch-bot/1.0",
+    }
+
+class SolscanScanner:
+    def __init__(self,
+                 api_key: str,
+                 base_url: str = _DEFAULT_BASE,
+                 network: str = "solana",
+                 limit: int = 20) -> None:
+        self.api_key = api_key.strip()
+        self.base_url = base_url.rstrip("/")
+        self.network = network
+        self.limit = max(1, min(limit, 100))
+        self._running = False
+        self._last_ok = None
+        self._last_err = None
+        self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
+
+    # --- lifecycle -----------------------------------------------------------
+    def start(self) -> None:
+        self._running = True
+        log.info("[SOLSCAN] scanner started (base=%s)", self.base_url)
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            self._client.close()
+        except Exception:
+            pass
+        log.info("[SOLSCAN] scanner stopped")
+
+    # --- public API used by /scan_status ------------------------------------
+    def status(self) -> Dict[str, Any]:
+        return {
+            "name": "Solscan Pro",
+            "running": self._running,
+            "base": self.base_url,
+            "last_ok": self._last_ok,
+            "last_err": self._last_err,
+        }
+
+    # --- core fetch ----------------------------------------------------------
+    def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Returns a list of normalized token dicts:
+          { 'name', 'symbol', 'address', 'price_usd', 'source', 'links': {...} }
+        """
+        if not self._running:
+            # still allow direct pulls for /fetch_now; we just don’t run in a loop here
+            pass
+
+        n = count or self.limit
+        headers = _build_headers(self.api_key)
+        params = {"chain": self.network, "limit": n}
+
+        backoff = 0.8
+        for attempt in range(3):
+            for path, list_key in _CANDIDATE_PATHS:
+                url = f"{self.base_url}{path}"
+                try:
+                    r = self._client.get(url, headers=headers, params=params)
+                    if r.status_code == 200:
+                        data = r.json()
+                        items = data.get(list_key, [])
+                        if isinstance(items, list):
+                            out = [self._normalize(tok) for tok in items]
+                            self._last_ok = {"when": time.time(), "count": len(out), "path": path}
+                            self._last_err = None
+                            log.info("[SOLSCAN] %s ok: %d items", path, len(out))
+                            return out
+                        else:
+                            log.warning("[SOLSCAN] %s unexpected payload shape", path)
+                    else:
+                        log.warning("[SOLSCAN] %s status=%s body=%s", path, r.status_code, r.text[:240])
+                        if r.status_code == 401 or r.status_code == 403:
+                            self._last_err = {"when": time.time(), "code": r.status_code, "path": path}
+                            # auth issues won’t improve by trying other paths — bail fast
+                            return []
+                except Exception as e:
+                    log.warning("[SOLSCAN] %s error: %r", path, e)
+
+            # small jittered backoff between attempts
+            sleep = backoff + random.random() * 0.4
+            time.sleep(sleep)
+            backoff *= 1.6
+
+        self._last_err = {"when": time.time(), "code": "exhausted"}
+        return []
+
+    # --- helpers -------------------------------------------------------------
+    @staticmethod
+    def _normalize(item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Map Solscan fields to our common token schema.
+        We handle a few likely field names defensively.
+        """
+        addr = item.get("mintAddress") or item.get("address") or item.get("mint") or ""
+        sym = item.get("symbol") or item.get("tokenSymbol") or ""
+        name = item.get("name") or item.get("tokenName") or sym or addr[:6]
+        price = (
+            item.get("price") or
+            item.get("priceUsd") or
+            (item.get("market", {}) or {}).get("price")
+        )
+
+        links = {
+            "solscan": f"https://solscan.io/token/{addr}" if addr else None,
+            "birdeye": f"https://birdeye.so/token/{addr}?chain=solana" if addr else None,
+            "pumpfun": f"https://pump.fun/{addr}" if addr else None,
+        }
+
+        return {
+            "name": name,
+            "symbol": sym,
+            "address": addr,
+            "price_usd": price,
+            "source": "solscan",
+            "links": links,
+            "raw": item,
+        }

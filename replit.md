@@ -14,10 +14,10 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 **Current Configuration: Multi-Source Token Discovery + Enhanced Admin Commands (August 12, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
-- **Solscan Pro Scanner**: Enhanced implementation using Pro API v2.0, dormant until both FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
+- **Solscan Pro Scanner**: Production-ready implementation with multi-endpoint support, safe header handling, and retry logic. Auto-initializes when FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
 - **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management of all scanner instances with _ensure_scanners() auto-registration
-- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources), plus comprehensive diagnostic commands (/pumpfunstatus, /pumpfunprobe, /solscanstats)
+- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources), plus comprehensive diagnostic commands (/pumpfunstatus, /pumpfunprobe, /solscanstats, /solscan_start, /solscan_stop)
 - **Fault-Tolerant Scanning Loop**: Multi-source scanning with individual error handling, API courtesy delays, and graceful failure recovery
 
 Key technical implementations include:

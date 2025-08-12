@@ -58,7 +58,25 @@ def _init_scanners():
     
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
     JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
-    SOLSCAN_SCANNER = SolscanScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=10)  # Solscan scanner (dormant)
+    # Initialize Solscan Pro scanner if configured
+    solscan_api_key = os.getenv("SOLSCAN_API_KEY")
+    feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
+    
+    if feature_solscan and solscan_api_key:
+        try:
+            from solscan import get_solscan_scanner
+            SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
+            if SOLSCAN_SCANNER:
+                logger.info("Solscan Pro scanner initialized and ready")
+            else:
+                SOLSCAN_SCANNER = None
+                logger.warning("Failed to create Solscan Pro scanner instance")
+        except Exception as e:
+            SOLSCAN_SCANNER = None
+            logger.warning("Solscan Pro scanner initialization failed: %s", e)
+    else:
+        SOLSCAN_SCANNER = None
+        logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
     
     # Register scanners in centralized registry
     SCANNERS = {
@@ -1663,36 +1681,80 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         response_text = "Not authorized."
                     else:
                         try:
-                            # Check scanners dictionary first, fallback to SOLSCAN_SCANNER
-                            scanner_found = False
-                            if "solscan" in scanners:
-                                sc = scanners["solscan"]
-                                scanner_found = True
-                            elif SOLSCAN_SCANNER:
-                                sc = SOLSCAN_SCANNER
-                                scanner_found = True
+                            # Use SOLSCAN_SCANNER or scanners registry
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
                             
-                            if scanner_found:
-                                st = sc.status()
+                            if scanner and hasattr(scanner, 'status'):
+                                st = scanner.status()
                                 sample = []
                                 try:
-                                    sample = sc.fetch_new_tokens(count=3) if hasattr(sc, 'fetch_new_tokens') else []
+                                    if hasattr(scanner, 'fetch_new_tokens'):
+                                        sample = scanner.fetch_new_tokens(count=3)
                                 except Exception as e:
                                     logger.warning("[WEBHOOK] /solscanstats sample error: %r", e)
 
+                                # Format status display
+                                last_ok = st.get('last_ok')
+                                last_err = st.get('last_err')
+                                
+                                ok_display = "never"
+                                if last_ok:
+                                    if isinstance(last_ok, dict) and 'when' in last_ok:
+                                        ok_display = f"{last_ok.get('count', 0)} items via {last_ok.get('path', 'unknown')}"
+                                    else:
+                                        ok_display = str(last_ok)
+                                
+                                err_display = "none"
+                                if last_err:
+                                    if isinstance(last_err, dict):
+                                        err_display = f"code {last_err.get('code', 'unknown')}"
+                                    else:
+                                        err_display = str(last_err)
+
                                 response_text = (
                                     f"📊 *Solscan Pro Scanner Status*\n"
-                                    f"Running: `{st.get('running')}`\n"
-                                    f"Base URL: `{st.get('base')}`\n"
-                                    f"Last OK: `{st.get('last_ok')}`\n"
-                                    f"Last Err: `{st.get('last_err')}`\n"
+                                    f"Running: `{st.get('running', False)}`\n"
+                                    f"Base URL: `{st.get('base', 'unknown')}`\n"
+                                    f"Last OK: `{ok_display}`\n"
+                                    f"Last Error: `{err_display}`\n"
                                     f"Sample tokens: "
-                                    + ", ".join([f"`{t['symbol']}`" for t in sample if t.get("symbol")]) or "none"
+                                    + ", ".join([f"`{t.get('symbol', 'unknown')}`" for t in sample if t.get("symbol")]) or "none"
                                 )
                             else:
-                                response_text = "⚠️ Solscan scanner not registered. Check FEATURE_SOLSCAN and API key."
+                                response_text = "⚠️ Solscan scanner not initialized. Enable with FEATURE_SOLSCAN=on and provide SOLSCAN_API_KEY."
                         except Exception as e:
                             response_text = f"❌ solscanstats failed: {e}"
+
+                # --- Admin: Solscan start/stop ------------------------------------------
+                elif text.strip().startswith("/solscan_start"):
+                    logger.info("[WEBHOOK] Routing /solscan_start")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+                            if scanner and hasattr(scanner, 'start'):
+                                scanner.start()
+                                response_text = "🟢 Solscan Pro scanner started."
+                            else:
+                                response_text = "❌ Solscan scanner not available. Check FEATURE_SOLSCAN=on and SOLSCAN_API_KEY."
+                        except Exception as e:
+                            response_text = f"❌ Solscan start failed: {e}"
+
+                elif text.strip().startswith("/solscan_stop"):
+                    logger.info("[WEBHOOK] Routing /solscan_stop")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+                            if scanner and hasattr(scanner, 'stop'):
+                                scanner.stop()
+                                response_text = "🔴 Solscan Pro scanner stopped."
+                            else:
+                                response_text = "❌ Solscan scanner not available."
+                        except Exception as e:
+                            response_text = f"❌ Solscan stop failed: {e}"
 
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
