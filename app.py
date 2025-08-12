@@ -2224,20 +2224,22 @@ Not for production custody."""
                         except Exception as e:
                             response_text = f"❌ Rules test error: {e}"
 
+
+
                 # /wallet_new - Create new burner wallet
                 elif text.strip().startswith("/wallet_new"):
                     try:
-                        import wallet as wlt
-                        entry = wlt.ensure_burner(str(user.get('id')))
-                        response_text = f"🧪 Burner created\n`{entry['pubkey']}`"
+                        import wallets
+                        entry = wallets.ensure_burner(str(user.get('id')))
+                        response_text = f"🧪 Burner created\n`{entry['public_key']}`"
                     except Exception as e:
                         response_text = f"❌ Wallet creation error: {e}"
 
                 # /wallet_addr - Get wallet address
                 elif text.strip().startswith("/wallet_addr"):
                     try:
-                        import wallet as wlt
-                        pk = wlt.get_pubkey(str(user.get('id')))
+                        import wallets
+                        pk = wallets.get_pubkey(str(user.get('id')))
                         response_text = "No burner yet. Use /wallet_new." if not pk else f"`{pk}`"
                     except Exception as e:
                         response_text = f"❌ Wallet address error: {e}"
@@ -2245,12 +2247,12 @@ Not for production custody."""
                 # /wallet_balance - Check wallet balance
                 elif text.strip().startswith("/wallet_balance"):
                     try:
-                        import wallet as wlt
-                        pk = wlt.get_pubkey(str(user.get('id')))
+                        import wallets
+                        pk = wallets.get_pubkey(str(user.get('id')))
                         if not pk: 
                             response_text = "No burner yet. Use /wallet_new."
                         else:
-                            bal = wlt.get_balance_sol(pk)
+                            bal = wallets.get_balance_sol(pk)
                             response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
                     except Exception as e:
                         response_text = f"❌ Wallet balance error: {e}"
