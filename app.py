@@ -10,7 +10,7 @@ from flask import Flask, request, jsonify, Response, stream_with_context, render
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
 import rules
-import wallet as wlt
+import wallets
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -2228,47 +2228,56 @@ Not for production custody."""
 
                 # /wallet_new - Create new burner wallet
                 elif text.strip().startswith("/wallet_new"):
-                    try:
-                        import wallets
-                        entry = wallets.ensure_burner(str(user.get('id')))
-                        response_text = f"🧪 Burner created\n`{entry['public_key']}`"
-                    except Exception as e:
-                        response_text = f"❌ Wallet creation error: {e}"
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            entry = wallets.get_or_create_wallet(str(user.get('id')))
+                            response_text = f"🧪 Burner created\n`{entry['address']}`"
+                        except Exception as e:
+                            response_text = f"❌ Wallet creation error: {e}"
 
                 # /wallet_addr - Get wallet address
                 elif text.strip().startswith("/wallet_addr"):
-                    try:
-                        import wallets
-                        pk = wallets.get_pubkey(str(user.get('id')))
-                        response_text = "No burner yet. Use /wallet_new." if not pk else f"`{pk}`"
-                    except Exception as e:
-                        response_text = f"❌ Wallet address error: {e}"
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            wallet = wallets.get_wallet(str(user.get('id')))
+                            response_text = "No burner yet. Use /wallet_new." if not wallet else f"`{wallet['address']}`"
+                        except Exception as e:
+                            response_text = f"❌ Wallet address error: {e}"
 
                 # /wallet_balance - Check wallet balance
                 elif text.strip().startswith("/wallet_balance"):
-                    try:
-                        import wallets
-                        pk = wallets.get_pubkey(str(user.get('id')))
-                        if not pk: 
-                            response_text = "No burner yet. Use /wallet_new."
-                        else:
-                            bal = wallets.get_balance_sol(pk)
-                            response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
-                    except Exception as e:
-                        response_text = f"❌ Wallet balance error: {e}"
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            wallet = wallets.get_wallet(str(user.get('id')))
+                            if not wallet: 
+                                response_text = "No burner yet. Use /wallet_new."
+                            else:
+                                bal = wallets.get_balance_sol(wallet['address'])
+                                response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
+                        except Exception as e:
+                            response_text = f"❌ Wallet balance error: {e}"
 
                 # /bus_test - Test event bus with fake token
                 elif text.strip().startswith("/bus_test"):
-                    try:
-                        fake = _normalize_token("test", {
-                            "mint": "So11111111111111111111111111111111111111112",
-                            "symbol": "TEST", "name": "Bus Test", "age_min": 5, "liq_usd": 7000, "mcap_usd": 15000,
-                            "holders": 80, "freeze": False, "mint": False, "blacklist": False, "renounced": True
-                        })
-                        BUS.publish("NEW_TOKEN", fake)
-                        response_text = "Published test token."
-                    except Exception as e:
-                        response_text = f"❌ Bus test error: {e}"
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            fake = _normalize_token("test", {
+                                "mint": "So11111111111111111111111111111111111111112",
+                                "symbol": "TEST", "name": "Bus Test", "age_min": 5, "liq_usd": 7000, "mcap_usd": 15000,
+                                "holders": 80, "freeze": False, "mint": False, "blacklist": False, "renounced": True
+                            })
+                            BUS.publish("NEW_TOKEN", fake)
+                            response_text = "🧪 Published test token to event bus."
+                        except Exception as e:
+                            response_text = f"❌ Bus test error: {e}"
 
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
