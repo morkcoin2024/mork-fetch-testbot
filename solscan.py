@@ -22,12 +22,16 @@ _TIMEOUT = 12.0
 
 # Candidate endpoints to try (Solscan Pro has a few surfaces that expose new listings).
 # We try them in order until we get a 200 with a list-shaped payload.
+# Updated for Solscan Pro API v2.0 (2025)
 _CANDIDATE_PATHS = [
-    # (path, json_list_key)
-    ("/v1/market/new-tokens", "data"),          # common Pro endpoint
-    ("/v1/market/tokens/new", "data"),          # alt spelling
-    ("/v2/market/new-tokens", "data"),          # newer versions sometimes use /v2
-    ("/v1/token/new", "data"),
+    # v2.0 endpoints (primary) - some don't accept limit param
+    ("/v2.0/token/trending", "data"),           # trending tokens with market activity - WORKS!
+    ("/v2.0/token/latest", None),               # newest tokens created on Solana - no limit param
+    ("/v2.0/token/list", None),                 # token list sortable by creation date - no limit param  
+    # v1 fallbacks with chain param
+    ("/v1/token/list", "data"),                 # v1 token list
+    ("/v1/token/meta", "data"),                 # token metadata
+    ("/v1/market/token/trending", "data"),      # v1 trending
 ]
 
 def _build_headers(api_key: str) -> Dict[str, str]:
@@ -173,14 +177,25 @@ class SolscanScanner:
 
         n = count or self.limit
         headers = _build_headers(self.api_key)
-        params = {"chain": self.network, "limit": n}
-
+        
         backoff = 0.8
         for attempt in range(3):
             for path, list_key in _CANDIDATE_PATHS:
+                # Build params based on endpoint requirements
+                request_params = {}
+                
+                # v1 endpoints need chain param
+                if "v1" in path:
+                    request_params["chain"] = self.network
+                    request_params["limit"] = n
+                # v2.0/token/trending accepts limit
+                elif "trending" in path:
+                    request_params["limit"] = n
+                # Other v2.0 endpoints don't accept limit param
+                
                 url = f"{self.base_url}{path}"
                 try:
-                    r = self._client.get(url, headers=headers, params=params)
+                    r = self._client.get(url, headers=headers, params=request_params)
                     if r.status_code == 200:
                         data = r.json()
                         items = data.get(list_key, [])
