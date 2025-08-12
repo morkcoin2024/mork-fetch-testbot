@@ -11,13 +11,13 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions for consistent experience. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes. UI/UX aligns with Mork Coin branding.
 
-**Current Configuration: Multi-Source Token Discovery + Webhook Restoration (August 11, 2025)**
+**Current Configuration: Multi-Source Token Discovery + Enhanced Admin Commands (August 12, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
 - **Solscan Pro Scanner**: Enhanced implementation using Pro API v2.0, dormant until both FEATURE_SOLSCAN=on and SOLSCAN_API_KEY provided
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
 - **Centralized Scanner Registry**: SCANNERS global dictionary provides unified management of all scanner instances with _ensure_scanners() auto-registration
-- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources)
+- **Enhanced Admin Commands**: Unified scanner control through /scan_start (starts all), /scan_stop (stops all), /scan_status (shows all sources), plus comprehensive diagnostic commands (/pumpfunstatus, /pumpfunprobe, /solscanstats)
 - **Fault-Tolerant Scanning Loop**: Multi-source scanning with individual error handling, API courtesy delays, and graceful failure recovery
 
 Key technical implementations include:

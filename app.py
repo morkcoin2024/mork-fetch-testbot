@@ -1652,6 +1652,44 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                         except Exception as e:
                             response_text = f"❌ Solscan status failed: {e}"
 
+                # --- Admin: Solscan status --------------------------------------------------
+                elif text.strip().startswith("/solscanstats"):
+                    logger.info("[WEBHOOK] Routing /solscanstats")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            # Check scanners dictionary first, fallback to SOLSCAN_SCANNER
+                            scanner_found = False
+                            if "solscan" in scanners:
+                                sc = scanners["solscan"]
+                                scanner_found = True
+                            elif SOLSCAN_SCANNER:
+                                sc = SOLSCAN_SCANNER
+                                scanner_found = True
+                            
+                            if scanner_found:
+                                st = sc.status()
+                                sample = []
+                                try:
+                                    sample = sc.fetch_new_tokens(count=3) if hasattr(sc, 'fetch_new_tokens') else []
+                                except Exception as e:
+                                    logger.warning("[WEBHOOK] /solscanstats sample error: %r", e)
+
+                                response_text = (
+                                    f"📊 *Solscan Pro Scanner Status*\n"
+                                    f"Running: `{st.get('running')}`\n"
+                                    f"Base URL: `{st.get('base')}`\n"
+                                    f"Last OK: `{st.get('last_ok')}`\n"
+                                    f"Last Err: `{st.get('last_err')}`\n"
+                                    f"Sample tokens: "
+                                    + ", ".join([f"`{t['symbol']}`" for t in sample if t.get("symbol")]) or "none"
+                                )
+                            else:
+                                response_text = "⚠️ Solscan scanner not registered. Check FEATURE_SOLSCAN and API key."
+                        except Exception as e:
+                            response_text = f"❌ solscanstats failed: {e}"
+
                 elif text.strip().startswith("/scan_mode_old"):
                     parts = text.split()
                     mode = parts[1].lower() if len(parts) > 1 else ""
