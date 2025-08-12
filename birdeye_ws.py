@@ -3,6 +3,7 @@ import time
 import json
 import os
 import logging
+import random
 from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
@@ -33,6 +34,16 @@ class BirdeyeWS:
         # last message timestamp (monotonic + wall clock)
         self._last_msg_monotonic = None
         self._last_msg_wall = None  # datetime.utcnow()
+        
+        # Watchdog and stale-restart configuration
+        self._stale_after = float(os.getenv("WS_STALE_SECS", "60"))     # restart if idle > N seconds
+        self._min_backoff = float(os.getenv("WS_MIN_BACKOFF", "5"))     # seconds
+        self._max_backoff = float(os.getenv("WS_MAX_BACKOFF", "120"))   # seconds
+        self._backoff     = self._min_backoff
+        self._wd_stop     = threading.Event()
+        self._wd_thread   = None
+        self._restart_lock = threading.Lock()
+        self._restart_count = 0
 
     def status(self):
         """Return current connection status in a JSON-serialisable dict."""
@@ -65,6 +76,14 @@ class BirdeyeWS:
             data["last_msg_iso"] = self._last_msg_wall.isoformat().replace("+00:00", "Z")
         else:
             data["last_msg_iso"] = None
+        
+        # Add watchdog status information
+        data.update({
+            "watchdog": True,
+            "stale_after": self._stale_after,
+            "backoff": round(self._backoff, 1),
+            "restart_count": self._restart_count,
+        })
             
         return data
 
@@ -74,9 +93,17 @@ class BirdeyeWS:
             return
 
         self._running = True
+        self._connected_event.clear()
         self._th = threading.Thread(target=self._run_forever, daemon=True)
         self._th.start()
         log.info("[WS] Birdeye WS started with Launchpad priority")
+        
+        # Start watchdog if not already running
+        if self._wd_thread is None or not self._wd_thread.is_alive():
+            self._wd_stop.clear()
+            self._wd_thread = threading.Thread(target=self._watchdog_loop, name="ws-watchdog", daemon=True)
+            self._wd_thread.start()
+            log.info("[WS] Watchdog started (stale_after=%ss)", self._stale_after)
 
     def stop(self):
         self._running = False
@@ -86,6 +113,12 @@ class BirdeyeWS:
                 self._ws.close()
             except Exception:
                 pass
+        
+        # Stop watchdog cleanly
+        self._wd_stop.set()
+        if self._wd_thread and self._wd_thread.is_alive():
+            self._wd_thread.join(timeout=2.0)
+        
         log.info("[WS] Birdeye WS stopped")
 
     def _run_forever(self):
@@ -112,9 +145,8 @@ class BirdeyeWS:
                     if connection_duration % 10 == 0:
                         self.recv_count += 1
                         self.last_msg_time = time.time()
-                        # record last message time (both monotonic and wall)
-                        self._last_msg_monotonic = time.monotonic()
-                        self._last_msg_wall = datetime.utcnow().replace(tzinfo=timezone.utc)
+                        # record last message time using helper method
+                        self._note_message()
                         log.info("[WS] Message received: threading.Event status accurate")
                         
                 # Simulate connection drop for reconnection testing
@@ -181,6 +213,50 @@ class BirdeyeWS:
 
     def set_debug(self, value: bool):
         log.info("[WS] Debug mode set to %s", value)
+
+    def _note_message(self):
+        """Helper to record message reception with timestamp tracking and backoff reset."""
+        now = time.monotonic()
+        self._last_msg_monotonic = now
+        self._last_msg_wall = datetime.utcnow().replace(tzinfo=timezone.utc)
+        self._backoff = self._min_backoff  # reset backoff on any activity
+
+    def _watchdog_loop(self):
+        """Watchdog thread that monitors for stale connections and initiates restarts."""
+        log.info("[WS] watchdog started (stale_after=%ss)", self._stale_after)
+        while not self._wd_stop.is_set():
+            time.sleep(1.0)
+            if not self._running:
+                continue
+
+            last = self._last_msg_monotonic or 0.0
+            gap = (time.monotonic() - last) if last else None
+
+            # If we've never received a msg yet, don't hammer restarts immediately
+            if gap is None or gap < self._stale_after:
+                continue
+
+            # stale: try restart with backoff
+            with self._restart_lock:
+                if not self._running:
+                    continue
+                self._restart_count += 1
+                jitter = random.uniform(-0.25, 0.25) * self._backoff
+                wait_for = max(0.0, self._backoff + jitter)
+                log.warning("[WS] watchdog: stale gap=%.1fs >= %.1fs — restarting (attempt=%d, backoff=%.1fs)",
+                            gap, self._stale_after, self._restart_count, wait_for)
+                # stop -> wait -> start
+                try:
+                    self.stop()
+                except Exception as e:
+                    log.exception("[WS] watchdog stop failed: %s", e)
+                time.sleep(wait_for)
+                try:
+                    self.start()
+                except Exception as e:
+                    log.exception("[WS] watchdog start failed: %s", e)
+                # bump backoff for next time (cap at max)
+                self._backoff = min(self._backoff * 1.6, self._max_backoff)
 
 # Global WebSocket instance for compatibility
 _global_ws = None

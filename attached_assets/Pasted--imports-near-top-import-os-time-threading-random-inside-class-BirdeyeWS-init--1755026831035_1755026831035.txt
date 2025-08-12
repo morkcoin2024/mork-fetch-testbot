@@ -1,0 +1,116 @@
+# --- imports near top ---
+import os, time, threading, random
+
+# --- inside class BirdeyeWS.__init__(...) after existing fields ---
+self._stale_after = float(os.getenv("WS_STALE_SECS", "60"))     # restart if idle > N seconds
+self._min_backoff = float(os.getenv("WS_MIN_BACKOFF", "5"))     # seconds
+self._max_backoff = float(os.getenv("WS_MAX_BACKOFF", "120"))   # seconds
+self._backoff     = self._min_backoff
+self._wd_stop     = threading.Event()
+self._wd_thread   = None
+self._restart_lock = threading.Lock()
+self._restart_count = 0
+
+# ensure these exist (you likely already have them):
+# self._last_msg_monotonic = 0.0
+# self._last_msg_wall = None
+# self._connected_evt = threading.Event()
+
+# --- add this helper (call it anywhere you record an inbound WS message) ---
+def _note_message(self):
+    now = time.monotonic()
+    self._last_msg_monotonic = now
+    self._last_msg_wall = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    self._backoff = self._min_backoff  # reset backoff on any activity
+
+# Example: in your _on_message / reader loop after parsing payload:
+# self._note_message()
+
+# --- watchdog loop ---
+def _watchdog_loop(self):
+    log = self._log
+    log.info("[WS] watchdog started (stale_after=%ss)", self._stale_after)
+    while not self._wd_stop.is_set():
+        time.sleep(1.0)
+        if not self.running:
+            continue
+
+        last = self._last_msg_monotonic or 0.0
+        gap = (time.monotonic() - last) if last else None
+
+        # If we've never received a msg yet, don't hammer restarts immediately
+        if gap is None or gap < self._stale_after:
+            continue
+
+        # stale: try restart with backoff
+        with self._restart_lock:
+            if not self.running:
+                continue
+            self._restart_count += 1
+            jitter = random.uniform(-0.25, 0.25) * self._backoff
+            wait_for = max(0.0, self._backoff + jitter)
+            log.warning("[WS] watchdog: stale gap=%.1fs >= %.1fs — restarting (attempt=%d, backoff=%.1fs)",
+                        gap, self._stale_after, self._restart_count, wait_for)
+            # stop -> wait -> start
+            try:
+                self.stop()
+            except Exception as e:
+                log.exception("[WS] watchdog stop failed: %s", e)
+            time.sleep(wait_for)
+            try:
+                self.start()
+            except Exception as e:
+                log.exception("[WS] watchdog start failed: %s", e)
+            # bump backoff for next time (cap at max)
+            self._backoff = min(self._backoff * 1.6, self._max_backoff)
+
+# --- start(): ensure watchdog is running ---
+def start(self):
+    # your existing start logic…
+    if not self.running:
+        self.running = True
+        self._connected_evt.clear()
+        # spin up your WS thread as you already do…
+
+    # watchdog
+    if self._wd_thread is None or not self._wd_thread.is_alive():
+        self._wd_stop.clear()
+        self._wd_thread = threading.Thread(target=self._watchdog_loop, name="ws-watchdog", daemon=True)
+        self._wd_thread.start()
+
+# --- stop(): also stop watchdog cleanly ---
+def stop(self):
+    # your existing stop logic…
+    self.running = False
+    # close websocket / thread, etc.
+
+    # watchdog stop
+    self._wd_stop.set()
+    if self._wd_thread and self._wd_thread.is_alive():
+        # don't join forever; give it a moment
+        self._wd_thread.join(timeout=2.0)
+
+# --- status(): expose watchdog details ---
+def status(self):
+    base = {
+        "running": self.running,
+        "connected": bool(self._connected_evt.is_set()),
+        "recv": getattr(self, "recv_count", 0),
+        "new": getattr(self, "new_count", 0),
+        "seen_cache": getattr(self, "cache_size", 0),
+        "thread_alive": bool(self._th and self._th.is_alive()),
+        "mode": getattr(self, "mode", "strict"),
+        "tap_enabled": getattr(self, "tap_enabled", False),
+    }
+    last_ago = None
+    if self._last_msg_monotonic:
+        last_ago = max(0.0, time.monotonic() - self._last_msg_monotonic)
+    base.update({
+        "watchdog": True,
+        "stale_after": self._stale_after,
+        "backoff": round(self._backoff, 1),
+        "restart_count": self._restart_count,
+        "last_msg_ago": round(last_ago, 2) if last_ago is not None else None,
+        "last_msg_at": self._last_msg_wall,
+    })
+    return base
