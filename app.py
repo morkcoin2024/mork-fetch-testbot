@@ -598,7 +598,7 @@ def webhook():
                                 single_response = f"📊 Solscan error: {e}"
                         
                         if single_response:
-                            responses.append(f"**{cmd}:** {single_response}")
+                            responses.append(f"*{cmd}*: {single_response}")
                         
                         text = temp_text  # Restore original text
                     
@@ -609,7 +609,32 @@ def webhook():
                     
                     # Skip the rest of the command processing for multiple commands
                     logger.info(f"[WEBHOOK] Sending multiple command response: {response_text}")
-                    reply_success = _reply(response_text)
+                    
+                    # Add detailed logging for the Telegram API call
+                    try:
+                        import requests
+                        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                        payload = {
+                            "chat_id": message["chat"]["id"],
+                            "text": response_text,
+                            "parse_mode": "Markdown",
+                            "disable_web_page_preview": True,
+                        }
+                        logger.info(f"[WEBHOOK] Telegram payload: {payload}")
+                        
+                        r = requests.post(
+                            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                            json=payload,
+                            timeout=15,
+                        )
+                        logger.info(f"[WEBHOOK] Telegram API response: {r.status_code}")
+                        if r.status_code != 200:
+                            logger.error(f"[WEBHOOK] Telegram API error: {r.text}")
+                        reply_success = r.status_code == 200
+                    except Exception as e:
+                        logger.exception(f"[WEBHOOK] Telegram API exception: {e}")
+                        reply_success = False
+                    
                     logger.info(f"[WEBHOOK] Multiple command reply success: {reply_success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": reply_success, "multiple_commands": len(commands_in_message)})
                 
