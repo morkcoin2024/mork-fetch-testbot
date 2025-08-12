@@ -1226,6 +1226,8 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             if 'SOLSCAN_FAST_MODE' in os.environ:
                                 del os.environ['SOLSCAN_FAST_MODE']
                             
+                            logger.info(f"[WEBHOOK] fetch_now: got {len(rows) if rows else 0} results from full approach")
+                            
                             if not rows:
                                 response_text = "No candidates found from multi-source scan."
                             else:
@@ -1271,6 +1273,8 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 if len(body) > 3800:
                                     body = body[:3800] + "\n…(truncated)…"
                                 response_text = f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(rows)} tokens (multi-source):\n```\n{body}\n```"
+                            
+                            logger.info(f"[WEBHOOK] fetch_now: primary approach success, sending reply")
                             _reply(response_text, parse_mode="Markdown")
                             
                         except Exception as import_error:
@@ -1935,16 +1939,21 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                         
                         if not ss:
                             response_text = "❌ Solscan scanner not initialized"
+                            logger.warning("[WEBHOOK] solscan_mode: scanner not found in SCANNERS")
                         else:
                             if mode in ("auto", "new", "trending"):
+                                old_mode = ss.get_mode() if hasattr(ss, 'get_mode') else 'unknown'
                                 ss.set_mode(mode)
-                                response_text = f"✅ Solscan mode set to *{mode}* (was: {ss.get_mode() if hasattr(ss, 'get_mode') else 'unknown'})"
+                                response_text = f"✅ Solscan mode set to *{mode}* (was: {old_mode})"
+                                logger.info(f"[WEBHOOK] solscan_mode: changed from {old_mode} to {mode}")
                             elif mode is None:
                                 # Show current mode when no argument provided
                                 current_mode = ss.get_mode() if hasattr(ss, 'get_mode') else 'unknown'
                                 response_text = f"🧭 Solscan current mode: *{current_mode}*"
+                                logger.info(f"[WEBHOOK] solscan_mode: current mode is {current_mode}")
                             else:
                                 response_text = "Usage: `/solscan_mode auto|new|trending` or `/solscan_mode` to check current mode"
+                                logger.warning(f"[WEBHOOK] solscan_mode: invalid mode '{mode}'")
 
                 # --- Admin: Process Diagnostic --------------------------------------------------
                 elif text.strip().startswith("/diag"):
