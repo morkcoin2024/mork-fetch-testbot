@@ -132,14 +132,16 @@ class SolscanScanner:
                 if addr and addr not in self.seen:
                     self.seen.add(addr)
                     new_count += 1
+            log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", True, new_count, len(self.seen))
             return len(tokens), new_count
         except Exception as e:
+            log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", False, 0, len(self.seen))
             log.warning("[SOLSCAN] tick error: %r", e)
             return 0, 0
     
     def ping(self) -> Dict[str, Any]:
         """Manual ping command - force immediate tick and return stats"""
-        log.info("[SOLSCAN] ping forced-tick at %s", time.time())
+        log.info("[SOLSCAN] ping -> tick start")
         
         if not self._running:
             return {"error": "Scanner not running", "new": 0, "seen": len(self.seen)}
@@ -154,6 +156,8 @@ class SolscanScanner:
                     self.seen.add(addr)
                     new_count += 1
             
+            log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", True, new_count, len(self.seen))
+            
             return {
                 "success": True,
                 "new": new_count,
@@ -162,6 +166,7 @@ class SolscanScanner:
                 "base_url": self.base_url
             }
         except Exception as e:
+            log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", False, 0, len(self.seen))
             log.error("[SOLSCAN] ping error: %r", e)
             return {"error": str(e), "new": 0, "seen": len(self.seen)}
 
