@@ -1412,26 +1412,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     scanner.stop()
                     response_text = "🔴 Birdeye scanner stopped."
 
-                elif text.strip().startswith("/scan_status") or text.strip().startswith("/a_scan_status"):
-                    logger.info("[WEBHOOK] Routing /scan_status")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            from birdeye import get_scanner, current_mode
-                            sc = get_scanner(publish)
-                            st = sc.status()
-                            md = current_mode()
-                            response_text = (
-                                "🗣  Birdeye Scan Status\n"
-                                f"running: {st['running']}\n"
-                                f"interval: {st['interval']}s\n"
-                                f"seencache: {st['seen_cache']}\n"
-                                f"threadalive: {st['thread_alive']}\n"
-                                f"mode: {md}\n"
-                            )
-                        except Exception as e:
-                            response_text = f"❌ Scan status failed: {e}"
+# Removed duplicate scan_status handler - using the multi-source version at line 828 instead
 
                 elif text.strip().startswith("/scan_mode"):
                     logger.info("[WEBHOOK] Routing /scan_mode")
