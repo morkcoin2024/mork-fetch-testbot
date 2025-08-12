@@ -13,7 +13,7 @@ from events import BUS
 import time
 import rules
 
-# --- [A] Additional imports for direct webhook wallet handling ---
+# --- [A] Minimal wallet helpers (drop-in, at module level) ---
 from pathlib import Path
 import json, base58
 try:
@@ -24,6 +24,69 @@ try:
     from solana.rpc.api import Client
 except Exception:
     Client = None
+
+# Minimal wallet storage system
+_WALLET_DB = Path("data/wallets.json")
+_WALLET_DB.parent.mkdir(parents=True, exist_ok=True)
+
+def _walletdb_load():
+    if _WALLET_DB.exists():
+        try:
+            return json.loads(_WALLET_DB.read_text())
+        except Exception:
+            return {}
+    return {}
+
+def _walletdb_save(data): 
+    _WALLET_DB.write_text(json.dumps(data, indent=2))
+
+def _get_user_wallet(uid: int):
+    return _walletdb_load().get(str(uid))
+
+def _create_user_wallet(uid: int):
+    db = _walletdb_load()
+    if str(uid) in db: 
+        return db[str(uid)]
+    sk = os.urandom(32)
+    sk58 = base58.b58encode(sk).decode()
+    # address placeholder unless we already have proper keypair tooling wired
+    db[str(uid)] = {"addr":"unknown","sk58":sk58,"created_at":int(time.time())}
+    _walletdb_save(db)
+    return db[str(uid)]
+
+def handle_wallet_new(uid: int):
+    w = _get_user_wallet(uid) or _create_user_wallet(uid)
+    return (
+        "Wallet created (or already exists).\n"
+        f"Address: {w.get('addr','unknown')}\n"
+        "Secret key: stored securely (not shown).\n"
+        "NOTE: Burner wallet for testing only."
+    )
+
+def handle_wallet_addr(uid: int):
+    w = _get_user_wallet(uid) or _create_user_wallet(uid)
+    return f"Your wallet address: {w.get('addr','unknown')}"
+
+def handle_wallet_balance(uid: int):
+    w = _get_user_wallet(uid)
+    if not w: 
+        return "No wallet yet. Use /wallet_new first."
+    return "Balance lookup not available in this minimal build (RPC client disabled)."
+
+def handle_bus_test():
+    """Test event bus integration with synthetic NEW_TOKEN event"""
+    try:
+        test_token = {
+            "mint": f"test{int(time.time())}",
+            "symbol": "TEST",
+            "name": "Test Token",
+            "source": "bus_test",
+            "timestamp": int(time.time())
+        }
+        publish("NEW_TOKEN", test_token)
+        return f"Event bus test completed. Published synthetic NEW_TOKEN event for {test_token['symbol']}."
+    except Exception as e:
+        return f"Event bus test failed: {str(e)}"
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -836,15 +899,15 @@ def webhook():
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
                 elif text.strip().startswith("/wallet_new"):
-                    response_text = handle_wallet_new(chat_id)
+                    response_text = handle_wallet_new(user.get('id'))
                     _reply(response_text, parse_mode=None, no_preview=True)
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/wallet_addr"):
-                    response_text = handle_wallet_addr(chat_id)
+                    response_text = handle_wallet_addr(user.get('id'))
                     _reply(response_text, parse_mode=None, no_preview=True)
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/wallet_balance"):
-                    response_text = handle_wallet_balance(chat_id)
+                    response_text = handle_wallet_balance(user.get('id'))
                     _reply(response_text, parse_mode=None, no_preview=True)
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip().startswith("/bus_test"):
