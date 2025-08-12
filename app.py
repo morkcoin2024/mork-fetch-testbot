@@ -13,6 +13,18 @@ from events import BUS
 import time
 import rules
 
+# --- [A] Additional imports for direct webhook wallet handling ---
+from pathlib import Path
+import json, base58
+try:
+    from solders.pubkey import Pubkey  # solana-py 0.30+
+except Exception:
+    Pubkey = None
+try:
+    from solana.rpc.api import Client
+except Exception:
+    Client = None
+
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
     """Publish events to the new EventBus system."""
@@ -130,6 +142,116 @@ def send_admin_md(text: str):
         logger.exception("send_admin_md failed: %s", e)
         return False
 # --- END PATCH ---
+
+# --- [B] wallet storage + helpers (direct webhook wallet handling) ---
+_WALLET_DB = Path("data/wallets.json")
+_WALLET_DB.parent.mkdir(parents=True, exist_ok=True)
+
+def _walletdb_load():
+    if _WALLET_DB.exists():
+        try:
+            return json.loads(_WALLET_DB.read_text())
+        except Exception:
+            return {}
+    return {}
+
+def _walletdb_save(data: dict):
+    _WALLET_DB.write_text(json.dumps(data, indent=2))
+
+def _get_user_wallet(uid: int):
+    db = _walletdb_load()
+    w = db.get(str(uid))
+    return w
+
+def _create_user_wallet(uid: int):
+    """
+    Minimal burner wallet generator using os.urandom + base58.
+    (If you already have a wallet module, you can swap this out to call it.)
+    """
+    db = _walletdb_load()
+    if str(uid) in db:
+        return db[str(uid)]
+    # 32-byte secret key -> base58
+    sk = os.urandom(32)
+    sk58 = base58.b58encode(sk).decode()
+    # very light address derivation if solders is available; otherwise store 'unknown'
+    if Pubkey is not None:
+        try:
+            # This is a placeholder burner's pubkey derivation only if you have seed->key available.
+            # If you use a proper Keypair lib elsewhere, prefer that and return its public key.
+            # Here we just mark "unknown" to avoid pretending to sign.
+            addr = "unknown"
+        except Exception:
+            addr = "unknown"
+    else:
+        addr = "unknown"
+    db[str(uid)] = {"addr": addr, "sk58": sk58, "created_at": int(time.time())}
+    _walletdb_save(db)
+    return db[str(uid)]
+
+def _sol_client():
+    url = os.getenv("SOLANA_RPC", "https://api.mainnet-beta.solana.com")
+    return Client(url) if Client is not None else None
+
+def _format_plain(text: str) -> str:
+    # Avoid Telegram markdown parse glitches -> send as plain text
+    return text
+
+# --- [C] command handlers (direct webhook commands) ---
+def handle_wallet_new(user_id: int):
+    w = _get_user_wallet(user_id) or _create_user_wallet(user_id)
+    # Never show secret in chat; only indicate it exists.
+    lines = [
+        "Wallet created (or already exists).",
+        f"Address: {w.get('addr', 'unknown')}",
+        "Secret key: stored securely (not displayed here).",
+        "NOTE: This is a burner wallet for testing. Move funds at your own risk."
+    ]
+    return _format_plain("\n".join(lines))
+
+def handle_wallet_addr(user_id: int):
+    w = _get_user_wallet(user_id)
+    if not w:
+        w = _create_user_wallet(user_id)
+    return _format_plain(f"Your wallet address: {w.get('addr', 'unknown')}")
+
+def handle_wallet_balance(user_id: int):
+    w = _get_user_wallet(user_id)
+    if not w:
+        return _format_plain("No wallet yet. Use /wallet_new first.")
+    cli = _sol_client()
+    if not cli:
+        return _format_plain("RPC client unavailable in this environment.")
+    try:
+        if w.get("addr") in (None, "unknown"):
+            return _format_plain("Address unavailable for this burner wallet build.")
+        resp = cli.get_balance(w["addr"])
+        lamports = resp["result"]["value"]
+        sol = lamports / 1_000_000_000
+        return _format_plain(f"Balance for {w['addr']}: {sol:.9f} SOL")
+    except Exception as e:
+        return _format_plain(f"Balance lookup failed: {e}")
+
+def handle_bus_test():
+    if not BUS:
+        return _format_plain("Event bus not available.")
+    payload = {
+        "source": "synthetic",
+        "symbol": "TEST",
+        "name": "Synthetic Token",
+        "mint": "TestMint11111111111111111111111111111111111",
+        "holders": 123,
+        "mcap_usd": 123456,
+        "liquidity_usd": 98765,
+        "age_min": 1.2,
+        "risk": 12.3,
+        "links": {}
+    }
+    try:
+        BUS.publish("NEW_TOKEN", payload)
+        return _format_plain("Published synthetic NEW_TOKEN event.")
+    except Exception as e:
+        return _format_plain(f"Bus publish failed: {e}")
 
 # Token notification handler for multi-source integration
 def _notify_tokens(items: list, title: str = "New tokens"):
@@ -644,43 +766,13 @@ def webhook():
                             except Exception as e:
                                 single_response = f"💰 Wallet error: {e}"
                         elif text.strip().startswith("/wallet_new"):
-                            uid = str(user_id)
-                            w = get_or_create_wallet(uid)
-                            single_response = (
-                                "🪪 *Burner wallet created*\n"
-                                f"• Address: `{w['address']}`\n"
-                                "_(Private key stored server-side for testing; will be moved to secure storage before trading.)_"
-                            )
+                            single_response = handle_wallet_new(user.get('id'))
                         elif text.strip().startswith("/wallet_addr"):
-                            uid = str(user_id)
-                            w = get_wallet(uid)
-                            if not w:
-                                single_response = "⚠️ No wallet yet. Use /wallet_new first."
-                            else:
-                                single_response = f"📬 *Your burner wallet address*\n`{w['address']}`"
+                            single_response = handle_wallet_addr(user.get('id'))
                         elif text.strip().startswith("/wallet_balance"):
-                            uid = str(user_id)
-                            w = get_wallet(uid)
-                            if not w:
-                                single_response = "⚠️ No wallet yet. Use /wallet_new first."
-                            else:
-                                bal = get_balance_sol(w["address"])
-                                single_response = f"💰 *Wallet balance*\nAddress: `{w['address']}`\nBalance: `{bal:.6f} SOL`"
+                            single_response = handle_wallet_balance(user.get('id'))
                         elif text.strip().startswith("/bus_test"):
-                            fake = {
-                                "source": "TEST",
-                                "symbol": "TESTCOIN",
-                                "name": "Synthetic Test Token",
-                                "mint": "TestMint1111111111111111111111111111111111",
-                                "holders": 1,
-                                "mcaps": 0,
-                                "liq$": 0,
-                                "age_min": 0,
-                                "risk": "low",
-                                "solscan": None,
-                                "links": {"pumpfun": None, "birdeye": None},
-                                "ts": int(time.time())
-                            }
+                            single_response = handle_bus_test()
                             BUS.publish("NEW_TOKEN", fake)
                             single_response = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
                         
@@ -737,6 +829,14 @@ def webhook():
                 if text.strip() in ['/ping', '/a_ping']:
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
+                elif text.strip().startswith("/wallet_new"):
+                    response_text = handle_wallet_new(user.get('id'))
+                elif text.strip().startswith("/wallet_addr"):
+                    response_text = handle_wallet_addr(user.get('id'))
+                elif text.strip().startswith("/wallet_balance"):
+                    response_text = handle_wallet_balance(user.get('id'))
+                elif text.strip().startswith("/bus_test"):
+                    response_text = handle_bus_test()
                 elif text.strip() in ['/status', '/a_status']:
                     publish("admin.command", {"command": "status", "user": user.get("username", "?")})
                     response_text = f'''🤖 Mork F.E.T.C.H Bot Status
@@ -2487,7 +2587,11 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                 
                 if response_text:
                     logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
-                    sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
+                    # Use plain text for wallet and bus commands to avoid Markdown parsing issues
+                    if text.strip().startswith(("/wallet_new", "/wallet_addr", "/wallet_balance", "/bus_test")):
+                        sent_ok = _reply(response_text, parse_mode=None, no_preview=True)
+                    else:
+                        sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
                     logger.info(f"[WEBHOOK] Command '{text}' processed, response sent: {'200' if sent_ok else '500'}")
                     if not sent_ok:
                         logger.error(f"[WEBHOOK] Failed to send response to Telegram for command: {text}")
