@@ -15,6 +15,8 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **COMPLETED**: Enhanced EventBus migration to new events.py with deduplication cache, thread-safe operations, and backward compatibility
 - **COMPLETED**: Implemented wallet.py burner wallet MVP with per-user Solana keypair generation, balance checking, and JSON persistence (development use only)
 - **COMPLETED**: Integrated wallet system with Telegram bot via `/wallet` command for admin access to burner wallet info
+- **COMPLETED**: Patched app.py with event bus integration including imports for BUS, rules, and wallet modules
+- **COMPLETED**: Implemented _normalize_token() helper function and _on_new_token() subscriber for NEW_TOKEN events with rules validation and Telegram notifications
 
 **Core Architectural Decisions & Features:**
 - **Unified Single-Process Architecture:** Gunicorn configured for single-worker to ensure webhook handlers and scanner threads share the same process and data, resolving process isolation issues.

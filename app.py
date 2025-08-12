@@ -9,6 +9,8 @@ import threading
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
+import rules
+import wallet as wlt
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -165,6 +167,27 @@ SOLSCAN_SCANNER = None
 SCANNERS = {}  # global, single source of truth
 
 # Function to ensure scanners are initialized (for multi-worker setup)
+def _normalize_token(src: str, obj: dict) -> dict:
+    """Map various source payloads into a common schema used by rules
+    Fill with best-effort; fields missing can be 0/False"""
+    return {
+        "source": src,
+        "mint": (obj.get("mint") or obj.get("address") or obj.get("tokenAddress") or "").lower(),
+        "symbol": obj.get("symbol") or obj.get("baseSymbol") or "",
+        "name": obj.get("name") or "",
+        "ts": int(obj.get("ts") or obj.get("createdAt") or time.time()),
+        "age_min": float(obj.get("age_min") or obj.get("ageMinutes") or 0),
+        "liq_usd": float(obj.get("liq_usd") or obj.get("liquidityUsd") or obj.get("liq$") or 0),
+        "mcap_usd": float(obj.get("mcap_usd") or obj.get("mcap$") or 0),
+        "holders": int(obj.get("holders") or 0),
+        "risk": {
+            "freeze": bool(obj.get("freeze") or obj.get("canFreeze") or False),
+            "mint": bool(obj.get("mint") or obj.get("canMint") or False),
+            "blacklist": bool(obj.get("blacklist") or obj.get("canBlacklist") or False),
+            "renounced": bool(obj.get("renounced") or obj.get("ownerRenounced") or False),
+        },
+    }
+
 def _ensure_scanners():
     """Ensure scanners are initialized in this worker process."""
     global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
@@ -2852,6 +2875,44 @@ def start_services():
         "event_bridge": True,
         "timestamp": time.time()
     })
+
+# Token event subscriber
+def _on_new_token(ev: dict):
+    """Handle NEW_TOKEN events from the bus"""
+    try:
+        res = rules.check_token(ev)
+        vibe = "✅ PASS" if res.passed else "❌ FAIL"
+        reasons = "ok" if res.passed else (", ".join(res.reasons) or "unknown")
+        msg = (
+            f"*New token* ({ev.get('source')})\n"
+            f"`{ev.get('symbol')}` — {ev.get('mint')}\n"
+            f"liq: ${ev.get('liq_usd'):,.0f} | mcap: ${ev.get('mcap_usd'):,.0f} | "
+            f"age: {ev.get('age_min'):.1f}m | holders: {ev.get('holders')}\n"
+            f"Rules: *{vibe}* — {reasons}"
+        )
+        
+        # Send to admin using the _reply mechanism
+        import requests
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        admin_id = ASSISTANT_ADMIN_TELEGRAM_ID
+        
+        payload = {
+            "chat_id": admin_id,
+            "text": msg,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json=payload,
+            timeout=8,
+        )
+    except Exception as e:
+        logger.warning(f"Token notification error: {e}")
+
+# Subscribe to NEW_TOKEN events
+BUS.subscribe("NEW_TOKEN", _on_new_token)
+logger.info("Subscribed to NEW_TOKEN events on bus")
 
 # Auto-start services immediately after app creation
 with app.app_context():
