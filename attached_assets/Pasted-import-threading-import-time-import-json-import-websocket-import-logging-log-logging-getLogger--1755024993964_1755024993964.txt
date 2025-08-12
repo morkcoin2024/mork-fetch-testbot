@@ -1,9 +1,8 @@
 import threading
 import time
 import json
-import os
-import logging
 import websocket
+import logging
 
 log = logging.getLogger(__name__)
 
@@ -133,8 +132,7 @@ class BirdeyeWS:
 
     def _send(self, obj):
         try:
-            if self._ws:
-                self._ws.send(json.dumps(obj))
+            self._ws.send(json.dumps(obj))
         except Exception as e:
             log.warning("[WS] Send failed: %s", e)
 
@@ -148,61 +146,3 @@ class BirdeyeWS:
 
     def set_debug(self, value: bool):
         log.info("[WS] Debug mode set to %s", value)
-
-# Global WebSocket instance for compatibility
-_global_ws = None
-
-def get_scanner(publish=None):
-    """Get or create the global WebSocket scanner instance."""
-    global _global_ws
-    if _global_ws is None:
-        api_key = os.getenv("BIRDEYE_API_KEY", "")
-        if not api_key:
-            log.warning("[WS] No BIRDEYE_API_KEY found")
-            return None
-        _global_ws = BirdeyeWS(api_key)
-        _global_ws.publish = publish  # Store publish function for event forwarding
-    return _global_ws
-
-def is_ws_connected():
-    """Global function to check WebSocket connection status."""
-    global _global_ws
-    if _global_ws is None:
-        return False
-    return _global_ws._connected_event.is_set()
-
-def get_ws(publish=None, notify=None):
-    """Get the global WebSocket instance with optional publish and notify functions."""
-    ws = get_scanner(publish)
-    if ws and notify:
-        ws.notify = notify  # Store notify function for admin notifications
-    return ws
-
-# Additional compatibility functions that may be needed
-def start_ws():
-    """Start the WebSocket connection."""
-    ws = get_scanner()
-    if ws:
-        ws.start()
-        return True
-    return False
-
-def stop_ws():
-    """Stop the WebSocket connection."""
-    ws = get_scanner()
-    if ws:
-        ws.stop()
-        return True
-    return False
-
-def ws_status():
-    """Get WebSocket status."""
-    ws = get_scanner()
-    if ws:
-        return ws.status()
-    return {"running": False, "connected": False}
-
-def set_ws_mode(mode):
-    """Set WebSocket mode for compatibility."""
-    log.info("[WS] Mode set to %s", mode)
-    return True
