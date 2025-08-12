@@ -355,17 +355,8 @@ else:
         backoff = 1.0
         while not self._stop.is_set():
             try:
-                # Support both header and URL parameter authentication
-                if "?x-api-key=" in BIRDEYE_WS_URL:
-                    # URL parameter auth (public API style)
-                    hdrs = {"User-Agent": "MorkFetchBot/1.0"}
-                else:
-                    # Header auth (business plan style)
-                    hdrs = {
-                        "X-API-KEY": BIRDEYE_KEY,
-                        "User-Agent": "MorkFetchBot/1.0",
-                    }
-                    
+                # WebSocket connection uses ONLY the required Origin headers and subprotocols
+                # NO Bearer/X-API-KEY headers mixed in - keep HTTP REST auth completely separate
                 if websocket:
                     self._ws = websocket.WebSocketApp(
                         BIRDEYE_WS_URL,
