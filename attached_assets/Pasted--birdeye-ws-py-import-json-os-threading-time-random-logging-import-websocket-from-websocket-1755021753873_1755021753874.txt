@@ -1,0 +1,137 @@
+# birdeye_ws.py
+import json, os, threading, time, random, logging
+import websocket  # from websocket-client
+log = logging.getLogger(__name__)
+
+BIRDEYE_WS_BASE = "wss://public-api.birdeye.so/socket"
+
+class BirdeyeWS:
+    def __init__(self, api_key: str):
+        self.api_key = api_key or os.getenv("BIRDEYE_API_KEY", "")
+        self.url = f"{BIRDEYE_WS_BASE}?x-api-key={self.api_key}"
+        # Birdeye-required headers + subprotocol
+        self.headers = [
+            "Origin: ws://public-api.birdeye.so",
+            "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
+        ]
+        self.subprotocols = ["echo-protocol"]
+
+        self._ws = None
+        self._th = None
+        self._running = False
+        self._connected = False
+        self.recv_count = 0
+        self.new_count = 0
+        self._debug = False
+        self._tap_until = 0
+
+    # --- public API used by app.py ---
+    def start(self):
+        if self._running: return True
+        self._running = True
+        self._th = threading.Thread(target=self._loop, name="BirdeyeWS", daemon=True)
+        self._th.start()
+        log.info("[WS] Birdeye WS started (sync client)")
+        return True
+
+    def stop(self):
+        self._running = False
+        try:
+            if self._ws:
+                self._ws.close(timeout=2)
+        except Exception:
+            pass
+        log.info("[WS] Birdeye WS stopped")
+
+    def status(self):
+        return {
+            "running": self._running,
+            "connected": self._connected,
+            "recv": self.recv_count,
+            "new": self.new_count,
+            "seen_cache": 0,
+            "thread_alive": bool(self._th and self._th.is_alive()),
+            "mode": "strict",
+            "tap_enabled": time.time() < self._tap_until,
+        }
+
+    def set_debug(self, on: bool):
+        self._debug = bool(on)
+        return self._debug
+
+    def injectdebugevent(self, payload: dict):
+        # simulate a message
+        self.recv_count += 1
+        if self._debug:
+            log.info("[WS] injected debug event: %s", payload)
+        return True
+
+    def getdebugcache(self):
+        return {"recv": self.recv_count, "new": self.new_count}
+
+    def enable_tap(self, seconds: int):
+        self._tap_until = time.time() + max(1, seconds)
+
+    # --- internal ---
+
+    def _loop(self):
+        backoff = 2
+        while self._running:
+            try:
+                self._run_once()
+                backoff = 2  # reset after a successful run
+            except Exception as e:
+                log.warning("[WS] run error: %r", e)
+                time.sleep(backoff + random.random())
+                backoff = min(backoff * 1.6, 30)
+
+    def _run_once(self):
+        self._connected = False
+        self._ws = websocket.WebSocketApp(
+            self.url,
+            header=self.headers,
+            subprotocols=self.subprotocols,
+            on_open=self._on_open,
+            on_message=self._on_message,
+            on_error=self._on_error,
+            on_close=self._on_close,
+        )
+        # ping keeps CF happy
+        self._ws.run_forever(ping_interval=20, ping_timeout=10)
+
+    def _on_open(self, ws):
+        self._connected = True
+        log.info("[WS] open")
+        log.info("[WS] Connected to Birdeye feed")
+        # subscriptions
+        for sub in (
+            {"type": "subscribe", "topic": "launchpad.created", "chain": "solana"},
+            {"type": "subscribe", "topic": "token.created", "chain": "solana"},
+            {"type": "subscribe", "topic": "token.updated", "chain": "solana"},
+        ):
+            try:
+                ws.send(json.dumps(sub))
+                log.info("[WS] sent %s subscription", sub.get("topic"))
+            except Exception as e:
+                log.warning("[WS] send sub error: %r", e)
+
+    def _on_message(self, ws, message):
+        self.recv_count += 1
+        if self._debug:
+            log.info("[WS] msg len=%s", len(message) if hasattr(message, "__len__") else "unknown")
+        # TODO: parse and detect new tokens; increment self.new_count if new
+
+        # optional tap to Telegram
+        if time.time() < self._tap_until:
+            try:
+                log.info("[WS] TAP sample: %s", str(message)[:140])
+            except Exception:
+                pass
+
+    def _on_error(self, ws, error):
+        self._connected = False
+        log.warning("[WS] error: %r", error)
+
+    def _on_close(self, ws, code, reason):
+        self._connected = False
+        log.info("[WS] Disconnected - code=%s reason=%s", code, reason)

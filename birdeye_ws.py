@@ -48,14 +48,16 @@ if FEATURE_WS != "on":
     get_ws_scanner = get_ws_scanner_disabled
         
 else:
-    # existing implementation (unchanged)
-    import json, time, threading, re
+    # WebSocket enabled - use synchronous implementation
+    import json, time, threading, re, random
     from collections import deque
     from typing import Any, Dict
 
     # Global WebSocket connection status
     WS_CONNECTED = False
     WS_TAP_ENABLED = False
+    WS_DEBUG_ENABLED = False
+    WS_DEBUG_CACHE = deque(maxlen=30)
 
     def is_ws_connected():
         """Check if WebSocket is currently connected to Birdeye feed"""
@@ -68,38 +70,25 @@ else:
         logging.info("[WS] Debug tap %s", "enabled" if enabled else "disabled")
 
     try:
-        # Use asyncio-based websockets library (available in environment)
-        import websockets
-        import asyncio
-        import ssl
-        logging.info("[WS] websockets library imported successfully")
+        # Use synchronous websocket-client library (stable with Gunicorn/threading)
+        import websocket  # from websocket-client
         websocket_available = True
+        logging.info("[WS] websocket-client library imported successfully")
     except ImportError as e:
-        websockets = None
-        asyncio = None
-        ssl = None
+        websocket = None
         websocket_available = False
-        logging.error("[WS] websockets library not available: %s", e)
+        logging.error("[WS] websocket-client library not available: %s", e)
 
-    # --- Birdeye WS required headers & subprotocols ---
-    WS_HEADERS = [
-        "Origin: ws://public-api.birdeye.so",
-        "Sec-WebSocket-Origin: ws://public-api.birdeye.so",
-        # NOTE: Sec-WebSocket-Protocol is negotiated via the 'subprotocols' arg below
-    ]
-
-    WS_SUBPROTOCOLS = ["echo-protocol"]
-
-    BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
+    # Birdeye configuration
+    BIRDEYE_KEY = os.getenv("BIRDEYE_API_KEY", "")
     BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "wss://public-api.birdeye.so/socket")
+    BIRDEYE_WS_BASE = "wss://public-api.birdeye.so/socket"
 
     # Auto-configure authenticated WebSocket URL 
     if BIRDEYE_WS_URL == "wss://public-api.birdeye.so/socket" and BIRDEYE_KEY:
-        # Use authenticated WebSocket endpoint with API key in URL (Birdeye WebSocket auth pattern)
-        BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket?x-api-key={BIRDEYE_KEY}"
-    SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
+        BIRDEYE_WS_URL = f"{BIRDEYE_WS_BASE}?x-api-key={BIRDEYE_KEY}"
 
-    # share mode + filter helpers with HTTP scanner if present
+    SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL_SEC", "8"))
     SCAN_MODE = "strict"     # "strict" | "all"
     SEEN_MINTS = set()
 
@@ -116,17 +105,14 @@ else:
     def _passes_filters(tok: dict) -> bool:
         if SCAN_MODE == "all":
             return True
-        # keep/extend your strict rules here as needed
         return True
 
     def _extract_token(obj):
         """Try to extract a token-like payload (mint/address + meta) from any WS message."""
         if not isinstance(obj, dict):
             return None
-        # Common field names we might see
         mint = obj.get("mint") or obj.get("address") or obj.get("tokenAddress")
         if not mint:
-            # search nested dicts
             for k, v in obj.items():
                 if isinstance(v, dict):
                     r = _extract_token(v)
@@ -142,488 +128,94 @@ else:
     LINK_BE = "https://birdeye.so/token/{mint}?chain=solana"
     LINK_PF = "https://pump.fun/{mint}"
 
-    class BirdeyeWS:
+    # Import the clean synchronous implementation from sync file
+    from birdeye_ws_sync import BirdeyeWS as SyncBirdeyeWS
+
+    # Use the synchronous implementation with compatibility wrapper
+    class BirdeyeWS(SyncBirdeyeWS):
         def __init__(self, publish=None, notify=None):
-            self.publish = publish or (lambda _t,_d: None)
-            self.notify  = notify  or (lambda _m: None)
-            self.api_key = BIRDEYE_KEY
-            self.url = BIRDEYE_WS_URL
-            self._ws   = None
-            self._th   = None
-            self._stop = threading.Event()
+            # Initialize the sync implementation
+            super().__init__(api_key=BIRDEYE_KEY, publish=publish)
+            self.notify = notify or (lambda _m: None)
+            
+            # Add legacy compatibility attributes that old code expects
             self.running = False
-            self.recv_count = 0
-            self.new_count  = 0
             self.seen = deque(maxlen=8000)
             self._seen_set = set()
-            
-            # --- Enhanced Debug Support ---
-            self.ws_debug = False                 # on/off toggle
-            self._debug_cache = deque(maxlen=100) # store recent WS messages/events
+            self.ws_debug = False
+            self._debug_cache = deque(maxlen=100)
             self._debug_mode = False
             self._debug_rate = {"last_ts": 0.0, "count_min": 0, "window_start": 0.0}
 
-        def _log(self, msg, level="info"):
-            line = f"[WS] {msg}"
-            if level == "error":
-                logging.error(line)
-            elif level == "warning":
-                logging.warning(line)
-            else:
-                logging.info(line)
-            if self._debug_mode:
-                # keep a lightweight trail for /ws_dump
-                self._debug_cache.append(f"{int(time.time())} {msg}")
-
-        def _mark_seen(self, mint):
-            if mint in self._seen_set: return False
-            self.seen.append(mint); self._seen_set.add(mint)
-            if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
-                old = self.seen.popleft(); self._seen_set.discard(old)
-            return True
-
         def start(self):
-            if self.running: return
-            if not websocket_available:
-                self._log("websocket-client lib missing", level="error")
-                self.publish("scan.birdeye.ws.error", {"err":"lib_missing"})
-                return
-            if not BIRDEYE_KEY or not BIRDEYE_WS_URL:
-                self._log("missing BIRDEYE_API_KEY or BIRDEYE_WS_URL", level="error")
-                self.publish("scan.birdeye.ws.error", {"err":"missing_env"})
-                return
-
-            self.running = True
-            
-            # Enhanced subscription topics - prefer Launchpad if available
-            self.subscription_topics = [
-                "launchpad.created",  # Priority: Launchpad new tokens
-                "token.created",      # Fallback: Generic token events
-            ]
-            
-            self._stop.clear()
-            self._th = threading.Thread(target=self._run_loop, daemon=True)
-            self._th.start()
-            self.publish("scan.birdeye.ws.start", {})
-            self._log("Birdeye WS started with Launchpad priority")
-            
-        def _run_loop(self):
-            self._log("WebSocket run loop starting")
-            if not websockets:
-                self._log("WebSocket library not available", level="error")
-                return
-                
-            # Use the same approach that works in standalone test
-            try:
-                self._log("Setting up clean asyncio environment")
-                
-                # Create fresh event loop (like standalone test)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._log("Event loop created and set for WebSocket thread")
-                
-                # Run a simple connection test first
-                test_result = loop.run_until_complete(self._test_connection())
-                if test_result:
-                    self._log("Connection test passed, starting main loop")
-                    loop.run_until_complete(self._async_ws_loop())
-                else:
-                    self._log("Connection test failed, aborting", level="error")
-                    
-            except Exception as e:
-                self._log(f"Thread error: {type(e).__name__}: {e}", level="error")
-                import traceback
-                self._log(f"Full traceback: {traceback.format_exc()}", level="error")
-            finally:
-                try:
-                    loop = asyncio.get_event_loop()
-                    if not loop.is_closed():
-                        loop.close()
-                    self._log("Event loop closed cleanly")
-                except Exception as e:
-                    self._log(f"Error closing loop: {e}", level="warning")
-        
-        async def _test_connection(self):
-            """Quick connection test using same logic as standalone test"""
-            try:
-                self._log("Running connection test...")
-                headers = {
-                    "Origin": "ws://public-api.birdeye.so",
-                    "Sec-WebSocket-Origin": "ws://public-api.birdeye.so",
-                }
-                
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-                
-                async with websockets.connect(
-                    self.url,
-                    additional_headers=headers,
-                    subprotocols=["echo-protocol"],
-                    ssl=ssl_context,
-                    open_timeout=5,
-                    ping_interval=None,
-                ) as ws:
-                    self._log("✅ Connection test successful!")
-                    try:
-                        await asyncio.wait_for(ws.recv(), timeout=3.0)
-                        self._log("✅ Message received in test!")
-                        return True
-                    except asyncio.TimeoutError:
-                        self._log("⚠️ No message in test (but connected)")
-                        return True
-            except Exception as e:
-                self._log(f"❌ Connection test failed: {type(e).__name__}: {e}", level="error")
-                return False
-
-        async def _async_ws_loop(self):
-            backoff = 1.0
-            while not self._stop.is_set():
-                try:
-                    # Build headers with WebSocket-specific auth (URL-based auth, minimal headers)
-                    headers = {
-                        "Origin": "ws://public-api.birdeye.so",
-                        "Sec-WebSocket-Origin": "ws://public-api.birdeye.so",
-                        "User-Agent": "Mork-FETCH-Bot/1.0",
-                    }
-                    
-                    self._log(f"Starting WebSocket connection to {self.url}")
-                    self._log(f"Using headers: {headers}")
-                    
-                    # Connect with SSL context and headers
-                    ssl_context = ssl.create_default_context()
-                    ssl_context.check_hostname = False
-                    ssl_context.verify_mode = ssl.CERT_NONE
-                    
-                    self._log("Attempting websockets.connect...")
-                    try:
-                        # Add timeout wrapper to catch hanging connections
-                        websocket_future = websockets.connect(
-                            self.url,
-                            additional_headers=headers,
-                            subprotocols=["echo-protocol"],
-                            ssl=ssl_context,
-                            ping_interval=20,
-                            ping_timeout=10,
-                            open_timeout=8,
-                            close_timeout=5,
-                        )
-                        
-                        async with await asyncio.wait_for(websocket_future, timeout=12.0) as websocket:
-                            self._log("WebSocket connection established")
-                            self._on_open(websocket)
-                            
-                            # Keep connection alive and handle messages
-                            try:
-                                async for message in websocket:
-                                    if self._stop.is_set():
-                                        break
-                                    self._on_message(websocket, message)
-                            except websockets.exceptions.ConnectionClosed:
-                                self._log("WebSocket connection closed", level="warning")
-                            except Exception as e:
-                                self._log(f"Message handling error: {e}", level="warning")
-                            finally:
-                                self._on_close(websocket, None, None)
-                    except Exception as e:
-                        self._log(f"WebSocket connect error: {type(e).__name__}: {e}", level="warning")
-                            
-                except Exception as e:
-                    self._log(f"WebSocket connection error: {e}", level="warning")
-
-                if self._stop.is_set():
-                    break
-                    
-                # Reconnect with backoff
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 1.5, 30.0)
+            """Start WebSocket with legacy compatibility"""
+            result = super().start()
+            self.running = self._running  # sync legacy attribute
+            return result
 
         def stop(self):
+            """Stop WebSocket with legacy compatibility"""
+            super().stop()
             self.running = False
-            self._stop.set()
+
+        def _mark_seen(self, mint):
+            """Legacy seen token tracking"""
+            if mint in self._seen_set: 
+                return False
+            self.seen.append(mint)
+            self._seen_set.add(mint)
+            if self.seen.maxlen and len(self._seen_set) > self.seen.maxlen:
+                old = self.seen.popleft()
+                self._seen_set.discard(old)
+            return True
+
+        def dump_debug_msgs(self, n=10):
+            """Get last N debug messages from cache"""
+            n = max(1, min(n, 30))
+            out = list(self._debug_cache)[-n:]
+            return out
+
+        def inject_debug_event(self, label: str = "synthetic"):
+            """Push a fake event through the normal message path for pipeline verification"""
+            payload: Dict[str, Any] = {
+                "event": "debug.synthetic",
+                "label": label,
+                "token": {
+                    "name": "moonpepe",
+                    "symbol": "moonpepe", 
+                    "mint": "8DX27KPjZMpLi3pBBTaEVqSNq33gAaWkL2v7N8kCNpump",
+                    "price": "0.0000700144"
+                }
+            }
             try:
-                if self._ws:
-                    self._ws.close()
+                self._debug_cache.append(payload)
             except Exception:
                 pass
-            if self._th and self._th.is_alive():
-                self._th.join(timeout=2.0)
-            self.publish("scan.birdeye.ws.stop", {})
-            self._log("Birdeye WS stopped")
+            # Echo via publish like a real message
+            self.publish("ws.debug", {
+                "ts": int(time.time()),
+                "event": payload["event"],
+                "preview": json.dumps(payload)[:900]
+            })
+            logging.info("[WS] injected synthetic debug event")
 
-        def status(self):
-            return {
-                "running": self.running,
-                "connected": WS_CONNECTED or getattr(self, 'connected', False),
-                "recv": self.recv_count,
-                "new": self.new_count,
-                "seen_cache": len(self._seen_set),
-                "thread_alive": self._th.is_alive() if self._th else False,
-                "mode": SCAN_MODE,
-                "tap_enabled": WS_TAP_ENABLED or os.getenv("WS_TAP") == "1",
-            }
+    # Singleton helper
+    _ws_singleton = None
+    ws_client_singleton = None
 
-        def _on_open(self, ws):
-            """Birdeye Business plan usually authenticates via header "X-API-KEY"."""
-            global WS_CONNECTED
-            WS_CONNECTED = True
-            self.connected = True
-            self._log("open")
-            self._log("Connected to Birdeye feed")
-            self.publish("scan.birdeye.ws.open", {})
-            
-            # Send subscriptions async (ensure we're in async context)
-            if hasattr(asyncio, '_get_running_loop') and asyncio._get_running_loop():
-                asyncio.create_task(self._send_subscriptions(ws))
-            else:
-                # Fallback for sync context - schedule for later
-                self._log("Scheduling subscriptions for async context")
+    def get_ws_scanner(publish, notify):
+        global _ws_singleton, ws_client_singleton
+        if _ws_singleton is None:
+            _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
+            ws_client_singleton = _ws_singleton
+        return _ws_singleton
 
-        async def _send_subscriptions(self, ws):
-            """Send subscription messages asynchronously"""
-            try:
-                # Enhanced subscription with Launchpad priority
-                sub = os.getenv("BIRDEYE_WS_SUB", "")
-                if sub:
-                    try:
-                        payload = json.loads(sub)
-                        await ws.send(json.dumps(payload))
-                        self._log("sent custom subscription payload")
-                    except Exception as e:
-                        self._log(f"bad BIRDEYE_WS_SUB: {e}", level="warning")
-                else:
-                    # Try subscribing to multiple topics with priority for Launchpad
-                    topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
-                    
-                    for topic in topics_to_try:
-                        try:
-                            # Try Birdeye topic-based subscription format
-                            topic_sub = {
-                                "type": "subscribe",
-                                "topic": topic,
-                                "chain": "solana"
-                            }
-                            await ws.send(json.dumps(topic_sub))
-                            self._log(f"sent {topic} subscription")
-                        except Exception as e:
-                            self._log(f"{topic} subscription failed: {e}", level="warning")
-                    
-                    # Fallback: original channel-based format
-                    try:
-                        default_sub = {
-                            "type": "subscribe", 
-                            "channels": [{"name": "token.created"}]
-                        }
-                        await ws.send(json.dumps(default_sub))
-                        self._log("sent fallback channel subscription")
-                    except Exception as e:
-                        self._log(f"fallback subscription failed: {e}", level="warning")
-            except Exception as e:
-                self._log(f"Subscription error: {e}", level="error")
+    def get_ws(publish=None, notify=None):
+        """Enhanced WebSocket client accessor with debug capabilities"""
+        global _ws_singleton, ws_client_singleton
+        if _ws_singleton is None and publish and notify:
+            _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
+            ws_client_singleton = _ws_singleton
+        return _ws_singleton or ws_client_singleton
 
-        def _on_message(self, ws, msg):
-            self.recv_count += 1
-            self._log(f"msg len={len(msg)}")
-            self._log(f"Message received ({len(msg)} bytes)")
-            
-            # Debug tap: log raw messages when enabled
-            if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
-                self._log(f"[TAP] Raw message: {msg[:200] + '...' if len(msg) > 200 else msg}")
-                
-            try:
-                data = json.loads(msg)
-            except Exception:
-                # non-JSON message; ignore but keep alive
-                return
-
-            # --- ENHANCED DEBUG ECHO ---
-            if self.ws_debug:
-                # Store in debug cache (raw)
-                try:
-                    self._debug_cache.append(data)
-                except Exception:
-                    pass
-                # Simple rate limit: max 6 debug pushes / minute
-                now = time.time()
-                win = self._debug_rate
-                if now - win.get("window_start", 0) > 60:
-                    win["window_start"] = now
-                    win["count_min"] = 0
-                if win["count_min"] < 6:
-                    win["count_min"] += 1
-                    # Publish a compact summary to app -> Telegram
-                    try:
-                        event = data.get("event") or data.get("type", "?")
-                        # Trim payload to keep Telegram happy
-                        preview = json.dumps(data)[:900]
-                        self.publish("ws.debug", {
-                            "ts": int(now),
-                            "event": event,
-                            "preview": preview
-                        })
-                        self._log(f"debug echo sent ({event})")
-                    except Exception as e:
-                        self._log(f"debug echo error: {e}", level="warning")
-
-            # Enhanced event handling for multiple topic types
-            event_type = data.get("type") or data.get("topic", "")
-            
-            # Handle specific Launchpad and token creation events
-            if event_type in ("launchpad.created", "token.created"):
-                tok_data = data.get("data", {})
-                tok = {
-                    "mint": tok_data.get("address") or tok_data.get("mint"),
-                    "symbol": tok_data.get("symbol") or "?",
-                    "name": tok_data.get("name") or "?",
-                    "price": tok_data.get("price") or tok_data.get("priceUsd"),
-                    "source": event_type  # Track which topic provided the token
-                }
-            else:
-                # Fallback to generic token extraction
-                tok = _extract_token(data)
-                if tok:
-                    tok["source"] = "generic"
-                
-            if not tok or not tok.get("mint"):
-                return
-                
-            mint = tok["mint"]
-            if not self._mark_seen(mint):
-                return
-
-            if _passes_filters(tok):
-                self.new_count += 1
-                self.publish("scan.birdeye.ws.new", {"token": tok})
-                name = tok["name"] or "?"
-                sym  = tok["symbol"] or "?"
-                source = tok.get("source", "ws")
-                
-                # Enhanced alert with source information
-                source_emoji = "🚀" if source == "launchpad.created" else "⚡"
-                source_text = "Launchpad" if source == "launchpad.created" else "WS"
-                
-                text = (
-                    f"{source_emoji} *Birdeye {source_text} — New token*\n"
-                    f"*{name}* ({sym})\n"
-                    f"`{mint}`\n"
-                    f"[Birdeye]({LINK_BE.format(mint=mint)}) • [Pump.fun]({LINK_PF.format(mint=mint)})"
-                )
-                try:
-                    self.notify(text)
-                    self._log(f"Alert sent: {name} ({sym}) {mint}")
-                except Exception:
-                    pass
-
-        def _on_error(self, ws, err):
-            global WS_CONNECTED
-            WS_CONNECTED = False
-            self._log(f"error: {err}", level="error")
-            self._log(f"WebSocket error occurred: {err}", level="error")
-            # Enhanced error logging to capture full handshake details
-            error_details = {
-                "error": str(err),
-                "type": type(err).__name__,
-                "ws_url": BIRDEYE_WS_URL,
-                "headers": WS_HEADERS,
-                "subprotocols": WS_SUBPROTOCOLS
-            }
-            
-            # Check if this is a handshake error (403 Forbidden, etc.)
-            if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
-                self._log(f"HANDSHAKE ERROR: {err}", level="error")
-                self._log(f"Full error details: {error_details}", level="error")
-                # Send detailed error to admin for debugging
-                try:
-                    if hasattr(self, 'notify') and self.notify:
-                        self.notify(f"🚨 *WebSocket Handshake Error*\n```\n{err}\n```\nURL: `{BIRDEYE_WS_URL}`\nHeaders: {WS_HEADERS}\nSubprotocols: {WS_SUBPROTOCOLS}")
-                except:
-                    pass
-            else:
-                self._log(f"error: {err}", level="warning")
-            
-            self.publish("scan.birdeye.ws.error", error_details)
-
-        def _on_close(self, ws, code, reason):
-            global WS_CONNECTED
-            WS_CONNECTED = False
-            self._log("close")
-            self._log(f"Disconnected - code={code} reason={reason}")
-            self.publish("scan.birdeye.ws.close", {"code": code, "reason": str(reason)})
-
-        # add the three helpers expected by the /ws_* commands
-        def getdebugcache(self):
-            """Used by /ws_dump to read recent debug lines."""
-            return list(self._debug_cache)
-
-        def set_debug(self, on: bool):
-            self._debug_mode = bool(on)
-            self._log(f"debug mode -> {self._debug_mode}")
-
-        def injectdebugevent(self, payload: dict):
-            """Allow /ws_probe to inject a synthetic event into the debug cache."""
-            try:
-                self._log(f"probe inject: {payload}")
-                self._debug_cache.append(f"inject {payload}")
-                return True
-            except Exception as e:
-                self._log(f"probe inject failed: {e}", level="error")
-                return False
-
-    # ===== Debug helpers (called from app.py) =====
-    def set_debug_legacy(self, on: bool):
-        """Enable/disable debug mode with rate-limited message forwarding"""
-        self.ws_debug = bool(on)
-        logging.info("[WS] debug mode: %s", "ON" if self.ws_debug else "OFF")
-        self.publish("ws.debug.mode", {"on": self.ws_debug})
-
-    def get_debug_cache(self, n: int = 10):
-        """Get last N debug messages from cache"""
-        n = max(1, min(n, 30))
-        out = list(self._debug_cache)[-n:]
-        return out
-
-    def inject_debug_event(self, label: str = "synthetic"):
-        """Push a fake event through the normal message path for pipeline verification"""
-        payload: Dict[str, Any] = {
-            "event": "debug.synthetic",
-            "label": label,
-            "token": {
-                "name": "moonpepe",
-                "symbol": "moonpepe", 
-                "mint": "8DX27KPjZMpLi3pBBTaEVqSNq33gAaWkL2v7N8kCNpump",
-                "price": "0.0000700144"
-            }
-        }
-        try:
-            self._debug_cache.append(payload)
-        except Exception:
-            pass
-        # Echo via publish like a real message
-        self.publish("ws.debug", {
-            "ts": int(time.time()),
-            "event": payload["event"],
-            "preview": json.dumps(payload)[:900]
-        })
-        logging.info("[WS] injected synthetic debug event")
-
-
-
-# singleton helper
-_ws_singleton = None
-ws_client_singleton = None  # Alternative reference for compatibility
-
-def get_ws_scanner(publish, notify):
-    global _ws_singleton, ws_client_singleton
-    if _ws_singleton is None:
-        _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
-        ws_client_singleton = _ws_singleton  # Set alternative reference
-    return _ws_singleton
-
-def get_ws(publish=None, notify=None):
-    """Enhanced WebSocket client accessor with debug capabilities"""
-    global _ws_singleton, ws_client_singleton
-    if _ws_singleton is None and publish and notify:
-        _ws_singleton = BirdeyeWS(publish=publish, notify=notify)
-        ws_client_singleton = _ws_singleton
-    return _ws_singleton or ws_client_singleton
 # --- END FILE: birdeye_ws.py ---
