@@ -49,7 +49,11 @@ class SolscanScanner:
         self._running = False
         self._last_ok = None
         self._last_err = None
-        self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
+        # Use HTTP/2 if available, fallback to HTTP/1.1
+        try:
+            self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
+        except Exception:
+            self._client = httpx.Client(timeout=_TIMEOUT, http2=False)
 
     # --- lifecycle -----------------------------------------------------------
     def start(self) -> None:

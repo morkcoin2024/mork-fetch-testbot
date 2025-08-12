@@ -36,7 +36,7 @@ from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVA
 from birdeye_ws import get_ws
 from dexscreener_scanner import get_ds_client
 from jupiter_scan import JupiterScan
-from solscan_scan import SolscanScan
+# Solscan Pro import moved to conditional loading
 
 # Initialize components after admin functions are defined
 def _init_scanners():
