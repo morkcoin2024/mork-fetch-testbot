@@ -14,7 +14,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 **Current Configuration: Multi-Source Token Discovery + Unified Single-Process Architecture (August 12, 2025)**
 - **Birdeye HTTP Scanner**: Operational at 8-second intervals with API key 37c50ab5a1ac451980a1998b1c05fbf6
 - **Jupiter Scanner**: Fully integrated and operational, fetching 287K+ tokens from https://token.jup.ag/all?includeCommunity=true
-- **Solscan Pro Scanner**: **FULLY OPERATIONAL** - Production-ready implementation with multi-endpoint support, safe header handling, retry logic. Operates in same process as webhook handlers for unified access to SCANNERS registry
+- **Solscan Pro Scanner**: **FULLY OPERATIONAL** - Production-ready implementation with multi-endpoint support, safe header handling, retry logic. Status reporting bug fixed August 12, 2025 - now correctly displays "Solscan: ON" when API key is present. Operates in same process as webhook handlers for unified access to SCANNERS registry
 - **WebSocket**: Disabled via FEATURE_WS=off with DisabledWS class implementation 
 - **Unified Process Architecture**: **CRITICAL FIX IMPLEMENTED** - Single-worker Gunicorn configuration ensures webhook handlers and scanner threads share the same process and SCANNERS dictionary, resolving process isolation issues
 - **Enhanced Admin Commands**: All Telegram commands (/scan_status, /solscanstats, /a_logs_tail) now work correctly with unified process architecture providing real-time access to scanner states
