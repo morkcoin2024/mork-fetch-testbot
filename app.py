@@ -666,42 +666,34 @@ Logging: Enhanced (active)
 Health: Operational
 
 Admin router with comprehensive logging active.'''
+                elif text.strip().startswith("/whoami_sys"):
+                    info = [
+                        f"PID: {os.getpid()}",
+                        f"Admin ID: {ASSISTANT_ADMIN_TELEGRAM_ID}",
+                        f"Mode: Webhook Processing",
+                        f"Threadalive: {globals().get('SCANNER_STATE', {}).get('threadalive', False)}",
+                        f"Active scanners: {', '.join(sorted(SCANNERS.keys())) or '(none)'}",
+                    ]
+                    response_text = "🧩 System Info\n" + "\n".join(info)
                 elif text.strip().startswith("/whoami"):
-                    # Handle /whoami_sys FIRST (must come before /whoami to avoid conflict)
-                    if text.strip() == "/whoami_sys":
-                        try:
-                            import platform
-                            import sys
-                            import psutil
-                            
-                            pid = os.getpid()
-                            process = psutil.Process(pid)
-                            memory_mb = process.memory_info().rss / 1024 / 1024
-                            # Skip cpu_percent() as it requires measurement time and causes delay
-                            
-                            # Ultra-fast format for immediate response like /ping
-                            response_text = f"System: PID {pid}, Memory {memory_mb:.1f}MB, Python {sys.version.split()[0]}, {psutil.cpu_count()} cores, {psutil.virtual_memory().total / 1024 / 1024 / 1024:.1f}GB RAM"
-                        except Exception as e:
-                            response_text = f"whoami_sys error: {e}"
-                    else:
-                        try:
-                            pid = os.getpid()
-                            keys = list(SCANNERS.keys())
-                            sol = SCANNERS.get("solscan")
-                            sol_enabled = getattr(sol, "enabled", None) if sol else None
-                            sol_running = getattr(sol, "running", None) if sol else None
-                            feat = os.getenv("FEATURE_SOLSCAN", "unset")
-                            keylen = len(os.getenv("SOLSCAN_API_KEY", "")) or 0
-                            response_text = (
-                                "👤 *Worker diag*\n"
-                                f"pid: `{pid}`\n"
-                                "gunicorn: workers=1, threads=1 (forced)\n"
-                                f"SCANNERS: `{keys}`\n"
-                                f"solscan: enabled={sol_enabled} running={sol_running}\n"
-                                f"FEATURE_SOLSCAN={feat} keylen={keylen}\n"
-                            )
-                        except Exception as e:
-                            response_text = f"whoami error: {e}"
+                    try:
+                        pid = os.getpid()
+                        keys = list(SCANNERS.keys())
+                        sol = SCANNERS.get("solscan")
+                        sol_enabled = getattr(sol, "enabled", None) if sol else None
+                        sol_running = getattr(sol, "running", None) if sol else None
+                        feat = os.getenv("FEATURE_SOLSCAN", "unset")
+                        keylen = len(os.getenv("SOLSCAN_API_KEY", "")) or 0
+                        response_text = (
+                            "👤 *Worker diag*\n"
+                            f"pid: `{pid}`\n"
+                            "gunicorn: workers=1, threads=1 (forced)\n"
+                            f"SCANNERS: `{keys}`\n"
+                            f"solscan: enabled={sol_enabled} running={sol_running}\n"
+                            f"FEATURE_SOLSCAN={feat} keylen={keylen}\n"
+                        )
+                    except Exception as e:
+                        response_text = f"whoami error: {e}"
                 elif text.strip().startswith('/a_logs_tail') or text.strip().startswith('/logs_tail'):
                     # Enhanced logs tail with ring buffer (ultra-fast)
                     try:
