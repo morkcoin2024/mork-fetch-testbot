@@ -2188,6 +2188,73 @@ Not for production custody."""
                         except Exception as e:
                             response_text = f"❌ Wallet error: {e}"
 
+                # /rules_show - Display current rules configuration
+                elif text.strip().startswith("/rules_show"):
+                    try:
+                        import rules
+                        import json
+                        R = rules.load_rules()
+                        response_text = "Current rules:\n```\n" + json.dumps(R, indent=2) + "\n```"
+                    except Exception as e:
+                        response_text = f"❌ Rules error: {e}"
+
+                # /rules_reload - Reload rules from rules.yaml
+                elif text.strip().startswith("/rules_reload"):
+                    try:
+                        import rules
+                        rules.load_rules(force=True)
+                        response_text = "🔄 Rules reloaded."
+                    except Exception as e:
+                        response_text = f"❌ Rules reload error: {e}"
+
+                # /rules_test - Test rules against a token
+                elif text.strip().startswith("/rules_test"):
+                    parts = text.split(maxsplit=1)
+                    if len(parts) == 1:
+                        response_text = "Usage: /rules_test <mint>"
+                    else:
+                        mint = parts[1].strip().lower()
+                        try:
+                            import rules
+                            # Create a test token object
+                            obj = {"mint": mint, "source": "manual", "age_min": 0, "liq_usd": 0, "mcap_usd": 0, "holders": 0, "risk": {}}
+                            res = rules.check_token(obj)
+                            vibe = "PASS ✅" if res.passed else "FAIL ❌"
+                            response_text = f"Rules test for `{mint}` → *{vibe}*\nreasons: {', '.join(res.reasons) or 'ok'}"
+                        except Exception as e:
+                            response_text = f"❌ Rules test error: {e}"
+
+                # /wallet_new - Create new burner wallet
+                elif text.strip().startswith("/wallet_new"):
+                    try:
+                        import wallet as wlt
+                        entry = wlt.ensure_burner(str(user.get('id')))
+                        response_text = f"🧪 Burner created\n`{entry['pubkey']}`"
+                    except Exception as e:
+                        response_text = f"❌ Wallet creation error: {e}"
+
+                # /wallet_addr - Get wallet address
+                elif text.strip().startswith("/wallet_addr"):
+                    try:
+                        import wallet as wlt
+                        pk = wlt.get_pubkey(str(user.get('id')))
+                        response_text = "No burner yet. Use /wallet_new." if not pk else f"`{pk}`"
+                    except Exception as e:
+                        response_text = f"❌ Wallet address error: {e}"
+
+                # /wallet_balance - Check wallet balance
+                elif text.strip().startswith("/wallet_balance"):
+                    try:
+                        import wallet as wlt
+                        pk = wlt.get_pubkey(str(user.get('id')))
+                        if not pk: 
+                            response_text = "No burner yet. Use /wallet_new."
+                        else:
+                            bal = wlt.get_balance_sol(pk)
+                            response_text = f"Balance: {bal:.6f} SOL" if bal>=0 else "RPC error."
+                    except Exception as e:
+                        response_text = f"❌ Wallet balance error: {e}"
+
                 elif text.strip() in ['/help']:
                     response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
@@ -2246,10 +2313,14 @@ AI Assistant:
 F.E.T.C.H Rules System:
 /rules_show, /a_rules_show - Display current rules configuration
 /rules_reload, /a_rules_reload - Reload rules from rules.yaml
+/rules_test <mint> - Test rules against a specific token mint
 /fetch, /fetch_now, /a_fetch_now - Run token filtering demo
 
 Wallet System:
 /wallet - Show burner wallet info (development only)
+/wallet_new - Create new burner wallet
+/wallet_addr - Get your wallet address
+/wallet_balance - Check wallet balance
 
 /help - This help message
 

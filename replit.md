@@ -18,6 +18,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **COMPLETED**: Patched app.py with event bus integration including imports for BUS, rules, and wallet modules
 - **COMPLETED**: Implemented _normalize_token() helper function and _on_new_token() subscriber for NEW_TOKEN events with rules validation and Telegram notifications
 - **COMPLETED**: Added NEW_TOKEN publishing to all scanners (Birdeye WS/HTTP, Solscan, DexScreener, Jupiter) with source-specific normalization
+- **COMPLETED**: Integrated comprehensive admin command interface for rules management (/rules_show, /rules_reload, /rules_test) and wallet operations (/wallet_new, /wallet_addr, /wallet_balance) with proper error handling and Telegram formatting
 
 **Core Architectural Decisions & Features:**
 - **Unified Single-Process Architecture:** Gunicorn configured for single-worker to ensure webhook handlers and scanner threads share the same process and data, resolving process isolation issues.
