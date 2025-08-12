@@ -1208,54 +1208,121 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     
                     try:
-                        # Webhook-friendly approach using active scanners
-                        scanner_data = []
+                        # Force scanner initialization in this worker process
+                        _ensure_scanners()
                         
-                        # Get data from active scanners
-                        if 'birdeye' in SCANNERS and SCANNERS['birdeye']:
-                            birdeye_scanner = SCANNERS['birdeye']
-                            if hasattr(birdeye_scanner, 'get_recent_tokens'):
-                                recent = birdeye_scanner.get_recent_tokens(limit=5)
-                                for token in recent:
-                                    scanner_data.append({
-                                        'source': 'birdeye',
-                                        'symbol': token.get('symbol', '?'),
-                                        'name': token.get('name', '?')[:15],
-                                        'address': token.get('address', '?')[:8] + '...'
-                                    })
-                        
-                        # Get data from Solscan if available
-                        if 'solscan' in SCANNERS and SCANNERS['solscan']:
-                            solscan_scanner = SCANNERS['solscan']
-                            if hasattr(solscan_scanner, 'get_trending_cache'):
-                                trending = solscan_scanner.get_trending_cache()[:3]
-                                for i, token in enumerate(trending):
-                                    scanner_data.append({
-                                        'source': 'solscan',
-                                        'symbol': token.get('symbol', '?'),
-                                        'name': token.get('name', '?')[:15],
-                                        'rank': f"#{i+1}"
-                                    })
-                        
-                        if not scanner_data:
-                            response_text = "No active scanner data available."
-                        else:
-                            lines = ["*F.E.T.C.H Quick Results*", ""]
-                            lines.append("Recent tokens from active scanners:")
-                            for i, token in enumerate(scanner_data[:8], 1):
-                                source = token['source']
-                                symbol = token['symbol']
-                                name = token['name']
-                                extra = token.get('rank', token.get('address', ''))
-                                lines.append(f"{i}. {source.upper()} | {symbol} | {name} | {extra}")
+                        # Try the full data_fetcher approach first with robust error handling
+                        try:
+                            import os
+                            os.environ['SOLSCAN_FAST_MODE'] = '1'
                             
-                            # Add scanner status
-                            active_count = len([s for s in SCANNERS.values() if getattr(s, 'running', False)])
-                            lines.append("")
-                            lines.append(f"Scanner status: {active_count} active")
+                            from data_fetcher import fetch_and_rank
+                            from rules import load_rules, get_rules_version
                             
-                            response_text = "\n".join(lines)
-                        _reply(response_text)
+                            rules = load_rules()
+                            rows = fetch_and_rank(rules)
+                            
+                            # Clear fast mode
+                            if 'SOLSCAN_FAST_MODE' in os.environ:
+                                del os.environ['SOLSCAN_FAST_MODE']
+                            
+                            if not rows:
+                                response_text = "No candidates found from multi-source scan."
+                            else:
+                                # Format results with full data
+                                lines = ["source | symbol | name | holders | mcap$ | liq$ | age_min | risk | solscan"]
+                                for t in rows:
+                                    src = t.get("source", "?")
+                                    tag = "🟢 pumpfun" if src == "pumpfun" else "dexscreener"
+                                    sym = t.get("symbol", "?")
+                                    name = (t.get("name") or sym)[:20]
+                                    holders = "?" if (t.get("holders", -1) == -1) else t.get("holders")
+                                    mcap = t.get("mcap_usd")
+                                    liq = t.get("liquidity_usd")
+                                    age = t.get("age_min")
+                                    risk = t.get("risk", "?")
+                                    
+                                    # Add Solscan enrichment badge
+                                    solscan_badge = "-"
+                                    try:
+                                        if 'solscan' in SCANNERS:
+                                            scanner = SCANNERS['solscan']
+                                            if scanner and hasattr(scanner, 'get_enrichment_badge'):
+                                                address = t.get('address')
+                                                if address:
+                                                    badge = scanner.get_enrichment_badge(address)
+                                                    if badge:
+                                                        if "NEW" in badge:
+                                                            solscan_badge = "NEW"
+                                                        elif "trending #" in badge:
+                                                            rank = badge.split("#")[1] if "#" in badge else "?"
+                                                            solscan_badge = f"#{rank}"
+                                                        else:
+                                                            solscan_badge = badge[:10]
+                                    except Exception:
+                                        if t.get("solscan_trending_rank"):
+                                            solscan_badge = f"#{t.get('solscan_trending_rank')}"
+                                        elif t.get("solscan_trending"):
+                                            solscan_badge = "trend"
+                                    
+                                    lines.append(f"{tag} | {sym} | {name} | {holders} | {mcap if mcap is not None else '?'} | {liq if liq is not None else '?'} | {age if age is not None else '?'} | {risk} | {solscan_badge}")
+                                
+                                body = "\n".join(lines)
+                                if len(body) > 3800:
+                                    body = body[:3800] + "\n…(truncated)…"
+                                response_text = f"*F.E.T.C.H Results (v{get_rules_version()})* — {len(rows)} tokens (multi-source):\n```\n{body}\n```"
+                            _reply(response_text, parse_mode="Markdown")
+                            
+                        except Exception as import_error:
+                            # Fallback: Use direct scanner access
+                            logging.warning(f"fetch_now full approach failed: {import_error}")
+                            scanner_data = []
+                            
+                            # Get data from active scanners
+                            if 'birdeye' in SCANNERS and SCANNERS['birdeye']:
+                                birdeye_scanner = SCANNERS['birdeye']
+                                if hasattr(birdeye_scanner, 'get_recent_tokens'):
+                                    recent = birdeye_scanner.get_recent_tokens(limit=5)
+                                    for token in recent:
+                                        scanner_data.append({
+                                            'source': 'birdeye',
+                                            'symbol': token.get('symbol', '?'),
+                                            'name': token.get('name', '?')[:15],
+                                            'address': token.get('address', '?')[:8] + '...'
+                                        })
+                            
+                            # Get data from Solscan if available
+                            if 'solscan' in SCANNERS and SCANNERS['solscan']:
+                                solscan_scanner = SCANNERS['solscan']
+                                if hasattr(solscan_scanner, 'get_trending_cache'):
+                                    trending = solscan_scanner.get_trending_cache()[:3]
+                                    for i, token in enumerate(trending):
+                                        scanner_data.append({
+                                            'source': 'solscan',
+                                            'symbol': token.get('symbol', '?'),
+                                            'name': token.get('name', '?')[:15],
+                                            'rank': f"#{i+1}"
+                                        })
+                            
+                            if not scanner_data:
+                                response_text = "No active scanner data available (fallback mode)."
+                            else:
+                                lines = ["*F.E.T.C.H Quick Results* (fallback mode)", ""]
+                                lines.append("Recent tokens from active scanners:")
+                                for i, token in enumerate(scanner_data[:8], 1):
+                                    source = token['source']
+                                    symbol = token['symbol']
+                                    name = token['name']
+                                    extra = token.get('rank', token.get('address', ''))
+                                    lines.append(f"{i}. {source.upper()} | {symbol} | {name} | {extra}")
+                                
+                                # Add scanner status
+                                active_count = len([s for s in SCANNERS.values() if getattr(s, 'running', False)])
+                                lines.append("")
+                                lines.append(f"Scanner status: {active_count} active")
+                                
+                                response_text = "\n".join(lines)
+                            _reply(response_text)
                     except Exception as e:
                         logger.exception("fetch_now error in webhook")
                         _reply(f"❌ fetch_now failed: {e}")
@@ -1854,19 +1921,30 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                             response_text = f"❌ solscan_ping failed: {e}"
 
                 elif text.startswith("/solscan_mode"):
-                    # /solscan_mode [auto|new|trending]
-                    parts = text.split()
-                    mode = parts[1].strip().lower() if len(parts) > 1 else None
-                    ss = SCANNERS.get("solscan")
-                    if not ss:
-                        response_text = "❌ Solscan scanner not initialized"
+                    logger.info("[WEBHOOK] Routing /solscan_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
                     else:
-                        if mode in (None, "auto", "new", "trending"):
-                            if mode:
-                                ss.set_mode(mode)
-                            response_text = f"🧭 Solscan mode: *{ss.get_mode()}*"
+                        # /solscan_mode [auto|new|trending]
+                        parts = text.split()
+                        mode = parts[1].strip().lower() if len(parts) > 1 else None
+                        
+                        # Force scanner initialization in this worker process
+                        _ensure_scanners()
+                        ss = SCANNERS.get("solscan")
+                        
+                        if not ss:
+                            response_text = "❌ Solscan scanner not initialized"
                         else:
-                            response_text = "Usage: `/solscan_mode auto|new|trending`"
+                            if mode in ("auto", "new", "trending"):
+                                ss.set_mode(mode)
+                                response_text = f"✅ Solscan mode set to *{mode}* (was: {ss.get_mode() if hasattr(ss, 'get_mode') else 'unknown'})"
+                            elif mode is None:
+                                # Show current mode when no argument provided
+                                current_mode = ss.get_mode() if hasattr(ss, 'get_mode') else 'unknown'
+                                response_text = f"🧭 Solscan current mode: *{current_mode}*"
+                            else:
+                                response_text = "Usage: `/solscan_mode auto|new|trending` or `/solscan_mode` to check current mode"
 
                 # --- Admin: Process Diagnostic --------------------------------------------------
                 elif text.strip().startswith("/diag"):
