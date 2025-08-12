@@ -1759,8 +1759,10 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                     f"📊 *Solscan Pro Scanner Status*\n"
                                     f"Enabled: `{st.get('enabled', False)}`\n"
                                     f"Running: `{st.get('running', False)}`\n"
+                                    f"Mode: `{st.get('mode', 'auto')}`\n"
                                     f"Base URL: `{st.get('base_url', 'unknown')}`\n"
                                     f"Last tick: `{last_tick_str}`\n"
+                                    f"Last endpoint: `{st.get('last_successful_endpoint', 'none')}`\n"
                                     f"Requests OK/Err: `{st.get('requests_ok', 0)}/{st.get('requests_err', 0)}`\n"
                                     f"Last status: `{st.get('last_status', 'N/A')}`\n"
                                     f"Seen count: `{st.get('seen_cache', 0)}`"
@@ -1791,6 +1793,44 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                                 response_text = "⚠️ Solscan scanner not available for ping"
                         except Exception as e:
                             response_text = f"❌ solscan_ping failed: {e}"
+
+                # /solscan_mode - Set scanner mode (auto|new|trending)
+                elif text.strip().startswith("/solscan_mode"):
+                    logger.info("[WEBHOOK] Routing /solscan_mode")
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        try:
+                            # Force scanner initialization in this worker process
+                            _ensure_scanners()
+                            scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
+                            
+                            if scanner and hasattr(scanner, 'set_mode') and hasattr(scanner, 'get_mode'):
+                                parts = text.strip().split()
+                                if len(parts) == 1:
+                                    # Show current mode
+                                    current_mode = scanner.get_mode()
+                                    response_text = f"""🎯 *Current Solscan mode:* `{current_mode}`
+
+**Available modes:**
+• `auto` - try new tokens first, fallback to trending
+• `new` - only new token endpoints  
+• `trending` - only trending endpoints
+
+*Usage:* `/solscan_mode <mode>`"""
+                                elif len(parts) == 2:
+                                    # Set mode
+                                    new_mode = parts[1].lower()
+                                    if scanner.set_mode(new_mode):
+                                        response_text = f"✅ Solscan mode set to: `{new_mode}`"
+                                    else:
+                                        response_text = f"❌ Invalid mode: `{new_mode}`\nValid modes: auto, new, trending"
+                                else:
+                                    response_text = "Usage: `/solscan_mode [auto|new|trending]`"
+                            else:
+                                response_text = "⚠️ Solscan scanner not available for mode change"
+                        except Exception as e:
+                            response_text = f"❌ solscan_mode failed: {e}"
 
                 # --- Admin: Process Diagnostic --------------------------------------------------
                 elif text.strip().startswith("/diag"):

@@ -20,9 +20,24 @@ _named_log.setLevel(logging.INFO)
 _DEFAULT_BASE = os.getenv("SOLSCAN_BASE_URL", "https://pro-api.solscan.io")
 _TIMEOUT = 12.0
 
-# Candidate endpoints to try (Solscan Pro has a few surfaces that expose new listings).
-# We try them in order until we get a 200 with a list-shaped payload.
-# Updated for Solscan Pro API v2.0 (2025)
+# Scanner mode control
+_SOLSCAN_MODE = os.getenv("SOLSCAN_MODE", "auto").lower()  # auto|new|trending
+
+# New tokens endpoints to probe (ordered by preference)
+_NEW_TOKEN_PATHS = [
+    ("/v2/token/new", "data"),
+    ("/v1/token/new", "data"), 
+    ("/v1/market/new-tokens", "data"),
+    ("/v1/market/tokens/new", "data"),
+]
+
+# Trending fallback endpoints
+_TRENDING_PATHS = [
+    ("/v2.0/token/trending", "data"),           # trending tokens with market activity - WORKS!
+    ("/v1/market/token/trending", "data"),      # v1 trending fallback
+]
+
+# Legacy candidate paths (for compatibility)
 _CANDIDATE_PATHS = [
     # v2.0 endpoints (primary) - some don't accept limit param
     ("/v2.0/token/trending", "data"),           # trending tokens with market activity - WORKS!
@@ -70,6 +85,9 @@ class SolscanScanner:
         self._trending_cache = []
         self._trending_cache_ts = 0
         self._trending_cache_ttl = 30  # seconds
+        # Scanner mode management
+        self._mode = _SOLSCAN_MODE
+        self._last_successful_endpoint = None
         # Use HTTP/2 if available, fallback to HTTP/1.1
         try:
             self._client = httpx.Client(timeout=_TIMEOUT, http2=True)
@@ -121,7 +139,9 @@ class SolscanScanner:
             "requests_err": self._requests_err,
             "last_status": self._last_status_code,
             "trending_cache_size": len(self._trending_cache),
-            "trending_cache_age": cache_age
+            "trending_cache_age": cache_age,
+            "mode": self._mode,
+            "last_successful_endpoint": self._last_successful_endpoint
         }
     
     def tick(self) -> tuple[int, int]:
@@ -177,32 +197,67 @@ class SolscanScanner:
             log.error("[SOLSCAN] ping error: %r", e)
             return {"error": str(e), "new": 0, "seen": len(self.seen)}
 
+    # --- mode management -----------------------------------------------------
+    def set_mode(self, mode: str) -> bool:
+        """Set scanner mode: auto|new|trending"""
+        mode = mode.lower()
+        if mode in ("auto", "new", "trending"):
+            self._mode = mode
+            log.info("[SOLSCAN] mode set to: %s", mode)
+            return True
+        return False
+    
+    def get_mode(self) -> str:
+        """Get current scanner mode"""
+        return self._mode
+
     # --- core fetch ----------------------------------------------------------
     def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Returns a list of normalized token dicts:
-          { 'name', 'symbol', 'address', 'price_usd', 'source', 'links': {...} }
+        Returns a list of normalized token dicts based on scanner mode:
+        - auto: try new token endpoints first, fallback to trending if all fail
+        - new: only try new token endpoints
+        - trending: only try trending endpoints
         """
         if not self._running:
             # still allow direct pulls for /fetch_now; we just don't run in a loop here
             pass
 
         n = count or self.limit
+        
+        if self._mode == "new":
+            return self._fetch_with_endpoints(_NEW_TOKEN_PATHS, n)
+        elif self._mode == "trending":
+            return self._fetch_with_endpoints(_TRENDING_PATHS, n)
+        elif self._mode == "auto":
+            # Try new tokens first
+            tokens = self._fetch_with_endpoints(_NEW_TOKEN_PATHS, n)
+            if tokens:  # If we got results from new tokens, use them
+                return tokens
+            # Fallback to trending if new tokens failed
+            log.info("[SOLSCAN] auto mode: new tokens failed, falling back to trending")
+            return self._fetch_with_endpoints(_TRENDING_PATHS, n)
+        else:
+            # Fallback to legacy behavior
+            return self._fetch_with_endpoints(_CANDIDATE_PATHS, n)
+    
+    def _fetch_with_endpoints(self, endpoints: List[tuple], count: int) -> List[Dict[str, Any]]:
+        """Core fetch logic with endpoint probing"""
         headers = _build_headers(self.api_key)
         
         backoff = 0.8
         for attempt in range(3):
-            for path, list_key in _CANDIDATE_PATHS:
+            for path, list_key in endpoints:
                 # Build params based on endpoint requirements
                 request_params = {}
                 
                 # v1 endpoints need chain param
                 if "v1" in path:
                     request_params["chain"] = self.network
-                    request_params["limit"] = n
+                    request_params["limit"] = count
                 # v2.0/token/trending accepts limit
                 elif "trending" in path:
-                    request_params["limit"] = n
+                    request_params["limit"] = count
                 # Other v2.0 endpoints don't accept limit param
                 
                 url = f"{self.base_url}{path}"
@@ -210,17 +265,18 @@ class SolscanScanner:
                     r = self._client.get(url, headers=headers, params=request_params)
                     if r.status_code == 200:
                         data = r.json()
-                        items = data.get(list_key, [])
-                        if isinstance(items, list):
+                        items = data.get(list_key, []) if list_key else data
+                        if isinstance(items, list) and items:  # Must have actual data
                             out = [self._normalize(tok) for tok in items]
                             self._last_ok = {"when": time.time(), "count": len(out), "path": path}
                             self._last_err = None
                             self._requests_ok += 1
                             self._last_status_code = 200
+                            self._last_successful_endpoint = path
                             log.info("[SOLSCAN] %s ok: %d items", path, len(out))
                             return out
                         else:
-                            log.warning("[SOLSCAN] %s unexpected payload shape", path)
+                            log.warning("[SOLSCAN] %s empty or unexpected payload shape", path)
                     else:
                         self._requests_err += 1
                         self._last_status_code = r.status_code
