@@ -418,6 +418,7 @@ def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
     # ULTRA BASIC DEBUG - First line of function
     import time
+    import os  # Import locally to avoid scoping issues
     timestamp = time.time()
     print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
     app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
@@ -551,30 +552,25 @@ Logging: Enhanced (active)
 Health: Operational
 
 Admin router with comprehensive logging active.'''
-                elif text.strip() in ['/whoami', '/a_whoami']:
-                    # Enhanced whoami with process info for unified architecture verification
-                    import threading
-                    active_threads = len([t for t in threading.enumerate() if t.is_alive()])
-                    scanner_count = len(SCANNERS) if 'SCANNERS' in globals() else 0
-                    
-                    response_text = f'''🔍 **Process & User Diagnostic**
-
-**User Info:**
-• ID: `{user.get('id', 'unknown')}`
-• Username: `@{user.get('username', 'unknown')}`
-• Admin: {'✅ Yes' if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID else '❌ No'}
-
-**Process Info:**
-• PID: `{os.getpid()}`
-• Workers: `1` (unified webhook+scanner process)
-• Active Threads: `{active_threads}`
-• Scanners: `{scanner_count}` registered
-
-**Architecture:**
-• Status: ✅ Unified Process (webhooks + scanners share state)
-• SCANNERS Registry: {'✅ Available' if scanner_count > 0 else '❌ Empty'}
-
-*Use this to verify single-worker setup after restarts*'''
+                elif text.strip().startswith("/whoami"):
+                    try:
+                        pid = os.getpid()
+                        keys = list(SCANNERS.keys())
+                        sol = SCANNERS.get("solscan")
+                        sol_enabled = getattr(sol, "enabled", None) if sol else None
+                        sol_running = getattr(sol, "running", None) if sol else None
+                        feat = os.getenv("FEATURE_SOLSCAN", "unset")
+                        keylen = len(os.getenv("SOLSCAN_API_KEY", "")) or 0
+                        response_text = (
+                            "👤 *Worker diag*\n"
+                            f"pid: `{pid}`\n"
+                            "gunicorn: workers=1, threads=1 (forced)\n"
+                            f"SCANNERS: `{keys}`\n"
+                            f"solscan: enabled={sol_enabled} running={sol_running}\n"
+                            f"FEATURE_SOLSCAN={feat} keylen={keylen}\n"
+                        )
+                    except Exception as e:
+                        response_text = f"whoami error: {e}"
                 elif text.strip().startswith('/a_logs_tail') or text.strip().startswith('/logs_tail'):
                     # Enhanced logs tail with ring buffer (ultra-fast)
                     try:
