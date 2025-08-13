@@ -84,7 +84,8 @@ async def get_token_metadata(mint_address: str) -> dict:
     # Known token addresses for better display
     KNOWN_TOKENS = {
         "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH": {"symbol": "MORK", "name": "Mork"},
-        "FUXtsxzXCyYMQnpZA11veLDECkSHeGvLXuJuC9Npbonk": {"symbol": "CLIPPY", "name": "Clippy"},
+        "FUXtsxzXCyYMQnpZA11veLDECkSHeGvLXuJuC9Npbonk": {"symbol": "GEMINI", "name": "Gemini"},
+        "Dhyf7Qu3Mpp9suh7MUF6bZKmpWAJmfmsMKRKVoTyFJ9B": {"symbol": "CLIPPY", "name": "Clippy"},
     }
     
     # Check if it's a known token first
