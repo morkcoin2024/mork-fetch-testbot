@@ -609,11 +609,11 @@ def process_telegram_command(update_data):
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
             return _reply("Rate limited", status="throttled")
         
-        # Duplicate command detection for commands only
-        if is_command and is_duplicate_command(user_id, text):
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
-            return _reply("⚠️ Duplicate command detected. Please wait a moment before repeating commands.", status="duplicate")
+        # Duplicate command detection for commands only (temporarily disabled for debugging)
+        # if is_command and is_duplicate_command(user_id, text):
+        #     duration_ms = int((time.time() - start_time) * 1000)
+        #     logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
+        #     return _reply("⚠️ Duplicate command detected. Please wait a moment before repeating commands.", status="duplicate")
         
         # Admin-only check for restricted commands (exclude basic info commands)
         basic_commands = ["/help", "/ping", "/info", "/test123", "/commands"]
