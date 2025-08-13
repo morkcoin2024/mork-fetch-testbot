@@ -23,7 +23,9 @@ except Exception:
 
 # --- PER-USER RATE LIMITING (skip for commands) ---
 user_last_request = {}
+user_last_command = {}
 RATE_LIMIT_WINDOW = 5  # seconds between non-command messages
+COMMAND_DEDUPE_WINDOW = 1  # seconds to prevent accidental double-taps
 
 def is_rate_limited(user_id):
     """Check if user is rate limited for non-command messages"""
@@ -37,6 +39,21 @@ def is_rate_limited(user_id):
         return True
     
     user_last_request[user_id] = current_time
+    return False
+
+def is_duplicate_command(user_id, command_text):
+    """Check if this is a duplicate command within 1 second (prevent double-taps)"""
+    if not user_id or not command_text:
+        return False
+        
+    current_time = time.time()
+    key = f"{user_id}:{command_text}"
+    last_time = user_last_command.get(key, 0)
+    
+    if current_time - last_time < COMMAND_DEDUPE_WINDOW:
+        return True
+    
+    user_last_command[key] = current_time
     return False
 
 # --- SAFE TELEGRAM SEND (integrated with existing _send_chunk) ---
@@ -535,6 +552,7 @@ def ensure_admin_or_msg(user):
 
 def process_telegram_command(update_data):
     """Process Telegram command from polling or webhook"""
+    start_time = time.time()
     try:
         if not update_data.get('message'):
             return {"status": "error", "message": "No message in update"}
@@ -545,18 +563,32 @@ def process_telegram_command(update_data):
         chat_id = message.get('chat', {}).get('id')
         user_id = user.get('id')
         
-        logger.info(f"[CMD] Processing '{text}' from user {user_id}")
-        
         # Check if message is a command
         is_command = isinstance(text, str) and text.startswith("/")
         
+        # Admin check
+        from config import ASSISTANT_ADMIN_TELEGRAM_ID
+        is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
+        
+        # Structured logging: command entry
+        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
+        
         # Rate limiting - skip for commands
         if not is_command and is_rate_limited(user_id):
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
             return {"status": "throttled", "message": "Rate limited"}
         
-        # Admin check - only process commands from admin
-        from config import ASSISTANT_ADMIN_TELEGRAM_ID
-        if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+        # Duplicate command detection for commands only
+        if is_command and is_duplicate_command(user_id, text):
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
+            return {"status": "duplicate", "message": "⚠️ Duplicate command detected. Please wait a moment before repeating commands."}
+        
+        # Admin-only check
+        if not is_admin:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
             return {"status": "error", "message": "Admin only"}
             
         # Ensure scanners are initialized
@@ -676,15 +708,22 @@ Bot Status: ✅ Online (Polling Mode)"""
             }
             
             response = requests.post(url, json=payload, timeout=10)
+            duration_ms = int((time.time() - start_time) * 1000)
             if response.status_code == 200:
+                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
                 return {"status": "success", "response": response_text}
             else:
+                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=api_error")
                 logger.error(f"Telegram API error: {response.status_code} - {response.text}")
                 return {"status": "error", "message": f"API error: {response.status_code}"}
         
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
         return {"status": "success", "response": response_text or "No response"}
         
     except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=error")
         logger.error(f"Command processing error: {e}")
         return {"status": "error", "message": str(e)}
 
