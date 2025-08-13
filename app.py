@@ -615,8 +615,9 @@ def process_telegram_command(update_data):
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
             return _reply("⚠️ Duplicate command detected. Please wait a moment before repeating commands.", status="duplicate")
         
-        # Admin-only check for non-wallet commands
-        if not is_admin and not text.startswith("/wallet"):
+        # Admin-only check for restricted commands (exclude basic info commands)
+        basic_commands = ["/help", "/ping", "/info", "/test123", "/commands"]
+        if not is_admin and not text.startswith("/wallet") and text not in basic_commands:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
             return _reply("⛔ Admin only", status="admin_only")
