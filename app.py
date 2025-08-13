@@ -585,9 +585,9 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/ping":
             response_text = "🎯 **Pong!** Bot is alive and responsive."
         elif text.strip() == "/wallet":
-            admin_check = ensure_admin_or_msg(user)
-            if admin_check:
-                response_text = admin_check
+            deny = ensure_admin_or_msg(user)
+            if deny: 
+                response_text = deny
             else:
                 try:
                     import wallets
@@ -595,9 +595,9 @@ Bot Status: ✅ Online (Polling Mode)"""
                 except Exception as e:
                     response_text = f"💰 Wallet error: {e}"
         elif text.strip().startswith("/wallet_new"):
-            admin_check = ensure_admin_or_msg(user)
-            if admin_check:
-                response_text = admin_check
+            deny = ensure_admin_or_msg(user)
+            if deny:
+                response_text = deny
             else:
                 try:
                     import wallets
@@ -605,9 +605,9 @@ Bot Status: ✅ Online (Polling Mode)"""
                 except Exception as e:
                     response_text = f"💰 Wallet new error: {e}"
         elif text.strip().startswith("/wallet_addr"):
-            admin_check = ensure_admin_or_msg(user)
-            if admin_check:
-                response_text = admin_check
+            deny = ensure_admin_or_msg(user)
+            if deny:
+                response_text = deny
             else:
                 try:
                     import wallets
@@ -615,9 +615,9 @@ Bot Status: ✅ Online (Polling Mode)"""
                 except Exception as e:
                     response_text = f"💰 Wallet addr error: {e}"
         elif text.strip().startswith("/wallet_balance"):
-            admin_check = ensure_admin_or_msg(user)
-            if admin_check:
-                response_text = admin_check
+            deny = ensure_admin_or_msg(user)
+            if deny:
+                response_text = deny
             else:
                 try:
                     import wallets
