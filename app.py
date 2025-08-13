@@ -640,6 +640,15 @@ def webhook():
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
             
+            # ULTRA DEBUG: Log ALL incoming messages regardless of command
+            logger.info(f"[WEBHOOK-ULTRA] RAW MESSAGE: text='{msg_text}' user={user_id} chat={update_data['message'].get('chat', {}).get('id', '')}")
+            
+            # Special tracking for test commands
+            if msg_text and '/test123' in msg_text:
+                logger.error(f"[WEBHOOK-SPECIAL] /test123 DETECTED! Raw text: '{msg_text}' User: {user_id}")
+            if msg_text and '/help' in msg_text:
+                logger.error(f"[WEBHOOK-SPECIAL] /help DETECTED! Raw text: '{msg_text}' User: {user_id}")
+            
             # ULTRA DEBUG: Track /solscanstats at the earliest possible point
             if msg_text and msg_text.strip() == "/solscanstats":
                 logger.info(f"[WEBHOOK-ULTRA-DEBUG] /solscanstats detected at entry! user_id={user_id}")
