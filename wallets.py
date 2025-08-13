@@ -54,6 +54,52 @@ async def get_balance(address:str)->float:
     except Exception:
         return 0.0
 
+async def get_token_accounts(address: str) -> list:
+    """Get all SPL token accounts for a wallet"""
+    try:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                address,
+                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                {"encoding": "jsonParsed"}
+            ]
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(SOLANA_RPC, json=payload)
+        
+        result = r.json()
+        if "result" in result and "value" in result["result"]:
+            return result["result"]["value"]
+        return []
+    except Exception as e:
+        import logging
+        logging.warning(f"[WALLET] get_token_accounts failed: {e}")
+        return []
+
+async def get_token_metadata(mint_address: str) -> dict:
+    """Get token metadata (name, symbol, decimals) from mint address"""
+    try:
+        # Get token supply and decimals
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1, 
+            "method": "getTokenSupply",
+            "params": [mint_address]
+        }
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(SOLANA_RPC, json=payload)
+        
+        result = r.json()
+        if "result" in result and "value" in result["result"]:
+            decimals = result["result"]["value"]["decimals"]
+            return {"decimals": decimals, "symbol": mint_address[:8], "name": f"Token {mint_address[:8]}"}
+        return {"decimals": 9, "symbol": "UNKNOWN", "name": "Unknown Token"}
+    except Exception:
+        return {"decimals": 9, "symbol": "UNKNOWN", "name": "Unknown Token"}
+
 # Sync wrapper for the webhook
 def get_balance_sol(address:str)->float:
     import asyncio
@@ -87,7 +133,7 @@ def cmd_wallet_addr(user_id) -> str:
         return f"Error getting wallet address: {str(e)}"
 
 def cmd_wallet_balance(user_id) -> str:
-    """Load wallet; if missing return guidance, else RPC getBalance with 9 decimal formatting"""
+    """Load wallet; show SOL + all SPL token balances"""
     try:
         user_id_str = str(user_id)
         wallet = get_wallet(user_id_str)
@@ -95,10 +141,53 @@ def cmd_wallet_balance(user_id) -> str:
             return "No wallet found. Run /wallet_new"
         
         addr = wallet["address"]
-        balance = get_balance_sol(addr)
-        return (f"**Balance**\n"
-                f"Address: `{addr}`\n"
-                f"SOL: {balance:.9f}")
+        
+        # Get SOL balance
+        sol_balance = get_balance_sol(addr)
+        
+        # Get token balances
+        import asyncio
+        token_accounts = asyncio.run(get_token_accounts(addr))
+        
+        result = f"**💰 Wallet Balance**\n"
+        result += f"Address: `{addr[:12]}...{addr[-8:]}`\n\n"
+        result += f"**SOL**: {sol_balance:.9f}\n"
+        
+        if token_accounts:
+            result += f"\n**🪙 SPL Tokens** ({len(token_accounts)} found):\n"
+            
+            for account in token_accounts[:10]:  # Limit to first 10 tokens
+                try:
+                    token_data = account["account"]["data"]["parsed"]["info"]
+                    mint = token_data["mint"]
+                    token_amount = token_data["tokenAmount"]
+                    
+                    # Get human-readable amount
+                    amount = float(token_amount["uiAmount"] or 0)
+                    decimals = token_amount["decimals"]
+                    
+                    if amount > 0:
+                        # Try to get token metadata
+                        metadata = asyncio.run(get_token_metadata(mint))
+                        symbol = metadata.get("symbol", mint[:8])
+                        
+                        if amount >= 1:
+                            result += f"• **{symbol}**: {amount:,.2f}\n"
+                        else:
+                            result += f"• **{symbol}**: {amount:.6f}\n"
+                        
+                except Exception as token_error:
+                    import logging
+                    logging.warning(f"[WALLET] token parsing error: {token_error}")
+                    continue
+            
+            if len(token_accounts) > 10:
+                result += f"... and {len(token_accounts) - 10} more tokens\n"
+        else:
+            result += f"\n**🪙 SPL Tokens**: None found"
+            
+        return result
+        
     except Exception as e:
         import logging
         logging.warning("[WALLET] balance fetch failed: %s", e)
