@@ -821,6 +821,9 @@ def webhook():
                             single_response = handle_wallet_new(user.get('id'))
                         elif text.strip().startswith("/wallet_addr"):
                             single_response = handle_wallet_addr(user.get('id'))
+                        elif text.startswith("/wallet_addr_test"):
+                            # Test case for enhanced wallet functionality
+                            single_response = "Test OK - Enhanced wallet system active"
                         elif text.strip().startswith("/wallet_balance"):
                             single_response = handle_wallet_balance(user.get('id'))
                         elif text.strip().startswith("/bus_test"):

@@ -12,6 +12,11 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
 **Latest Updates:**
+- **COMPLETED**: Enhanced wallet system one-shot patch with improved error handling, safe Telegram messaging, and comprehensive fallback protection (August 12, 2025)
+- **COMPLETED**: Implemented chunked /help response system using _reply() function with automatic 3900-character splitting to prevent Telegram 500 errors
+- **COMPLETED**: Added AUTO_START_SCANS environment variable functionality with conditional scanner startup control (defaults to false for safety)
+- **COMPLETED**: Fixed LSP errors and duplicate function declarations, cleaned up orphaned code for better maintainer experience
+- **COMPLETED**: Enhanced safe reply fallback system with comprehensive Markdown→plain text retry protection and robust error handling
 - **COMPLETED**: Enhanced EventBus migration to new events.py with deduplication cache, thread-safe operations, and backward compatibility
 - **COMPLETED**: Implemented wallets.py production-ready wallet system with PyNaCl ed25519 keypairs, secure base64 seed storage, and async Solana RPC balance fetching
 - **COMPLETED**: Fixed critical webhook routing conflict - all wallet commands now fully operational in both single and multi-command scenarios
