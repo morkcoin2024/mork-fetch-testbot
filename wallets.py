@@ -81,8 +81,19 @@ async def get_token_accounts(address: str) -> list:
 
 async def get_token_metadata(mint_address: str) -> dict:
     """Get token metadata (name, symbol, decimals) from mint address"""
+    # Known token addresses for better display
+    KNOWN_TOKENS = {
+        "ATo5zfoTpUSa2PqNCn54uGD5UDCBtc5QT2Svqm283XcH": {"symbol": "MORK", "name": "Mork"},
+        "FUXtsxzXCyYMQnpZA11veLDECkSHeGvLXuJuC9Npbonk": {"symbol": "CLIPPY", "name": "Clippy"},
+    }
+    
+    # Check if it's a known token first
+    if mint_address in KNOWN_TOKENS:
+        known = KNOWN_TOKENS[mint_address]
+        return {"decimals": 6, "symbol": known["symbol"], "name": known["name"]}
+    
     try:
-        # Get token supply and decimals
+        # Get token supply and decimals for unknown tokens
         payload = {
             "jsonrpc": "2.0",
             "id": 1, 
