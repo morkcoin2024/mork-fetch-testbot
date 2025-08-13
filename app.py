@@ -674,6 +674,9 @@ def webhook():
             # Publish command routing event for specific command tracking
             if text and text.startswith('/'):
                 publish("command.route", {"cmd": text.split()[0]})
+                # Enhanced debug for /help command specifically
+                if text.strip() == "/help":
+                    logger.info(f"[WEBHOOK-TRACE] /help command detected early in processing pipeline")
             
             # Check for multiple commands in one message
             commands_in_message = []
@@ -2655,82 +2658,30 @@ Your tokens are now in your wallet! 🚀"""
                             response_text = f"❌ Wallet balance error: {e}"
 
                 elif text.strip() in ['/help']:
-                    help_text = '''🐕 Mork F.E.T.C.H Bot Commands
+                    logger.info(f"[WEBHOOK-DEBUG] /help command detected, processing...")
+                    help_text = '''🐕 Mork F.E.T.C.H Bot - Quick Help
 
-Admin Commands:
-/ping, /a_ping - Test responsiveness
-/status, /a_status - System status  
-/whoami, /a_whoami - Your Telegram info
-/scan_status, /a_scan_status - Comprehensive system health check
-/scan_test, /a_scan_test - Quick system test with sample data
-/pumpfun_status, /a_pumpfun_status - Pump.fun endpoint status
-/pumpfun_probe, /a_pumpfun_probe - Multi-source diagnostic probe
-/a_logs_tail [n] [level=x] - Recent log entries with filtering
-/a_logs_stream - Log streaming info
-/a_logs_watch - Log monitoring status
-/a_mode - Operation mode details
-
-Live Monitoring:
-/monitor - Open real-time monitoring dashboard
-/live - Open compact live console
-
-Birdeye Scanner:
-/scan_start - Start background scanning
-/scan_stop - Stop background scanning
-/scan_status - Scanner status and metrics
-/birdeye_start - Start token scanning
-/birdeye_stop - Stop token scanning
-/birdeye_status - Scanner status
-/birdeye_tick - Manual scan
-
-WebSocket Enhanced Controls:
-/ws_start, /ws_stop - WebSocket scanner controls  
-/ws_restart - Restart with Launchpad priority
-/ws_status - Enhanced connection and subscription stats
-/ws_sub [topics] - Set custom subscription topics
-/ws_mode [strict|all] - Set WebSocket filter mode
-/ws_tap [on|off] - Toggle message debug tap
-
-Advanced WebSocket Debug:
-/ws_debug on/off/inject/cache/status - Debug mode control
-/ws_dump [n] - View cached raw WebSocket messages
-/ws_probe - Inject synthetic test event
-
-DexScreener Scanner:
-/ds_start [seconds], /ds_stop, /ds_status - Pair scanner controls
-
-Multi-Source Token Discovery:
-/jupiter_start, /jupiter_stop - Jupiter scanner controls
-/jupiter_status - Jupiter scanner status and metrics
-/solscan_start, /solscan_stop - Solscan Pro API scanner controls  
-/solscan_status - Solscan scanner status (requires FEATURE_SOLSCAN=on + Pro API key)
-
-AI Assistant:
-/assistant_model [model] - Get/set assistant AI model
-/assistant [request] - AI assistant and code generation
-
-F.E.T.C.H Rules System:
-/rules_show, /a_rules_show - Display current rules configuration
-/rules_reload, /a_rules_reload - Reload rules from rules.yaml
-/rules_test <mint> - Test rules against a specific token mint
-/fetch, /fetch_now, /a_fetch_now - Run token filtering demo
-
-Wallet System:
+✅ Working Commands:
+/ping - Test bot responsiveness  
 /wallet create - Generate new burner wallet
-/wallet import <key> - Import existing wallet from private key
 /balance - Check SOL and MORK balances
-/snipe <mint> <sol> - Manual token sniping (requires wallet)
 
-Event Bus Testing:
-/bus_test - publish a synthetic NEW_TOKEN event
+📊 Status Commands:
+/status - System status
+/scan_status - Scanner health check
 
-/help - This help message
+🔧 Advanced Commands:
+/fetch - Run token filtering demo
+/rules_show - Display filtering rules
 
-Bot is operational with direct webhook processing.
-Admin alias commands (a_*) available to avoid conflicts.'''
+Type /wallet create to get started!
+
+Bot is operational with direct webhook processing.'''
                     
-                    # Use _reply() to handle chunking automatically
-                    _reply(help_text, parse_mode="Markdown", no_preview=True)
+                    # Use _reply() to handle chunking automatically  
+                    logger.info(f"[WEBHOOK-DEBUG] About to send help text, length: {len(help_text)}")
+                    success = _reply(help_text, parse_mode="Markdown", no_preview=True)
+                    logger.info(f"[WEBHOOK-DEBUG] Help message sent, success: {success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 
                 if response_text:
