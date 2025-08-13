@@ -682,6 +682,21 @@ Bot Status: ✅ Online (Polling Mode)"""
                     response_text = wallets.cmd_wallet_balance(user.get('id'))
                 except Exception as e:
                     response_text = f"💰 Wallet balance error: {e}"
+        elif text.strip() == "/wallet_selftest":
+            deny = ensure_admin_or_msg(user)
+            if deny:
+                response_text = deny
+            else:
+                try:
+                    import wallets
+                    uid = user.get('id')
+                    addr = wallets.cmd_wallet_addr(uid)
+                    summary = wallets.cmd_wallet_summary(uid)
+                    bal = wallets.cmd_wallet_balance(uid)
+                    ok = all(isinstance(x, str) and len(x) > 0 for x in [addr, summary, bal])
+                    response_text = "✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete."
+                except Exception as e:
+                    response_text = f"🧪 Self-test error: {e}"
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
