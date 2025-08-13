@@ -627,6 +627,7 @@ def process_telegram_command(update_data):
 /wallet_new - Create new wallet
 /wallet_addr - Show wallet address
 /wallet_balance - Check balance
+/wallet_link - Solscan explorer link
 
 **📊 Scanner Commands:**
 /solscanstats - Solscan status
@@ -637,7 +638,7 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/commands":
             response_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_link\n" + \
                           "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                           "Use /help for detailed descriptions."
         elif text.strip() == "/info":
@@ -705,6 +706,17 @@ Bot Status: ✅ Online (Polling Mode)"""
                 return _reply("✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete.")
             except Exception as e:
                 return _reply(f"🧪 Self-test error: {e}", "error")
+        elif text.startswith("/wallet_link"):
+            deny = _require_admin(user)
+            if deny: return deny
+            try:
+                import wallets
+                addr_output = wallets.cmd_wallet_addr(user.get("id"))
+                # Extract just the address from output like "Address: `HS8itzXv...`"
+                addr = addr_output.split('`')[1] if '`' in addr_output else addr_output.strip()
+                return _reply(f"🔗 Solscan: https://solscan.io/address/{addr}")
+            except Exception as e:
+                return _reply(f"🔗 Link error: {e}", "error")
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
