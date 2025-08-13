@@ -155,8 +155,30 @@ class TelegramPolling:
         """Send response via Telegram API with proper formatting"""
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         
-        # Check if text contains Markdown formatting
-        has_markdown = any(char in text for char in ['*', '_', '`', '[', ']'])
+        # Enhanced Markdown detection to prevent parsing errors
+        def should_use_markdown(text: str) -> bool:
+            """Intelligent Markdown detection with validation"""
+            markdown_indicators = ['*', '_', '`', '[', ']', '**', '__']
+            
+            # Check for Markdown characters
+            if not any(indicator in text for indicator in markdown_indicators):
+                return False
+            
+            # Additional validation for common patterns that cause issues
+            # Ensure balanced formatting (basic check)
+            star_count = text.count('*')
+            underscore_count = text.count('_')
+            bracket_open = text.count('[')
+            bracket_close = text.count(']')
+            
+            # If unbalanced formatting detected, use plain text for safety
+            if (star_count % 2 != 0) or (underscore_count % 2 != 0) or (bracket_open != bracket_close):
+                logger.debug("Unbalanced Markdown detected, using plain text")
+                return False
+                
+            return True
+        
+        has_markdown = should_use_markdown(text)
         
         data = {
             "chat_id": chat_id,
