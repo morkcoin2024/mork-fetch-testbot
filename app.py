@@ -2657,22 +2657,28 @@ Your tokens are now in your wallet! 🚀"""
                             logger.exception(f"[WEBHOOK] Wallet balance error: {e}")
                             response_text = f"❌ Wallet balance error: {e}"
 
-                elif text.strip() in ['/help', '/commands', '/info']:
+                elif text.strip() in ['/help', '/commands', '/info', '/menu', '/start']:
                     logger.info(f"[WEBHOOK-DEBUG] Help command detected: {text.strip()}")
-                    help_text = '''🐕 Mork F.E.T.C.H Bot Help
+                    help_text = '''Mork F.E.T.C.H Bot
 
 /ping - Test bot
 /wallet create - New wallet
 /balance - Check balances
 /status - System status
-/fetch - Token scan demo
+/fetch - Token scan
 
-Bot operational!'''
+Bot working!'''
                     
                     # Use _reply() to handle chunking automatically  
                     logger.info(f"[WEBHOOK-DEBUG] About to send help text, length: {len(help_text)}")
                     success = _reply(help_text, parse_mode=None, no_preview=True)  # Remove Markdown to avoid parsing issues
                     logger.info(f"[WEBHOOK-DEBUG] Help message sent, success: {success}")
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+                
+                elif text.strip() == "/test123":
+                    logger.info(f"[WEBHOOK-DEBUG] Test command detected")
+                    success = _reply("Test successful!", parse_mode=None, no_preview=True)
+                    logger.info(f"[WEBHOOK-DEBUG] Test message sent, success: {success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 
                 if response_text:
