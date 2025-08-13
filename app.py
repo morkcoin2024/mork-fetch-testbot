@@ -506,6 +506,137 @@ app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
 # Telegram mode configuration - use polling to bypass webhook delivery issues
 TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' or 'polling'
 
+def process_telegram_command(update_data):
+    """Process Telegram command from polling or webhook"""
+    try:
+        if not update_data.get('message'):
+            return {"status": "error", "message": "No message in update"}
+            
+        message = update_data['message']
+        user = message.get('from', {})
+        text = message.get('text', '')
+        chat_id = message.get('chat', {}).get('id')
+        
+        logger.info(f"[CMD] Processing '{text}' from user {user.get('id')}")
+        
+        # Admin check - only process commands from admin
+        from config import ASSISTANT_ADMIN_TELEGRAM_ID
+        if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+            return {"status": "error", "message": "Admin only"}
+            
+        # Ensure scanners are initialized
+        _ensure_scanners()
+        
+        # Process command
+        response_text = None
+        
+        if text.strip() == "/help":
+            response_text = """🐶 **Mork F.E.T.C.H Bot** - The Degens' Best Friend
+    
+*Fast Execution, Trade Control Handler*
+
+**📱 Available Commands:**
+/help - Show this help
+/commands - List all commands  
+/info - Bot information
+/ping - Test connection
+/test123 - Connection test
+
+**💰 Wallet Commands:**
+/wallet - Wallet summary
+/wallet_new - Create new wallet
+/wallet_addr - Show wallet address
+/wallet_balance - Check balance
+
+**📊 Scanner Commands:**
+/solscanstats - Solscan status
+/fetch - Basic token fetch
+/fetch_now - Multi-source fetch
+
+Bot Status: ✅ Online (Polling Mode)"""
+        elif text.strip() == "/commands":
+            response_text = "📋 **Available Commands**\n\n" + \
+                          "**Basic:** /help /info /ping /test123\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance\n" + \
+                          "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
+                          "Use /help for detailed descriptions."
+        elif text.strip() == "/info":
+            response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
+            
+**Status:** ✅ Online (Polling Mode)
+**Version:** Production v2.0
+**Mode:** Telegram Polling (Webhook Bypass)
+**Scanner:** Solscan Active
+**Wallet:** Enabled
+**Admin:** {user.get('username', 'Unknown')}
+
+*The Degens' Best Friend* 🐕"""
+        elif text.strip() == "/test123":
+            response_text = "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
+        elif text.strip() == "/ping":
+            response_text = "🎯 **Pong!** Bot is alive and responsive."
+        elif text.strip() == "/wallet":
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_summary(user.get('id'))
+            except Exception as e:
+                response_text = f"💰 Wallet error: {e}"
+        elif text.strip().startswith("/wallet_new"):
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_new(user.get('id'))
+            except Exception as e:
+                response_text = f"💰 Wallet new error: {e}"
+        elif text.strip().startswith("/wallet_addr"):
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_addr(user.get('id'))
+            except Exception as e:
+                response_text = f"💰 Wallet addr error: {e}"
+        elif text.strip().startswith("/wallet_balance"):
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_balance(user.get('id'))
+            except Exception as e:
+                response_text = f"💰 Wallet balance error: {e}"
+        elif text.strip() == "/solscanstats":
+            try:
+                if "solscan" in SCANNERS:
+                    scanner = SCANNERS["solscan"]
+                    response_text = f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}"
+                else:
+                    response_text = "📊 Solscan: Not initialized"
+            except Exception as e:
+                response_text = f"📊 Solscan error: {e}"
+        else:
+            response_text = f"❓ Unknown command: {text}\nUse /help for available commands."
+        
+        # Send response via Telegram API
+        if response_text and chat_id:
+            import requests
+            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            
+            payload = {
+                "chat_id": chat_id,
+                "text": response_text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }
+            
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                return {"status": "success", "response": response_text}
+            else:
+                logger.error(f"Telegram API error: {response.status_code} - {response.text}")
+                return {"status": "error", "message": f"API error: {response.status_code}"}
+        
+        return {"status": "success", "response": response_text or "No response"}
+        
+    except Exception as e:
+        logger.error(f"Command processing error: {e}")
+        return {"status": "error", "message": str(e)}
+
 def start_telegram_polling():
     """Start Telegram polling in background thread"""
     try:
