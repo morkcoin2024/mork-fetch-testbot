@@ -154,12 +154,20 @@ class TelegramPolling:
     def _send_response(self, chat_id: str, text: str):
         """Send response via Telegram API with proper formatting"""
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        
+        # Check if text contains Markdown formatting
+        has_markdown = any(char in text for char in ['*', '_', '`', '[', ']'])
+        
         data = {
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": "Markdown",
             "disable_web_page_preview": True
         }
+        
+        # Only use Markdown if text appears to have formatting
+        if has_markdown:
+            data["parse_mode"] = "Markdown"
+        
         try:
             response = requests.post(url, json=data, timeout=10)
             if response.status_code == 200:
@@ -167,9 +175,10 @@ class TelegramPolling:
             else:
                 logger.error(f"Response failed: {response.status_code} - {response.text}")
                 # Retry without Markdown formatting on error
-                data["parse_mode"] = None
-                fallback_response = requests.post(url, json=data, timeout=10)
-                logger.info(f"Fallback response: {fallback_response.status_code}")
+                if "parse_mode" in data:
+                    del data["parse_mode"]
+                    fallback_response = requests.post(url, json=data, timeout=10)
+                    logger.info(f"Fallback response: {fallback_response.status_code}")
         except Exception as e:
             logger.error(f"Response send failed: {e}")
     
