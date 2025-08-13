@@ -506,6 +506,15 @@ app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
 # Telegram mode configuration - use polling to bypass webhook delivery issues
 TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' or 'polling'
 
+def ensure_admin_or_msg(user):
+    """Helper function to check admin status for wallet commands"""
+    # Note: Global admin check already performed at function entry
+    # This provides additional security layer for wallet commands
+    from config import ASSISTANT_ADMIN_TELEGRAM_ID
+    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+        return "⛔ Wallet commands are admin-only."
+    return None
+
 def process_telegram_command(update_data):
     """Process Telegram command from polling or webhook"""
     try:
@@ -576,29 +585,45 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/ping":
             response_text = "🎯 **Pong!** Bot is alive and responsive."
         elif text.strip() == "/wallet":
-            try:
-                import wallets
-                response_text = wallets.cmd_wallet_summary(user.get('id'))
-            except Exception as e:
-                response_text = f"💰 Wallet error: {e}"
+            admin_check = ensure_admin_or_msg(user)
+            if admin_check:
+                response_text = admin_check
+            else:
+                try:
+                    import wallets
+                    response_text = wallets.cmd_wallet_summary(user.get('id'))
+                except Exception as e:
+                    response_text = f"💰 Wallet error: {e}"
         elif text.strip().startswith("/wallet_new"):
-            try:
-                import wallets
-                response_text = wallets.cmd_wallet_new(user.get('id'))
-            except Exception as e:
-                response_text = f"💰 Wallet new error: {e}"
+            admin_check = ensure_admin_or_msg(user)
+            if admin_check:
+                response_text = admin_check
+            else:
+                try:
+                    import wallets
+                    response_text = wallets.cmd_wallet_new(user.get('id'))
+                except Exception as e:
+                    response_text = f"💰 Wallet new error: {e}"
         elif text.strip().startswith("/wallet_addr"):
-            try:
-                import wallets
-                response_text = wallets.cmd_wallet_addr(user.get('id'))
-            except Exception as e:
-                response_text = f"💰 Wallet addr error: {e}"
+            admin_check = ensure_admin_or_msg(user)
+            if admin_check:
+                response_text = admin_check
+            else:
+                try:
+                    import wallets
+                    response_text = wallets.cmd_wallet_addr(user.get('id'))
+                except Exception as e:
+                    response_text = f"💰 Wallet addr error: {e}"
         elif text.strip().startswith("/wallet_balance"):
-            try:
-                import wallets
-                response_text = wallets.cmd_wallet_balance(user.get('id'))
-            except Exception as e:
-                response_text = f"💰 Wallet balance error: {e}"
+            admin_check = ensure_admin_or_msg(user)
+            if admin_check:
+                response_text = admin_check
+            else:
+                try:
+                    import wallets
+                    response_text = wallets.cmd_wallet_balance(user.get('id'))
+                except Exception as e:
+                    response_text = f"💰 Wallet balance error: {e}"
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
