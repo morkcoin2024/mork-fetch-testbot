@@ -2657,8 +2657,8 @@ Your tokens are now in your wallet! 🚀"""
                             logger.exception(f"[WEBHOOK] Wallet balance error: {e}")
                             response_text = f"❌ Wallet balance error: {e}"
 
-                elif text.strip() in ['/help']:
-                    logger.info(f"[WEBHOOK-DEBUG] /help command detected, processing...")
+                elif text.strip() in ['/help', '/commands', '/info']:
+                    logger.info(f"[WEBHOOK-DEBUG] Help command detected: {text.strip()}")
                     help_text = '''🐕 Mork F.E.T.C.H Bot - Quick Help
 
 ✅ Working Commands:
