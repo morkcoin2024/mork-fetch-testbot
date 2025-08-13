@@ -2659,28 +2659,19 @@ Your tokens are now in your wallet! 🚀"""
 
                 elif text.strip() in ['/help', '/commands', '/info']:
                     logger.info(f"[WEBHOOK-DEBUG] Help command detected: {text.strip()}")
-                    help_text = '''🐕 Mork F.E.T.C.H Bot - Quick Help
+                    help_text = '''🐕 Mork F.E.T.C.H Bot Help
 
-✅ Working Commands:
-/ping - Test bot responsiveness  
-/wallet create - Generate new burner wallet
-/balance - Check SOL and MORK balances
-
-📊 Status Commands:
+/ping - Test bot
+/wallet create - New wallet
+/balance - Check balances
 /status - System status
-/scan_status - Scanner health check
+/fetch - Token scan demo
 
-🔧 Advanced Commands:
-/fetch - Run token filtering demo
-/rules_show - Display filtering rules
-
-Type /wallet create to get started!
-
-Bot is operational with direct webhook processing.'''
+Bot operational!'''
                     
                     # Use _reply() to handle chunking automatically  
                     logger.info(f"[WEBHOOK-DEBUG] About to send help text, length: {len(help_text)}")
-                    success = _reply(help_text, parse_mode="Markdown", no_preview=True)
+                    success = _reply(help_text, parse_mode=None, no_preview=True)  # Remove Markdown to avoid parsing issues
                     logger.info(f"[WEBHOOK-DEBUG] Help message sent, success: {success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": True})
                 
