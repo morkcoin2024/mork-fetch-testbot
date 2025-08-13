@@ -639,33 +639,29 @@ def process_telegram_command(update_data):
         response_text = None
         
         if text.strip() == "/help":
-            response_text = """🐶 **Mork F.E.T.C.H Bot** - The Degens' Best Friend
-    
-*Fast Execution, Trade Control Handler*
-
-**📱 Available Commands:**
-/help - Show this help
-/commands - List all commands  
-/info - Bot information
-/ping - Test connection
-/test123 - Connection test
-
-**💰 Wallet Commands:**
-/wallet - Wallet summary
-/wallet_new - Create new wallet
-/wallet_addr - Show wallet address
-/wallet_balance - Check balance
-/wallet_balance_usd - Balance in USD
-/wallet_link - Solscan explorer link
-/wallet_reset - Reset wallet (2-step confirm)
-/wallet_export - Export private key (ADMIN ONLY)
-
-**📊 Scanner Commands:**
-/solscanstats - Solscan status
-/fetch - Basic token fetch
-/fetch_now - Multi-source fetch
-
-Bot Status: ✅ Online (Polling Mode)"""
+            help_text = "Mork F.E.T.C.H Bot - The Degens Best Friend\n\n" + \
+                       "Fast Execution, Trade Control Handler\n\n" + \
+                       "Available Commands:\n" + \
+                       "/help - Show this help\n" + \
+                       "/commands - List all commands\n" + \
+                       "/info - Bot information\n" + \
+                       "/ping - Test connection\n" + \
+                       "/test123 - Connection test\n\n" + \
+                       "Wallet Commands:\n" + \
+                       "/wallet - Wallet summary\n" + \
+                       "/wallet_new - Create new wallet\n" + \
+                       "/wallet_addr - Show wallet address\n" + \
+                       "/wallet_balance - Check balance\n" + \
+                       "/wallet_balance_usd - Balance in USD\n" + \
+                       "/wallet_link - Solscan explorer link\n" + \
+                       "/wallet_reset - Reset wallet (2-step confirm)\n" + \
+                       "/wallet_export - Export private key (ADMIN ONLY)\n\n" + \
+                       "Scanner Commands:\n" + \
+                       "/solscanstats - Solscan status\n" + \
+                       "/fetch - Basic token fetch\n" + \
+                       "/fetch_now - Multi-source fetch\n\n" + \
+                       "Bot Status: Online (Polling Mode)"
+            return _reply(help_text)
         elif text.strip() == "/commands":
             response_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
