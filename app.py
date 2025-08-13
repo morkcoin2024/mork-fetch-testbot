@@ -503,6 +503,20 @@ notification_thread.start()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
 
+# Telegram mode configuration - use polling to bypass webhook delivery issues
+TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' or 'polling'
+
+def start_telegram_polling():
+    """Start Telegram polling in background thread"""
+    try:
+        from telegram_polling import start_polling
+        polling_instance = start_polling()
+        logger.info("Telegram polling started successfully")
+        return polling_instance
+    except Exception as e:
+        logger.error(f"Failed to start Telegram polling: {e}")
+        return None
+
 @app.route('/')
 def index():
     """Basic web interface"""
@@ -3355,6 +3369,13 @@ with app.app_context():
         logger.info("Auto-start scans enabled (AUTO_START_SCANS=true)")
     else:
         logger.info("Auto-start scans disabled (AUTO_START_SCANS=false or unset)")
+    
+    # Start Telegram polling mode if enabled (default due to webhook delivery issues)
+    if TELEGRAM_MODE == 'polling':
+        logger.info("Starting Telegram polling mode (bypasses webhook delivery issues)")
+        start_telegram_polling()
+    else:
+        logger.info("Using webhook mode for Telegram")
 
 # Export app for gunicorn
 application = app

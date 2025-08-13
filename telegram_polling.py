@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""
+Production Telegram polling service integrated with main app
+"""
+import os
+import time
+import requests
+import logging
+import threading
+import json
+from typing import Optional, Dict, Any
+
+# Import webhook processing function - delay import to avoid circular imports
+
+logger = logging.getLogger(__name__)
+
+class TelegramPolling:
+    def __init__(self):
+        self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        self.admin_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
+        self.running = False
+        self.offset = None
+        self.thread = None
+        
+    def start(self):
+        """Start polling in background thread"""
+        if self.running:
+            logger.warning("Polling already running")
+            return
+            
+        self.running = True
+        self.thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self.thread.start()
+        logger.info("Telegram polling started")
+        
+    def stop(self):
+        """Stop polling"""
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=5)
+        logger.info("Telegram polling stopped")
+        
+    def get_updates(self) -> Optional[Dict[str, Any]]:
+        """Get updates from Telegram"""
+        url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+        params = {"timeout": 10}
+        if self.offset:
+            params["offset"] = self.offset
+            
+        try:
+            response = requests.get(url, params=params, timeout=15)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error getting updates: {e}")
+            return None
+            
+    def _poll_loop(self):
+        """Main polling loop"""
+        logger.info("Starting polling loop")
+        
+        while self.running:
+            try:
+                result = self.get_updates()
+                if not result or not result.get("ok"):
+                    if result:
+                        logger.warning(f"Bad response: {result}")
+                    time.sleep(5)
+                    continue
+                    
+                updates = result.get("result", [])
+                if updates:
+                    logger.info(f"Processing {len(updates)} updates")
+                    
+                    for update in updates:
+                        self.offset = update["update_id"] + 1
+                        
+                        if "message" in update:
+                            self._process_message(update["message"])
+                            
+                time.sleep(1)  # Brief pause between polls
+                
+            except Exception as e:
+                logger.error(f"Polling error: {e}")
+                time.sleep(5)
+                
+    def _process_message(self, message: Dict[str, Any]):
+        """Process incoming message using main app logic"""
+        try:
+            text = message.get("text", "")
+            user_id = message.get("from", {}).get("id", "")
+            chat_id = message.get("chat", {}).get("id", "")
+            
+            logger.info(f"Processing message: '{text}' from user {user_id}")
+            
+            # Create update structure matching webhook format
+            update_data = {
+                "update_id": int(time.time()),
+                "message": message
+            }
+            
+            # Import at runtime to avoid circular import
+            try:
+                from app import process_telegram_command
+                response = process_telegram_command(update_data)
+                logger.info(f"Command processed: {response}")
+            except Exception as import_error:
+                logger.error(f"Import or processing error: {import_error}")
+                # Fallback: direct Telegram API call
+                self._send_fallback_response(chat_id, f"🤖 Received: {text}")
+            
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+    
+    def _send_fallback_response(self, chat_id: str, text: str):
+        """Send direct response via Telegram API as fallback"""
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text
+        }
+        try:
+            response = requests.post(url, json=data, timeout=10)
+            logger.info(f"Fallback response sent: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Fallback response failed: {e}")
+
+# Global polling instance
+_polling_instance = None
+
+def start_polling():
+    """Start polling service"""
+    global _polling_instance
+    if not _polling_instance:
+        _polling_instance = TelegramPolling()
+    _polling_instance.start()
+    return _polling_instance
+    
+def stop_polling():
+    """Stop polling service"""
+    global _polling_instance
+    if _polling_instance:
+        _polling_instance.stop()
+
+if __name__ == "__main__":
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Start polling
+    polling = TelegramPolling()
+    polling.start()
+    
+    try:
+        # Keep running
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        polling.stop()
