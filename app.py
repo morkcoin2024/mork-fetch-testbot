@@ -657,7 +657,7 @@ def process_telegram_command(update_data):
                           "**Basic:** /help /info /ping /test123\n" +
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" +
                           "**Scanner:** /solscanstats /fetch /fetch_now\n\n" +
-                          "Use /help for detailed descriptions.")
+                          "Use /help for detailed descriptions")
         elif text.strip() == "/info":
             return _reply(f"""🤖 **Mork F.E.T.C.H Bot Info**
             
