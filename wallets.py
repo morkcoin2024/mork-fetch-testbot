@@ -119,3 +119,35 @@ def cmd_wallet_summary(user_id) -> str:
         import logging
         logging.warning("[WALLET] summary failed: %s", e)
         return f"Error getting wallet summary: {str(e)}"
+
+def cmd_wallet_export(user_id) -> str:
+    """Export wallet details including private key - ADMIN ONLY"""
+    try:
+        user_id_str = str(user_id)
+        wallet = get_wallet(user_id_str)
+        if not wallet:
+            return "No wallet found. Run /wallet_new"
+        
+        # Get the seed and derive private key
+        seed_b64 = wallet["seed_b64"]
+        seed_bytes = base64.b64decode(seed_b64)
+        
+        # Create signing key from seed
+        signing_key = SigningKey(seed_bytes)
+        private_key_bytes = bytes(signing_key)
+        private_key_b58 = base58.b58encode(private_key_bytes).decode()
+        
+        addr = wallet["address"]
+        created_at = wallet.get("created_at", "unknown")
+        
+        return (f"**🔐 Wallet Export**\n"
+                f"Address: `{addr}`\n"
+                f"Private Key: `{private_key_b58}`\n"
+                f"Seed (Base64): `{seed_b64}`\n"
+                f"Created: {created_at}\n\n"
+                f"⚠️ **KEEP PRIVATE** - Never share these keys!")
+                
+    except Exception as e:
+        import logging
+        logging.error("[WALLET] export failed: %s", e)
+        return f"Error exporting wallet: {str(e)}"

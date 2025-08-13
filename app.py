@@ -658,6 +658,7 @@ def process_telegram_command(update_data):
 /wallet_balance_usd - Balance in USD
 /wallet_link - Solscan explorer link
 /wallet_reset - Reset wallet (2-step confirm)
+/wallet_export - Export private key (ADMIN ONLY)
 
 **📊 Scanner Commands:**
 /solscanstats - Solscan status
@@ -668,7 +669,7 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/commands":
             response_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" + \
                           "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                           "Use /help for detailed descriptions."
         elif text.strip() == "/info":
@@ -783,6 +784,15 @@ Bot Status: ✅ Online (Polling Mode)"""
                 return _reply(f"✅ Wallet reset.\n{msg}")
             except Exception as e:
                 return _reply(f"💥 Reset error: {e}", "error")
+        elif text == "/wallet_export":
+            deny = _require_admin(user)
+            if deny: return deny
+            try:
+                import wallets
+                export_data = wallets.cmd_wallet_export(user.get("id"))
+                return _reply(export_data)
+            except Exception as e:
+                return _reply(f"🔐 Export error: {e}", "error")
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
