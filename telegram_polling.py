@@ -9,10 +9,29 @@ import logging
 import threading
 import json
 from typing import Optional, Dict, Any
+from collections import deque
 
 # Import webhook processing function - delay import to avoid circular imports
 
 logger = logging.getLogger(__name__)
+
+# Idempotency: de-dupe by update_id / message_id (pre-send)
+_PROCESSED = deque(maxlen=1000)   # recent keys
+_PROCESSED_SET = set()
+
+def _seen(key: str, ttl_sec=120) -> bool:
+    """Simple rolling memory; swap to time-based if needed"""
+    if key in _PROCESSED_SET:
+        return True
+    _PROCESSED.append((time.time(), key))
+    _PROCESSED_SET.add(key)
+    # Periodic cleanup (optional)
+    if len(_PROCESSED) >= 990:
+        cutoff = time.time() - ttl_sec
+        while _PROCESSED and _PROCESSED[0][0] < cutoff:
+            _, old = _PROCESSED.popleft()
+            _PROCESSED_SET.discard(old)
+    return False
 
 def disable_webhook_if_polling(bot_token: str):
     """Kill webhook when starting polling to prevent duplicate processing"""
@@ -86,6 +105,15 @@ class TelegramPolling:
                         self.offset = update["update_id"] + 1
                         
                         if "message" in update:
+                            # Idempotency check using update_id + message_id
+                            update_id = update.get("update_id", 0)
+                            message_id = update["message"].get("message_id", 0)
+                            dedup_key = f"{update_id}:{message_id}"
+                            
+                            if _seen(dedup_key):
+                                logger.debug(f"Duplicate update ignored: {dedup_key}")
+                                continue
+                                
                             self._process_message(update["message"])
                             
                 time.sleep(1)  # Brief pause between polls
