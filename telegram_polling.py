@@ -131,90 +131,27 @@ class TelegramPolling:
 
             # Import at runtime to avoid circular import
             from app import process_telegram_command
+            from telegram_safety import send_telegram_safe
+            
             result = process_telegram_command(update)
-
-            # Unified send logic
-            text = None
-            if isinstance(result, dict) and "response" in result:
-                text = result["response"]
-            elif isinstance(result, str):
-                text = result
-            else:
-                text = "⚠️ No response generated."
-
-            if text:
-                self._send_response(chat_id, text)
+            text = result["response"] if isinstance(result, dict) and "response" in result else (result if isinstance(result, str) else "⚠️ No response.")
+            
+            ok, status, js = send_telegram_safe(self.bot_token, int(chat_id), text)
+            if not ok:
+                # log once; do not attempt a third send
+                logger.warning("telegram_send_failed", extra={"status": status, "resp": js})
 
         except Exception as e:
             logger.error(f"Update handling error: {e}")
             # Final fallback if we have chat_id
             if "chat_id" in locals() and chat_id:
-                self._send_fallback_response(chat_id, "❌ Processing error occurred")
-    
-    def _send_response(self, chat_id: str, text: str):
-        """Send response via Telegram API using enhanced safety system"""
-        try:
-            from telegram_safety import send_telegram_safe
-            
-            # Use the enhanced telegram safety system with MarkdownV2 support
-            ok, status, resp_json = send_telegram_safe(
-                token=self.bot_token,
-                chat_id=int(chat_id),
-                text=text,
-                retry_plain_on_fail=True
-            )
-            
-            if ok:
-                logger.info(f"Response sent successfully to chat {chat_id} (method: {status})")
-            else:
-                logger.error(f"Response failed to chat {chat_id}: status={status}, response={resp_json}")
-                
-        except Exception as e:
-            logger.error(f"Error using telegram_safety: {e}")
-            # Fallback to basic plain text sending
-            try:
-                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-                data = {
-                    "chat_id": chat_id,
-                    "text": text,
-                    "disable_web_page_preview": True
-                }
-                response = requests.post(url, json=data, timeout=10)
-                if response.status_code == 200:
-                    logger.info(f"Fallback response sent successfully to chat {chat_id}")
-                else:
-                    logger.error(f"Fallback response failed: {response.status_code}")
-            except Exception as fallback_error:
-                logger.error(f"Fallback sending failed: {fallback_error}")
-    
-    def _send_fallback_response(self, chat_id: str, text: str):
-        """Send direct response via Telegram API as fallback using telegram_safety"""
-        try:
-            from telegram_safety import send_telegram_safe
-            
-            # Use telegram_safety even for fallback (plain text only)
-            ok, status, resp_json = send_telegram_safe(
-                token=self.bot_token,
-                chat_id=int(chat_id),
-                text=text,
-                retry_plain_on_fail=True
-            )
-            
-            if ok:
-                logger.info(f"Fallback response sent successfully (method: {status})")
-            else:
-                logger.error(f"Fallback response failed: {status}, {resp_json}")
-                
-        except Exception as e:
-            logger.error(f"Telegram_safety fallback failed: {e}")
-            # Final fallback to direct API call
-            try:
-                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-                data = {"chat_id": chat_id, "text": text}
-                response = requests.post(url, json=data, timeout=10)
-                logger.info(f"Direct API fallback sent: {response.status_code}")
-            except Exception as final_error:
-                logger.error(f"All fallback methods failed: {final_error}")
+                try:
+                    from telegram_safety import send_telegram_safe
+                    ok, status, js = send_telegram_safe(self.bot_token, int(chat_id), "❌ Processing error occurred")
+                    if not ok:
+                        logger.warning("fallback_send_failed", extra={"status": status, "resp": js})
+                except Exception as fallback_error:
+                    logger.error(f"Final fallback failed: {fallback_error}")
 
 # Global polling instance
 _polling_instance = None
