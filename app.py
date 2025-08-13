@@ -596,7 +596,7 @@ def process_telegram_command(update_data):
     start_time = time.time()
     try:
         if not update_data.get('message'):
-            return {"status": "error", "message": "No message in update"}
+            return _reply("No message in update", status="error")
             
         message = update_data['message']
         user = message.get('from', {})
@@ -618,19 +618,19 @@ def process_telegram_command(update_data):
         if not is_command and is_rate_limited(user_id):
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
-            return {"status": "throttled", "message": "Rate limited"}
+            return _reply("Rate limited", status="throttled")
         
         # Duplicate command detection for commands only
         if is_command and is_duplicate_command(user_id, text):
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
-            return {"status": "duplicate", "message": "⚠️ Duplicate command detected. Please wait a moment before repeating commands."}
+            return _reply("⚠️ Duplicate command detected. Please wait a moment before repeating commands.", status="duplicate")
         
         # Admin-only check for non-wallet commands
         if not is_admin and not text.startswith("/wallet"):
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
-            return {"status": "error", "message": "Admin only"}
+            return _reply("⛔ Admin only", status="admin_only")
             
         # Ensure scanners are initialized
         _ensure_scanners()
@@ -663,13 +663,13 @@ def process_telegram_command(update_data):
                        "Bot Status: Online (Polling Mode)"
             return _reply(help_text)
         elif text.strip() == "/commands":
-            response_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /info /ping /test123\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" + \
-                          "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
-                          "Use /help for detailed descriptions."
+            return _reply("📋 **Available Commands**\n\n" +
+                          "**Basic:** /help /info /ping /test123\n" +
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" +
+                          "**Scanner:** /solscanstats /fetch /fetch_now\n\n" +
+                          "Use /help for detailed descriptions.")
         elif text.strip() == "/info":
-            response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
+            return _reply(f"""🤖 **Mork F.E.T.C.H Bot Info**
             
 **Status:** ✅ Online (Polling Mode)
 **Version:** Production v2.0
@@ -678,11 +678,11 @@ def process_telegram_command(update_data):
 **Wallet:** Enabled
 **Admin:** {user.get('username', 'Unknown')}
 
-*The Degens' Best Friend* 🐕"""
+*The Degens' Best Friend* 🐕""")
         elif text.strip() == "/test123":
-            response_text = "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
+            return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif text.strip() == "/ping":
-            response_text = "🎯 **Pong!** Bot is alive and responsive."
+            return _reply("🎯 **Pong!** Bot is alive and responsive.")
         # Wallet commands using new helper functions
         elif text.strip() == "/wallet":
             deny = _require_admin(user)
@@ -690,7 +690,7 @@ def process_telegram_command(update_data):
                 return deny
             try:
                 import wallets
-                response_text = wallets.cmd_wallet_summary(user.get('id'))
+                return _reply(wallets.cmd_wallet_summary(user.get('id')))
             except Exception as e:
                 return _reply(f"💰 Wallet error: {e}", status="error")
         elif text.strip().startswith("/wallet_new"):
@@ -699,7 +699,7 @@ def process_telegram_command(update_data):
                 return deny
             try:
                 import wallets
-                response_text = wallets.cmd_wallet_new(user.get('id'))
+                return _reply(wallets.cmd_wallet_new(user.get('id')))
             except Exception as e:
                 return _reply(f"💰 Wallet new error: {e}", status="error")
         elif text.strip().startswith("/wallet_addr"):
@@ -708,7 +708,7 @@ def process_telegram_command(update_data):
                 return deny
             try:
                 import wallets
-                response_text = wallets.cmd_wallet_addr(user.get('id'))
+                return _reply(wallets.cmd_wallet_addr(user.get('id')))
             except Exception as e:
                 return _reply(f"💰 Wallet addr error: {e}", status="error")
         elif text == "/wallet_balance_usd":
@@ -740,7 +740,7 @@ def process_telegram_command(update_data):
                 return deny
             try:
                 import wallets
-                response_text = wallets.cmd_wallet_balance(user.get('id'))
+                return _reply(wallets.cmd_wallet_balance(user.get('id')))
             except Exception as e:
                 return _reply(f"💰 Wallet balance error: {e}", status="error")
         elif text == "/wallet_selftest":
@@ -793,11 +793,25 @@ def process_telegram_command(update_data):
             try:
                 if "solscan" in SCANNERS:
                     scanner = SCANNERS["solscan"]
-                    response_text = f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}"
+                    return _reply(f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}")
                 else:
-                    response_text = "📊 Solscan: Not initialized"
+                    return _reply("📊 Solscan: Not initialized")
             except Exception as e:
-                response_text = f"📊 Solscan error: {e}"
+                return _reply(f"📊 Solscan error: {e}", status="error")
+        elif text.strip() == "/fetch":
+            try:
+                import data_fetcher
+                result = data_fetcher.multi_source_fetch(limit=5)
+                return _reply(f"🔍 Fetch complete: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources")
+            except Exception as e:
+                return _reply(f"🔍 Fetch error: {e}", status="error")
+        elif text.strip() == "/fetch_now":
+            try:
+                import data_fetcher
+                result = data_fetcher.multi_source_fetch(limit=10, force=True)
+                return _reply(f"🚀 Multi-source fetch: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources")
+            except Exception as e:
+                return _reply(f"🚀 Fetch now error: {e}", status="error")
         else:
             # Handle unknown commands and plain text
             if is_command:
@@ -805,38 +819,11 @@ def process_telegram_command(update_data):
             else:
                 return _reply("👍", status="ok")
         
-        # Send response via Telegram API
-        if response_text and chat_id:
-            import requests
-            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            
-            payload = {
-                "chat_id": chat_id,
-                "text": response_text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True
-            }
-            
-            response = requests.post(url, json=payload, timeout=10)
-            duration_ms = int((time.time() - start_time) * 1000)
-            if response.status_code == 200:
-                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
-                return {"status": "success", "response": response_text}
-            else:
-                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=api_error")
-                logger.error(f"Telegram API error: {response.status_code} - {response.text}")
-                return {"status": "error", "message": f"API error: {response.status_code}"}
-        
-        duration_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
-        return {"status": "success", "response": response_text or "No response"}
-        
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=error")
         logger.error(f"Command processing error: {e}")
-        return {"status": "error", "message": str(e)}
+        return _reply(f"Command processing error: {str(e)}", status="error")
 
 def start_telegram_polling():
     """Start Telegram polling in background thread"""
