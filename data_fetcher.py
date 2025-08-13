@@ -393,6 +393,104 @@ def _dedupe_keep_best(tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     
     return list(seen_mints.values())
 
+def multi_source_fetch(limit=10, force=False):
+    """
+    Multi-source token fetch function used by /fetch and /fetch_now commands.
+    Fetches tokens from multiple sources and returns a summary.
+    """
+    try:
+        # Load rules
+        try:
+            from rules import load_rules
+            rules = load_rules()
+        except:
+            # Fallback basic rules
+            rules = {
+                "scan": {
+                    "max_age_minutes": 180,
+                    "holders_min": 75,
+                    "holders_max": 5000,
+                    "mcap_min_usd": 50000,
+                    "mcap_max_usd": 2000000,
+                    "liquidity_min_usd": 10000
+                },
+                "risk": {
+                    "weights": {"age": 0.2, "holders": 0.3, "liquidity": 0.3, "mcap": 0.2},
+                    "max_score": 70
+                }
+            }
+
+        all_tokens = []
+        sources_used = []
+
+        # 1. Pump.fun API
+        try:
+            pumpfun_tokens = fetch_candidates_from_pumpfun(limit=limit*2)
+            if pumpfun_tokens:
+                all_tokens.extend(pumpfun_tokens)
+                sources_used.append("pumpfun")
+                logging.info(f"[MULTI-FETCH] Got {len(pumpfun_tokens)} tokens from Pump.fun")
+        except Exception as e:
+            logging.warning(f"[MULTI-FETCH] Pump.fun failed: {e}")
+
+        # 2. DexScreener  
+        try:
+            dex_tokens = _fetch_pairs_from_dexscreener_search(query="solana", limit=limit)
+            if dex_tokens:
+                all_tokens.extend(dex_tokens)
+                sources_used.append("dexscreener")
+                logging.info(f"[MULTI-FETCH] Got {len(dex_tokens)} tokens from DexScreener")
+        except Exception as e:
+            logging.warning(f"[MULTI-FETCH] DexScreener failed: {e}")
+
+        # 3. On-chain (if available and force=True)
+        if force:
+            try:
+                from pump_chain import fetch_recent_pumpfun_mints
+                chain_tokens = fetch_recent_pumpfun_mints(max_minutes=15, limit=limit)
+                if chain_tokens:
+                    all_tokens.extend(chain_tokens)
+                    sources_used.append("on-chain")
+                    logging.info(f"[MULTI-FETCH] Got {len(chain_tokens)} tokens from on-chain")
+            except Exception as e:
+                logging.warning(f"[MULTI-FETCH] On-chain failed: {e}")
+
+        # Filter and score
+        filtered_tokens = []
+        for token in all_tokens:
+            if _passes_rules(token, rules):
+                token["risk"] = _score_token(token, rules)
+                filtered_tokens.append(token)
+
+        # Deduplicate
+        final_tokens = _dedupe_keep_best(filtered_tokens)
+
+        # Sort by risk (lower = better)
+        final_tokens.sort(key=lambda x: x.get("risk", 100))
+
+        # Limit results
+        final_tokens = final_tokens[:limit]
+
+        result = {
+            "total": len(final_tokens),
+            "sources": sources_used,
+            "tokens": final_tokens,
+            "status": "success"
+        }
+
+        logging.info(f"[MULTI-FETCH] Complete: {len(final_tokens)} tokens from {len(sources_used)} sources")
+        return result
+
+    except Exception as e:
+        logging.error(f"[MULTI-FETCH] Error: {e}")
+        return {
+            "total": 0,
+            "sources": [],
+            "tokens": [],
+            "status": "error",
+            "error": str(e)
+        }
+
 def fetch_and_rank(rules):
     """Enhanced tri-source integration: On-chain + Pump.fun + DexScreener search, filter, score, de-dupe, then order."""
     from eventbus import publish
