@@ -16,6 +16,15 @@ from telegram_safety import send_telegram_safe
 
 logger = logging.getLogger(__name__)
 
+# Bridge function to redirect legacy send_message calls to centralized system
+def send_message(chat_id: int, text: str):
+    """Bridge function: redirects to centralized send_telegram_safe()"""
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    ok, status, _ = send_telegram_safe(bot_token, chat_id, text)
+    if not ok:
+        logger.warning("send_message_failed", extra={"status": status})
+    return ok
+
 # Idempotency: de-dupe by update_id / message_id (pre-send)
 _PROCESSED = deque(maxlen=1000)   # recent keys
 _PROCESSED_SET = set()

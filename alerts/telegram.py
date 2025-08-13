@@ -45,6 +45,15 @@ except ImportError:
 
 from config import ASSISTANT_ADMIN_TELEGRAM_ID
 
+# Import bridge function for centralized messaging
+try:
+    from telegram_polling import send_message
+except ImportError:
+    # Fallback if telegram_polling not available
+    def send_message(chat_id: int, text: str):
+        logging.warning("send_message bridge not available")
+        return False
+
 LOG_PATH = pathlib.Path("logs/app.log")
 STREAM_TASKS: Dict[int, asyncio.Task] = {}
 WATCH_TASKS: Dict[int, asyncio.Task] = {}

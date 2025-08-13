@@ -27,21 +27,26 @@ def get_updates(offset=None):
         logger.error(f"Error getting updates: {e}")
         return None
 
-def send_message(chat_id, text):
-    """Send message via Telegram API"""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
-    
-    try:
-        response = requests.post(url, json=data, timeout=10)
-        return response.json()
-    except Exception as e:
-        logger.error(f"Error sending message: {e}")
-        return None
+# Import the centralized bridge function
+try:
+    from telegram_polling import send_message
+except ImportError:
+    # Fallback for backward compatibility
+    def send_message(chat_id, text):
+        """Fallback: Send message via direct Telegram API"""
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }
+        
+        try:
+            response = requests.post(url, json=data, timeout=10)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
+            return None
 
 def main():
     logger.info("Starting polling mode test...")
