@@ -103,18 +103,7 @@ class TelegramPolling:
                     
                     for update in updates:
                         self.offset = update["update_id"] + 1
-                        
-                        if "message" in update:
-                            # Idempotency check using update_id + message_id
-                            update_id = update.get("update_id", 0)
-                            message_id = update["message"].get("message_id", 0)
-                            dedup_key = f"{update_id}:{message_id}"
-                            
-                            if _seen(dedup_key):
-                                logger.debug(f"Duplicate update ignored: {dedup_key}")
-                                continue
-                                
-                            self._process_message(update["message"])
+                        self._handle_update(update)
                             
                 time.sleep(1)  # Brief pause between polls
                 
@@ -122,44 +111,45 @@ class TelegramPolling:
                 logger.error(f"Polling error: {e}")
                 time.sleep(5)
                 
-    def _process_message(self, message: Dict[str, Any]):
-        """Process incoming message using main app logic"""
+    def _handle_update(self, update: dict):
+        """Unified update handler with idempotency and single send guarantee"""
         try:
-            text = message.get("text", "")
-            user_id = message.get("from", {}).get("id", "")
-            chat_id = message.get("chat", {}).get("id", "")
-            
-            logger.info(f"Processing message: '{text}' from user {user_id}")
-            
-            # Create update structure matching webhook format
-            update_data = {
-                "update_id": int(time.time()),
-                "message": message
-            }
-            
+            upd_id = update.get("update_id")
+            msg = update.get("message") or update.get("edited_message") or {}
+            msg_id = msg.get("message_id")
+            chat_id = (msg.get("chat") or {}).get("id")
+
+            dedupe_key = f"{upd_id}:{msg_id}:{chat_id}"
+            if _seen(dedupe_key):
+                logger.debug(f"Duplicate update ignored: {dedupe_key}")
+                # Prevent double send
+                return
+
+            # Skip updates without message content
+            if not msg or not chat_id:
+                return
+
             # Import at runtime to avoid circular import
-            try:
-                from app import process_telegram_command
-                response = process_telegram_command(update_data)
-                logger.info(f"Command processed: {response}")
-                
-                # Handle new dict-based response format
-                if isinstance(response, dict) and "response" in response:
-                    self._send_response(chat_id, response["response"])
-                elif isinstance(response, str):
-                    # Legacy string response support
-                    self._send_response(chat_id, response)
-                else:
-                    # Avoid silence - send fallback message
-                    self._send_response(chat_id, "⚠️ No response generated.")
-                    
-            except Exception as import_error:
-                logger.error(f"Import or processing error: {import_error}")
-                # Fallback: direct Telegram API call
-                self._send_fallback_response(chat_id, f"🤖 Received: {text}")
-            
+            from app import process_telegram_command
+            result = process_telegram_command(update)
+
+            # Unified send logic
+            text = None
+            if isinstance(result, dict) and "response" in result:
+                text = result["response"]
+            elif isinstance(result, str):
+                text = result
+            else:
+                text = "⚠️ No response generated."
+
+            if text:
+                self._send_response(chat_id, text)
+
         except Exception as e:
-            logger.error(f"Error processing message: {e}")
+            logger.error(f"Update handling error: {e}")
+            # Final fallback if we have chat_id
+            if "chat_id" in locals() and chat_id:
+                self._send_fallback_response(chat_id, "❌ Processing error occurred")
     
     def _send_response(self, chat_id: str, text: str):
         """Send response via Telegram API with proper formatting"""
