@@ -1,0 +1,83 @@
+# --- inside app.py (near process_telegram_command) ---
+
+def _reply(text: str, status: str = "ok"):
+    # SINGLE return shape used everywhere
+    return {"status": status, "response": text}
+
+def _require_admin(user):
+    # returns a dict (to send) or None (to continue)
+    try:
+        is_admin_user = is_admin(user)  # your existing check
+    except Exception:
+        is_admin_user = False
+    if not is_admin_user:
+        return _reply("⛔ Wallet commands are admin-only.", status="admin_only")
+    return None
+
+def process_telegram_command(update):
+    # ... existing preamble extracting text, user, chat, etc.
+    text = (update.get("message", {}).get("text") or "").strip()
+    user = update.get("message", {}).get("from", {}) or {}
+    user_id = user.get("id")
+    is_command = text.startswith("/")
+
+    # --- Duplicate detection (commands only) ---
+    if is_command and is_duplicate(user_id, text):    # your existing function
+        return _reply("⚠️ Duplicate command detected. Please wait a moment.", status="duplicate")
+
+    # --- Rate limit (non-commands only) ---
+    if (not is_command) and is_rate_limited(user_id): # your existing function
+        return _reply("⏱️ You're sending messages too quickly. Please wait a few seconds.", status="throttled")
+
+    # --- Routing ---
+    # Wallet summary
+    if text == "/wallet":
+        deny = _require_admin(user)
+        if deny:
+            return deny
+        try:
+            import wallets
+            return _reply(wallets.cmd_wallet_summary(user_id))
+        except Exception as e:
+            return _reply(f"💰 Wallet error: {e}", status="error")
+
+    # New wallet
+    elif text.startswith("/wallet_new"):
+        deny = _require_admin(user)
+        if deny:
+            return deny
+        try:
+            import wallets
+            return _reply(wallets.cmd_wallet_new(user_id))
+        except Exception as e:
+            return _reply(f"💰 Wallet new error: {e}", status="error")
+
+    # Address
+    elif text.startswith("/wallet_addr"):
+        deny = _require_admin(user)
+        if deny:
+            return deny
+        try:
+            import wallets
+            return _reply(wallets.cmd_wallet_addr(user_id))
+        except Exception as e:
+            return _reply(f"💰 Wallet addr error: {e}", status="error")
+
+    # Balance
+    elif text.startswith("/wallet_balance"):
+        deny = _require_admin(user)
+        if deny:
+            return deny
+        try:
+            import wallets
+            return _reply(wallets.cmd_wallet_balance(user_id))
+        except Exception as e:
+            return _reply(f"💰 Wallet balance error: {e}", status="error")
+
+    # ... other commands
+
+    # Fallback for unknown commands and plain text
+    if is_command:
+        return _reply(f"🤖 Received: {text}", status="unknown_command")
+    else:
+        return _reply("👍", status="ok")

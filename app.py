@@ -541,10 +541,23 @@ app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
 # Telegram mode configuration - use polling to bypass webhook delivery issues
 TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' or 'polling'
 
+def _reply(text: str, status: str = "ok"):
+    """SINGLE return shape used everywhere"""
+    return {"status": status, "response": text}
+
+def _require_admin(user):
+    """Returns a dict (to send) or None (to continue)"""
+    try:
+        from config import ASSISTANT_ADMIN_TELEGRAM_ID
+        is_admin_user = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
+    except Exception:
+        is_admin_user = False
+    if not is_admin_user:
+        return _reply("⛔ Wallet commands are admin-only.", status="admin_only")
+    return None
+
 def ensure_admin_or_msg(user):
-    """Helper function to check admin status for wallet commands"""
-    # Note: Global admin check already performed at function entry
-    # This provides additional security layer for wallet commands
+    """Legacy helper function - kept for compatibility"""
     from config import ASSISTANT_ADMIN_TELEGRAM_ID
     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
         return "⛔ Wallet commands are admin-only."
@@ -585,8 +598,8 @@ def process_telegram_command(update_data):
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
             return {"status": "duplicate", "message": "⚠️ Duplicate command detected. Please wait a moment before repeating commands."}
         
-        # Admin-only check
-        if not is_admin:
+        # Admin-only check for non-wallet commands
+        if not is_admin and not text.startswith("/wallet"):
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
             return {"status": "error", "message": "Admin only"}
@@ -642,61 +655,57 @@ Bot Status: ✅ Online (Polling Mode)"""
             response_text = "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
         elif text.strip() == "/ping":
             response_text = "🎯 **Pong!** Bot is alive and responsive."
+        # Wallet commands using new helper functions
         elif text.strip() == "/wallet":
-            deny = ensure_admin_or_msg(user)
-            if deny: 
-                response_text = deny
-            else:
-                try:
-                    import wallets
-                    response_text = wallets.cmd_wallet_summary(user.get('id'))
-                except Exception as e:
-                    response_text = f"💰 Wallet error: {e}"
+            deny = _require_admin(user)
+            if deny:
+                return deny
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_summary(user.get('id'))
+            except Exception as e:
+                return _reply(f"💰 Wallet error: {e}", status="error")
         elif text.strip().startswith("/wallet_new"):
-            deny = ensure_admin_or_msg(user)
+            deny = _require_admin(user)
             if deny:
-                response_text = deny
-            else:
-                try:
-                    import wallets
-                    response_text = wallets.cmd_wallet_new(user.get('id'))
-                except Exception as e:
-                    response_text = f"💰 Wallet new error: {e}"
+                return deny
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_new(user.get('id'))
+            except Exception as e:
+                return _reply(f"💰 Wallet new error: {e}", status="error")
         elif text.strip().startswith("/wallet_addr"):
-            deny = ensure_admin_or_msg(user)
+            deny = _require_admin(user)
             if deny:
-                response_text = deny
-            else:
-                try:
-                    import wallets
-                    response_text = wallets.cmd_wallet_addr(user.get('id'))
-                except Exception as e:
-                    response_text = f"💰 Wallet addr error: {e}"
+                return deny
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_addr(user.get('id'))
+            except Exception as e:
+                return _reply(f"💰 Wallet addr error: {e}", status="error")
         elif text.strip().startswith("/wallet_balance"):
-            deny = ensure_admin_or_msg(user)
+            deny = _require_admin(user)
             if deny:
-                response_text = deny
-            else:
-                try:
-                    import wallets
-                    response_text = wallets.cmd_wallet_balance(user.get('id'))
-                except Exception as e:
-                    response_text = f"💰 Wallet balance error: {e}"
+                return deny
+            try:
+                import wallets
+                response_text = wallets.cmd_wallet_balance(user.get('id'))
+            except Exception as e:
+                return _reply(f"💰 Wallet balance error: {e}", status="error")
         elif text.strip() == "/wallet_selftest":
-            deny = ensure_admin_or_msg(user)
+            deny = _require_admin(user)
             if deny:
-                response_text = deny
-            else:
-                try:
-                    import wallets
-                    uid = user.get('id')
-                    addr = wallets.cmd_wallet_addr(uid)
-                    summary = wallets.cmd_wallet_summary(uid)
-                    bal = wallets.cmd_wallet_balance(uid)
-                    ok = all(isinstance(x, str) and len(x) > 0 for x in [addr, summary, bal])
-                    response_text = "✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete."
-                except Exception as e:
-                    response_text = f"🧪 Self-test error: {e}"
+                return deny
+            try:
+                import wallets
+                uid = user.get('id')
+                addr = wallets.cmd_wallet_addr(uid)
+                summary = wallets.cmd_wallet_summary(uid)
+                bal = wallets.cmd_wallet_balance(uid)
+                ok = all(isinstance(x, str) and len(x) > 0 for x in [addr, summary, bal])
+                return _reply("✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete.")
+            except Exception as e:
+                return _reply(f"🧪 Self-test error: {e}", status="error")
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
@@ -707,7 +716,11 @@ Bot Status: ✅ Online (Polling Mode)"""
             except Exception as e:
                 response_text = f"📊 Solscan error: {e}"
         else:
-            response_text = f"❓ Unknown command: {text}\nUse /help for available commands."
+            # Handle unknown commands and plain text
+            if is_command:
+                return _reply(f"❓ Unknown command: {text}\nUse /help for available commands.", status="unknown_command")
+            else:
+                return _reply("👍", status="ok")
         
         # Send response via Telegram API
         if response_text and chat_id:
