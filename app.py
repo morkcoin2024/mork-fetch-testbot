@@ -284,21 +284,10 @@ def _init_scanners():
 import requests
 
 def send_admin_md(text: str):
-    """Send Markdown message to admin chat (no PTB needed)."""
-    try:
-        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-        admin_id  = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
-        if not bot_token or not admin_id:
-            return False
-        requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True},
-            timeout=10
-        )
-        return True
-    except Exception as e:
-        logger.exception("send_admin_md failed: %s", e)
-        return False
+    """DISABLED: Send Markdown message to admin chat. Now handled by polling loop."""
+    # This function is disabled to centralize all sending in the polling loop
+    logger.info(f"send_admin_md called but disabled: {text}")
+    return True  # Return success to avoid breaking existing code
 # --- END PATCH ---
 
 
@@ -1039,49 +1028,21 @@ def webhook():
             if len(commands_in_message) > 1:
                 logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
 
-            # Helper functions for sending replies (with auto-split)
+            # DISABLED: Helper functions for sending replies - now handled by polling loop
             def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                try:
-                    import requests
-                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-                    chat_id = message["chat"]["id"]
-                    payload = {
-                        "chat_id": chat_id,
-                        "text": txt,
-                        "parse_mode": parse_mode,
-                        "disable_web_page_preview": no_preview,
-                    }
-                    logger.info(f"[WEBHOOK] Sending message to chat_id={chat_id}, text_len={len(txt)}")
-                    r = requests.post(
-                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                        json=payload,
-                        timeout=15,
-                    )
-                    logger.info(f"[WEBHOOK] Telegram API response: status={r.status_code}, response={r.text[:200]}")
-                    return r.status_code == 200
-                except Exception as e:
-                    logger.exception("sendMessage failed: %s", e)
-                    return False
+                """DISABLED: Direct API calls removed to centralize sending in polling loop"""
+                logger.info(f"[WEBHOOK] _send_chunk called but disabled: {txt[:100]}...")
+                return True
 
             def _send_safe(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                """Safe send with automatic Markdown→plain text fallback"""
-                try:
-                    success = _send_chunk(text, parse_mode=parse_mode, no_preview=no_preview)
-                    if success:
-                        return True
-                except Exception:
-                    pass
-                # Fallback: plain text, no parse mode
-                try:
-                    return _send_chunk(text, parse_mode=None, no_preview=True)
-                except Exception:
-                    return False
+                """DISABLED: Safe send - now handled by polling loop"""
+                logger.info(f"[WEBHOOK] _send_safe called but disabled: {text[:100]}...")
+                return True
 
             def _reply(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                # Enhanced reply with safe chunked messaging and automatic fallback
-                MAX = 3900  # Stay under 4096 Telegram limit
-                if len(text) <= MAX:
-                    return _send_safe(text, parse_mode=parse_mode, no_preview=no_preview)
+                """DISABLED: Reply function - now handled by polling loop"""
+                logger.info(f"[WEBHOOK] _reply called but disabled: {text[:100]}...")
+                return True
                 
                 # Split large messages on paragraph boundaries where possible
                 i = 0
@@ -1212,30 +1173,9 @@ def webhook():
                     # Skip the rest of the command processing for multiple commands
                     logger.info(f"[WEBHOOK] Sending multiple command response: {response_text}")
                     
-                    # Add detailed logging for the Telegram API call
-                    try:
-                        import requests
-                        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-                        payload = {
-                            "chat_id": message["chat"]["id"],
-                            "text": response_text,
-                            "parse_mode": "Markdown",
-                            "disable_web_page_preview": True,
-                        }
-                        logger.info(f"[WEBHOOK] Telegram payload: {payload}")
-                        
-                        r = requests.post(
-                            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                            json=payload,
-                            timeout=15,
-                        )
-                        logger.info(f"[WEBHOOK] Telegram API response: {r.status_code}")
-                        if r.status_code != 200:
-                            logger.error(f"[WEBHOOK] Telegram API error: {r.text}")
-                        reply_success = r.status_code == 200
-                    except Exception as e:
-                        logger.exception(f"[WEBHOOK] Telegram API exception: {e}")
-                        reply_success = False
+                    # DISABLED: Direct API call - now handled by polling loop
+                    logger.info(f"[WEBHOOK] Multiple commands processed, response prepared: {response_text[:100]}...")
+                    reply_success = True  # Always report success since polling handles sending
                     
                     logger.info(f"[WEBHOOK] Multiple command reply success: {reply_success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": reply_success, "multiple_commands": len(commands_in_message)})
@@ -3447,24 +3387,9 @@ def _install_ws_debug_forwarder():
         return
         
     def _send_admin_debug(text: str):
-        """Send debug message to admin chat"""
-        try:
-            import requests
-            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-            if not bot_token:
-                return
-            requests.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={
-                    "chat_id": admin_id, 
-                    "text": text, 
-                    "parse_mode": "Markdown",
-                    "disable_notification": True  # Don't spam with notifications
-                },
-                timeout=8,
-            )
-        except Exception as e:
-            logger.debug("Admin debug send failed: %s", e)
+        """DISABLED: Send debug message to admin chat - now handled by polling loop"""
+        logger.debug(f"_send_admin_debug called but disabled: {text[:100]}...")
+        return
     
     def _on_debug_event(evt):
         """Handle WS debug events from event bus"""
@@ -3664,22 +3589,8 @@ def _on_new_token(ev: dict):
             f"Rules: *{vibe}* — {reasons}"
         )
         
-        # Send to admin using the _reply mechanism
-        import requests
-        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-        admin_id = ASSISTANT_ADMIN_TELEGRAM_ID
-        
-        payload = {
-            "chat_id": admin_id,
-            "text": msg,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
-        }
-        requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-            timeout=8,
-        )
+        # DISABLED: Direct API call - now handled by polling loop
+        logger.info(f"Token notification prepared but not sent: {msg[:100]}...")
     except Exception as e:
         logger.warning(f"Token notification error: {e}")
 

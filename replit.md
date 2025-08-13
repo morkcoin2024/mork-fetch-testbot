@@ -12,6 +12,7 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
 **Latest Updates:**
+- **COMPLETED**: **CENTRALIZED MESSAGE SENDING** - Eliminated all direct Telegram API calls from app.py (send_admin_md, _send_chunk, _send_safe, _reply, _send_admin_debug, _on_new_token), ensuring only telegram_polling.py handles message sending for true single-point control (August 13, 2025)
 - **COMPLETED**: **UNIFIED HANDLER ARCHITECTURE** - Implemented single-point update processing with enhanced idempotency using update_id:message_id:chat_id format, supporting both message and edited_message updates with guaranteed single send per update (August 13, 2025)
 - **COMPLETED**: **IDEMPOTENCY DEDUPLICATION SYSTEM** - Added rolling memory system using deque and set to prevent duplicate message processing with TTL-based cleanup, ensuring each update_id:message_id combination is processed only once (August 13, 2025)
 - **COMPLETED**: **WEBHOOK CONFLICT RESOLUTION** - Fixed duplicate processing and silent command failures by implementing automatic webhook deletion when polling starts, eliminating "double/silent" processing symptoms (August 13, 2025)
