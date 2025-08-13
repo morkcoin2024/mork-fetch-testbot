@@ -10,11 +10,11 @@ _MD2_RESERVED = r"_*[]()~`>#+-=|{}.!?"
 
 def escape_markdown_v2(text: str) -> str:
     # Escape every reserved character with a backslash
-    return re.sub(r"([_*\[\]()~`>#+\-=|{}.!?])", r"\\\1", text)
+    return re.sub(r"([_*$begin:math:display$$end:math:display$()~`>#+\-=|{}.!?])", r"\\\1", text)
 
 # Heuristic: does the text *look* like it intends Markdown?
 _MD_TOKENS = re.compile(
-    r"(\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|```[\s\S]+?```|^#{1,6}\s|\~\~[^~\n]+~~)"
+    r"(\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|$begin:math:display$.+?$end:math:display$$begin:math:text$.+?$end:math:text$|^#{1,6}\s|\~\~[^~\n]+~~)"
 )
 
 def looks_like_markdown(text: str) -> bool:
