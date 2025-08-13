@@ -152,70 +152,69 @@ class TelegramPolling:
                 self._send_fallback_response(chat_id, "❌ Processing error occurred")
     
     def _send_response(self, chat_id: str, text: str):
-        """Send response via Telegram API with proper formatting"""
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        
-        # Enhanced Markdown detection to prevent parsing errors
-        def should_use_markdown(text: str) -> bool:
-            """Intelligent Markdown detection with validation"""
-            markdown_indicators = ['*', '_', '`', '[', ']', '**', '__']
-            
-            # Check for Markdown characters
-            if not any(indicator in text for indicator in markdown_indicators):
-                return False
-            
-            # Additional validation for common patterns that cause issues
-            # Ensure balanced formatting (basic check)
-            star_count = text.count('*')
-            underscore_count = text.count('_')
-            bracket_open = text.count('[')
-            bracket_close = text.count(']')
-            
-            # If unbalanced formatting detected, use plain text for safety
-            if (star_count % 2 != 0) or (underscore_count % 2 != 0) or (bracket_open != bracket_close):
-                logger.debug("Unbalanced Markdown detected, using plain text")
-                return False
-                
-            return True
-        
-        has_markdown = should_use_markdown(text)
-        
-        data = {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True
-        }
-        
-        # Only use Markdown if text appears to have formatting
-        if has_markdown:
-            data["parse_mode"] = "Markdown"
-        
+        """Send response via Telegram API using enhanced safety system"""
         try:
-            response = requests.post(url, json=data, timeout=10)
-            if response.status_code == 200:
-                logger.info(f"Response sent successfully to chat {chat_id}")
+            from telegram_safety import send_telegram_safe
+            
+            # Use the enhanced telegram safety system with MarkdownV2 support
+            ok, status, resp_json = send_telegram_safe(
+                token=self.bot_token,
+                chat_id=int(chat_id),
+                text=text,
+                retry_plain_on_fail=True
+            )
+            
+            if ok:
+                logger.info(f"Response sent successfully to chat {chat_id} (method: {status})")
             else:
-                logger.error(f"Response failed: {response.status_code} - {response.text}")
-                # Retry without Markdown formatting on error
-                if "parse_mode" in data:
-                    del data["parse_mode"]
-                    fallback_response = requests.post(url, json=data, timeout=10)
-                    logger.info(f"Fallback response: {fallback_response.status_code}")
+                logger.error(f"Response failed to chat {chat_id}: status={status}, response={resp_json}")
+                
         except Exception as e:
-            logger.error(f"Response send failed: {e}")
+            logger.error(f"Error using telegram_safety: {e}")
+            # Fallback to basic plain text sending
+            try:
+                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+                data = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "disable_web_page_preview": True
+                }
+                response = requests.post(url, json=data, timeout=10)
+                if response.status_code == 200:
+                    logger.info(f"Fallback response sent successfully to chat {chat_id}")
+                else:
+                    logger.error(f"Fallback response failed: {response.status_code}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback sending failed: {fallback_error}")
     
     def _send_fallback_response(self, chat_id: str, text: str):
-        """Send direct response via Telegram API as fallback"""
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        data = {
-            "chat_id": chat_id,
-            "text": text
-        }
+        """Send direct response via Telegram API as fallback using telegram_safety"""
         try:
-            response = requests.post(url, json=data, timeout=10)
-            logger.info(f"Fallback response sent: {response.status_code}")
+            from telegram_safety import send_telegram_safe
+            
+            # Use telegram_safety even for fallback (plain text only)
+            ok, status, resp_json = send_telegram_safe(
+                token=self.bot_token,
+                chat_id=int(chat_id),
+                text=text,
+                retry_plain_on_fail=True
+            )
+            
+            if ok:
+                logger.info(f"Fallback response sent successfully (method: {status})")
+            else:
+                logger.error(f"Fallback response failed: {status}, {resp_json}")
+                
         except Exception as e:
-            logger.error(f"Fallback response failed: {e}")
+            logger.error(f"Telegram_safety fallback failed: {e}")
+            # Final fallback to direct API call
+            try:
+                url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+                data = {"chat_id": chat_id, "text": text}
+                response = requests.post(url, json=data, timeout=10)
+                logger.info(f"Direct API fallback sent: {response.status_code}")
+            except Exception as final_error:
+                logger.error(f"All fallback methods failed: {final_error}")
 
 # Global polling instance
 _polling_instance = None
