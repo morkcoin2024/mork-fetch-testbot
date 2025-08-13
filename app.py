@@ -2441,41 +2441,131 @@ Not for production custody."""
 
 
 
-                # /wallet_new - Create new burner wallet
-                elif text.strip().startswith("/wallet_new"):
-                    logger.info("[WALLET] /wallet_new requested by %s", user.get('id'))
+                # /wallet commands - Restore original working format
+                elif text.strip().startswith("/wallet"):
+                    logger.info("[WALLET] /wallet command requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        import wallets
-                        response_text = wallets.cmd_wallet_new(user.get('id'))
+                        from wallet_manager import wallet_manager
+                        user_id = str(user.get('id'))
+                        parts = text.strip().split()
+                        
+                        if len(parts) == 1:  # Just "/wallet"
+                            response_text = "Usage: `/wallet create` or `/wallet import <private_key>`"
+                        elif parts[1].lower() == "create":
+                            result = wallet_manager.create_wallet(user_id, "default")
+                            if result["success"]:
+                                response_text = f"✅ **Wallet Created**\n\nAddress: `{result['pubkey']}`\n\n⚠️ **Important:** Your private key is encrypted and stored securely. Never share it!"
+                            else:
+                                response_text = f"❌ Failed to create wallet: {result['error']}"
+                        elif parts[1].lower() == "import":
+                            if len(parts) < 3:
+                                response_text = "Usage: `/wallet import <private_key>`"
+                            else:
+                                private_key = parts[2]
+                                result = wallet_manager.import_wallet(user_id, private_key, "default")
+                                if result["success"]:
+                                    response_text = f"✅ **Wallet Imported**\n\nAddress: `{result['pubkey']}`\n\n🔒 Your private key is encrypted and secure."
+                                else:
+                                    response_text = f"❌ Failed to import wallet: {result['error']}"
+                        else:
+                            response_text = "Unknown wallet command. Use `create` or `import`."
 
-                # /wallet_addr - Get wallet address
-                elif text.strip().startswith("/wallet_addr"):
-                    logger.info("[WALLET] /wallet_addr requested by %s", user.get('id'))
+                # /balance - Check wallet balance (original working command)
+                elif text.strip().startswith("/balance"):
+                    logger.info("[WALLET] /balance command requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        import wallets
-                        response_text = wallets.cmd_wallet_addr(user.get('id'))
+                        from wallet_manager import wallet_manager
+                        from jupiter_engine import jupiter_engine
+                        from safety_system import safety
+                        
+                        user_id = str(user.get('id'))
+                        
+                        if not wallet_manager.has_wallet(user_id):
+                            response_text = "❌ No wallet found. Use `/wallet create` or `/wallet import` first."
+                        else:
+                            try:
+                                wallet_info = wallet_manager.get_wallet_info(user_id)
+                                wallet_address = wallet_info["default"]["pubkey"]
+                                
+                                # Get SOL balance
+                                sol_balance = jupiter_engine.get_sol_balance(wallet_address)
+                                
+                                # Check MORK holdings  
+                                mork_ok, mork_msg = safety.check_mork_holdings(wallet_address, 1.0)
+                                
+                                response_text = f"""💰 **Wallet Balance**
 
-                # /wallet_balance - Check wallet balance
-                elif text.strip().startswith("/wallet_balance"):
-                    logger.info("[WALLET] /wallet_balance requested by %s", user.get('id'))
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        import wallets
-                        response_text = wallets.cmd_wallet_balance(user.get('id'))
+**Address:** `{wallet_address}`
+**SOL Balance:** {sol_balance:.6f} SOL
 
-                # /wallet - Wallet summary (compact)
-                elif text.strip().startswith("/wallet") and text.strip() == "/wallet":
-                    logger.info("[WALLET] /wallet summary requested by %s", user.get('id'))
+**MORK Holdings:** {mork_msg}
+
+**Trading Status:**
+{'✅ Eligible for all trading' if mork_ok else '⚠️ Need more MORK for full access'}"""
+                                
+                            except Exception as e:
+                                response_text = f"❌ Error checking balance: {str(e)}"
+
+                # /snipe - Manual token trading (original working command)
+                elif text.strip().startswith("/snipe"):
+                    logger.info("[WALLET] /snipe command requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        import wallets
-                        response_text = wallets.cmd_wallet_summary(user.get('id'))
+                        from wallet_manager import wallet_manager
+                        from jupiter_engine import jupiter_engine
+                        from safety_system import safety
+                        
+                        user_id = str(user.get('id'))
+                        parts = text.strip().split()
+                        
+                        if len(parts) < 3:
+                            response_text = "Usage: `/snipe <token_mint> <sol_amount>`\n\nExample: `/snipe 7eMJmn1bTJnmhK4qZsZfMPUWuBhzQ5VXx1B1Cj6pump 0.01`"
+                        elif not wallet_manager.has_wallet(user_id):
+                            response_text = "❌ No wallet found. Use `/wallet create` or `/wallet import` first."
+                        else:
+                            try:
+                                token_mint = parts[1]
+                                amount_sol = float(parts[2])
+                                
+                                wallet_info = wallet_manager.get_wallet_info(user_id)
+                                wallet_address = wallet_info["default"]["pubkey"]
+                                
+                                # Safety checks
+                                safe_ok, safe_msg = safety.comprehensive_safety_check(
+                                    user_id, wallet_address, token_mint, amount_sol, "snipe"
+                                )
+                                
+                                if not safe_ok:
+                                    response_text = f"❌ **Safety Check Failed**\n\n{safe_msg}"
+                                else:
+                                    # Execute trade
+                                    private_key = wallet_manager.get_private_key(user_id, "default")
+                                    if not private_key:
+                                        response_text = "❌ Could not access wallet private key"
+                                    else:
+                                        result = jupiter_engine.safe_swap(private_key, token_mint, amount_sol)
+                                        
+                                        if result["success"]:
+                                            safety.record_trade(user_id, amount_sol)
+                                            response_text = f"""🎉 **Snipe Successful!**
+
+**Transaction:** `{result['signature']}`
+**Tokens Received:** {result['delta_raw']:,}
+**Status:** Trade completed and verified
+
+Your tokens are now in your wallet! 🚀"""
+                                        else:
+                                            response_text = f"❌ **Trade Failed**\n\n{result['error']}"
+                                            
+                            except ValueError:
+                                response_text = "❌ Invalid SOL amount. Use a number like 0.01"
+                            except Exception as e:
+                                response_text = f"❌ Error executing snipe: {str(e)}"
 
                 # /bus_test - Test event bus with fake token
                 elif text.strip().startswith("/bus_test"):
@@ -2626,10 +2716,10 @@ F.E.T.C.H Rules System:
 /fetch, /fetch_now, /a_fetch_now - Run token filtering demo
 
 Wallet System:
-/wallet - Show comprehensive burner wallet info (development only)
-/wallet_new - create a burner wallet
-/wallet_addr - show your wallet address
-/wallet_balance - show SOL balance
+/wallet create - Generate new burner wallet
+/wallet import <key> - Import existing wallet from private key
+/balance - Check SOL and MORK balances
+/snipe <mint> <sol> - Manual token sniping (requires wallet)
 
 Event Bus Testing:
 /bus_test - publish a synthetic NEW_TOKEN event
