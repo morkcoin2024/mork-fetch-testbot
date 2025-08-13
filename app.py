@@ -21,6 +21,24 @@ try:
 except Exception:
     get_or_create_wallet = get_wallet = get_balance_sol = None
 
+# --- PER-USER RATE LIMITING (skip for commands) ---
+user_last_request = {}
+RATE_LIMIT_WINDOW = 5  # seconds between non-command messages
+
+def is_rate_limited(user_id):
+    """Check if user is rate limited for non-command messages"""
+    if not user_id:
+        return False
+        
+    current_time = time.time()
+    last_time = user_last_request.get(user_id, 0)
+    
+    if current_time - last_time < RATE_LIMIT_WINDOW:
+        return True
+    
+    user_last_request[user_id] = current_time
+    return False
+
 # --- SAFE TELEGRAM SEND (integrated with existing _send_chunk) ---
 def _send_safe(text, parse_mode="Markdown", no_preview=True):
     """
@@ -525,8 +543,16 @@ def process_telegram_command(update_data):
         user = message.get('from', {})
         text = message.get('text', '')
         chat_id = message.get('chat', {}).get('id')
+        user_id = user.get('id')
         
-        logger.info(f"[CMD] Processing '{text}' from user {user.get('id')}")
+        logger.info(f"[CMD] Processing '{text}' from user {user_id}")
+        
+        # Check if message is a command
+        is_command = isinstance(text, str) and text.startswith("/")
+        
+        # Rate limiting - skip for commands
+        if not is_command and is_rate_limited(user_id):
+            return {"status": "throttled", "message": "Rate limited"}
         
         # Admin check - only process commands from admin
         from config import ASSISTANT_ADMIN_TELEGRAM_ID
