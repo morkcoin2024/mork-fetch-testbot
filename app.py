@@ -629,7 +629,28 @@ def process_telegram_command(update_data):
         response_text = None
         
         if text.strip() == "/help":
-            help_text = "Mork F.E.T.C.H Bot Help\n\nBasic Commands:\n/help /ping /info /test123 /commands\n\nWallet Commands:\n/wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd\n\nBot is online via polling mode"
+            help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
+                       "**Fast Execution, Trade Control Handler**\n\n" + \
+                       "📋 **Available Commands:**\n" + \
+                       "/help - Show this help\n" + \
+                       "/commands - List all commands\n" + \
+                       "/info - Bot information\n" + \
+                       "/ping - Test connection\n" + \
+                       "/test123 - Connection test\n\n" + \
+                       "💰 **Wallet Commands:**\n" + \
+                       "/wallet - Wallet summary\n" + \
+                       "/wallet_new - Create new wallet\n" + \
+                       "/wallet_addr - Show wallet address\n" + \
+                       "/wallet_balance - Check balance\n" + \
+                       "/wallet_balance_usd - Balance in USD\n" + \
+                       "/wallet_link - Solscan explorer link\n" + \
+                       "/wallet_reset - Reset wallet (2-step confirm)\n" + \
+                       "/wallet_export - Export private key [Admin Only]\n\n" + \
+                       "🔍 **Scanner Commands:**\n" + \
+                       "/solscanstats - Solscan status\n" + \
+                       "/fetch - Basic token fetch\n" + \
+                       "/fetch_now - Multi-source fetch\n\n" + \
+                       "**Bot Status:** ✅ Online (Polling Mode)"
             return _reply(help_text)
         elif text.strip() == "/commands":
             return _reply("📋 **Available Commands**\n\n" +
