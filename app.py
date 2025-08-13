@@ -657,6 +657,7 @@ def process_telegram_command(update_data):
 /wallet_balance - Check balance
 /wallet_balance_usd - Balance in USD
 /wallet_link - Solscan explorer link
+/wallet_reset - Reset wallet (2-step confirm)
 
 **📊 Scanner Commands:**
 /solscanstats - Solscan status
@@ -667,7 +668,7 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/commands":
             response_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset\n" + \
                           "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                           "Use /help for detailed descriptions."
         elif text.strip() == "/info":
@@ -769,6 +770,19 @@ Bot Status: ✅ Online (Polling Mode)"""
                 return _reply(f"🔗 Solscan: https://solscan.io/address/{addr}")
             except Exception as e:
                 return _reply(f"🔗 Link error: {e}", "error")
+        elif text == "/wallet_reset":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm to continue.")
+        elif text == "/wallet_reset_confirm":
+            deny = _require_admin(user)
+            if deny: return deny
+            try:
+                import wallets
+                msg = wallets.cmd_wallet_new(user.get("id"))
+                return _reply(f"✅ Wallet reset.\n{msg}")
+            except Exception as e:
+                return _reply(f"💥 Reset error: {e}", "error")
         elif text.strip() == "/solscanstats":
             try:
                 if "solscan" in SCANNERS:
