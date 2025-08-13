@@ -14,6 +14,17 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+def disable_webhook_if_polling(bot_token: str):
+    """Kill webhook when starting polling to prevent duplicate processing"""
+    try:
+        response = requests.get(f"https://api.telegram.org/bot{bot_token}/deleteWebhook", timeout=5)
+        if response.json().get('ok'):
+            logger.info("[startup] Deleted Telegram webhook (polling mode).")
+        else:
+            logger.warning(f"[startup] Webhook delete failed: {response.json()}")
+    except Exception as e:
+        logger.warning(f"[startup] Warning: failed to delete webhook: {e}")
+
 class TelegramPolling:
     def __init__(self):
         self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')

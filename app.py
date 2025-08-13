@@ -841,7 +841,13 @@ def process_telegram_command(update_data):
 def start_telegram_polling():
     """Start Telegram polling in background thread"""
     try:
-        from telegram_polling import start_polling
+        from telegram_polling import start_polling, disable_webhook_if_polling
+        
+        # Disable webhook to prevent duplicate processing
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        if bot_token:
+            disable_webhook_if_polling(bot_token)
+        
         polling_instance = start_polling()
         logger.info("Telegram polling started successfully")
         return polling_instance
