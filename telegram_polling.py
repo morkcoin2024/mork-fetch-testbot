@@ -103,6 +103,17 @@ class TelegramPolling:
                 from app import process_telegram_command
                 response = process_telegram_command(update_data)
                 logger.info(f"Command processed: {response}")
+                
+                # Handle new dict-based response format
+                if isinstance(response, dict) and "response" in response:
+                    self._send_response(chat_id, response["response"])
+                elif isinstance(response, str):
+                    # Legacy string response support
+                    self._send_response(chat_id, response)
+                else:
+                    # Avoid silence - send fallback message
+                    self._send_response(chat_id, "⚠️ No response generated.")
+                    
             except Exception as import_error:
                 logger.error(f"Import or processing error: {import_error}")
                 # Fallback: direct Telegram API call
@@ -110,6 +121,28 @@ class TelegramPolling:
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")
+    
+    def _send_response(self, chat_id: str, text: str):
+        """Send response via Telegram API with proper formatting"""
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        try:
+            response = requests.post(url, json=data, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"Response sent successfully to chat {chat_id}")
+            else:
+                logger.error(f"Response failed: {response.status_code} - {response.text}")
+                # Retry without Markdown formatting on error
+                data["parse_mode"] = None
+                fallback_response = requests.post(url, json=data, timeout=10)
+                logger.info(f"Fallback response: {fallback_response.status_code}")
+        except Exception as e:
+            logger.error(f"Response send failed: {e}")
     
     def _send_fallback_response(self, chat_id: str, text: str):
         """Send direct response via Telegram API as fallback"""
