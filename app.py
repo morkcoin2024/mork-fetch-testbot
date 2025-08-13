@@ -583,53 +583,44 @@ def ensure_admin_or_msg(user):
 def process_telegram_command(update_data):
     """Process Telegram command from polling or webhook"""
     start_time = time.time()
+    response_text = None
     try:
         if not update_data.get('message'):
-            return _reply("No message in update", status="error")
+            response_text = "No message in update"
+        else:
+            message = update_data['message']
+            user = message.get('from', {})
+            text = message.get('text', '')
+            chat_id = message.get('chat', {}).get('id')
+            user_id = user.get('id')
             
-        message = update_data['message']
-        user = message.get('from', {})
-        text = message.get('text', '')
-        chat_id = message.get('chat', {}).get('id')
-        user_id = user.get('id')
-        
-        # Check if message is a command
-        is_command = isinstance(text, str) and text.startswith("/")
-        
-        # Admin check
-        from config import ASSISTANT_ADMIN_TELEGRAM_ID
-        is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
-        
-        # Structured logging: command entry
-        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
-        
-        # Rate limiting - skip for commands
-        if not is_command and is_rate_limited(user_id):
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
-            return _reply("Rate limited", status="throttled")
-        
-        # Duplicate command detection for commands only (temporarily disabled for debugging)
-        # if is_command and is_duplicate_command(user_id, text):
-        #     duration_ms = int((time.time() - start_time) * 1000)
-        #     logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=duplicate")
-        #     return _reply("⚠️ Duplicate command detected. Please wait a moment before repeating commands.", status="duplicate")
-        
-        # Admin-only check for restricted commands (exclude basic info commands)
-        basic_commands = ["/help", "/ping", "/info", "/test123", "/commands"]
-        if not is_admin and not text.startswith("/wallet") and text not in basic_commands:
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
-            return _reply("⛔ Admin only", status="admin_only")
+            # Check if message is a command
+            is_command = isinstance(text, str) and text.startswith("/")
             
-        # Ensure scanners are initialized
-        _ensure_scanners()
-        
-        # Process command
-        response_text = None
-        
-        if text.strip() == "/help":
-            help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
+            # Admin check
+            from config import ASSISTANT_ADMIN_TELEGRAM_ID
+            is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
+            
+            # Structured logging: command entry
+            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
+            
+            # Rate limiting - skip for commands
+            if not is_command and is_rate_limited(user_id):
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
+                response_text = "Rate limited"
+            # Admin-only check for restricted commands (exclude basic info commands)
+            elif not is_admin and not text.startswith("/wallet") and text not in ["/help", "/ping", "/info", "/test123", "/commands"]:
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
+                response_text = "⛔ Admin only"
+            else:
+                # Ensure scanners are initialized
+                _ensure_scanners()
+                
+                # Process command
+                if text.strip() == "/help":
+                    help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
                        "**Fast Execution, Trade Control Handler**\n\n" + \
                        "📋 **Available Commands:**\n" + \
                        "/help - Show this help\n" + \
@@ -651,15 +642,15 @@ def process_telegram_command(update_data):
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "**Bot Status:** ✅ Online (Polling Mode)"
-            return _reply(help_text)
-        elif text.strip() == "/commands":
-            return _reply("📋 **Available Commands**\n\n" +
-                          "**Basic:** /help /info /ping /test123\n" +
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" +
-                          "**Scanner:** /solscanstats /fetch /fetch_now\n\n" +
-                          "Use /help for detailed descriptions")
-        elif text.strip() == "/info":
-            return _reply(f"""🤖 **Mork F.E.T.C.H Bot Info**
+                    response_text = help_text
+                elif text.strip() == "/commands":
+                    response_text = "📋 **Available Commands**\n\n" + \
+                              "**Basic:** /help /info /ping /test123\n" + \
+                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_reset /wallet_export\n" + \
+                              "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
+                              "Use /help for detailed descriptions"
+                elif text.strip() == "/info":
+                    response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
             
 **Status:** ✅ Online (Polling Mode)
 **Version:** Production v2.0
@@ -668,152 +659,176 @@ def process_telegram_command(update_data):
 **Wallet:** Enabled
 **Admin:** {user.get('username', 'Unknown')}
 
-*The Degens' Best Friend* 🐕""")
-        elif text.strip() == "/test123":
-            return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
-        elif text.strip() == "/ping":
-            return _reply("🎯 **Pong!** Bot is alive and responsive.")
-        # Wallet commands using new helper functions
-        elif text.strip() == "/wallet":
-            deny = _require_admin(user)
-            if deny:
-                return deny
-            try:
-                import wallets
-                return _reply(wallets.cmd_wallet_summary(user.get('id')))
-            except Exception as e:
-                return _reply(f"💰 Wallet error: {e}", status="error")
-        elif text.strip().startswith("/wallet_new"):
-            deny = _require_admin(user)
-            if deny:
-                return deny
-            try:
-                import wallets
-                return _reply(wallets.cmd_wallet_new(user.get('id')))
-            except Exception as e:
-                return _reply(f"💰 Wallet new error: {e}", status="error")
-        elif text.strip().startswith("/wallet_addr"):
-            deny = _require_admin(user)
-            if deny:
-                return deny
-            try:
-                import wallets
-                return _reply(wallets.cmd_wallet_addr(user.get('id')))
-            except Exception as e:
-                return _reply(f"💰 Wallet addr error: {e}", status="error")
-        elif text == "/wallet_balance_usd":
-            deny = _require_admin(user)
-            if deny: return deny
-            try:
-                import wallets
-                import re
-                summary = wallets.cmd_wallet_balance(user.get("id"))  # expects SOL: x.y
-                # extract float; adapt if your format differs
-                m = re.search(r"SOL:\s*([0-9.]+)", summary)
-                if not m: 
-                    logging.error(f"[USD] Could not parse SOL from: {summary}")
-                    return _reply("⚠️ Could not parse SOL balance.", "error")
-                sol = float(m.group(1))
-                logging.info(f"[USD] Parsed SOL amount: {sol}")
-                usd_price = get_sol_price_usd()
-                logging.info(f"[USD] SOL price fetched: ${usd_price}")
-                usd = sol * float(usd_price)
-                result = f"{summary}\n≈ ${usd:,.2f} USD (${usd_price:,.2f}/SOL)"
-                logging.info(f"[USD] Final result length: {len(result)}")
-                return _reply(result)
-            except Exception as e:
-                logging.error(f"[USD] Exception in USD balance: {e}")
-                return _reply(f"💰 USD balance error: {e}", "error")
-        elif text.strip().startswith("/wallet_balance"):
-            deny = _require_admin(user)
-            if deny:
-                return deny
-            try:
-                import wallets
-                return _reply(wallets.cmd_wallet_balance(user.get('id')))
-            except Exception as e:
-                return _reply(f"💰 Wallet balance error: {e}", status="error")
-        elif text == "/wallet_selftest":
-            deny = _require_admin(user)
-            if deny: return deny
-            try:
-                import wallets
-                uid = user.get("id")
-                a = wallets.cmd_wallet_addr(uid)
-                s = wallets.cmd_wallet_summary(uid)
-                b = wallets.cmd_wallet_balance(uid)
-                ok = all(isinstance(x, str) and x.strip() for x in (a, s, b))
-                return _reply("✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete.")
-            except Exception as e:
-                return _reply(f"🧪 Self-test error: {e}", "error")
-        elif text.startswith("/wallet_link"):
-            deny = _require_admin(user)
-            if deny: return deny
-            try:
-                import wallets
-                addr_output = wallets.cmd_wallet_addr(user.get("id"))
-                # Extract just the address from output like "Address: `HS8itzXv...`"
-                addr = addr_output.split('`')[1] if '`' in addr_output else addr_output.strip()
-                return _reply(f"🔗 Solscan: https://solscan.io/address/{addr}")
-            except Exception as e:
-                return _reply(f"🔗 Link error: {e}", "error")
-        elif text == "/wallet_reset":
-            deny = _require_admin(user)
-            if deny: return deny
-            return _reply("⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm to continue.")
-        elif text == "/wallet_reset_confirm":
-            deny = _require_admin(user)
-            if deny: return deny
-            try:
-                import wallets
-                msg = wallets.cmd_wallet_new(user.get("id"))
-                return _reply(f"✅ Wallet reset.\n{msg}")
-            except Exception as e:
-                return _reply(f"💥 Reset error: {e}", "error")
-        elif text == "/wallet_export":
-            deny = _require_admin(user)
-            if deny: return deny
-            try:
-                import wallets
-                export_data = wallets.cmd_wallet_export(user.get("id"))
-                return _reply(export_data)
-            except Exception as e:
-                return _reply(f"🔐 Export error: {e}", "error")
-        elif text.strip() == "/solscanstats":
-            try:
-                if "solscan" in SCANNERS:
-                    scanner = SCANNERS["solscan"]
-                    return _reply(f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}")
+*The Degens' Best Friend* 🐕"""
+                elif text.strip() == "/test123":
+                    response_text = "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
+                elif text.strip() == "/ping":
+                    response_text = "🎯 **Pong!** Bot is alive and responsive."
+                # Wallet commands using new helper functions
+                elif text.strip() == "/wallet":
+                    deny = _require_admin(user)
+                    if deny:
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            response_text = wallets.cmd_wallet_summary(user.get('id'))
+                        except Exception as e:
+                            response_text = f"💰 Wallet error: {e}"
+                elif text.strip().startswith("/wallet_new"):
+                    deny = _require_admin(user)
+                    if deny:
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            response_text = wallets.cmd_wallet_new(user.get('id'))
+                        except Exception as e:
+                            response_text = f"💰 Wallet new error: {e}"
+                elif text.strip().startswith("/wallet_addr"):
+                    deny = _require_admin(user)
+                    if deny:
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            response_text = wallets.cmd_wallet_addr(user.get('id'))
+                        except Exception as e:
+                            response_text = f"💰 Wallet addr error: {e}"
+                elif text == "/wallet_balance_usd":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            import re
+                            summary = wallets.cmd_wallet_balance(user.get("id"))  # expects SOL: x.y
+                            # extract float; adapt if your format differs
+                            m = re.search(r"SOL:\s*([0-9.]+)", summary)
+                            if not m: 
+                                logging.error(f"[USD] Could not parse SOL from: {summary}")
+                                response_text = "⚠️ Could not parse SOL balance."
+                            else:
+                                sol = float(m.group(1))
+                                logging.info(f"[USD] Parsed SOL amount: {sol}")
+                                usd_price = get_sol_price_usd()
+                                logging.info(f"[USD] SOL price fetched: ${usd_price}")
+                                usd = sol * float(usd_price)
+                                result = f"{summary}\n≈ ${usd:,.2f} USD (${usd_price:,.2f}/SOL)"
+                                logging.info(f"[USD] Final result length: {len(result)}")
+                                response_text = result
+                        except Exception as e:
+                            logging.error(f"[USD] Exception in USD balance: {e}")
+                            response_text = f"💰 USD balance error: {e}"
+                elif text.strip().startswith("/wallet_balance"):
+                    deny = _require_admin(user)
+                    if deny:
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            response_text = wallets.cmd_wallet_balance(user.get('id'))
+                        except Exception as e:
+                            response_text = f"💰 Wallet balance error: {e}"
+                elif text == "/wallet_selftest":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            uid = user.get("id")
+                            a = wallets.cmd_wallet_addr(uid)
+                            s = wallets.cmd_wallet_summary(uid)
+                            b = wallets.cmd_wallet_balance(uid)
+                            ok = all(isinstance(x, str) and x.strip() for x in (a, s, b))
+                            response_text = "✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete."
+                        except Exception as e:
+                            response_text = f"🧪 Self-test error: {e}"
+                elif text.startswith("/wallet_link"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            addr_output = wallets.cmd_wallet_addr(user.get("id"))
+                            # Extract just the address from output like "Address: `HS8itzXv...`"
+                            addr = addr_output.split('`')[1] if '`' in addr_output else addr_output.strip()
+                            response_text = f"🔗 Solscan: https://solscan.io/address/{addr}"
+                        except Exception as e:
+                            response_text = f"🔗 Link error: {e}"
+                elif text == "/wallet_reset":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        response_text = "⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm to continue."
+                elif text == "/wallet_reset_confirm":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            msg = wallets.cmd_wallet_new(user.get("id"))
+                            response_text = f"✅ Wallet reset.\n{msg}"
+                        except Exception as e:
+                            response_text = f"💥 Reset error: {e}"
+                elif text == "/wallet_export":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import wallets
+                            export_data = wallets.cmd_wallet_export(user.get("id"))
+                            response_text = export_data
+                        except Exception as e:
+                            response_text = f"🔐 Export error: {e}"
+                elif text.strip() == "/solscanstats":
+                    try:
+                        if "solscan" in SCANNERS:
+                            scanner = SCANNERS["solscan"]
+                            response_text = f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}"
+                        else:
+                            response_text = "📊 Solscan: Not initialized"
+                    except Exception as e:
+                        response_text = f"📊 Solscan error: {e}"
+                elif text.strip() == "/fetch":
+                    try:
+                        import data_fetcher
+                        result = data_fetcher.multi_source_fetch(limit=5)
+                        response_text = f"🔍 Fetch complete: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources"
+                    except Exception as e:
+                        response_text = f"🔍 Fetch error: {e}"
+                elif text.strip() == "/fetch_now":
+                    try:
+                        import data_fetcher
+                        result = data_fetcher.multi_source_fetch(limit=10, force=True)
+                        response_text = f"🚀 Multi-source fetch: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources"
+                    except Exception as e:
+                        response_text = f"🚀 Fetch now error: {e}"
                 else:
-                    return _reply("📊 Solscan: Not initialized")
-            except Exception as e:
-                return _reply(f"📊 Solscan error: {e}", status="error")
-        elif text.strip() == "/fetch":
-            try:
-                import data_fetcher
-                result = data_fetcher.multi_source_fetch(limit=5)
-                return _reply(f"🔍 Fetch complete: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources")
-            except Exception as e:
-                return _reply(f"🔍 Fetch error: {e}", status="error")
-        elif text.strip() == "/fetch_now":
-            try:
-                import data_fetcher
-                result = data_fetcher.multi_source_fetch(limit=10, force=True)
-                return _reply(f"🚀 Multi-source fetch: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources")
-            except Exception as e:
-                return _reply(f"🚀 Fetch now error: {e}", status="error")
-        else:
-            # Handle unknown commands and plain text
-            if is_command:
-                return _reply(f"❓ Unknown command: {text}\nUse /help for available commands.", status="unknown_command")
-            else:
-                return _reply("👍", status="ok")
+                    # Handle unknown commands and plain text
+                    if is_command:
+                        response_text = f"❓ Unknown command: {text}\nUse /help for available commands."
+                    else:
+                        response_text = "👍"
         
+        if response_text is None:
+            response_text = "No response generated"
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=error")
         logger.error(f"Command processing error: {e}")
-        return _reply(f"Command processing error: {str(e)}", status="error")
+        response_text = f"Command processing error: {str(e)}"
+        
+    # Return unified response
+    duration_ms = int((time.time() - start_time) * 1000)
+    logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
+    return _reply(response_text or "No response generated", status="ok")
 
 def start_telegram_polling():
     """Start Telegram polling in background thread"""
@@ -1376,11 +1391,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                 elif text.strip() == "/rules_show":
                     logger.info("[WEBHOOK] Routing /rules_show")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        _reply("Not authorized.")
-                        return jsonify({"status": "ok", "command": text, "response_sent": True})
-                    from alerts.telegram import cmd_rules_show_sync
-                    _reply(cmd_rules_show_sync())
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+                        response_text = "Not authorized."
+                    else:
+                        from alerts.telegram import cmd_rules_show_sync
+                        response_text = cmd_rules_show_sync()
 
                 # /pumpfun_probe (admin only)
                 elif text.strip().startswith("/pumpfun_probe"):
