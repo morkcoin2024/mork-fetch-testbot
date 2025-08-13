@@ -61,3 +61,61 @@ def get_balance_sol(address:str)->float:
         return asyncio.run(get_balance(address))
     except Exception:
         return 0.0
+
+# Command functions for webhook integration
+def cmd_wallet_new(user_id) -> str:
+    """Generate keypair, persist per-user, return Markdown-safe notice"""
+    try:
+        user_id_str = str(user_id)
+        wallet = get_or_create_wallet(user_id_str)
+        addr = wallet["address"]
+        return (f"**Wallet created**\n"
+                f"Address: `{addr}`\n\n"
+                f"⚠️ Burner wallet for testing only. Do not send large amounts!")
+    except Exception as e:
+        return f"Error creating wallet: {str(e)}"
+
+def cmd_wallet_addr(user_id) -> str:
+    """Load wallet; if missing return guidance, else return addr in code block"""
+    try:
+        user_id_str = str(user_id)
+        wallet = get_wallet(user_id_str)
+        if not wallet:
+            return "No wallet found. Run /wallet_new"
+        return f"Address: `{wallet['address']}`"
+    except Exception as e:
+        return f"Error getting wallet address: {str(e)}"
+
+def cmd_wallet_balance(user_id) -> str:
+    """Load wallet; if missing return guidance, else RPC getBalance with 9 decimal formatting"""
+    try:
+        user_id_str = str(user_id)
+        wallet = get_wallet(user_id_str)
+        if not wallet:
+            return "No wallet found. Run /wallet_new"
+        
+        addr = wallet["address"]
+        balance = get_balance_sol(addr)
+        return (f"**Balance**\n"
+                f"Address: `{addr}`\n"
+                f"SOL: {balance:.9f}")
+    except Exception as e:
+        import logging
+        logging.warning("[WALLET] balance fetch failed: %s", e)
+        return f"Error fetching balance: {str(e)}"
+
+def cmd_wallet_summary(user_id) -> str:
+    """Combine addr + balance; fall back to guidance if missing"""
+    try:
+        user_id_str = str(user_id)
+        wallet = get_wallet(user_id_str)
+        if not wallet:
+            return "No wallet found. Run /wallet_new"
+        
+        addr = wallet["address"]
+        balance = get_balance_sol(addr)
+        return f"Address: `{addr[:12]}...` | SOL: {balance:.4f}"
+    except Exception as e:
+        import logging
+        logging.warning("[WALLET] summary failed: %s", e)
+        return f"Error getting wallet summary: {str(e)}"

@@ -1,0 +1,108 @@
+Please apply this exact patch + tests to restore wallet commands.
+
+/*** GOAL ***/
+Route these commands through the webhook and return safe messages:
+- /wallet_new        -> create burner wallet (keypair in KV), return addr + caution note
+- /wallet_addr       -> show current burner address or instruct to run /wallet_new
+- /wallet_balance    -> show SOL balance for the burner wallet
+- /wallet            -> compact summary (addr + balance)
+
+All replies must go through the existing safe_reply() so Telegram 500s are handled.
+
+/*** IMPLEMENTATION ***/
+1) In app.py webhook router (same section that handles /ping, /scan_status, etc.), add these blocks in order, using .startswith() like other commands:
+
+    elif text.strip().startswith("/wallet_new"):
+        logger.info("[WALLET] /wallet_new requested by %s", user_id)
+        response_text = wallets.cmd_wallet_new(user_id)
+
+    elif text.strip().startswith("/wallet_addr"):
+        logger.info("[WALLET] /WALLET_ADDR requested by %s", user_id)
+        response_text = wallets.cmd_wallet_addr(user_id)
+
+    elif text.strip().startswith("/wallet_balance"):
+        logger.info("[WALLET] /WALLET_BALANCE requested by %s", user_id)
+        response_text = wallets.cmd_wallet_balance(user_id)
+
+    elif text.strip().startswith("/wallet"):
+        logger.info("[WALLET] /wallet summary requested by %s", user_id)
+        response_text = wallets.cmd_wallet_summary(user_id)
+
+   - Keep these BEFORE the generic/unknown-command branch.
+   - All four must be included in the /help text (they already show, just ensure the section is still present).
+   - Every path must log a clear “[WALLET] …” line so we can grep it.
+
+2) In wallets.py (or the module you already use), expose the four helpers with safe formatting and robust errors:
+
+    def cmd_wallet_new(user_id): 
+        # generate keypair, persist per-user (KV/redis/file), return Markdown-safe notice
+        # include ⚠️ burner wallet caution
+        # return f"**Wallet created**\nAddress: `{addr}`\n\n⚠️ Burner wallet…"
+
+    def cmd_wallet_addr(user_id):
+        # load wallet; if missing -> return "No wallet found. Run /wallet_new"
+        # else return addr in code block
+
+    def cmd_wallet_balance(user_id):
+        # load wallet; if missing -> same guidance
+        # else RPC getBalance, format SOL with 9 decimals normalize, return
+        # Example: "**Balance**\nAddress: `...`\nSOL: 0.123456789"
+
+    def cmd_wallet_summary(user_id):
+        # combine addr + balance; fall back to guidance if missing
+
+   - All functions must return plain strings; no direct Telegram calls inside them.
+   - Use the same RPC client you already use elsewhere (Solana RPC env).
+   - Wrap RPC calls with try/except and return a friendly error string on failure (and log a [WALLET] warning).
+
+3) All webhook responses must go out via your existing `safe_reply()` helper:
+   - If Markdown fails, it should auto-fallback to plain text (you already added this).
+
+4) Logging:
+   - On entry to each handler: logger.info("[WALLET] <action> user=%s", user_id)
+   - On error: logger.warning("[WALLET] <action> failed: %s", err)
+
+5) Admin-gating:
+   - Wallet commands should be allowed for you now; if you require admin-only, leave the same is_admin guard used for other admin commands.
+
+/*** TEST SEQUENCE (run in Telegram after patch & restart) ***/
+1) Routing sanity:
+   /a_logs_tail 50 level=info contains=[WALLET]
+
+   Expected: lines like
+   [INFO] app: [WALLET] /wallet_new requested by 1653046781
+
+2) Create wallet:
+   /wallet_new
+   Expected reply (safe Markdown): “**Wallet created** … Address: `<base58>` … ⚠️ Burner wallet …”
+
+3) Show address:
+   /wallet_addr
+   Expected: the same address, in a code block or backticks.
+
+4) Balance:
+   /wallet_balance
+   Expected: “**Balance** … SOL: <number>” (works even if 0).
+
+5) Summary:
+   /wallet
+   Expected: compact address + balance.
+
+6) Failure paths:
+   - Delete KV entry manually (or use a `/wallet_reset` if present), then:
+     /wallet_addr   -> “No wallet found. Run /wallet_new”
+   - Temporarily break RPC URL (env or mock) and run /wallet_balance:
+     expect a friendly error line and a `[WALLET] … failed:` warning in logs.
+
+7) Prove messages are delivered safely (no 500s):
+   /help
+   /a_logs_tail 80 level=error contains=[TELEGRAM-SEND]
+   Expected: no new errors during these wallet replies.
+
+/*** ACCEPTANCE CRITERIA ***/
+- Each of /wallet_new, /wallet_addr, /wallet_balance, /wallet returns a Telegram message within ~1s.
+- Ring buffer shows at least one “[WALLET]” line per command.
+- No “Failed to send response to Telegram” errors tied to these commands.
+- Balance fetch shows a sane number (0 is fine).
+
+Please make these changes now, then tell me “WALLET COMMANDS PATCHED” and I’ll run the 7-step test.

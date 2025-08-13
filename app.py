@@ -712,6 +712,20 @@ def webhook():
                     logger.exception("sendMessage failed: %s", e)
                     return False
 
+            def _send_safe(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
+                """Safe send with automatic Markdown→plain text fallback"""
+                try:
+                    success = _send_chunk(text, parse_mode=parse_mode, no_preview=no_preview)
+                    if success:
+                        return True
+                except Exception:
+                    pass
+                # Fallback: plain text, no parse mode
+                try:
+                    return _send_chunk(text, parse_mode=None, no_preview=True)
+                except Exception:
+                    return False
+
             def _reply(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
                 # Enhanced reply with safe chunked messaging and automatic fallback
                 MAX = 3900  # Stay under 4096 Telegram limit
@@ -804,23 +818,31 @@ def webhook():
                                 single_response = f"📊 Solscan error: {e}"
                         elif text.strip() == "/wallet":
                             try:
-                                from wallets import get_or_create_wallet, get_balance_sol
-                                user_id = str(user.get('id'))
-                                w = get_or_create_wallet(user_id)
-                                balance = get_balance_sol(w["address"])
-                                balance_str = f"{balance:.4f}" if balance >= 0 else "error"
-                                single_response = f"💰 Wallet: {w['address'][:12]}... | {balance_str} SOL"
+                                import wallets
+                                single_response = wallets.cmd_wallet_summary(user.get('id'))
                             except Exception as e:
                                 single_response = f"💰 Wallet error: {e}"
                         elif text.strip().startswith("/wallet_new"):
-                            single_response = handle_wallet_new(user.get('id'))
+                            try:
+                                import wallets
+                                single_response = wallets.cmd_wallet_new(user.get('id'))
+                            except Exception as e:
+                                single_response = f"💰 Wallet new error: {e}"
                         elif text.strip().startswith("/wallet_addr"):
-                            single_response = handle_wallet_addr(user.get('id'))
+                            try:
+                                import wallets
+                                single_response = wallets.cmd_wallet_addr(user.get('id'))
+                            except Exception as e:
+                                single_response = f"💰 Wallet addr error: {e}"
                         elif text.startswith("/wallet_addr_test"):
                             # Test case for enhanced wallet functionality
                             single_response = "Test OK - Enhanced wallet system active"
                         elif text.strip().startswith("/wallet_balance"):
-                            single_response = handle_wallet_balance(user.get('id'))
+                            try:
+                                import wallets
+                                single_response = wallets.cmd_wallet_balance(user.get('id'))
+                            except Exception as e:
+                                single_response = f"💰 Wallet balance error: {e}"
                         elif text.strip().startswith("/bus_test"):
                             single_response = handle_bus_test()
                             BUS.publish("NEW_TOKEN", fake)
@@ -879,18 +901,7 @@ def webhook():
                 if text.strip() in ['/ping', '/a_ping']:
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
-                elif text.strip().startswith("/wallet_new"):
-                    response_text = handle_wallet_new(user.get('id'))
-                    _reply(response_text, parse_mode=None, no_preview=True)
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
-                elif text.strip().startswith("/wallet_addr"):
-                    response_text = handle_wallet_addr(user.get('id'))
-                    _reply(response_text, parse_mode=None, no_preview=True)
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
-                elif text.strip().startswith("/wallet_balance"):
-                    response_text = handle_wallet_balance(user.get('id'))
-                    _reply(response_text, parse_mode=None, no_preview=True)
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+
                 elif text.strip().startswith("/bus_test"):
                     response_text = handle_bus_test()
                     _reply(response_text, parse_mode=None, no_preview=True)
@@ -2432,54 +2443,39 @@ Not for production custody."""
 
                 # /wallet_new - Create new burner wallet
                 elif text.strip().startswith("/wallet_new"):
-                    logger.info(f"[WEBHOOK] Processing /wallet_new for user {user.get('id')}")
+                    logger.info("[WALLET] /wallet_new requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        try:
-                            uid = str(user.get('id'))
-                            logger.info(f"[WEBHOOK] Creating wallet for uid={uid}")
-                            w = get_or_create_wallet(uid)
-                            response_text = (
-                                "🪪 *Burner wallet created*\n"
-                                f"• Address: `{w['address']}`\n"
-                                "_(Private key stored server-side for testing; will move to secure storage before trading.)_"
-                            )
-                            logger.info(f"[WEBHOOK] Wallet created successfully, response_text length: {len(response_text)}")
-                        except Exception as e:
-                            logger.exception(f"[WEBHOOK] Wallet creation error: {e}")
-                            response_text = f"❌ Wallet creation error: {e}"
+                        import wallets
+                        response_text = wallets.cmd_wallet_new(user.get('id'))
 
                 # /wallet_addr - Get wallet address
                 elif text.strip().startswith("/wallet_addr"):
+                    logger.info("[WALLET] /wallet_addr requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        try:
-                            uid = str(user.get('id'))
-                            w = get_wallet(uid)
-                            if not w:
-                                response_text = "⚠️ No wallet yet. Use /wallet_new first."
-                            else:
-                                response_text = f"📬 *Your burner wallet address*\n`{w['address']}`"
-                        except Exception as e:
-                            response_text = f"❌ Wallet address error: {e}"
+                        import wallets
+                        response_text = wallets.cmd_wallet_addr(user.get('id'))
 
                 # /wallet_balance - Check wallet balance
                 elif text.strip().startswith("/wallet_balance"):
+                    logger.info("[WALLET] /wallet_balance requested by %s", user.get('id'))
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
-                        try:
-                            uid = str(user.get('id'))
-                            w = get_wallet(uid)
-                            if not w:
-                                response_text = "⚠️ No wallet yet. Use /wallet_new first."
-                            else:
-                                bal = get_balance_sol(w["address"])
-                                response_text = f"💰 *Wallet balance*\nAddress: `{w['address']}`\nBalance: `{bal:.6f} SOL`"
-                        except Exception as e:
-                            response_text = f"❌ Wallet balance error: {e}"
+                        import wallets
+                        response_text = wallets.cmd_wallet_balance(user.get('id'))
+
+                # /wallet - Wallet summary (compact)
+                elif text.strip().startswith("/wallet") and text.strip() == "/wallet":
+                    logger.info("[WALLET] /wallet summary requested by %s", user.get('id'))
+                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                        response_text = "Not authorized."
+                    else:
+                        import wallets
+                        response_text = wallets.cmd_wallet_summary(user.get('id'))
 
                 # /bus_test - Test event bus with fake token
                 elif text.strip().startswith("/bus_test"):
