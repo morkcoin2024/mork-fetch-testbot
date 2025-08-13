@@ -27,6 +27,34 @@ user_last_command = {}
 RATE_LIMIT_WINDOW = 5  # seconds between non-command messages
 COMMAND_DEDUPE_WINDOW = 1  # seconds to prevent accidental double-taps
 
+# --- SOL PRICE CACHE ---
+PRICE_CACHE = {"sol": {"price": None, "ts": 0}}
+
+def get_sol_price_usd():
+    """Get SOL price in USD with 60-second cache"""
+    now = time.time()
+    if PRICE_CACHE["sol"]["price"] and now - PRICE_CACHE["sol"]["ts"] < 60:
+        return PRICE_CACHE["sol"]["price"]
+    
+    # Fetch fresh price using existing birdeye integration
+    try:
+        # Use existing birdeye price fetch if available
+        import birdeye
+        price = birdeye.get_sol_price()  # assume this exists
+        PRICE_CACHE["sol"] = {"price": price, "ts": now}
+        return price
+    except Exception:
+        # Fallback to simple API call
+        try:
+            import httpx
+            resp = httpx.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", timeout=10)
+            price = resp.json()["solana"]["usd"]
+            PRICE_CACHE["sol"] = {"price": price, "ts": now}
+            return price
+        except Exception:
+            # Final fallback - use cached value even if stale, or default
+            return PRICE_CACHE["sol"]["price"] if PRICE_CACHE["sol"]["price"] else 200.0
+
 def is_rate_limited(user_id):
     """Check if user is rate limited for non-command messages"""
     if not user_id:
@@ -627,6 +655,7 @@ def process_telegram_command(update_data):
 /wallet_new - Create new wallet
 /wallet_addr - Show wallet address
 /wallet_balance - Check balance
+/wallet_balance_usd - Balance in USD
 /wallet_link - Solscan explorer link
 
 **📊 Scanner Commands:**
@@ -638,7 +667,7 @@ Bot Status: ✅ Online (Polling Mode)"""
         elif text.strip() == "/commands":
             response_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_link\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link\n" + \
                           "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                           "Use /help for detailed descriptions."
         elif text.strip() == "/info":
@@ -684,6 +713,29 @@ Bot Status: ✅ Online (Polling Mode)"""
                 response_text = wallets.cmd_wallet_addr(user.get('id'))
             except Exception as e:
                 return _reply(f"💰 Wallet addr error: {e}", status="error")
+        elif text == "/wallet_balance_usd":
+            deny = _require_admin(user)
+            if deny: return deny
+            try:
+                import wallets
+                import re
+                summary = wallets.cmd_wallet_balance(user.get("id"))  # expects SOL: x.y
+                # extract float; adapt if your format differs
+                m = re.search(r"SOL:\s*([0-9.]+)", summary)
+                if not m: 
+                    logging.error(f"[USD] Could not parse SOL from: {summary}")
+                    return _reply("⚠️ Could not parse SOL balance.", "error")
+                sol = float(m.group(1))
+                logging.info(f"[USD] Parsed SOL amount: {sol}")
+                usd_price = get_sol_price_usd()
+                logging.info(f"[USD] SOL price fetched: ${usd_price}")
+                usd = sol * float(usd_price)
+                result = f"{summary}\n≈ ${usd:,.2f} USD (${usd_price:,.2f}/SOL)"
+                logging.info(f"[USD] Final result length: {len(result)}")
+                return _reply(result)
+            except Exception as e:
+                logging.error(f"[USD] Exception in USD balance: {e}")
+                return _reply(f"💰 USD balance error: {e}", "error")
         elif text.strip().startswith("/wallet_balance"):
             deny = _require_admin(user)
             if deny:

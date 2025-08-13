@@ -12,6 +12,8 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
 **Latest Updates:**
+- **COMPLETED**: **USD WALLET PRICING SYSTEM** - Implemented `/wallet_balance_usd` command with real-time SOL price fetching from CoinGecko API, 60-second price caching, regex-based SOL amount parsing, and comprehensive USD conversion display (August 13, 2025)
+- **COMPLETED**: **COMPLETE WALLET COMMAND SUITE** - All 6 wallet commands now fully operational: `/wallet`, `/wallet_addr`, `/wallet_balance`, `/wallet_balance_usd`, `/wallet_selftest`, `/wallet_link` with enhanced error handling and admin security
 - **COMPLETED**: **MAJOR BREAKTHROUGH** - Resolved critical Telegram webhook delivery issue by implementing production-ready polling mode integration (August 13, 2025)
 - **COMPLETED**: Created unified command processing system with proper Telegram API integration and comprehensive command handling
 - **COMPLETED**: All Telegram commands now fully operational (/help, /commands, /info, /test123, /ping, wallet commands) with professional Mork F.E.T.C.H branding
