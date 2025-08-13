@@ -10,6 +10,7 @@ import threading
 import json
 from typing import Optional, Dict, Any
 from collections import deque
+from telegram_safety import send_telegram_safe
 
 # Import webhook processing function - delay import to avoid circular imports
 
@@ -131,7 +132,11 @@ class TelegramPolling:
 
             # Import at runtime to avoid circular import
             from app import process_telegram_command
-            from telegram_safety import send_telegram_safe
+            
+            # Ensure bot_token is available
+            if not self.bot_token:
+                logger.error("Bot token not available")
+                return
             
             result = process_telegram_command(update)
             text = result["response"] if isinstance(result, dict) and "response" in result else (result if isinstance(result, str) else "⚠️ No response.")
@@ -143,10 +148,10 @@ class TelegramPolling:
 
         except Exception as e:
             logger.error(f"Update handling error: {e}")
-            # Final fallback if we have chat_id
-            if "chat_id" in locals() and chat_id:
+            # Final fallback if we have chat_id and bot_token
+            chat_id = locals().get("chat_id")
+            if chat_id and self.bot_token:
                 try:
-                    from telegram_safety import send_telegram_safe
                     ok, status, js = send_telegram_safe(self.bot_token, int(chat_id), "❌ Processing error occurred")
                     if not ok:
                         logger.warning("fallback_send_failed", extra={"status": status, "resp": js})
