@@ -774,13 +774,32 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            import wallets
+                            import re, wallets
                             uid = user.get("id")
-                            a = wallets.cmd_wallet_addr(uid)
-                            s = wallets.cmd_wallet_summary(uid)
-                            b = wallets.cmd_wallet_balance(uid)
-                            ok = all(isinstance(x, str) and x.strip() for x in (a, s, b))
-                            response_text = "✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete."
+
+                            addr_text = wallets.cmd_wallet_addr(uid) or ""
+                            summary   = wallets.cmd_wallet_summary(uid) or ""
+                            bal_text  = wallets.cmd_wallet_balance(uid) or ""
+
+                            # Base58 address (32–44 chars, no 0/O/I/l)
+                            base58_re = r"[1-9A-HJ-NP-Za-km-z]{32,44}"
+                            m_addr = re.search(base58_re, addr_text) or re.search(base58_re, summary)
+
+                            # Consider the test passed if we got any address and both strings are non-empty
+                            ok = bool(m_addr) and summary.strip() and bal_text.strip()
+                            if ok:
+                                response_text = "✅ Wallet self-test passed"
+                            else:
+                                # If not ok, surface what we saw (trimmed) so we can adjust quickly
+                                def short(s): 
+                                    s = re.sub(r"\s+", " ", s).strip()
+                                    return (s[:120] + "…") if len(s) > 120 else s
+                                response_text = (
+                                    "⚠️ Self-test incomplete.\n"
+                                    f"- addr_text: {short(addr_text)}\n"
+                                    f"- summary: {short(summary)}\n"
+                                    f"- balance: {short(bal_text)}"
+                                )
                         except Exception as e:
                             response_text = f"🧪 Self-test error: {e}"
                 elif text.startswith("/wallet_link"):
