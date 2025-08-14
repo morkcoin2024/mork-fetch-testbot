@@ -1553,86 +1553,85 @@ def process_telegram_command(update_data):
                         lines.append(f"{mint[:8]}... {cfg['sol']} SOL ({status})")
                     return _reply("\n".join(lines))
 
-                # --- AutoSell commands ---
-                elif text.startswith("/autosell "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import autosell
-                        parts = text.split()
-                        if len(parts) < 3:
-                            return _reply("Usage: /autosell <MINT> <TP%> [SL%] [TRAIL%] [SIZE%]\nExample: /autosell ABC123 30 15 5 50")
-                        mint = parts[1].strip()
-                        tp_pct = float(parts[2]) if parts[2] != "-" else None
-                        sl_pct = float(parts[3]) if len(parts) > 3 and parts[3] != "-" else None
-                        trail_pct = float(parts[4]) if len(parts) > 4 and parts[4] != "-" else None
-                        size_pct = float(parts[5]) if len(parts) > 5 and parts[5] != "-" else 100.0
-                        autosell.set_rule(mint, tp_pct, sl_pct, trail_pct, size_pct)
-                        return _reply(f"🧠 AutoSell rule set for {mint[:8]}… TP:{tp_pct}% SL:{sl_pct}% TRAIL:{trail_pct}% SIZE:{size_pct}%")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell error: {e}", "error")
-
-                elif text.startswith("/autosell_remove "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import autosell
-                        mint = text.split(maxsplit=1)[1].strip()
-                        ok = autosell.remove_rule(mint)
-                        return _reply("✅ AutoSell rule removed." if ok else "ℹ️ No rule found.")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell remove error: {e}", "error")
-
-                elif text.strip() == "/autosell_list":
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import autosell
-                        rules = autosell.get_rules()
-                        if not rules:
-                            return _reply("🧠 AutoSell: (no rules)")
-                        lines = ["🧠 **AutoSell Rules**"]
-                        for mint, rule in rules.items():
-                            tp = rule.get("tp_pct", "-")
-                            sl = rule.get("sl_pct", "-")
-                            trail = rule.get("trail_pct", "-")
-                            size = rule.get("size_pct", 100)
-                            lines.append(f"{mint[:8]}... TP:{tp}% SL:{sl}% TRAIL:{trail}% SIZE:{size}%")
-                        return _reply("\n".join(lines))
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell list error: {e}", "error")
-
+                # --- AutoSell controls ---
                 elif text.strip() == "/autosell_on":
                     deny = _require_admin(user)
                     if deny: return deny
-                    try:
-                        import autosell
-                        autosell.enable()
-                        return _reply("✅ AutoSell engine started.")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell start error: {e}", "error")
+                    import autosell
+                    autosell.enable()
+                    return _reply("🟢 AutoSell enabled.")
 
                 elif text.strip() == "/autosell_off":
                     deny = _require_admin(user)
                     if deny: return deny
-                    try:
-                        import autosell
-                        autosell.disable()
-                        return _reply("✅ AutoSell engine stopped.")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell stop error: {e}", "error")
+                    import autosell
+                    autosell.disable()
+                    return _reply("🔴 AutoSell disabled.")
+
+                elif text.startswith("/autosell_interval"):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import autosell
+                    parts = text.split()
+                    if len(parts) < 2: 
+                        return _reply("Usage: /autosell_interval <seconds>")
+                    autosell.set_interval(int(parts[1]))
+                    st = autosell.status()
+                    return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
 
                 elif text.strip() == "/autosell_status":
                     deny = _require_admin(user)
                     if deny: return deny
-                    try:
-                        import autosell
-                        status = autosell.status()
-                        return _reply(f"🧠 AutoSell: {'ON' if status['enabled'] else 'OFF'}\n"
-                                    f"Rules: {status['rules_count']}  Interval: {status['interval_sec']}s\n"
-                                    f"Thread: {'ALIVE' if status['thread_alive'] else 'STOPPED'}")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoSell status error: {e}", "error")
+                    import autosell
+                    st = autosell.status()
+                    return _reply(
+                        "🤖 AutoSell Status\n"
+                        f"Enabled: {st['enabled']}\n"
+                        f"Interval: {st['interval_sec']}s\n"
+                        f"Rules: {st['rules_count']}\n"
+                        f"Thread alive: {st['thread_alive']}"
+                    )
+
+                # Rule set: /autosell_set <MINT> tp=<%>|- sl=<%>|- trail=<%>|- size=<%|ABS%>
+                elif text.startswith("/autosell_set "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import autosell
+                    parts = text.split()
+                    if len(parts) < 2: 
+                        return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
+                    mint = parts[1].strip()
+                    kv = {"tp": None, "sl": None, "trail": None, "size": None}
+                    for p in parts[2:]:
+                        if "=" in p:
+                            k, v = p.split("=", 1)
+                            k = k.lower()
+                            try:
+                                kv[k] = float(v)
+                            except:
+                                pass
+                    autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
+                    return _reply(f"✅ AutoSell set for {mint[:8]}…  tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}")
+
+                elif text.startswith("/autosell_remove "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import autosell
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = autosell.remove_rule(mint)
+                    return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+
+                elif text.strip() == "/autosell_list":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import autosell
+                    rules = autosell.get_rules()
+                    if not rules: 
+                        return _reply("🤖 AutoSell rules: (none)")
+                    lines = ["🤖 AutoSell rules:"]
+                    for m, r in rules.items():
+                        lines.append(f"{m[:8]}…  tp={r.get('tp_pct')} sl={r.get('sl_pct')} trail={r.get('trail_pct')} size={r.get('size_pct',100)}%")
+                    return _reply("\n".join(lines))
 
                 elif text.startswith("/autobuy_off "):
                     deny = _require_admin(user)
