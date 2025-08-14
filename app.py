@@ -667,6 +667,10 @@ def process_telegram_command(update_data):
                        "/solscanstats - Scanner status & config\n" + \
                        "/config_update - Update scanner settings\n" + \
                        "/config_show - Show current config\n" + \
+                       "/scanner_on / /scanner_off - Toggle scanner\n" + \
+                       "/threshold <score> - Set score threshold\n" + \
+                       "/watch <mint> / /unwatch <mint> - Manage watchlist\n" + \
+                       "/watchlist - Show watchlist\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "**Bot Status:** ✅ Online (Polling Mode)"
@@ -675,7 +679,7 @@ def process_telegram_command(update_data):
                     response_text = "📋 **Available Commands**\n\n" + \
                               "**Basic:** /help /info /ping /test123\n" + \
                               "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                              "**Scanner:** /solscanstats /config_update /config_show /fetch /fetch_now\n\n" + \
+                              "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n\n" + \
                               "Use /help for detailed descriptions"
                 elif text.strip() == "/info":
                     response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
@@ -1167,6 +1171,105 @@ def process_telegram_command(update_data):
                                 response_text = f"✅ Updated {key} = {value}"
                         except Exception as e:
                             response_text = f"⚙️ Update error: {e}"
+                elif text.startswith("/scanner_on"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            config_mgr.set("scanner.enabled", True)
+                            config_mgr.save_config()
+                            response_text = "🟢 Scanner enabled."
+                        except Exception as e:
+                            response_text = f"⚠️ Scanner enable error: {e}"
+                elif text.startswith("/scanner_off"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            config_mgr.set("scanner.enabled", False)
+                            config_mgr.save_config()
+                            response_text = "🔴 Scanner disabled."
+                        except Exception as e:
+                            response_text = f"⚠️ Scanner disable error: {e}"
+                elif text.startswith("/threshold"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = "Usage: /threshold <score>"
+                            else:
+                                val = int(parts[1])
+                                from config_manager import get_config
+                                config_mgr = get_config()
+                                config_mgr.set("scanner.threshold", val)
+                                config_mgr.save_config()
+                                response_text = f"✅ Threshold set to {val}."
+                        except Exception as e:
+                            response_text = f"⚠️ Threshold error: {e}"
+                elif text.startswith("/watch "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            mint = text.split(maxsplit=1)[1].strip()
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            
+                            watchlist = config_mgr.get_watchlist()
+                            if mint not in watchlist:
+                                config_mgr.add_to_watchlist(mint)
+                                response_text = f"👀 Watching {mint}"
+                            else:
+                                response_text = "ℹ️ Already watching."
+                        except Exception as e:
+                            response_text = f"⚠️ Watch error: {e}"
+                elif text.startswith("/unwatch "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            mint = text.split(maxsplit=1)[1].strip()
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            
+                            watchlist = config_mgr.get_watchlist()
+                            if mint in watchlist:
+                                config_mgr.remove_from_watchlist(mint)
+                                response_text = "🗑️ Removed"
+                            else:
+                                response_text = "ℹ️ Not on watchlist."
+                        except Exception as e:
+                            response_text = f"⚠️ Unwatch error: {e}"
+                elif text.strip() == "/watchlist":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            watchlist = config_mgr.get_watchlist()
+                            
+                            if watchlist:
+                                lines = ["👀 **Watchlist:**"]
+                                for i, mint in enumerate(watchlist, 1):
+                                    lines.append(f"{i}. {mint}")
+                                response_text = "\n".join(lines)
+                            else:
+                                response_text = "👀 Watchlist: (empty)"
+                        except Exception as e:
+                            response_text = f"⚠️ Watchlist error: {e}"
                 elif text.strip() == "/fetch":
                     try:
                         import data_fetcher
