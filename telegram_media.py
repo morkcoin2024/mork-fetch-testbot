@@ -1,9 +1,9 @@
 # telegram_media.py
 import logging, requests
 
-def send_photo_safe(token: str, chat_id: int | str, image_path: str, caption: str | None = None):
+def send_photo_safe(token: str, chat_id: int, image_path: str, caption: str | None = None):
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    data = {"chat_id": str(chat_id)}
+    data = {"chat_id": chat_id}
     if caption:
         data["caption"] = caption
     try:
