@@ -45,6 +45,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Webhook Conflict Resolution:** Automatic webhook deletion when polling starts.
 - **Enhanced Command Processing System:** Advanced `_parse_cmd()` function with regex-based parsing, zero-width character normalization (ZWSP, ZWNJ, ZWJ, WORD JOINER, BOM), and robust @BotName handling, unified `process_telegram_command()` function with clean response architecture, and integrated AutoSell command suite with comprehensive error handling and admin-only access controls.
 - **Standardized Command Parsing Pattern:** Enforced consistent command processing throughout webhook handler using mandatory pattern: `msg = update.get("message") or {}; user = msg.get("from") or {}; text = msg.get("text") or ""; cmd, args = _parse_cmd(text)` - ensuring unified parsing, enhanced debugging capabilities via `/debug_cmd`, and bulletproof command introspection across all message processing paths.
+- **Smart Unknown Command Handling:** Professional error messages with text sanitization to prevent formatting issues, distinguishing between commands and regular text using `clean = (text or "").replace("\n", " ")` pattern for clean Telegram delivery.
 - **Robust Result Handling Pattern:** Enhanced webhook integration with bulletproof result processing supporting dict/string/error responses, intelligent output detection, and safe Telegram delivery using `telegram_safety.send_telegram_safe` for maximum reliability.
 
 ## External Dependencies
