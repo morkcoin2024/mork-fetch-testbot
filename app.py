@@ -632,12 +632,14 @@ def process_telegram_command(update_data):
         else:
             message = update_data['message']
             user = message.get('from', {})
-            text = message.get('text', '')
+            raw_text = (message.get('text') or '')
+            cmd, args = _parse_cmd(raw_text)
+            text = raw_text  # Keep original text for backwards compatibility
             chat_id = message.get('chat', {}).get('id')
             user_id = user.get('id')
             
             # Check if message is a command
-            is_command = isinstance(text, str) and text.startswith("/")
+            is_command = cmd is not None
             
             # Admin check
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
@@ -1569,14 +1571,14 @@ def process_telegram_command(update_data):
                     return _reply("\n".join(lines))
 
                 # --- AutoSell controls ---
-                elif text.strip() == "/autosell_on":
+                elif cmd == "/autosell_on":
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
                     autosell.enable()
                     return _reply("🟢 AutoSell enabled.")
 
-                elif text.strip() == "/autosell_off":
+                elif cmd == "/autosell_off":
                     deny = _require_admin(user)
                     if deny: return deny
                     try:
@@ -1586,17 +1588,16 @@ def process_telegram_command(update_data):
                     except Exception as e:
                         return _reply(f"⚠️ autosell_off error: {e}", "error")
 
-                elif text.startswith("/autosell_interval"):
+                elif cmd == "/autosell_interval":
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
-                    parts = text.split()
-                    if len(parts) < 2: return _reply("Usage: /autosell_interval <seconds>")
-                    autosell.set_interval(int(parts[1]))
+                    if not args: return _reply("Usage: /autosell_interval <seconds>")
+                    autosell.set_interval(int(args.split()[0]))
                     st = autosell.status()
                     return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
 
-                elif text.strip() == "/autosell_status":
+                elif cmd == "/autosell_status":
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
@@ -1611,16 +1612,16 @@ def process_telegram_command(update_data):
 
                 # --- AutoSell: set a rule ---
                 # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
-                elif text.startswith("/autosell_set "):
+                elif cmd == "/autosell_set":
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
-                    parts = text.split()
-                    if len(parts) < 2:
+                    if not args:
                         return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-                    mint = parts[1].strip()
+                    parts = args.split()
+                    mint = parts[0].strip()
                     kv = {"tp": None, "sl": None, "trail": None, "size": None}
-                    for p in parts[2:]:
+                    for p in parts[1:]:
                         if "=" in p:
                             k, v = p.split("=", 1)
                             k = k.lower()
@@ -1634,18 +1635,20 @@ def process_telegram_command(update_data):
                         f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
                     )
 
-                elif text.startswith("/autosell_remove "):
+                elif cmd == "/autosell_remove":
                     deny = _require_admin(user)
                     if deny: return deny
                     try:
                         import autosell
-                        mint = text.split(maxsplit=1)[1].strip()
+                        mint = args.strip() if args else ""
+                        if not mint:
+                            return _reply("Usage: /autosell_remove <MINT>")
                         ok = autosell.remove_rule(mint)
                         return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
                     except Exception as e:
                         return _reply(f"⚠️ autosell_remove error: {e}", "error")
 
-                elif text.strip() == "/autosell_list":
+                elif cmd == "/autosell_list":
                     deny = _require_admin(user)
                     if deny: return deny
                     try:
