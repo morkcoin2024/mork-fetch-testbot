@@ -1075,27 +1075,28 @@ def process_telegram_command(update_data):
                         from config_manager import get_config
                         config_mgr = get_config()
                         
+                        # Get unified scanner status
+                        import scanner
+                        status = scanner.get_status()
+                        
+                        # Also check Solscan module status
+                        solscan_running = False
                         if "solscan" in SCANNERS:
-                            scanner = SCANNERS["solscan"]
-                            running = getattr(scanner, 'running', False)
-                            
-                            # Get configuration details
-                            enabled = config_mgr.is_enabled("solscan")
-                            interval = config_mgr.get_interval("solscan")
-                            threshold = config_mgr.get_threshold()
-                            watchlist_count = len(config_mgr.get_watchlist())
-                            
-                            response_text = (
-                                f"📊 **Solscan Scanner Status**\n\n"
-                                f"Status: {'✅ Running' if running else '❌ Stopped'}\n"
-                                f"Enabled: {'✅' if enabled else '❌'}\n"
-                                f"Interval: {interval}s\n"
-                                f"Threshold: {threshold}\n"
-                                f"Watchlist: {watchlist_count} tokens\n"
-                                f"Config: scanner_config.json"
-                            )
-                        else:
-                            response_text = "📊 Solscan: Not initialized"
+                            solscan_scanner = SCANNERS["solscan"]
+                            solscan_running = getattr(solscan_scanner, 'running', False)
+                        
+                        response_text = (
+                            f"📊 **Scanner System Status**\n\n"
+                            f"**Unified Scanner:**\n"
+                            f"Status: {'✅ Running' if status['running'] else '❌ Stopped'}\n"
+                            f"Enabled: {'✅' if status['enabled'] else '❌'}\n"
+                            f"Interval: {status['interval_sec']}s\n"
+                            f"Threshold: {status['threshold']}\n"
+                            f"Watchlist: {status['watchlist_size']} tokens\n\n"
+                            f"**Solscan Module:**\n"
+                            f"Status: {'✅ Running' if solscan_running else '❌ Stopped'}\n"
+                            f"Config: scanner_config.json"
+                        )
                     except Exception as e:
                         response_text = f"📊 Solscan error: {e}"
                 elif text.strip() == "/config_show":
@@ -1177,10 +1178,8 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            config_mgr.set("scanner.enabled", True)
-                            config_mgr.save_config()
+                            import scanner
+                            scanner.enable()
                             response_text = "🟢 Scanner enabled."
                         except Exception as e:
                             response_text = f"⚠️ Scanner enable error: {e}"
@@ -1190,10 +1189,8 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            config_mgr.set("scanner.enabled", False)
-                            config_mgr.save_config()
+                            import scanner
+                            scanner.disable()
                             response_text = "🔴 Scanner disabled."
                         except Exception as e:
                             response_text = f"⚠️ Scanner disable error: {e}"
@@ -1208,10 +1205,8 @@ def process_telegram_command(update_data):
                                 response_text = "Usage: /threshold <score>"
                             else:
                                 val = int(parts[1])
-                                from config_manager import get_config
-                                config_mgr = get_config()
-                                config_mgr.set("scanner.threshold", val)
-                                config_mgr.save_config()
+                                import scanner
+                                scanner.set_threshold(val)
                                 response_text = f"✅ Threshold set to {val}."
                         except Exception as e:
                             response_text = f"⚠️ Threshold error: {e}"
@@ -1222,15 +1217,9 @@ def process_telegram_command(update_data):
                     else:
                         try:
                             mint = text.split(maxsplit=1)[1].strip()
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            
-                            watchlist = config_mgr.get_watchlist()
-                            if mint not in watchlist:
-                                config_mgr.add_to_watchlist(mint)
-                                response_text = f"👀 Watching {mint}"
-                            else:
-                                response_text = "ℹ️ Already watching."
+                            import scanner
+                            ok = scanner.add_watch(mint)
+                            response_text = f"👀 Watching {mint}" if ok else "ℹ️ Already watching."
                         except Exception as e:
                             response_text = f"⚠️ Watch error: {e}"
                 elif text.startswith("/unwatch "):
@@ -1240,15 +1229,9 @@ def process_telegram_command(update_data):
                     else:
                         try:
                             mint = text.split(maxsplit=1)[1].strip()
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            
-                            watchlist = config_mgr.get_watchlist()
-                            if mint in watchlist:
-                                config_mgr.remove_from_watchlist(mint)
-                                response_text = "🗑️ Removed"
-                            else:
-                                response_text = "ℹ️ Not on watchlist."
+                            import scanner
+                            ok = scanner.remove_watch(mint)
+                            response_text = "🗑️ Removed" if ok else "ℹ️ Not on watchlist."
                         except Exception as e:
                             response_text = f"⚠️ Unwatch error: {e}"
                 elif text.strip() == "/watchlist":
@@ -1257,9 +1240,8 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            watchlist = config_mgr.get_watchlist()
+                            import scanner
+                            watchlist = scanner.get_watchlist()
                             
                             if watchlist:
                                 lines = ["👀 **Watchlist:**"]
