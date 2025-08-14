@@ -54,6 +54,10 @@ def pop_pending(cid: str):
 def positions() -> Dict[str, Dict]:
     _load(); return _state["positions"]
 
+def get_all_positions() -> Dict[str, Dict]:
+    """Alias for positions() for compatibility"""
+    return positions()
+
 def fills() -> List[Dict]:
     _load(); return list(_state["fills"])
 
