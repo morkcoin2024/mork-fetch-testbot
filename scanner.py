@@ -168,9 +168,6 @@ def _loop():
 
                 # Score & alert
                 winners = []
-                autobuy_executions = []
-                autobuy_config = autobuy_list()
-                
                 for t in toks:
                     mint = t.get("mint")
                     if not mint or mint in seen:
@@ -179,58 +176,55 @@ def _loop():
                     if s >= threshold:
                         winners.append((t, s, v, details))
                         seen.add(mint)
-                        
-                        # Check for autobuy
-                        if mint in autobuy_config and autobuy_config[mint].get("enabled", False):
-                            sol_amount = autobuy_config[mint].get("sol", 0)
-                            if sol_amount > 0:
-                                autobuy_executions.append((t, sol_amount, s, v))
-
-                # Execute autobuy orders first
-                if autobuy_executions:
-                    try:
-                        import trade_store, trade_engine
-                        for token, sol_amount, score, verdict in autobuy_executions:
-                            try:
-                                mint = token.get("mint")
-                                symbol = token.get("symbol", "TKN")
-                                st = trade_store.get_state()
-                                
-                                # Safety check - respect max_sol cap
-                                if sol_amount > st.get("max_sol", 0.5):
-                                    send_alert(f"🚫 AUTOBUY BLOCKED: {symbol} ({mint[:8]}...)\nAmount {sol_amount} SOL exceeds cap {st.get('max_sol', 0.5)} SOL\nScore: {score} ({verdict})")
-                                    continue
-                                
-                                # Execute the buy
-                                if st.get("enabled_live", False):
-                                    qty, px = trade_engine.execute_buy(mint, symbol, sol_amount, st.get("slippage_bps", 150))
-                                    mode = "LIVE"
-                                else:
-                                    qty, px = trade_engine.preview_buy(mint, symbol, sol_amount, st.get("slippage_bps", 150))
-                                    mode = "DRY-RUN"
-                                
-                                # Record the fill
-                                trade_store.record_fill("BUY", mint, symbol, qty, px, sol_cost=sol_amount)
-                                
-                                # Send autobuy alert
-                                send_alert(f"🤖 AUTOBUY EXECUTED ({mode})\n{symbol} ({mint[:8]}...)\nSize: {sol_amount} SOL → {qty:.4f} tokens\nPrice: {px:.8f} SOL/token\nScore: {score} ({verdict})")
-                                
-                            except Exception as e:
-                                send_alert(f"⚠️ AUTOBUY ERROR: {token.get('symbol', '?')} ({mint[:8]}...)\nError: {e}")
-                    except Exception as e:
-                        send_alert(f"⚠️ Autobuy system error: {e}")
 
                 if winners:
+                    from trade_store import get_state as trade_state, record_fill
+                    import trade_engine
+
                     winners.sort(key=lambda x: x[1], reverse=True)
                     for t, s, v, details in winners[:5]:
+                        mint = t.get('mint','?')
+                        symbol = t.get('symbol','?')
+                        price = t.get('price','?')
+                        fdv   = t.get('fdv','?')
+                        lp    = t.get('lp','?')
+                        age   = t.get('age','?')
+                        holders = t.get('holders','?')
+
+                        # One-tap command suggestions
+                        quick_buy_sol = 0.1  # suggest 0.1 SOL by default (just text)
+                        actions = f"/buy {mint} {quick_buy_sol}   /watch {mint}   /fetch {mint}"
+
                         msg = (
                             f"🚨 {v}  Score {s}\n"
-                            f"{t.get('symbol','?')}  {t.get('mint','?')[:8]}...\n"
-                            f"Price: {t.get('price','?')}  FDV: {t.get('fdv','?')}  LP: {t.get('lp','?')}\n"
-                            f"Age: {t.get('age','?')}s  Holders: {t.get('holders','?')}\n"
-                            f"{details}"
+                            f"{symbol}  {mint[:8]}...\n"
+                            f"Price: {price}  FDV: {fdv}  LP: {lp}\n"
+                            f"Age: {age}s  Holders: {holders}\n"
+                            f"{details}\n"
+                            f"— Quick actions —\n{actions}"
                         )
                         send_alert(msg)
+
+                        # AutoBuy (best-effort, respects caps + live flag). Runs once because we add to 'seen'.
+                        try:
+                            auto = _state.get("autobuy", {}).get(mint)
+                            if auto and auto.get("enabled", False):
+                                st = trade_state()
+                                sol_amt = float(auto.get("sol", 0))
+                                # hard safety: respect global cap
+                                if sol_amt > 0 and sol_amt <= float(st.get("max_sol", 1.0)):
+                                    if st.get("enabled_live", False):
+                                        qty, px = trade_engine.execute_buy(mint, symbol, sol_amt, int(st.get("slippage_bps", 100)))
+                                        mode = "LIVE"
+                                    else:
+                                        qty, px = trade_engine.preview_buy(mint, symbol, sol_amt, int(st.get("slippage_bps", 100)))
+                                        mode = "DRY-RUN"
+                                    record_fill("BUY", mint, symbol, qty, px, sol_amt)
+                                    send_alert(f"🤖 AutoBuy {mode}\n{symbol} {mint[:8]}...\nSize: {sol_amt} SOL  Qty: {qty:.4f}  Px: {px:.8f}")
+                                else:
+                                    send_alert(f"⚠️ AutoBuy skipped for {mint[:8]}… (size {sol_amt} exceeds cap {st.get('max_sol')})")
+                        except Exception as e:
+                            send_alert(f"⚠️ AutoBuy error for {mint[:8]}…: {e}")
 
                 with _LOCK:
                     _state["seen_mints"] = list(seen)
