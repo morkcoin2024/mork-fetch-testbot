@@ -2,9 +2,27 @@
   "scanner": {
     "enabled": true,
     "interval_sec": 20,
-    "threshold": 75,
-    "seen_mints": [],
-    "watchlist": []
+    "threshold": 70,
+    "seen_mints": [
+      "FAKE0003M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0004M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0006M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0008M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0009M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0010M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0012M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0014M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0016M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0017M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0018M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0005M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0007M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0015M1NTxxxxxxxxxxxxxxxxxxxxxx",
+      "FAKE0019M1NTxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "watchlist": [
+      "<your_mint>"
+    ]
   },
   "solscan": {
     "enabled": true,

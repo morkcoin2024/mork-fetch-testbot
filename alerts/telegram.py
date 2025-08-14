@@ -13,8 +13,8 @@ def send_alert(text: str):
             print(f"[ALERT] Missing tokens - bot_token: {bool(bot_token)}, admin_chat_id: {bool(admin_chat_id)}")
             return False
             
-        # Send alert to admin
-        ok, _, _ = send_telegram_safe(bot_token, admin_chat_id, text)
+        # Send alert to admin (convert chat_id to int)
+        ok, _, _ = send_telegram_safe(bot_token, int(admin_chat_id), text)
         return ok
     except Exception as e:
         print(f"[ALERT] Error sending alert: {e}")

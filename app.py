@@ -1252,46 +1252,73 @@ def process_telegram_command(update_data):
                                 response_text = "👀 Watchlist: (empty)"
                         except Exception as e:
                             response_text = f"⚠️ Watchlist error: {e}"
-                elif text.strip() in ["/fetch_now", "/fetch"]:
+                elif text.startswith("/fetch "):
+                    # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
                     if deny: 
                         response_text = deny["response"]
                     else:
                         try:
-                            import scanner
-                            results = scanner.scan_now(15)
+                            query = text.split(maxsplit=1)[1].strip()
+                            import token_fetcher
+                            import flip_checklist
                             
-                            response_text = f"📊 **Token Scan Results**\n\n"
+                            # Look up the specific token
+                            token = token_fetcher.lookup(query)
+                            if token:
+                                score, verdict, details = flip_checklist.score(token)
+                                symbol = token.get("symbol", "Unknown")
+                                price = token.get("usd_price", token.get("price", "?"))
+                                holders = token.get("holders", token.get("holder_count", "?"))
+                                age = token.get("age", token.get("age_seconds", "?"))
+                                
+                                response_text = f"🔍 **Token Lookup: {symbol}**\n\n"
+                                response_text += f"**Verdict:** {verdict} (Score: {score})\n"
+                                response_text += f"**Price:** ${price}\n"
+                                response_text += f"**Holders:** {holders}\n"
+                                response_text += f"**Age:** {age}s\n"
+                                response_text += f"**Details:** {details}"
+                            else:
+                                response_text = f"❌ Token not found: {query}"
+                        except Exception as e:
+                            response_text = f"🔍 Fetch error: {e}"
+                elif text.startswith("/fetchnow"):
+                    # /fetchnow [N] - Scan N tokens immediately
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            parts = text.split()
+                            limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 15
+                            limit = min(limit, 50)  # Cap at 50
+                            
+                            import scanner
+                            results = scanner.scan_now(limit)
+                            
+                            response_text = f"📊 **Immediate Token Scan**\n\n"
                             response_text += f"Scanned: {len(results)} tokens\n"
                             
                             if results:
-                                response_text += "**Top 5 Results:**\n"
-                                for i, (token, score, verdict) in enumerate(results[:5], 1):
-                                    symbol = token.get("symbol", "Unknown")
-                                    price = token.get("usd_price", token.get("price", "?"))
-                                    holders = token.get("holders", token.get("holder_count", "?"))
-                                    age = token.get("age", token.get("age_seconds", "?"))
-                                    
-                                    response_text += f"{i}. **{symbol}** - {verdict}\n"
-                                    response_text += f"   Score: {score} | Price: ${price} | Holders: {holders} | Age: {age}s\n"
+                                # Filter for interesting results
+                                good_results = [r for r in results if r[1] >= scanner.get_threshold()]
+                                if good_results:
+                                    response_text += f"**Good Targets ({len(good_results)}):**\n"
+                                    for i, (token, score, verdict) in enumerate(good_results[:5], 1):
+                                        symbol = token.get("symbol", "Unknown")
+                                        price = token.get("usd_price", token.get("price", "?"))
+                                        response_text += f"{i}. **{symbol}** - {verdict} (Score: {score})\n"
+                                        response_text += f"   Price: ${price}\n"
+                                else:
+                                    response_text += f"**Top 5 Results:**\n"
+                                    for i, (token, score, verdict) in enumerate(results[:5], 1):
+                                        symbol = token.get("symbol", "Unknown")
+                                        price = token.get("usd_price", token.get("price", "?"))
+                                        response_text += f"{i}. **{symbol}** - {verdict} (Score: {score})\n"
                             else:
                                 response_text += "No tokens found"
                         except Exception as e:
-                            response_text = f"📊 Fetch error: {e}"
-                elif text.strip() == "/fetch":
-                    try:
-                        import data_fetcher
-                        result = data_fetcher.multi_source_fetch(limit=5)
-                        response_text = f"🔍 Fetch complete: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources"
-                    except Exception as e:
-                        response_text = f"🔍 Fetch error: {e}"
-                elif text.strip() == "/fetch_now":
-                    try:
-                        import data_fetcher
-                        result = data_fetcher.multi_source_fetch(limit=10, force=True)
-                        response_text = f"🚀 Multi-source fetch: {result.get('total', 0)} tokens from {len(result.get('sources', []))} sources"
-                    except Exception as e:
-                        response_text = f"🚀 Fetch now error: {e}"
+                            response_text = f"📊 Scan error: {e}"
                 else:
                     # Handle unknown commands and plain text
                     if is_command:
