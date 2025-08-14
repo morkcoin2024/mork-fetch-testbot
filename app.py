@@ -1297,6 +1297,209 @@ def process_telegram_command(update_data):
                             response_text = "🧹 Cleared seen mints."
                         except Exception as e:
                             response_text = f"⚠️ Clear error: {e}"
+                # --- Toggle live trading (off by default) ---
+                elif text.startswith("/trading_on"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store
+                            trade_store.set_live(True)
+                            response_text = "🟢 Trading LIVE mode ENABLED. (Be careful.)"
+                        except Exception as e:
+                            response_text = f"⚠️ Trading enable error: {e}"
+                elif text.startswith("/trading_off"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store
+                            trade_store.set_live(False)
+                            response_text = "🔴 Trading LIVE mode DISABLED. (Dry-run only.)"
+                        except Exception as e:
+                            response_text = f"⚠️ Trading disable error: {e}"
+                # Caps
+                elif text.startswith("/trade_caps"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store
+                            parts = text.split()
+                            st = trade_store.get_state()
+                            if len(parts) == 1:
+                                response_text = f"📊 **Trade Caps**\nMax SOL: {st['max_sol']} SOL\nSlippage: {st['slippage_bps']} bps\nLive: {'✅' if st['enabled_live'] else '❌'}"
+                            else:
+                                max_sol = float(parts[1]) if len(parts) > 1 else None
+                                slip = int(parts[2]) if len(parts) > 2 else None
+                                trade_store.set_caps(max_sol, slip)
+                                st = trade_store.get_state()
+                                response_text = f"✅ Caps updated — max_sol: {st['max_sol']} | slippage: {st['slippage_bps']} bps"
+                        except Exception as e:
+                            response_text = f"⚠️ trade_caps error: {e}"
+                # BUY (dry-run + confirm)
+                elif text.startswith("/buy "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store, trade_engine, token_fetcher
+                            parts = text.split()
+                            if len(parts) < 3:
+                                response_text = "Usage: /buy <MINT|SYMBOL> <SOL>"
+                            else:
+                                q = parts[1].strip()
+                                sol = float(parts[2])
+                                st = trade_store.get_state()
+                                if sol <= 0 or sol > st["max_sol"]:
+                                    response_text = f"⛔ Size exceeds cap. max_sol={st['max_sol']} SOL"
+                                else:
+                                    tok = token_fetcher.lookup(q)
+                                    mint = tok.get("mint")
+                                    symbol = tok.get("symbol", "TKN")
+                                    qty, px = trade_engine.preview_buy(mint, symbol, sol, st["slippage_bps"])
+                                    action = {"type":"BUY","mint":mint,"symbol":symbol,"sol":sol,"qty_est":qty,"px_est":px}
+                                    cid = trade_store.add_pending(action, ttl_sec=120)
+                                    live_flag = "LIVE" if st["enabled_live"] else "DRY-RUN"
+                                    response_text = (f"🟢 **BUY PREVIEW ({live_flag})**\n"
+                                                   f"{symbol}  {mint[:8]}...\n"
+                                                   f"Size: {sol} SOL  → est qty: {qty:.4f}\n"
+                                                   f"Est price: {px:.8f} SOL/Token  Slippage: {st['slippage_bps']} bps\n"
+                                                   f"Confirm: /buy_confirm {cid}")
+                        except Exception as e:
+                            response_text = f"⚠️ Buy preview error: {e}"
+                elif text.startswith("/buy_confirm "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store, trade_engine
+                            cid = text.split(maxsplit=1)[1].strip()
+                            action = trade_store.pop_pending(cid)
+                            if not action or action.get("type") != "BUY":
+                                response_text = "⌛ No pending BUY with that id (or expired)."
+                            else:
+                                st = trade_store.get_state()
+                                mint = action["mint"]
+                                symbol = action["symbol"]
+                                sol = float(action["sol"])
+                                if st["enabled_live"]:
+                                    qty, px = trade_engine.execute_buy(mint, symbol, sol, st["slippage_bps"])
+                                else:
+                                    qty, px = trade_engine.preview_buy(mint, symbol, sol, st["slippage_bps"])
+                                trade_store.record_fill("BUY", mint, symbol, qty, px, sol_cost=sol)
+                                response_text = f"✅ BUY executed ({'LIVE' if st['enabled_live'] else 'DRY-RUN'})\n{symbol} {mint[:8]}...\nQty: {qty:.4f}  AvgPx: {px:.8f} SOL"
+                        except Exception as e:
+                            response_text = f"⚠️ Buy error: {e}"
+                # SELL (supports percent like 50% or absolute tokens)
+                elif text.startswith("/sell "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store, trade_engine, token_fetcher
+                            parts = text.split()
+                            if len(parts) < 3:
+                                response_text = "Usage: /sell <MINT|SYMBOL> <PCT|TOKENS>\nExamples: /sell XYZ 50%  or  /sell XYZ 1000"
+                            else:
+                                q = parts[1].strip()
+                                amt = parts[2].strip()
+                                tok = token_fetcher.lookup(q)
+                                mint = tok.get("mint")
+                                symbol = tok.get("symbol", "TKN")
+                                st = trade_store.get_state()
+                                pos = trade_store.positions().get(mint, {"qty": 0.0})
+                                pos_qty = float(pos["qty"])
+                                if pos_qty <= 0:
+                                    response_text = "ℹ️ No position to sell."
+                                else:
+                                    if amt.endswith("%"):
+                                        pct = float(amt[:-1])
+                                        qty = max(0.0, min(pos_qty, pos_qty * pct / 100.0))
+                                    else:
+                                        qty = float(amt)
+                                        qty = max(0.0, min(pos_qty, qty))
+                                    if qty <= 0:
+                                        response_text = "ℹ️ Computed sell qty is 0."
+                                    else:
+                                        sol_out, px = trade_engine.preview_sell(mint, symbol, qty, st["slippage_bps"])
+                                        action = {"type":"SELL","mint":mint,"symbol":symbol,"qty":qty,"px_est":px,"sol_est":sol_out}
+                                        cid = trade_store.add_pending(action, ttl_sec=120)
+                                        live_flag = "LIVE" if st["enabled_live"] else "DRY-RUN"
+                                        response_text = (f"🔴 **SELL PREVIEW ({live_flag})**\n"
+                                                       f"{symbol}  {mint[:8]}...\n"
+                                                       f"Qty: {qty:.4f}  → est SOL out: {sol_out:.6f}\n"
+                                                       f"Est px: {px:.8f} SOL/Token  Slippage: {st['slippage_bps']} bps\n"
+                                                       f"Confirm: /sell_confirm {cid}")
+                        except Exception as e:
+                            response_text = f"⚠️ Sell preview error: {e}"
+                elif text.startswith("/sell_confirm "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store, trade_engine
+                            cid = text.split(maxsplit=1)[1].strip()
+                            action = trade_store.pop_pending(cid)
+                            if not action or action.get("type") != "SELL":
+                                response_text = "⌛ No pending SELL with that id (or expired)."
+                            else:
+                                st = trade_store.get_state()
+                                mint = action["mint"]
+                                symbol = action["symbol"]
+                                qty = float(action["qty"])
+                                if st["enabled_live"]:
+                                    sol_out, px = trade_engine.execute_sell(mint, symbol, qty, st["slippage_bps"])
+                                else:
+                                    sol_out, px = trade_engine.preview_sell(mint, symbol, qty, st["slippage_bps"])
+                                # record negative qty as sell; store qty and price (px) and sol_out as cost
+                                trade_store.record_fill("SELL", mint, symbol, qty, px, sol_cost=sol_out)
+                                response_text = f"✅ SELL executed ({'LIVE' if st['enabled_live'] else 'DRY-RUN'})\n{symbol} {mint[:8]}...\nQty: {qty:.4f}  AvgPx: {px:.8f}  SOL out: {sol_out:.6f}"
+                        except Exception as e:
+                            response_text = f"⚠️ Sell error: {e}"
+                # Positions / PnL
+                elif text.strip() == "/positions":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store
+                            pos = trade_store.positions()
+                            if not pos:
+                                response_text = "📒 Positions: (none)"
+                            else:
+                                lines = ["📒 **Positions**"]
+                                for m, p in pos.items():
+                                    lines.append(f"{p.get('symbol','?')} {m[:8]}...  Qty: {p['qty']:.4f}  AvgPx: {p['avg_price']:.8f}")
+                                response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"⚠️ Positions error: {e}"
+                elif text.strip() == "/pnl":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import trade_store
+                            fills = trade_store.fills()
+                            if not fills:
+                                response_text = "💹 PnL: (no fills yet)"
+                            else:
+                                # Simple realized PnL approximation: SELL proceeds - BUY cost (no fees/slippage modeling here)
+                                buy_cost = sum(f["sol_cost"] for f in fills if f["side"] == "BUY")
+                                sell_proceeds = sum(f["sol_cost"] for f in fills if f["side"] == "SELL")
+                                realized = sell_proceeds - buy_cost
+                                response_text = f"💹 **Realized PnL (approx)**: {realized:.6f} SOL\nFills: {len(fills)}"
+                        except Exception as e:
+                            response_text = f"⚠️ PnL error: {e}"
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
