@@ -63,9 +63,9 @@ def _parse_cmd(text: str):
     s = (text or "").strip()
     if not s.startswith("/"):
         return None, ""
-    head = s.split()[0]                 # first token (may include @bot)
+    head = s.split()[0]                 # "/cmd" or "/cmd@BotName"
     cmd = head.split("@", 1)[0].lower() # strip @BotName, lower
-    args = s[len(head):].strip()        # rest of the line
+    args = s[len(head):].strip()        # the rest
     return cmd, args
 
 def get_sol_price_usd():
