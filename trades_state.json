@@ -1,0 +1,1 @@
+{"enabled_live": false, "max_sol": 0.5, "slippage_bps": 150, "positions": {"TEST123": {"mint": "TEST123", "symbol": "TEST", "qty": 100.0, "avg_price": 0.001, "last_update": 1755186538.3449268}}, "fills": [{"id": "718f2b50", "side": "BUY", "mint": "TEST123", "symbol": "TEST", "qty": 100.0, "price": 0.001, "sol_cost": 0.1, "ts": 1755186538.3449214}], "pending": {}}
