@@ -1500,6 +1500,99 @@ def process_telegram_command(update_data):
                                 response_text = f"💹 **Realized PnL (approx)**: {realized:.6f} SOL\nFills: {len(fills)}"
                         except Exception as e:
                             response_text = f"⚠️ PnL error: {e}"
+                # Autobuy commands
+                elif text.startswith("/autobuy_set "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner, token_fetcher
+                            parts = text.split()
+                            if len(parts) < 3:
+                                response_text = "Usage: /autobuy_set <MINT|SYMBOL> <SOL>\nExample: /autobuy_set XYZ 0.1"
+                            else:
+                                q = parts[1].strip()
+                                sol_amount = float(parts[2])
+                                if sol_amount <= 0:
+                                    response_text = "⚠️ SOL amount must be positive"
+                                else:
+                                    tok = token_fetcher.lookup(q)
+                                    mint = tok.get("mint")
+                                    symbol = tok.get("symbol", "TKN")
+                                    scanner.set_autobuy(mint, sol_amount, enabled=True)
+                                    response_text = f"🤖 **Autobuy configured**\n{symbol} ({mint[:8]}...)\nAmount: {sol_amount} SOL\nStatus: ✅ Enabled"
+                        except Exception as e:
+                            response_text = f"⚠️ Autobuy set error: {e}"
+                elif text.startswith("/autobuy_remove "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner, token_fetcher
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = "Usage: /autobuy_remove <MINT|SYMBOL>"
+                            else:
+                                q = parts[1].strip()
+                                tok = token_fetcher.lookup(q)
+                                mint = tok.get("mint")
+                                symbol = tok.get("symbol", "TKN")
+                                if scanner.remove_autobuy(mint):
+                                    response_text = f"🗑️ Autobuy removed for {symbol} ({mint[:8]}...)"
+                                else:
+                                    response_text = f"ℹ️ No autobuy config found for {symbol}"
+                        except Exception as e:
+                            response_text = f"⚠️ Autobuy remove error: {e}"
+                elif text.startswith("/autobuy_toggle "):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner, token_fetcher
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = "Usage: /autobuy_toggle <MINT|SYMBOL>"
+                            else:
+                                q = parts[1].strip()
+                                tok = token_fetcher.lookup(q)
+                                mint = tok.get("mint")
+                                symbol = tok.get("symbol", "TKN")
+                                new_status = scanner.toggle_autobuy(mint)
+                                if new_status is not False:
+                                    status_icon = "✅" if new_status else "❌"
+                                    status_text = "Enabled" if new_status else "Disabled"
+                                    response_text = f"🤖 Autobuy {status_text} for {symbol} ({mint[:8]}...)\nStatus: {status_icon}"
+                                else:
+                                    response_text = f"ℹ️ No autobuy config found for {symbol}"
+                        except Exception as e:
+                            response_text = f"⚠️ Autobuy toggle error: {e}"
+                elif text.strip() == "/autobuy_list":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner, token_fetcher
+                            autobuy_config = scanner.get_autobuy_config()
+                            if not autobuy_config:
+                                response_text = "🤖 **Autobuy List**: (none configured)"
+                            else:
+                                lines = ["🤖 **Autobuy Configurations**"]
+                                for mint, config in autobuy_config.items():
+                                    try:
+                                        tok = token_fetcher.lookup(mint)
+                                        symbol = tok.get("symbol", "TKN")
+                                        status_icon = "✅" if config.get("enabled", False) else "❌"
+                                        lines.append(f"{symbol} ({mint[:8]}...): {config.get('sol', 0)} SOL {status_icon}")
+                                    except Exception:
+                                        status_icon = "✅" if config.get("enabled", False) else "❌"
+                                        lines.append(f"{mint[:8]}...: {config.get('sol', 0)} SOL {status_icon}")
+                                response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"⚠️ Autobuy list error: {e}"
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
