@@ -1595,13 +1595,14 @@ def process_telegram_command(update_data):
                         f"Thread alive: {st['thread_alive']}"
                     )
 
-                # Rule set: /autosell_set <MINT> tp=<%>|- sl=<%>|- trail=<%>|- size=<%|ABS%>
+                # --- AutoSell: set a rule ---
+                # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
                 elif text.startswith("/autosell_set "):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
                     parts = text.split()
-                    if len(parts) < 2: 
+                    if len(parts) < 2:
                         return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
                     mint = parts[1].strip()
                     kv = {"tp": None, "sl": None, "trail": None, "size": None}
@@ -1609,12 +1610,15 @@ def process_telegram_command(update_data):
                         if "=" in p:
                             k, v = p.split("=", 1)
                             k = k.lower()
-                            try:
+                            try: 
                                 kv[k] = float(v)
-                            except:
+                            except: 
                                 pass
                     autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
-                    return _reply(f"✅ AutoSell set for {mint[:8]}…  tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}")
+                    return _reply(
+                        f"✅ AutoSell set for {mint[:8]}…  "
+                        f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
+                    )
 
                 elif text.startswith("/autosell_remove "):
                     deny = _require_admin(user)
