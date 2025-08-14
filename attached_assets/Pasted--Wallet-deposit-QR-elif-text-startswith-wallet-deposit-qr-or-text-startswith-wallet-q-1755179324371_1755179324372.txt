@@ -1,0 +1,52 @@
+# --- Wallet deposit QR ---
+elif text.startswith("/wallet_deposit_qr") or text.startswith("/wallet_qr"):
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import os, re, time, qrcode, wallets
+        uid = user.get("id")
+
+        # Parse optional amount (e.g., "/wallet_deposit_qr 0.5")
+        parts = text.split()
+        amt = None
+        if len(parts) > 1:
+            try:
+                amt = float(parts[1].replace(",", ""))
+                if amt <= 0: amt = None
+            except Exception:
+                amt = None
+
+        # Get address robustly
+        addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+        m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
+        if not m:
+            return _reply("⚠️ Unable to detect wallet address.", status="error")
+        addr = m.group(0)
+
+        # Build solana: URI (amount is optional & many wallets honor it)
+        uri = f"solana:{addr}"
+        if amt is not None:
+            # Don’t append scientific notation; keep plain decimal
+            uri = f"{uri}?amount={amt:.9f}".rstrip("0").rstrip(".")
+
+        # Generate QR
+        os.makedirs("tmp", exist_ok=True)
+        path = f"tmp/qr_{addr[:6]}_{int(time.time())}.png"
+        img = qrcode.make(uri)
+        img.save(path)
+
+        # Send photo
+        from telegram_media import send_photo_safe
+        chat_id = (update.get("message", {}).get("chat") or {}).get("id")
+        caption_lines = [f"Deposit Address:\n{addr}"]
+        if amt is not None:
+            caption_lines.append(f"Requested Amount: {amt} SOL")
+        caption_lines.append("⚠️ Burner wallet for testing. Do not send large amounts.")
+        caption = "\n".join(caption_lines)
+
+        ok, status, _ = send_photo_safe(BOT_TOKEN, chat_id, path, caption=caption)
+        if ok:
+            return _reply("📸 Sent deposit QR.")
+        return _reply("⚠️ Failed to send QR image.", status="error")
+    except Exception as e:
+        return _reply(f"🖼️ QR error: {e}", status="error")
