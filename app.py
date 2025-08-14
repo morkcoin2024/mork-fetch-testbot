@@ -1500,104 +1500,56 @@ def process_telegram_command(update_data):
                                 response_text = f"💹 **Realized PnL (approx)**: {realized:.6f} SOL\nFills: {len(fills)}"
                         except Exception as e:
                             response_text = f"⚠️ PnL error: {e}"
-                # Autobuy commands
-                elif text.startswith("/autobuy_set "):
+                # --- AutoBuy commands ---
+                elif text.startswith("/autobuy "):
                     deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner, token_fetcher
-                            parts = text.split()
-                            if len(parts) < 3:
-                                response_text = "Usage: /autobuy_set <MINT|SYMBOL> <SOL>\nExample: /autobuy_set XYZ 0.1"
-                            else:
-                                q = parts[1].strip()
-                                sol_amount = float(parts[2])
-                                if sol_amount <= 0:
-                                    response_text = "⚠️ SOL amount must be positive"
-                                else:
-                                    tok = token_fetcher.lookup(q)
-                                    mint = tok.get("mint")
-                                    symbol = tok.get("symbol", "TKN")
-                                    scanner.autobuy_set(mint, sol_amount)
-                                    response_text = f"🤖 **Autobuy configured**\n{symbol} ({mint[:8]}...)\nAmount: {sol_amount} SOL\nStatus: ✅ Enabled"
-                        except Exception as e:
-                            response_text = f"⚠️ Autobuy set error: {e}"
+                    if deny: return deny
+                    try:
+                        import scanner
+                        parts = text.split()
+                        if len(parts) < 3:
+                            return _reply("Usage: /autobuy <MINT> <SOL>")
+                        mint = parts[1].strip()
+                        sol  = float(parts[2])
+                        scanner.autobuy_set(mint, sol)
+                        return _reply(f"🤖 AutoBuy ON for {mint[:8]}… at {sol} SOL")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoBuy error: {e}", "error")
+
+                elif text.startswith("/autobuy_on "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = scanner.autobuy_on(mint)
+                    return _reply("✅ AutoBuy enabled." if ok else "ℹ️ Not configured.")
+
+                elif text.startswith("/autobuy_off "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = scanner.autobuy_off(mint)
+                    return _reply("🛑 AutoBuy disabled." if ok else "ℹ️ Not configured.")
+
                 elif text.startswith("/autobuy_remove "):
                     deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner, token_fetcher
-                            parts = text.split()
-                            if len(parts) < 2:
-                                response_text = "Usage: /autobuy_remove <MINT|SYMBOL>"
-                            else:
-                                q = parts[1].strip()
-                                tok = token_fetcher.lookup(q)
-                                mint = tok.get("mint")
-                                symbol = tok.get("symbol", "TKN")
-                                if scanner.autobuy_remove(mint):
-                                    response_text = f"🗑️ Autobuy removed for {symbol} ({mint[:8]}...)"
-                                else:
-                                    response_text = f"ℹ️ No autobuy config found for {symbol}"
-                        except Exception as e:
-                            response_text = f"⚠️ Autobuy remove error: {e}"
-                elif text.startswith("/autobuy_toggle "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner, token_fetcher
-                            parts = text.split()
-                            if len(parts) < 2:
-                                response_text = "Usage: /autobuy_toggle <MINT|SYMBOL>"
-                            else:
-                                q = parts[1].strip()
-                                tok = token_fetcher.lookup(q)
-                                mint = tok.get("mint")
-                                symbol = tok.get("symbol", "TKN")
-                                # Check current status to determine toggle direction
-                                current_config = scanner.autobuy_list().get(mint)
-                                if not current_config:
-                                    response_text = f"ℹ️ No autobuy config found for {symbol}"
-                                else:
-                                    currently_enabled = current_config.get("enabled", False)
-                                    if currently_enabled:
-                                        scanner.autobuy_off(mint)
-                                        response_text = f"🤖 Autobuy Disabled for {symbol} ({mint[:8]}...)\nStatus: ❌"
-                                    else:
-                                        scanner.autobuy_on(mint)
-                                        response_text = f"🤖 Autobuy Enabled for {symbol} ({mint[:8]}...)\nStatus: ✅"
-                        except Exception as e:
-                            response_text = f"⚠️ Autobuy toggle error: {e}"
+                    if deny: return deny
+                    import scanner
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = scanner.autobuy_remove(mint)
+                    return _reply("🗑️ AutoBuy removed." if ok else "ℹ️ Not configured.")
+
                 elif text.strip() == "/autobuy_list":
                     deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner, token_fetcher
-                            autobuy_config = scanner.autobuy_list()
-                            if not autobuy_config:
-                                response_text = "🤖 **Autobuy List**: (none configured)"
-                            else:
-                                lines = ["🤖 **Autobuy Configurations**"]
-                                for mint, config in autobuy_config.items():
-                                    try:
-                                        tok = token_fetcher.lookup(mint)
-                                        symbol = tok.get("symbol", "TKN")
-                                        status_icon = "✅" if config.get("enabled", False) else "❌"
-                                        lines.append(f"{symbol} ({mint[:8]}...): {config.get('sol', 0)} SOL {status_icon}")
-                                    except Exception:
-                                        status_icon = "✅" if config.get("enabled", False) else "❌"
-                                        lines.append(f"{mint[:8]}...: {config.get('sol', 0)} SOL {status_icon}")
-                                response_text = "\n".join(lines)
-                        except Exception as e:
-                            response_text = f"⚠️ Autobuy list error: {e}"
+                    if deny: return deny
+                    import scanner
+                    cfg = scanner.autobuy_list()
+                    if not cfg: return _reply("🤖 AutoBuy: (none)")
+                    lines = ["🤖 AutoBuy Config"]
+                    for m, rec in cfg.items():
+                        lines.append(f"{m[:8]}…  {rec.get('sol')} SOL  {'ON' if rec.get('enabled') else 'off'}")
+                    return _reply("\n".join(lines))
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
