@@ -1951,7 +1951,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     except Exception as e:
                         response_text = f"Birdeye status failed: {e}"
 
-                elif text.strip().startswith("/birdeye_tick"):
+                elif cmd == "/birdeye_tick":
                     try:
                         from birdeye import get_scanner
                         scanner = get_scanner(publish)
@@ -1960,10 +1960,9 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                     except Exception as e:
                         response_text = f"Birdeye tick failed: {e}"
 
-                elif text.startswith("/scan_start"):
+                elif cmd == "/scan_start":
                     try:
-                        parts = text.split()
-                        secs = int(parts[1]) if len(parts) > 1 else None
+                        secs = int(args.split()[0]) if args and args.split()[0].isdigit() else None
                     except Exception:
                         secs = None
 
@@ -1974,35 +1973,33 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
 
                     response_text = f"✅ Birdeye scanner started (every {scanner.interval}s)"
 
-                elif text.startswith("/scan_stop"):
+                elif cmd == "/scan_stop":
                     scanner = get_scanner(publish)
                     scanner.stop()
                     response_text = "🔴 Birdeye scanner stopped."
 
 # Removed duplicate scan_status handler - using the multi-source version at line 828 instead
 
-                elif text.strip().startswith("/scan_mode"):
+                elif cmd == "/scan_mode":
                     logger.info("[WEBHOOK] Routing /scan_mode")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
                         try:
-                            parts = text.split()
-                            mode = parts[1] if len(parts) > 1 else "strict"
+                            mode = args.split()[0] if args and args.split() else "strict"
                             from birdeye import set_scan_mode, current_mode
                             set_scan_mode(mode)
                             response_text = f"✅ scan mode set → {current_mode()}"
                         except Exception as e:
                             response_text = f"❌ scan_mode failed: {e}"
 
-                elif text.strip().startswith("/scan_probe"):
+                elif cmd == "/scan_probe":
                     logger.info("[WEBHOOK] Routing /scan_probe")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
                         try:
-                            parts = text.split()
-                            n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 5
+                            n = int(args.split()[0]) if args and args.split() and args.split()[0].isdigit() else 5
                             from birdeye import peek_last
                             items = peek_last(n)
                             if not items:
