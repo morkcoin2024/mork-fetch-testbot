@@ -598,7 +598,7 @@ TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' 
 
 def _reply(text: str, status: str = "ok"):
     """SINGLE return shape used everywhere"""
-    return {"status": status, "response": text}
+    return {"status": status, "response": text, "handled": True}
 
 def _require_admin(user):
     """Returns a dict (to send) or None (to continue)"""
