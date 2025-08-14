@@ -1576,8 +1576,7 @@ def process_telegram_command(update_data):
                     if deny: return deny
                     import autosell
                     parts = text.split()
-                    if len(parts) < 2: 
-                        return _reply("Usage: /autosell_interval <seconds>")
+                    if len(parts) < 2: return _reply("Usage: /autosell_interval <seconds>")
                     autosell.set_interval(int(parts[1]))
                     st = autosell.status()
                     return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
