@@ -234,6 +234,27 @@ def _parse_cmd(text: str):
     args = (m.group(2) or "").strip()
     return f"/{name}", args
 
+def _normalize_token(token_data, source=None):
+    """Normalize token data for consistent formatting"""
+    if not token_data:
+        return {}
+    
+    # Basic normalization - ensure required fields exist
+    normalized = {
+        'mint': token_data.get('mint', ''),
+        'symbol': token_data.get('symbol', 'UNKNOWN'),
+        'name': token_data.get('name', ''),
+        'score': token_data.get('score', 0),
+        'source': source or token_data.get('source', 'unknown')
+    }
+    
+    # Add optional fields if they exist
+    for field in ['price', 'volume', 'market_cap', 'created_at']:
+        if field in token_data:
+            normalized[field] = token_data[field]
+    
+    return normalized
+
 def process_telegram_command(update: dict):
     """Enhanced command processing with unified response architecture"""
     msg = update.get("message") or {}
@@ -265,7 +286,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands"]
+        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
         
         # Check if this is a recognized command
         all_commands = public_commands + [
@@ -347,12 +368,26 @@ def process_telegram_command(update: dict):
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
             commands_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /info /ping /test123\n" + \
+                          "**Basic:** /help /info /ping /test123 /debug_cmd\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n" + \
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
+        elif cmd == "/debug_cmd":
+            # Debug command to introspect what the router sees
+            raw = update.get("message", {}).get("text") or ""
+            try:
+                cmd_debug, args_debug = _parse_cmd(raw)
+            except Exception as e:
+                return _reply(f"debug_cmd error: {e}", status="error")
+            # Show repr to reveal hidden newlines / zero-width chars
+            return _reply(
+                "🔎 debug_cmd\n"
+                f"raw: {repr(raw)}\n"
+                f"cmd: {repr(cmd_debug)}\n"
+                f"args: {repr(args_debug)}"
+            )
         
         # AutoSell Commands - Core functionality
         elif cmd == "/autosell_on":
