@@ -1790,7 +1790,9 @@ def process_telegram_command(update_data):
                 else:
                     # Handle unknown commands and plain text
                     if is_command:
-                        response_text = f"❓ Unknown command: {text}\nUse /help for available commands."
+                        # sanitize unknown so newlines don't look weird
+                        clean = (text or "").replace("\n", " ")
+                        return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.", status="unknown_command")
                     else:
                         response_text = "👍"
         
