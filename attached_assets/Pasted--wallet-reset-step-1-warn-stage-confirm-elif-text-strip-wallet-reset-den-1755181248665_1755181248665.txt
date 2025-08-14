@@ -1,0 +1,63 @@
+# --- /wallet_reset (step 1: warn + stage confirm) ---
+elif text.strip() == "/wallet_reset":
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import re, wallets
+        uid = user.get("id")
+        # show current address in the warning
+        addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+        m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
+        addr = m.group(0) if m else "(unknown)"
+        _set_reset_pending(uid)
+        return _reply(
+            "⚠️ Reset wallet?\n"
+            f"Current address: {addr}\n\n"
+            "This will create a NEW burner wallet. "
+            "Funds at the old address will NOT move automatically.\n\n"
+            "Type /wallet_reset_confirm within 2 minutes to proceed, or /wallet_reset_cancel to abort."
+        )
+    except Exception as e:
+        return _reply(f"💥 Reset prep error: {e}", status="error")
+
+# --- /wallet_reset_confirm (step 2: execute) ---
+elif text.strip() == "/wallet_reset_confirm":
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import re, wallets
+        uid = user.get("id")
+
+        if not _is_reset_pending(uid):
+            return _reply("⌛ No reset is pending (or it expired). Run /wallet_reset first.", status="error")
+
+        # Capture old address for message
+        old_addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+        m_old = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", old_addr_text)
+        old_addr = m_old.group(0) if m_old else "(unknown)"
+
+        # Create new burner
+        new_msg = wallets.cmd_wallet_new(uid)  # your existing function
+        new_addr_match = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", new_msg or "")
+        new_addr = new_addr_match.group(0) if new_addr_match else "(unknown)"
+
+        _clear_reset_pending(uid)
+
+        return _reply(
+            "✅ Wallet reset complete.\n"
+            f"Old: {old_addr}\n"
+            f"New: {new_addr}\n\n"
+            "⚠️ Reminder: Move any funds from the old address manually if needed."
+        )
+    except Exception as e:
+        return _reply(f"💥 Reset error: {e}", status="error")
+
+# --- /wallet_reset_cancel (abort) ---
+elif text.strip() == "/wallet_reset_cancel":
+    deny = _require_admin(user)
+    if deny: return deny
+    uid = user.get("id")
+    if _is_reset_pending(uid):
+        _clear_reset_pending(uid)
+        return _reply("🛑 Wallet reset cancelled.")
+    return _reply("ℹ️ No pending wallet reset to cancel.")

@@ -30,6 +30,25 @@ COMMAND_DEDUPE_WINDOW = 1  # seconds to prevent accidental double-taps
 # --- SOL PRICE CACHE ---
 PRICE_CACHE = {"sol": {"price": None, "ts": 0}}
 
+# --- Wallet reset confirmation state (in-memory) ---
+_WALLET_RESET_CONFIRM = {}  # { user_id: {"ts": epoch_seconds} }
+_WALLET_RESET_TTL = 120     # seconds
+
+def _set_reset_pending(user_id: int):
+    _WALLET_RESET_CONFIRM[user_id] = {"ts": time.time()}
+
+def _is_reset_pending(user_id: int) -> bool:
+    entry = _WALLET_RESET_CONFIRM.get(user_id)
+    if not entry:
+        return False
+    if time.time() - entry["ts"] > _WALLET_RESET_TTL:
+        _WALLET_RESET_CONFIRM.pop(user_id, None)
+        return False
+    return True
+
+def _clear_reset_pending(user_id: int):
+    _WALLET_RESET_CONFIRM.pop(user_id, None)
+
 def get_sol_price_usd():
     """Get SOL price in USD with 60-second cache"""
     now = time.time()
@@ -820,18 +839,26 @@ def process_telegram_command(update_data):
                     if deny: 
                         response_text = deny["response"]
                     else:
-                        response_text = "⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm to continue."
+                        user_id = user.get("id")
+                        _set_reset_pending(user_id)
+                        response_text = "⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm within 2 minutes to continue."
                 elif text == "/wallet_reset_confirm":
                     deny = _require_admin(user)
                     if deny: 
                         response_text = deny["response"]
                     else:
-                        try:
-                            import wallets
-                            msg = wallets.cmd_wallet_new(user.get("id"))
-                            response_text = f"✅ Wallet reset.\n{msg}"
-                        except Exception as e:
-                            response_text = f"💥 Reset error: {e}"
+                        user_id = user.get("id")
+                        if not _is_reset_pending(user_id):
+                            response_text = "❌ No reset pending or expired. Use /wallet_reset first."
+                        else:
+                            try:
+                                import wallets
+                                _clear_reset_pending(user_id)
+                                msg = wallets.cmd_wallet_new(user_id)
+                                response_text = f"✅ Wallet reset.\n{msg}"
+                            except Exception as e:
+                                _clear_reset_pending(user_id)
+                                response_text = f"💥 Reset error: {e}"
                 elif text == "/wallet_export":
                     deny = _require_admin(user)
                     if deny: 
