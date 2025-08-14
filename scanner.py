@@ -110,6 +110,12 @@ def autobuy_list():
         _load()
         return dict(_state["autobuy"])
 
+def set_quick_buy_sol(x: float):
+    _load(); _state["quick_buy_sol"] = float(x); _save()
+
+def get_quick_buy_sol() -> float:
+    _load(); return float(_state.get("quick_buy_sol", 0.1))
+
 def clear_seen():
     with _LOCK:
         _state["seen_mints"] = []; _save()
@@ -192,7 +198,7 @@ def _loop():
                         holders = t.get('holders','?')
 
                         # One-tap command suggestions
-                        quick_buy_sol = 0.1  # suggest 0.1 SOL by default (just text)
+                        quick_buy_sol = get_quick_buy_sol()  # configurable default
                         actions = f"/buy {mint} {quick_buy_sol}   /watch {mint}   /fetch {mint}"
 
                         msg = (

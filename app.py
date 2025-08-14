@@ -1550,6 +1550,28 @@ def process_telegram_command(update_data):
                     for m, rec in cfg.items():
                         lines.append(f"{m[:8]}…  {rec.get('sol')} SOL  {'ON' if rec.get('enabled') else 'off'}")
                     return _reply("\n".join(lines))
+
+                elif text.startswith("/quick_buy_sol "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import scanner
+                        sol_amount = float(text.split()[1])
+                        if sol_amount <= 0:
+                            return _reply("⚠️ SOL amount must be positive")
+                        scanner.set_quick_buy_sol(sol_amount)
+                        return _reply(f"⚡ Quick buy SOL set to {sol_amount}")
+                    except (ValueError, IndexError):
+                        return _reply("Usage: /quick_buy_sol <amount>\nExample: /quick_buy_sol 0.05")
+                    except Exception as e:
+                        return _reply(f"⚠️ Error: {e}")
+
+                elif text.strip() == "/quick_buy_sol":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    current = scanner.get_quick_buy_sol()
+                    return _reply(f"⚡ Current quick buy SOL: {current}")
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
