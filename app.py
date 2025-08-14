@@ -660,6 +660,7 @@ def process_telegram_command(update_data):
                        "/wallet_link - Solscan explorer link\n" + \
                        "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
                        "/wallet_reset - Reset wallet (2-step confirm)\n" + \
+                       "/wallet_reset_cancel - Cancel pending reset\n" + \
                        "/wallet_export - Export private key [Admin Only]\n\n" + \
                        "🔍 **Scanner Commands:**\n" + \
                        "/solscanstats - Solscan status\n" + \
@@ -670,7 +671,7 @@ def process_telegram_command(update_data):
                 elif text.strip() == "/commands":
                     response_text = "📋 **Available Commands**\n\n" + \
                               "**Basic:** /help /info /ping /test123\n" + \
-                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_export\n" + \
+                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_export\n" + \
                               "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                               "Use /help for detailed descriptions"
                 elif text.strip() == "/info":
@@ -834,31 +835,71 @@ def process_telegram_command(update_data):
                             response_text = f"🔗 Solscan: https://solscan.io/address/{addr}"
                         except Exception as e:
                             response_text = f"🔗 Link error: {e}"
-                elif text == "/wallet_reset":
+                elif text.strip() == "/wallet_reset":
                     deny = _require_admin(user)
                     if deny: 
                         response_text = deny["response"]
                     else:
-                        user_id = user.get("id")
-                        _set_reset_pending(user_id)
-                        response_text = "⚠️ Reset wallet? This creates a NEW burner.\nType /wallet_reset_confirm within 2 minutes to continue."
-                elif text == "/wallet_reset_confirm":
+                        try:
+                            import re, wallets
+                            uid = user.get("id")
+                            # Show current address in the warning
+                            addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+                            m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
+                            addr = m.group(0) if m else "(unknown)"
+                            _set_reset_pending(uid)
+                            response_text = (
+                                "⚠️ Reset wallet?\n"
+                                f"Current address: {addr}\n\n"
+                                "This will create a NEW burner wallet. "
+                                "Funds at the old address will NOT move automatically.\n\n"
+                                "Type /wallet_reset_confirm within 2 minutes to proceed, or /wallet_reset_cancel to abort."
+                            )
+                        except Exception as e:
+                            response_text = f"💥 Reset prep error: {e}"
+                elif text.strip() == "/wallet_reset_confirm":
                     deny = _require_admin(user)
                     if deny: 
                         response_text = deny["response"]
                     else:
-                        user_id = user.get("id")
-                        if not _is_reset_pending(user_id):
-                            response_text = "❌ No reset pending or expired. Use /wallet_reset first."
+                        try:
+                            import re, wallets
+                            uid = user.get("id")
+
+                            if not _is_reset_pending(uid):
+                                response_text = "⌛ No reset is pending (or it expired). Run /wallet_reset first."
+                            else:
+                                # Capture old address for message
+                                old_addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+                                m_old = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", old_addr_text)
+                                old_addr = m_old.group(0) if m_old else "(unknown)"
+
+                                # Create new burner
+                                new_msg = wallets.cmd_wallet_new(uid)
+                                new_addr_match = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", new_msg or "")
+                                new_addr = new_addr_match.group(0) if new_addr_match else "(unknown)"
+
+                                _clear_reset_pending(uid)
+
+                                response_text = (
+                                    "✅ Wallet reset complete.\n"
+                                    f"Old: {old_addr}\n"
+                                    f"New: {new_addr}\n\n"
+                                    "⚠️ Reminder: Move any funds from the old address manually if needed."
+                                )
+                        except Exception as e:
+                            response_text = f"💥 Reset error: {e}"
+                elif text.strip() == "/wallet_reset_cancel":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        uid = user.get("id")
+                        if _is_reset_pending(uid):
+                            _clear_reset_pending(uid)
+                            response_text = "🛑 Wallet reset cancelled."
                         else:
-                            try:
-                                import wallets
-                                _clear_reset_pending(user_id)
-                                msg = wallets.cmd_wallet_new(user_id)
-                                response_text = f"✅ Wallet reset.\n{msg}"
-                            except Exception as e:
-                                _clear_reset_pending(user_id)
-                                response_text = f"💥 Reset error: {e}"
+                            response_text = "ℹ️ No pending wallet reset to cancel."
                 elif text == "/wallet_export":
                     deny = _require_admin(user)
                     if deny: 
