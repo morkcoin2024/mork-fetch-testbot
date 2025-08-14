@@ -1572,6 +1572,17 @@ def process_telegram_command(update_data):
                     import scanner
                     current = scanner.get_quick_buy_sol()
                     return _reply(f"⚡ Current quick buy SOL: {current}")
+
+                elif text.startswith("/quickbuy "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import scanner
+                        val = float(text.split()[1])
+                        scanner.set_quick_buy_sol(val)
+                        return _reply(f"⚙️ Quick action /buy size set to {val} SOL")
+                    except Exception as e:
+                        return _reply(f"⚠️ quickbuy error: {e}", "error")
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
