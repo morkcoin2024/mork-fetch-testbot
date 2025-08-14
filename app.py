@@ -1081,7 +1081,7 @@ def process_telegram_command(update_data):
                         
                         # Get unified scanner status
                         import scanner
-                        status = scanner.get_status()
+                        status = scanner.status()
                         
                         # Also check Solscan module status
                         solscan_running = False
@@ -1092,14 +1092,15 @@ def process_telegram_command(update_data):
                         response_text = (
                             f"📊 **Scanner System Status**\n\n"
                             f"**Unified Scanner:**\n"
-                            f"Status: {'✅ Running' if status['running'] else '❌ Stopped'}\n"
+                            f"Status: {'✅ Running' if status['thread_alive'] else '❌ Stopped'}\n"
                             f"Enabled: {'✅' if status['enabled'] else '❌'}\n"
                             f"Interval: {status['interval_sec']}s\n"
                             f"Threshold: {status['threshold']}\n"
-                            f"Watchlist: {status['watchlist_size']} tokens\n\n"
+                            f"Watchlist: {len(status['watchlist'])} tokens\n"
+                            f"Seen: {status['seen_count']} tokens\n\n"
                             f"**Solscan Module:**\n"
                             f"Status: {'✅ Running' if solscan_running else '❌ Stopped'}\n"
-                            f"Config: scanner_config.json"
+                            f"Config: scanner_state.json"
                         )
                     except Exception as e:
                         response_text = f"📊 Solscan error: {e}"
@@ -1109,17 +1110,16 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            from config_manager import get_config
-                            config_mgr = get_config()
-                            
-                            scanner_config = config_mgr.get_scanner_config()
-                            watchlist = config_mgr.get_watchlist()
+                            import scanner
+                            status = scanner.status()
+                            watchlist = status['watchlist']
                             
                             lines = ["⚙️ **Scanner Configuration**"]
-                            lines.append(f"Enabled: {'✅' if scanner_config.get('enabled', True) else '❌'}")
-                            lines.append(f"Interval: {scanner_config.get('interval_sec', 20)}s")
-                            lines.append(f"Threshold: {scanner_config.get('threshold', 75)}")
+                            lines.append(f"Enabled: {'✅' if status['enabled'] else '❌'}")
+                            lines.append(f"Interval: {status['interval_sec']}s")
+                            lines.append(f"Threshold: {status['threshold']}")
                             lines.append(f"Watchlist: {len(watchlist)} tokens")
+                            lines.append(f"Seen: {status['seen_count']} tokens")
                             
                             if watchlist:
                                 lines.append("**Watchlist:**")
@@ -1137,8 +1137,7 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            from config_manager import get_config
-                            config_mgr = get_config()
+                            import scanner
                             
                             parts = text.split()
                             if len(parts) < 3:
@@ -1154,26 +1153,22 @@ def process_telegram_command(update_data):
                                 key = parts[1]
                                 value = parts[2]
                                 
-                                # Convert value to appropriate type
-                                if value.lower() in ['true', 'false']:
-                                    value = value.lower() == 'true'
-                                elif value.isdigit():
-                                    value = int(value)
-                                elif value.replace('.', '').isdigit():
-                                    value = float(value)
-                                
-                                # Map common keys to full paths
-                                key_mapping = {
-                                    'interval': 'scanner.interval_sec',
-                                    'threshold': 'scanner.threshold',
-                                    'enabled': 'scanner.enabled'
-                                }
-                                
-                                full_key = key_mapping.get(key, f"scanner.{key}")
-                                config_mgr.set(full_key, value)
-                                config_mgr.save_config()
-                                
-                                response_text = f"✅ Updated {key} = {value}"
+                                # Update scanner configuration
+                                if key == 'interval':
+                                    scanner.set_interval(int(value))
+                                    response_text = f"✅ Updated interval = {value}s"
+                                elif key == 'threshold':
+                                    scanner.set_threshold(int(value))
+                                    response_text = f"✅ Updated threshold = {value}"
+                                elif key == 'enabled':
+                                    enabled = value.lower() == 'true'
+                                    if enabled:
+                                        scanner.enable()
+                                    else:
+                                        scanner.disable()
+                                    response_text = f"✅ Scanner {'enabled' if enabled else 'disabled'}"
+                                else:
+                                    response_text = f"❌ Unknown key: {key}"
                         except Exception as e:
                             response_text = f"⚙️ Update error: {e}"
                 elif text.startswith("/scanner_on"):
