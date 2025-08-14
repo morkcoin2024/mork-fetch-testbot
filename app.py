@@ -1571,21 +1571,21 @@ def process_telegram_command(update_data):
                     return _reply("\n".join(lines))
 
                 # --- AutoSell: enable/disable/status/interval ---
-                elif cmd == "/autosell_on":
+                elif (cmd == "/autosell_on") or (text.strip() == "/autosell_on"):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
                     autosell.enable()
                     return _reply("🟢 AutoSell enabled.")
 
-                elif cmd == "/autosell_off":
+                elif (cmd == "/autosell_off") or (text.strip() == "/autosell_off"):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
                     autosell.disable()
                     return _reply("🔴 AutoSell disabled.")
 
-                elif cmd == "/autosell_status":
+                elif (cmd == "/autosell_status") or (text.strip() == "/autosell_status"):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
@@ -1598,12 +1598,12 @@ def process_telegram_command(update_data):
                         f"Thread alive: {st['thread_alive']}"
                     )
 
-                elif cmd == "/autosell_interval":
+                elif (cmd == "/autosell_interval") or (text.strip().startswith("/autosell_interval")):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
                     try:
-                        seconds = int(args.split()[0])
+                        seconds = int((args or text.split(maxsplit=1)[1]).split()[0])
                     except Exception:
                         return _reply("Usage: /autosell_interval <seconds>")
                     autosell.set_interval(seconds)
@@ -1611,7 +1611,7 @@ def process_telegram_command(update_data):
                     return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
 
                 # --- AutoSell: rules ---
-                elif cmd == "/autosell_list":
+                elif (cmd == "/autosell_list") or (text.strip() == "/autosell_list"):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
@@ -1626,24 +1626,26 @@ def process_telegram_command(update_data):
                         )
                     return _reply("\n".join(lines))
 
-                elif cmd == "/autosell_remove":
+                elif (cmd == "/autosell_remove") or (text.strip().startswith("/autosell_remove ")):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
-                    if not args: 
+                    target = (args or "").split()[0] if args else (text.split(maxsplit=1)[1].strip() if " " in text else "")
+                    if not target:
                         return _reply("Usage: /autosell_remove <MINT>")
-                    ok = autosell.remove_rule(args.split()[0])
+                    ok = autosell.remove_rule(target)
                     return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
 
                 # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
-                elif cmd == "/autosell_set":
+                elif (cmd == "/autosell_set") or (text.strip().startswith("/autosell_set ")):
                     deny = _require_admin(user)
                     if deny: return deny
                     import autosell
-                    parts = args.split()
-                    if len(parts) < 1:
+                    # prefer normalized args, fall back to raw text
+                    parts = (args or text.split(" ", 1)[1]).split()
+                    if not parts:
                         return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-                    mint = parts[0]
+                    mint = parts[0].strip()
                     kv = {"tp": None, "sl": None, "trail": None, "size": None}
                     for p in parts[1:]:
                         if "=" in p:
