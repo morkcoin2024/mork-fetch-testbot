@@ -300,6 +300,7 @@ def process_telegram_command(update: dict):
         
         # If command is not recognized, show unknown command message
         if cmd not in all_commands:
+            print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
             return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.")
         
