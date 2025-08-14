@@ -770,36 +770,47 @@ def webhook():
             
         # Process the update
         if 'message' in update_data:
-            message = update_data['message']
-            user = message.get('from', {})
-            text = message.get('text', '')
+            # STANDARD COMMAND PARSING PATTERN - THIS MUST EXIST AND BE USED:
+            msg = update_data.get("message") or {}
+            user = msg.get("from") or {}
+            text = msg.get("text") or ""
             
-            logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}'")
+            # THIS must exist and be used:
+            cmd, args = _parse_cmd(text)
+            
+            logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}' -> cmd='{cmd}', args='{args}'")
             
             # Publish webhook event for real-time monitoring
             publish("webhook.update", {
                 "from": user.get("username", "?"), 
                 "user_id": user.get("id"),
                 "text": text,
-                "chat_id": message.get('chat', {}).get('id')
+                "chat_id": msg.get('chat', {}).get('id'),
+                "cmd": cmd,
+                "args": args
             })
             
             # Publish command routing event for specific command tracking
-            if text and text.startswith('/'):
-                publish("command.route", {"cmd": text.split()[0]})
+            if cmd:
+                publish("command.route", {"cmd": cmd, "args": args})
             
-            # Check for multiple commands in one message
+            # Check for multiple commands in one message using standard parser
             commands_in_message = []
             if text:
                 # Split by whitespace and find all commands (starting with /)
                 words = text.split()
                 for word in words:
                     if word.startswith('/'):
-                        commands_in_message.append(word)
+                        parsed_cmd, _ = _parse_cmd(word)
+                        if parsed_cmd:
+                            commands_in_message.append(parsed_cmd)
             
             # If multiple commands detected, log it
             if len(commands_in_message) > 1:
                 logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
+            
+            # Use standardized variables for backward compatibility
+            message = msg  # Alias for legacy code
 
             # Helper functions for sending replies (with auto-split)
             def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
@@ -909,7 +920,7 @@ def webhook():
             # Simple admin command processing for immediate testing
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
             
-            if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID and text.startswith('/'):
+            if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID and cmd:
                 logger.info(f"[WEBHOOK] Admin command detected: {text}")
                 
                 # Process admin commands directly without PTB
@@ -931,7 +942,10 @@ def webhook():
                         single_response = None
                         
                         # Process actual commands for multiple command handling
-                        if text.strip() == "/fetch":
+                        # Parse the individual command
+                        single_cmd, single_args = _parse_cmd(cmd)
+                        
+                        if single_cmd == "/fetch":
                             try:
                                 import data_fetcher
                                 # Use the actual function name from data_fetcher
@@ -943,7 +957,7 @@ def webhook():
                                     single_response = "🎯 F.E.T.C.H scan: Data fetcher available"
                             except Exception as e:
                                 single_response = f"🎯 F.E.T.C.H scan failed: {str(e)[:50]}..."
-                        elif text.strip() == "/fetch_now":
+                        elif single_cmd == "/fetch_now":
                             try:
                                 # Use the comprehensive multi-source fetch command
                                 from alerts.telegram import cmd_fetch_now_sync
