@@ -1564,9 +1564,12 @@ def process_telegram_command(update_data):
                 elif text.strip() == "/autosell_off":
                     deny = _require_admin(user)
                     if deny: return deny
-                    import autosell
-                    autosell.disable()
-                    return _reply("🔴 AutoSell disabled.")
+                    try:
+                        import autosell
+                        autosell.disable()
+                        return _reply("🔴 AutoSell disabled.")
+                    except Exception as e:
+                        return _reply(f"⚠️ autosell_off error: {e}", "error")
 
                 elif text.startswith("/autosell_interval"):
                     deny = _require_admin(user)
@@ -1616,22 +1619,31 @@ def process_telegram_command(update_data):
                 elif text.startswith("/autosell_remove "):
                     deny = _require_admin(user)
                     if deny: return deny
-                    import autosell
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = autosell.remove_rule(mint)
-                    return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+                    try:
+                        import autosell
+                        mint = text.split(maxsplit=1)[1].strip()
+                        ok = autosell.remove_rule(mint)
+                        return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+                    except Exception as e:
+                        return _reply(f"⚠️ autosell_remove error: {e}", "error")
 
                 elif text.strip() == "/autosell_list":
                     deny = _require_admin(user)
                     if deny: return deny
-                    import autosell
-                    rules = autosell.get_rules()
-                    if not rules: 
-                        return _reply("🤖 AutoSell rules: (none)")
-                    lines = ["🤖 AutoSell rules:"]
-                    for m, r in rules.items():
-                        lines.append(f"{m[:8]}…  tp={r.get('tp_pct')} sl={r.get('sl_pct')} trail={r.get('trail_pct')} size={r.get('size_pct',100)}%")
-                    return _reply("\n".join(lines))
+                    try:
+                        import autosell
+                        rules = autosell.get_rules()
+                        if not rules:
+                            return _reply("🤖 AutoSell rules: (none)")
+                        lines = ["🤖 AutoSell rules:"]
+                        for m, r in rules.items():
+                            lines.append(
+                                f"{m[:8]}…  tp={r.get('tp_pct')}  sl={r.get('sl_pct')}  "
+                                f"trail={r.get('trail_pct')}  size={r.get('size_pct', 100)}%"
+                            )
+                        return _reply("\n".join(lines))
+                    except Exception as e:
+                        return _reply(f"⚠️ autosell_list error: {e}", "error")
 
                 elif text.startswith("/autobuy_off "):
                     deny = _require_admin(user)
