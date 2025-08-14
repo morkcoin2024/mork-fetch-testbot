@@ -1251,6 +1251,52 @@ def process_telegram_command(update_data):
                                 response_text = "👀 Watchlist: (empty)"
                         except Exception as e:
                             response_text = f"⚠️ Watchlist error: {e}"
+                elif text.startswith("/scanner_interval"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            parts = text.split()
+                            if len(parts) < 2:
+                                response_text = "Usage: /scanner_interval <seconds>"
+                            else:
+                                import scanner
+                                scanner.set_interval(int(parts[1]))
+                                st = scanner.status()
+                                response_text = f"⏱️ Interval set to {st['interval_sec']}s."
+                        except Exception as e:
+                            response_text = f"⚠️ Interval error: {e}"
+                elif text.strip() == "/scanner_status":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner
+                            st = scanner.status()
+                            response_text = (
+                                "📡 **Scanner Status**\n"
+                                f"Enabled: {'✅' if st['enabled'] else '❌'}\n"
+                                f"Interval: {st['interval_sec']}s\n"
+                                f"Threshold: {st['threshold']}\n"
+                                f"Seen mints: {st['seen_count']}\n"
+                                f"Thread alive: {'✅' if st['thread_alive'] else '❌'}\n"
+                                f"Watchlist: {', '.join(st['watchlist']) if st['watchlist'] else '(empty)'}"
+                            )
+                        except Exception as e:
+                            response_text = f"⚠️ Status error: {e}"
+                elif text.strip() == "/scanner_seen_clear":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner
+                            scanner.clear_seen()
+                            response_text = "🧹 Cleared seen mints."
+                        except Exception as e:
+                            response_text = f"⚠️ Clear error: {e}"
                 elif text.startswith("/fetch "):
                     # /fetch <MINT|SYM> - Look up specific token
                     deny = _require_admin(user)
@@ -1299,8 +1345,9 @@ def process_telegram_command(update_data):
                             response_text += f"Scanned: {len(results)} tokens\n"
                             
                             if results:
-                                # Filter for interesting results
-                                good_results = [r for r in results if r[1] >= scanner.get_threshold()]
+                                # Filter for interesting results  
+                                threshold = scanner.status()['threshold']
+                                good_results = [r for r in results if r[1] >= threshold]
                                 if good_results:
                                     response_text += f"**Good Targets ({len(good_results)}):**\n"
                                     for i, (token, score, verdict) in enumerate(good_results[:5], 1):
