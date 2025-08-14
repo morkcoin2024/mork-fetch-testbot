@@ -1,0 +1,128 @@
+# scanner.py
+import threading, time, json, os
+from typing import List, Tuple
+
+_LOCK = threading.RLock()
+_STATE_PATH = "scanner_state.json"
+_state = {
+    "enabled": False,
+    "interval_sec": 20,
+    "threshold": 75,
+    "seen_mints": [],
+    "watchlist": []
+}
+_thread = None
+_stop = False
+
+def _load():
+    global _state
+    if os.path.exists(_STATE_PATH):
+        try:
+            _state.update(json.load(open(_STATE_PATH)))
+        except Exception:
+            pass
+
+def _save():
+    try:
+        json.dump(_state, open(_STATE_PATH, "w"))
+    except Exception:
+        pass
+
+def enable():
+    global _thread, _stop
+    with _LOCK:
+        _load()
+        _state["enabled"] = True
+        _save()
+        if _thread is None or not _thread.is_alive():
+            _stop = False
+            _thread = threading.Thread(target=_loop, daemon=True)
+            _thread.start()
+
+def disable():
+    global _stop
+    with _LOCK:
+        _state["enabled"] = False
+        _save()
+        _stop = True
+
+def set_threshold(v: int):
+    with _LOCK:
+        _state["threshold"] = int(v)
+        _save()
+
+def add_watch(mint: str) -> bool:
+    with _LOCK:
+        if mint in _state["watchlist"]: return False
+        _state["watchlist"].append(mint); _save(); return True
+
+def remove_watch(mint: str) -> bool:
+    with _LOCK:
+        if mint not in _state["watchlist"]: return False
+        _state["watchlist"].remove(mint); _save(); return True
+
+def get_watchlist() -> List[str]:
+    with _LOCK:
+        return list(_state["watchlist"])
+
+# one-shot scan used by /fetchnow
+def scan_now(n: int) -> List[Tuple[dict,int,str]]:
+    import token_fetcher, flip_checklist
+    toks = token_fetcher.recent(n)     # list[dict]
+    out = []
+    for t in toks:
+        s, v, _ = flip_checklist.score(t)
+        out.append((t, s, v))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+def _loop():
+    import token_fetcher, flip_checklist
+    from alerts.telegram import send_alert  # your safe sender wrapper
+
+    while not _stop:
+        with _LOCK:
+            enabled = _state.get("enabled", False)
+            interval = int(_state.get("interval_sec", 20))
+            threshold = int(_state.get("threshold", 75))
+            seen = set(_state.get("seen_mints", []))
+            watch = set(_state.get("watchlist", []))
+
+        if enabled:
+            try:
+                toks = token_fetcher.recent(15)
+                # Include watchlist tokens (force-fetch) if not in recent
+                extra = [token_fetcher.lookup(m) for m in watch if m]
+                toks.extend([t for t in extra if t])
+
+                best = []
+                for t in toks:
+                    mint = t.get("mint")
+                    if not mint or mint in seen: 
+                        continue
+                    s, v, details = flip_checklist.score(t)
+                    if s >= threshold:
+                        best.append((t, s, v, details))
+                        seen.add(mint)
+
+                if best:
+                    best.sort(key=lambda x: x[1], reverse=True)
+                    for t, s, v, details in best[:5]:
+                        msg = (
+                            f"🚨 {v}  {s}  {t.get('symbol','?')}  {t.get('mint','?')[:8]}...\n"
+                            f"Price: {t.get('price','?')}  FDV: {t.get('fdv','?')}  LP: {t.get('lp','?')}\n"
+                            f"Age: {t.get('age','?')}s  Holders: {t.get('holders','?')}\n"
+                            f"{details}"
+                        )
+                        send_alert(msg)
+
+                with _LOCK:
+                    _state["seen_mints"] = list(seen)
+                    _save()
+
+            except Exception as e:
+                # log but never crash the loop
+                from datetime import datetime
+                print(f"[scanner] error {datetime.utcnow().isoformat()}Z: {e}")
+
+        time.sleep(max(5, interval))

@@ -664,7 +664,9 @@ def process_telegram_command(update_data):
                        "/wallet_fullcheck - Comprehensive diagnostics\n" + \
                        "/wallet_export - Export private key [Admin Only]\n\n" + \
                        "🔍 **Scanner Commands:**\n" + \
-                       "/solscanstats - Solscan status\n" + \
+                       "/solscanstats - Scanner status & config\n" + \
+                       "/config_update - Update scanner settings\n" + \
+                       "/config_show - Show current config\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "**Bot Status:** ✅ Online (Polling Mode)"
@@ -673,7 +675,7 @@ def process_telegram_command(update_data):
                     response_text = "📋 **Available Commands**\n\n" + \
                               "**Basic:** /help /info /ping /test123\n" + \
                               "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                              "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
+                              "**Scanner:** /solscanstats /config_update /config_show /fetch /fetch_now\n\n" + \
                               "Use /help for detailed descriptions"
                 elif text.strip() == "/info":
                     response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
@@ -1066,13 +1068,105 @@ def process_telegram_command(update_data):
                             response_text = f"🖼️ QR error: {e}"
                 elif text.strip() == "/solscanstats":
                     try:
+                        from config_manager import get_config
+                        config_mgr = get_config()
+                        
                         if "solscan" in SCANNERS:
                             scanner = SCANNERS["solscan"]
-                            response_text = f"📊 Solscan: {'✅ Running' if getattr(scanner, 'running', False) else '❌ Stopped'}"
+                            running = getattr(scanner, 'running', False)
+                            
+                            # Get configuration details
+                            enabled = config_mgr.is_enabled("solscan")
+                            interval = config_mgr.get_interval("solscan")
+                            threshold = config_mgr.get_threshold()
+                            watchlist_count = len(config_mgr.get_watchlist())
+                            
+                            response_text = (
+                                f"📊 **Solscan Scanner Status**\n\n"
+                                f"Status: {'✅ Running' if running else '❌ Stopped'}\n"
+                                f"Enabled: {'✅' if enabled else '❌'}\n"
+                                f"Interval: {interval}s\n"
+                                f"Threshold: {threshold}\n"
+                                f"Watchlist: {watchlist_count} tokens\n"
+                                f"Config: scanner_config.json"
+                            )
                         else:
                             response_text = "📊 Solscan: Not initialized"
                     except Exception as e:
                         response_text = f"📊 Solscan error: {e}"
+                elif text.strip() == "/config_show":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            
+                            scanner_config = config_mgr.get_scanner_config()
+                            watchlist = config_mgr.get_watchlist()
+                            
+                            lines = ["⚙️ **Scanner Configuration**"]
+                            lines.append(f"Enabled: {'✅' if scanner_config.get('enabled', True) else '❌'}")
+                            lines.append(f"Interval: {scanner_config.get('interval_sec', 20)}s")
+                            lines.append(f"Threshold: {scanner_config.get('threshold', 75)}")
+                            lines.append(f"Watchlist: {len(watchlist)} tokens")
+                            
+                            if watchlist:
+                                lines.append("**Watchlist:**")
+                                for i, token in enumerate(watchlist[:5]):  # Show first 5
+                                    lines.append(f"  • {token[:8]}...{token[-4:]}")
+                                if len(watchlist) > 5:
+                                    lines.append(f"  ... and {len(watchlist) - 5} more")
+                            
+                            response_text = "\n".join(lines)
+                        except Exception as e:
+                            response_text = f"⚙️ Config error: {e}"
+                elif text.startswith("/config_update"):
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            from config_manager import get_config
+                            config_mgr = get_config()
+                            
+                            parts = text.split()
+                            if len(parts) < 3:
+                                response_text = (
+                                    "⚙️ **Config Update Usage:**\n"
+                                    "/config_update <key> <value>\n\n"
+                                    "Examples:\n"
+                                    "• /config_update interval 25\n"
+                                    "• /config_update threshold 80\n"
+                                    "• /config_update enabled true"
+                                )
+                            else:
+                                key = parts[1]
+                                value = parts[2]
+                                
+                                # Convert value to appropriate type
+                                if value.lower() in ['true', 'false']:
+                                    value = value.lower() == 'true'
+                                elif value.isdigit():
+                                    value = int(value)
+                                elif value.replace('.', '').isdigit():
+                                    value = float(value)
+                                
+                                # Map common keys to full paths
+                                key_mapping = {
+                                    'interval': 'scanner.interval_sec',
+                                    'threshold': 'scanner.threshold',
+                                    'enabled': 'scanner.enabled'
+                                }
+                                
+                                full_key = key_mapping.get(key, f"scanner.{key}")
+                                config_mgr.set(full_key, value)
+                                config_mgr.save_config()
+                                
+                                response_text = f"✅ Updated {key} = {value}"
+                        except Exception as e:
+                            response_text = f"⚙️ Update error: {e}"
                 elif text.strip() == "/fetch":
                     try:
                         import data_fetcher

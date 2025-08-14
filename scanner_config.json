@@ -1,0 +1,65 @@
+{
+  "scanner": {
+    "enabled": true,
+    "interval_sec": 20,
+    "threshold": 75,
+    "seen_mints": [],
+    "watchlist": []
+  },
+  "solscan": {
+    "enabled": true,
+    "interval_sec": 30,
+    "endpoints": [
+      "/v2/token/new",
+      "/v1/token/new",
+      "/v1/market/new-tokens",
+      "/v1/market/tokens/new"
+    ],
+    "fallback_endpoint": "/v2.0/token/trending",
+    "limit": 20,
+    "timeout_sec": 10
+  },
+  "birdeye": {
+    "enabled": true,
+    "websocket": {
+      "stale_after_sec": 60,
+      "min_backoff_sec": 5,
+      "max_backoff_sec": 300,
+      "reconnect_attempts": 5
+    },
+    "http": {
+      "interval_sec": 25,
+      "timeout_sec": 15
+    }
+  },
+  "dexscreener": {
+    "enabled": true,
+    "interval_sec": 15,
+    "api_url": "https://api.dexscreener.com/latest/dex/search?q=sol",
+    "timeout_sec": 10
+  },
+  "filters": {
+    "min_liq_usd": 5000,
+    "min_holders": 50,
+    "max_age_min": 60,
+    "min_mcap_usd": 10000,
+    "score_threshold": 75,
+    "risk": {
+      "allow_freeze": false,
+      "allow_mint": false,
+      "allow_blacklist": false,
+      "allow_renounce_only": true
+    }
+  },
+  "deduplication": {
+    "cache_size": 1000,
+    "ttl_minutes": 60,
+    "enable_cross_scanner": true
+  },
+  "notifications": {
+    "enabled": true,
+    "min_score": 80,
+    "max_per_hour": 10,
+    "telegram_format": "markdown"
+  }
+}
