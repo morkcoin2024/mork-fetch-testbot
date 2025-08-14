@@ -54,18 +54,12 @@ def _clear_reset_pending(user_id: int):
     _WALLET_RESET_CONFIRM.pop(user_id, None)
 
 def _parse_cmd(text: str):
-    """
-    Returns (cmd, args). cmd is lowercase and stripped of '@BotName' suffix.
-    Examples:
-      "/autosell_list"             -> ("/autosell_list", "")
-      "/autosell_set@MyBot tp=30"  -> ("/autosell_set", "tp=30")
-    """
     s = (text or "").strip()
     if not s.startswith("/"):
         return None, ""
     head = s.split()[0]                 # "/cmd" or "/cmd@BotName"
     cmd = head.split("@", 1)[0].lower() # strip @BotName, lower
-    args = s[len(head):].strip()        # the rest
+    args = s[len(head):].strip()        # the rest (may be empty)
     return cmd, args
 
 def get_sol_price_usd():
