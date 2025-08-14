@@ -1520,7 +1520,7 @@ def process_telegram_command(update_data):
                                     tok = token_fetcher.lookup(q)
                                     mint = tok.get("mint")
                                     symbol = tok.get("symbol", "TKN")
-                                    scanner.set_autobuy(mint, sol_amount, enabled=True)
+                                    scanner.autobuy_set(mint, sol_amount)
                                     response_text = f"🤖 **Autobuy configured**\n{symbol} ({mint[:8]}...)\nAmount: {sol_amount} SOL\nStatus: ✅ Enabled"
                         except Exception as e:
                             response_text = f"⚠️ Autobuy set error: {e}"
@@ -1539,7 +1539,7 @@ def process_telegram_command(update_data):
                                 tok = token_fetcher.lookup(q)
                                 mint = tok.get("mint")
                                 symbol = tok.get("symbol", "TKN")
-                                if scanner.remove_autobuy(mint):
+                                if scanner.autobuy_remove(mint):
                                     response_text = f"🗑️ Autobuy removed for {symbol} ({mint[:8]}...)"
                                 else:
                                     response_text = f"ℹ️ No autobuy config found for {symbol}"
@@ -1560,13 +1560,18 @@ def process_telegram_command(update_data):
                                 tok = token_fetcher.lookup(q)
                                 mint = tok.get("mint")
                                 symbol = tok.get("symbol", "TKN")
-                                new_status = scanner.toggle_autobuy(mint)
-                                if new_status is not False:
-                                    status_icon = "✅" if new_status else "❌"
-                                    status_text = "Enabled" if new_status else "Disabled"
-                                    response_text = f"🤖 Autobuy {status_text} for {symbol} ({mint[:8]}...)\nStatus: {status_icon}"
-                                else:
+                                # Check current status to determine toggle direction
+                                current_config = scanner.autobuy_list().get(mint)
+                                if not current_config:
                                     response_text = f"ℹ️ No autobuy config found for {symbol}"
+                                else:
+                                    currently_enabled = current_config.get("enabled", False)
+                                    if currently_enabled:
+                                        scanner.autobuy_off(mint)
+                                        response_text = f"🤖 Autobuy Disabled for {symbol} ({mint[:8]}...)\nStatus: ❌"
+                                    else:
+                                        scanner.autobuy_on(mint)
+                                        response_text = f"🤖 Autobuy Enabled for {symbol} ({mint[:8]}...)\nStatus: ✅"
                         except Exception as e:
                             response_text = f"⚠️ Autobuy toggle error: {e}"
                 elif text.strip() == "/autobuy_list":
@@ -1576,7 +1581,7 @@ def process_telegram_command(update_data):
                     else:
                         try:
                             import scanner, token_fetcher
-                            autobuy_config = scanner.get_autobuy_config()
+                            autobuy_config = scanner.autobuy_list()
                             if not autobuy_config:
                                 response_text = "🤖 **Autobuy List**: (none configured)"
                             else:

@@ -75,46 +75,40 @@ def get_watchlist() -> List[str]:
     with _LOCK:
         return list(_state["watchlist"])
 
-def set_autobuy(mint: str, sol_amount: float, enabled: bool = True):
-    """Set autobuy configuration for a mint."""
+def autobuy_set(mint: str, sol: float):
     with _LOCK:
         _load()
-        if "autobuy" not in _state:
-            _state["autobuy"] = {}
-        _state["autobuy"][mint] = {"sol": float(sol_amount), "enabled": bool(enabled)}
-        _save()
-
-def remove_autobuy(mint: str) -> bool:
-    """Remove autobuy configuration for a mint."""
-    with _LOCK:
-        _load()
-        if "autobuy" not in _state:
-            _state["autobuy"] = {}
-        if mint not in _state["autobuy"]:
-            return False
-        del _state["autobuy"][mint]
+        _state["autobuy"][mint] = {"sol": float(sol), "enabled": True}
         _save()
         return True
 
-def get_autobuy_config() -> dict:
-    """Get all autobuy configurations."""
+def autobuy_on(mint: str):
     with _LOCK:
         _load()
-        if "autobuy" not in _state:
-            _state["autobuy"] = {}
-        return dict(_state["autobuy"])
-
-def toggle_autobuy(mint: str) -> bool:
-    """Toggle autobuy enabled status for a mint. Returns new enabled status."""
-    with _LOCK:
-        _load()
-        if "autobuy" not in _state:
-            _state["autobuy"] = {}
-        if mint not in _state["autobuy"]:
-            return False
-        _state["autobuy"][mint]["enabled"] = not _state["autobuy"][mint]["enabled"]
+        if mint not in _state["autobuy"]: return False
+        _state["autobuy"][mint]["enabled"] = True
         _save()
-        return _state["autobuy"][mint]["enabled"]
+        return True
+
+def autobuy_off(mint: str):
+    with _LOCK:
+        _load()
+        if mint not in _state["autobuy"]: return False
+        _state["autobuy"][mint]["enabled"] = False
+        _save()
+        return True
+
+def autobuy_remove(mint: str):
+    with _LOCK:
+        _load()
+        if _state["autobuy"].pop(mint, None) is None: return False
+        _save()
+        return True
+
+def autobuy_list():
+    with _LOCK:
+        _load()
+        return dict(_state["autobuy"])
 
 def clear_seen():
     with _LOCK:
@@ -175,8 +169,7 @@ def _loop():
                 # Score & alert
                 winners = []
                 autobuy_executions = []
-                with _LOCK:
-                    autobuy_config = dict(_state.get("autobuy", {}))
+                autobuy_config = autobuy_list()
                 
                 for t in toks:
                     mint = t.get("mint")
