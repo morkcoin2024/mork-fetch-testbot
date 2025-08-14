@@ -661,6 +661,7 @@ def process_telegram_command(update_data):
                        "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
                        "/wallet_reset - Reset wallet (2-step confirm)\n" + \
                        "/wallet_reset_cancel - Cancel pending reset\n" + \
+                       "/wallet_fullcheck - Comprehensive diagnostics\n" + \
                        "/wallet_export - Export private key [Admin Only]\n\n" + \
                        "🔍 **Scanner Commands:**\n" + \
                        "/solscanstats - Solscan status\n" + \
@@ -671,7 +672,7 @@ def process_telegram_command(update_data):
                 elif text.strip() == "/commands":
                     response_text = "📋 **Available Commands**\n\n" + \
                               "**Basic:** /help /info /ping /test123\n" + \
-                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_export\n" + \
+                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                               "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                               "Use /help for detailed descriptions"
                 elif text.strip() == "/info":
@@ -900,6 +901,103 @@ def process_telegram_command(update_data):
                             response_text = "🛑 Wallet reset cancelled."
                         else:
                             response_text = "ℹ️ No pending wallet reset to cancel."
+                elif text.strip() == "/wallet_fullcheck":
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import re, wallets
+                            uid = user.get("id")
+
+                            # --- helpers (local, defensive) ---
+                            base58_re = r"[1-9A-HJ-NP-Za-km-z]{32,44}"
+
+                            def extract_addr(s: str | None):
+                                if not s: return None
+                                m = re.search(base58_re, s)
+                                return m.group(0) if m else None
+
+                            def parse_sol_amount(bal_text: str | None):
+                                if not bal_text: return None
+                                # prefer labeled patterns first
+                                for pat in [r"SOL[:\s]+([0-9][0-9,]*\.?[0-9]*)",
+                                            r"◎[:\s]+([0-9][0-9,]*\.?[0-9]*)"]:
+                                    m = re.search(pat, bal_text, flags=re.IGNORECASE)
+                                    if m:
+                                        try:
+                                            return float(m.group(1).replace(",", ""))
+                                        except Exception:
+                                            pass
+                                # fallback: largest float anywhere
+                                floats = [x.replace(",", "") for x in re.findall(r"([0-9][0-9,]*\.?[0-9]*)", bal_text)]
+                                vals = []
+                                for x in floats:
+                                    try: vals.append(float(x))
+                                    except Exception: pass
+                                return max(vals) if vals else None
+
+                            # --- gather data from existing commands ---
+                            addr_text  = (wallets.cmd_wallet_addr(uid) or "").strip()
+                            summary    = (wallets.cmd_wallet_summary(uid) or "").strip()
+                            bal_text   = (wallets.cmd_wallet_balance(uid) or "").strip()
+
+                            addr_from_addr   = extract_addr(addr_text)
+                            addr_from_summary= extract_addr(summary)
+
+                            sol_amt = parse_sol_amount(bal_text)
+
+                            # price (best-effort)
+                            usd_line = "USD: (price unavailable)"
+                            try:
+                                from prices import get_sol_price_usd
+                                px = get_sol_price_usd()
+                                if px is not None and sol_amt is not None:
+                                    usd_line = f"USD: ≈ ${sol_amt * float(px):,.2f}"
+                            except Exception:
+                                pass
+
+                            # link check (string build; no network)
+                            link_ok = bool(addr_from_addr)
+                            link_str = f"https://solscan.io/address/{addr_from_addr}" if addr_from_addr else "(no link)"
+
+                            # --- verdicts ---
+                            ok_addr_present   = bool(addr_from_addr)
+                            ok_addr_consistent= ok_addr_present and (addr_from_summary == addr_from_addr or addr_from_summary is None)
+                            ok_balance_parse  = sol_amt is not None
+                            ok_summary_nonempty = bool(summary)
+                            ok_balance_nonempty = bool(bal_text)
+
+                            # --- report ---
+                            lines = []
+                            lines.append("🧪 Wallet Full Check")
+                            lines.append(f"{'✅' if ok_addr_present else '❌'} Address detected: {addr_from_addr or '(none)'}")
+                            lines.append(f"{'✅' if ok_addr_consistent else '⚠️'} Address consistent across /wallet and /wallet_addr")
+                            lines.append(f"{'✅' if ok_summary_nonempty else '❌'} /wallet summary returned text")
+                            lines.append(f"{'✅' if ok_balance_nonempty else '❌'} /wallet_balance returned text")
+                            lines.append(f"{'✅' if ok_balance_parse else '⚠️'} SOL parse: " + (f"{sol_amt}" if sol_amt is not None else "(not found)"))
+                            lines.append(f"{'✅' if link_ok else '❌'} Link build: {link_str}")
+                            lines.append(f"ℹ️ {usd_line}")
+
+                            # overall status
+                            hard_fail = not (ok_addr_present and ok_summary_nonempty and ok_balance_nonempty)
+
+                            # small tail with raw (trimmed) snippets for debugging if anything shaky
+                            if not ok_addr_consistent or not ok_balance_parse or hard_fail:
+                                def short(s): 
+                                    import re as _re
+                                    s = _re.sub(r"\s+", " ", s or "").strip()
+                                    return (s[:160] + "…") if len(s) > 160 else s
+                                lines.append("")
+                                lines.append("— details —")
+                                lines.append(f"addr_text: {short(addr_text)}")
+                                lines.append(f"summary:   {short(summary)}")
+                                lines.append(f"balance:   {short(bal_text)}")
+
+                            response_text = "\n".join(lines)
+
+                        except Exception as e:
+                            response_text = f"🧪 Fullcheck error: {e}"
                 elif text == "/wallet_export":
                     deny = _require_admin(user)
                     if deny: 
