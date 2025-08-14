@@ -1809,6 +1809,27 @@ def process_telegram_command(update_data):
     logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
     return _reply(response_text or "No response generated", status="ok")
 
+def handle_update(update):
+    """Enhanced standalone update handler with single-send guarantee"""
+    chat_id = (update.get("message", {}).get("chat") or {}).get("id")
+    if chat_id is None:
+        return
+
+    result = process_telegram_command(update)
+
+    # Single-send guarantee
+    text_out = None
+    if isinstance(result, dict) and result.get("handled"):
+        text_out = result.get("response")
+    elif isinstance(result, str):
+        text_out = result
+    else:
+        text_out = "⚠️ Processing error occurred."
+
+    from telegram_safety import send_telegram_safe
+    ok, status, js = send_telegram_safe(BOT_TOKEN, chat_id, text_out)
+    # Do NOT also send any additional fallback here.
+
 def start_telegram_polling():
     """Start Telegram polling in background thread"""
     try:

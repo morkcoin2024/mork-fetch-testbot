@@ -122,57 +122,34 @@ class TelegramPolling:
                 time.sleep(5)
                 
     def _handle_update(self, update: dict):
-        """Unified update handler with idempotency and single send guarantee"""
-        try:
-            # Extract message data
-            msg = update.get("message") or update.get("edited_message") or {}
-            chat_id = (msg.get("chat") or {}).get("id")
-            
-            # Skip updates without message content
-            if not msg or chat_id is None:
-                return
+        """Enhanced update handler with single-send guarantee"""
+        chat_id = (update.get("message", {}).get("chat") or {}).get("id")
+        if chat_id is None:
+            return
 
-            # Ensure bot_token is available
-            if not self.bot_token:
-                logger.error("Bot token not available")
-                return
+        # Idempotency check
+        upd_id = update.get("update_id")
+        msg_id = update.get("message", {}).get("message_id")
+        dedupe_key = f"{upd_id}:{msg_id}:{chat_id}"
+        if _seen(dedupe_key):
+            logger.debug(f"Duplicate update ignored: {dedupe_key}")
+            return
 
-            # Idempotency check
-            upd_id = update.get("update_id")
-            msg_id = msg.get("message_id")
-            dedupe_key = f"{upd_id}:{msg_id}:{chat_id}"
-            if _seen(dedupe_key):
-                logger.debug(f"Duplicate update ignored: {dedupe_key}")
-                return
+        # Process command through main router
+        from app import process_telegram_command
+        result = process_telegram_command(update)
 
-            # Process command through main router
-            from app import process_telegram_command
-            result = process_telegram_command(update)
+        # Single-send guarantee
+        text_out = None
+        if isinstance(result, dict) and result.get("handled"):
+            text_out = result.get("response")
+        elif isinstance(result, str):
+            text_out = result
+        else:
+            text_out = "⚠️ Processing error occurred."
 
-            # Normalize result from command router
-            if isinstance(result, dict) and "response" in result:
-                out_text = result["response"]
-            elif isinstance(result, str):
-                out_text = result
-            else:
-                out_text = "⚠️ No response generated."
-
-            # Send using unified safe sender
-            ok, status, js = send_telegram_safe(self.bot_token, int(chat_id), out_text)
-            if not ok:
-                logger.warning("telegram_send_failed", extra={"status": status, "resp": js})
-
-        except Exception as e:
-            logger.error(f"Update handling error: {e}")
-            # Final fallback if we have chat_id and bot_token
-            chat_id = locals().get("chat_id")
-            if chat_id and self.bot_token:
-                try:
-                    ok, status, js = send_telegram_safe(self.bot_token, int(chat_id), "❌ Processing error occurred")
-                    if not ok:
-                        logger.warning("fallback_send_failed", extra={"status": status, "resp": js})
-                except Exception as fallback_error:
-                    logger.error(f"Final fallback failed: {fallback_error}")
+        ok, status, js = send_telegram_safe(self.bot_token, chat_id, text_out)
+        # Do NOT also send any additional fallback here.
 
 # Global polling instance
 _polling_instance = None

@@ -37,6 +37,9 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Streamlined Centralized Messaging:** Ultra-clean centralized messaging pattern with enhanced MarkdownV2 system and bulletproof message delivery.
 - **Simplified Alert System:** Clean alerts/telegram.py module with direct imports from app.py (BOT_TOKEN, ADMIN_CHAT_ID) using telegram_safety.send_telegram_safe for reliable message delivery with fallback protection.
 - **Enhanced Command Processing:** Robust `_parse_cmd` utility function supporting @BotName suffixes, case-insensitive processing, and clean argument separation for improved group chat compatibility.
+- **Dual-Pattern Command Matching:** AutoSell commands use both `cmd` variable and legacy `text` parsing for bulletproof backward compatibility.
+- **Smart Unknown Command Handling:** Professional error messages with text sanitization to prevent formatting issues, distinguishing between commands and regular text.
+- **Single-Send Guarantee Update Handling:** Enhanced `handle_update` function with explicit `handled` flags, preventing duplicate responses and ensuring clean message flow.
 - **Unified Handler Architecture:** Single-point update processing with enhanced idempotency for message and edited_message updates.
 - **Idempotency Deduplication System:** Rolling memory system to prevent duplicate message processing.
 - **Webhook Conflict Resolution:** Automatic webhook deletion when polling starts.
