@@ -5,5 +5,7 @@ from app import BOT_TOKEN, ADMIN_CHAT_ID  # ensure these exist
 
 def send_alert(text: str):
     """Send an alert to the admin chat (Markdown-safe)."""
+    if not BOT_TOKEN or not ADMIN_CHAT_ID:
+        return False
     ok, _, _ = send_telegram_safe(BOT_TOKEN, ADMIN_CHAT_ID, text)
     return ok
