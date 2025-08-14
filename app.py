@@ -10,6 +10,10 @@ import json
 from datetime import datetime
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
+
+# Export for alerts module
+BOT_TOKEN = TELEGRAM_BOT_TOKEN
+ADMIN_CHAT_ID = int(ASSISTANT_ADMIN_TELEGRAM_ID) if ASSISTANT_ADMIN_TELEGRAM_ID else None
 from events import BUS
 import time
 import rules

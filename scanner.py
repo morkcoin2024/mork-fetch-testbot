@@ -182,15 +182,10 @@ def _loop():
 def _send_alerts(tokens: List[Tuple[dict, int, str, str]]):
     """Send Telegram alerts for qualifying tokens"""
     try:
-        from telegram_polling import send_telegram_safe
+        from alerts.telegram import send_alert
         
         config = get_config()
-        admin_id = os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID")
         
-        if not admin_id:
-            print("[scanner] No admin ID configured for alerts")
-            return
-            
         for token, score, verdict, details in tokens:
             symbol = token.get("symbol", "Unknown")
             mint = token.get("mint", "")
@@ -212,12 +207,12 @@ def _send_alerts(tokens: List[Tuple[dict, int, str, str]]):
                 f"🔗 `{mint}`"
             )
             
-            # Send alert
-            success, status_code, response = send_telegram_safe(admin_id, msg)
+            # Send alert using simplified alerts module
+            success = send_alert(msg)
             if success:
                 print(f"[scanner] Alert sent for {symbol} (score: {score})")
             else:
-                print(f"[scanner] Alert send failed for {symbol}: {status_code}")
+                print(f"[scanner] Alert send failed for {symbol}")
                 
     except Exception as e:
         print(f"[scanner] Alert error: {e}")
