@@ -1,0 +1,51 @@
+# /wallet_selftest – one-tap sanity check
+elif text == "/wallet_selftest":
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import re, wallets
+        uid = user.get("id")
+        addr_text = wallets.cmd_wallet_addr(uid)
+        summary = wallets.cmd_wallet_summary(uid)
+        bal_text = wallets.cmd_wallet_balance(uid)
+        # quick address extraction (base58 32–44 chars)
+        m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text or "")
+        ok = bool(m) and summary and bal_text
+        return _reply("✅ Wallet self-test passed" if ok else "⚠️ Self-test incomplete.")
+    except Exception as e:
+        return _reply(f"🧪 Self-test error: {e}", status="error")
+
+# /wallet_link – Solscan link
+elif text.startswith("/wallet_link"):
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import re, wallets
+        uid = user.get("id")
+        addr_text = wallets.cmd_wallet_addr(uid)
+        m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text or "")
+        if not m: return _reply("⚠️ Unable to detect wallet address.", status="error")
+        addr = m.group(0)
+        return _reply(f"🔗 Solscan: https://solscan.io/address/{addr}")
+    except Exception as e:
+        return _reply(f"🔗 Link error: {e}", status="error")
+
+# /wallet_balance_usd – SOL balance + USD estimate
+elif text == "/wallet_balance_usd":
+    deny = _require_admin(user)
+    if deny: return deny
+    try:
+        import re, wallets
+        uid = user.get("id")
+        bal_text = wallets.cmd_wallet_balance(uid)  # must contain "SOL: <number>"
+        m = re.search(r"SOL:\s*([0-9]*\.?[0-9]+)", bal_text or "")
+        if not m: return _reply("⚠️ Could not parse SOL balance.", status="error")
+        sol_amt = float(m.group(1))
+        from prices import get_sol_price_usd  # stub below
+        price = get_sol_price_usd()
+        if price is None:
+            return _reply(f"{bal_text}\n≈ $— USD (price unavailable)")
+        usd = sol_amt * float(price)
+        return _reply(f"{bal_text}\n≈ ${usd:,.2f} USD")
+    except Exception as e:
+        return _reply(f"💱 Balance (USD) error: {e}", status="error")
