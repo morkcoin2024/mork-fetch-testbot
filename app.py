@@ -6,214 +6,9 @@ Handles Telegram webhooks and provides web interface
 import os
 import logging
 import threading
-import json
-from datetime import datetime
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
-
-# Export for alerts module
-BOT_TOKEN = TELEGRAM_BOT_TOKEN
-ADMIN_CHAT_ID = int(ASSISTANT_ADMIN_TELEGRAM_ID) if ASSISTANT_ADMIN_TELEGRAM_ID else None
 from events import BUS
-import time
-import rules
-
-# Try to use an existing wallet module if you already have one.
-# If it's missing, we'll use the lightweight JSON store below.
-try:
-    from wallets import get_or_create_wallet, get_wallet, get_balance_sol  # existing project API (if present)
-except Exception:
-    get_or_create_wallet = get_wallet = get_balance_sol = None
-
-# --- PER-USER RATE LIMITING (skip for commands) ---
-user_last_request = {}
-user_last_command = {}
-RATE_LIMIT_WINDOW = 5  # seconds between non-command messages
-COMMAND_DEDUPE_WINDOW = 1  # seconds to prevent accidental double-taps
-
-# --- SOL PRICE CACHE ---
-PRICE_CACHE = {"sol": {"price": None, "ts": 0}}
-
-# --- Wallet reset confirmation state (in-memory) ---
-_WALLET_RESET_CONFIRM = {}  # { user_id: {"ts": epoch_seconds} }
-_WALLET_RESET_TTL = 120     # seconds
-
-def _set_reset_pending(user_id: int):
-    _WALLET_RESET_CONFIRM[user_id] = {"ts": time.time()}
-
-def _is_reset_pending(user_id: int) -> bool:
-    entry = _WALLET_RESET_CONFIRM.get(user_id)
-    if not entry:
-        return False
-    if time.time() - entry["ts"] > _WALLET_RESET_TTL:
-        _WALLET_RESET_CONFIRM.pop(user_id, None)
-        return False
-    return True
-
-def _clear_reset_pending(user_id: int):
-    _WALLET_RESET_CONFIRM.pop(user_id, None)
-
-def _parse_cmd(text: str):
-    s = (text or "").strip()
-    if not s.startswith("/"):
-        return None, ""
-    head = s.split()[0]                 # "/cmd" or "/cmd@BotName"
-    cmd = head.split("@", 1)[0].lower() # strip @BotName, lower
-    args = s[len(head):].strip()        # the rest (may be empty)
-    return cmd, args
-
-def get_sol_price_usd():
-    """Get SOL price in USD with 60-second cache"""
-    now = time.time()
-    if PRICE_CACHE["sol"]["price"] and now - PRICE_CACHE["sol"]["ts"] < 60:
-        return PRICE_CACHE["sol"]["price"]
-    
-    # Fetch fresh price using existing birdeye integration
-    try:
-        # Use existing birdeye price fetch if available
-        import birdeye
-        price = birdeye.get_sol_price()  # assume this exists
-        PRICE_CACHE["sol"] = {"price": price, "ts": now}
-        return price
-    except Exception:
-        # Fallback to simple API call
-        try:
-            import httpx
-            resp = httpx.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", timeout=10)
-            price = resp.json()["solana"]["usd"]
-            PRICE_CACHE["sol"] = {"price": price, "ts": now}
-            return price
-        except Exception:
-            # Final fallback - use cached value even if stale, or default
-            return PRICE_CACHE["sol"]["price"] if PRICE_CACHE["sol"]["price"] else 200.0
-
-def is_rate_limited(user_id):
-    """Check if user is rate limited for non-command messages"""
-    if not user_id:
-        return False
-        
-    current_time = time.time()
-    last_time = user_last_request.get(user_id, 0)
-    
-    if current_time - last_time < RATE_LIMIT_WINDOW:
-        return True
-    
-    user_last_request[user_id] = current_time
-    return False
-
-def is_duplicate_command(user_id, command_text):
-    """Check if this is a duplicate command within 1 second (prevent double-taps)"""
-    if not user_id or not command_text:
-        return False
-        
-    current_time = time.time()
-    key = f"{user_id}:{command_text}"
-    last_time = user_last_command.get(key, 0)
-    
-    if current_time - last_time < COMMAND_DEDUPE_WINDOW:
-        return True
-    
-    user_last_command[key] = current_time
-    return False
-
-# --- SAFE TELEGRAM SEND (integrated with existing _send_chunk) ---
-def _send_safe(text, parse_mode="Markdown", no_preview=True):
-    """
-    Sends a message safely with automatic fallback to plain text.
-    This will be integrated with the existing _send_chunk function in the webhook.
-    """
-    # This is a placeholder that will use the actual _send_chunk from the webhook context
-    # when called within the webhook handler where _send_chunk is defined
-    return True  # Safe default for module-level usage
-
-# --- SIMPLE JSON WALLET BACKEND (only used if no project wallet module found) ---
-WALLET_DB_PATH = os.getenv("WALLET_STORE_PATH", "data/wallets.json")
-
-def _json_load(path):
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _json_save(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-
-def _fallback_get_or_create_wallet(user_id: str) -> str:
-    """
-    Creates a *burner placeholder* address if no wallet module exists.
-    NOTE: Replace with your real wallet service when available.
-    """
-    db = _json_load(WALLET_DB_PATH)
-    rec = db.get(str(user_id))
-    if rec and "address" in rec:
-        return rec["address"]
-    # Placeholder address: deterministic fake (so users see something) – replace with real keypair create.
-    fake_addr = f"FALLBACK_{user_id}_ADDR"
-    db[str(user_id)] = {"address": fake_addr, "created_at": datetime.utcnow().isoformat() + "Z"}
-    _json_save(WALLET_DB_PATH, db)
-    return fake_addr
-
-def _fallback_get_wallet_address(user_id: str) -> str | None:
-    db = _json_load(WALLET_DB_PATH)
-    rec = db.get(str(user_id))
-    return rec.get("address") if rec else None
-
-def _fallback_get_wallet_balance(user_id: str) -> float:
-    """
-    Placeholder returns 0.0. Replace with real Solana RPC balance look‑up in your wallet module.
-    """
-    return 0.0
-
-# unified adapters (prefer real module if present)
-def _wallet_create(user_id: int) -> str:
-    if get_or_create_wallet:
-        result = get_or_create_wallet(str(user_id))
-        if isinstance(result, dict):
-            return result.get("address", "unknown")
-        return str(result)
-    return _fallback_get_or_create_wallet(str(user_id))
-
-def _wallet_addr(user_id: int) -> str | None:
-    if get_wallet:
-        wallet = get_wallet(str(user_id))
-        return wallet.get("address") if wallet else None
-    return _fallback_get_wallet_address(str(user_id))
-
-def _wallet_balance(user_id: int) -> float:
-    if get_balance_sol and get_wallet:
-        wallet = get_wallet(str(user_id))
-        if wallet and "address" in wallet:
-            return get_balance_sol(wallet["address"])
-    return _fallback_get_wallet_balance(str(user_id))
-
-# --- BUS TEST helper (publish synthetic NEW_TOKEN if BUS exists) ---
-def _bus_publish_synthetic():
-    try:
-        BUS  # noqa: F821 (exists in your app)
-    except NameError:
-        return False
-    payload = {
-        "source": "synthetic",
-        "symbol": "TEST",
-        "name": "Synthetic Token",
-        "mint": "TEST" + datetime.utcnow().strftime("%H%M%S"),
-        "holders": 123,
-        "mcap_usd": 123456,
-        "liquidity_usd": 50000,
-        "age_min": 1.0,
-        "risk": 25.0,
-        "urls": {"birdeye": "https://birdeye.so/token/TEST?chain=solana"}
-    }
-    try:
-        BUS.publish("NEW_TOKEN", payload)
-        return True
-    except Exception:
-        return False
-
-
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -316,68 +111,22 @@ def _init_scanners():
 import requests
 
 def send_admin_md(text: str):
-    """DISABLED: Send Markdown message to admin chat. Now handled by polling loop."""
-    # This function is disabled to centralize all sending in the polling loop
-    logger.info(f"send_admin_md called but disabled: {text}")
-    return True  # Return success to avoid breaking existing code
+    """Send Markdown message to admin chat (no PTB needed)."""
+    try:
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        admin_id  = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
+        if not bot_token or not admin_id:
+            return False
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True},
+            timeout=10
+        )
+        return True
+    except Exception as e:
+        logger.exception("send_admin_md failed: %s", e)
+        return False
 # --- END PATCH ---
-
-
-
-
-
-
-def _format_plain(text: str) -> str:
-    # Avoid Telegram markdown parse glitches -> send as plain text
-    return text
-
-# --- [C] Enhanced command handlers using one-shot patch functions ---
-def handle_wallet_new(user_id: int):
-    """Enhanced wallet creation with safe messaging"""
-    try:
-        addr = _wallet_create(user_id)
-        lines = [
-            "Wallet created (or already exists).",
-            f"Address: {addr}",
-            "Secret key: stored securely (not displayed here).",
-            "NOTE: This is a burner wallet for testing. Move funds at your own risk."
-        ]
-        return "\n".join(lines)
-    except Exception as e:
-        return f"Wallet creation failed: {e}"
-
-def handle_wallet_addr(user_id: int):
-    """Enhanced wallet address lookup with safe messaging"""
-    try:
-        addr = _wallet_addr(user_id)
-        if not addr:
-            addr = _wallet_create(user_id)
-        return f"Your wallet address: {addr}"
-    except Exception as e:
-        return f"Address lookup failed: {e}"
-
-def handle_wallet_balance(user_id: int):
-    """Enhanced wallet balance lookup with safe messaging"""
-    try:
-        addr = _wallet_addr(user_id)
-        if not addr:
-            return "No wallet yet. Use /wallet_new first."
-        
-        balance = _wallet_balance(user_id)
-        return f"Balance for {addr}: {balance:.9f} SOL"
-    except Exception as e:
-        return f"Balance lookup failed: {e}"
-
-def handle_bus_test():
-    """Enhanced bus test with safe messaging"""
-    try:
-        success = _bus_publish_synthetic()
-        if success:
-            return "Published synthetic NEW_TOKEN event."
-        else:
-            return "Event bus not available."
-    except Exception as e:
-        return f"Bus test failed: {e}"
 
 # Token notification handler for multi-source integration
 def _notify_tokens(items: list, title: str = "New tokens"):
@@ -416,27 +165,6 @@ SOLSCAN_SCANNER = None
 SCANNERS = {}  # global, single source of truth
 
 # Function to ensure scanners are initialized (for multi-worker setup)
-def _normalize_token(src: str, obj: dict) -> dict:
-    """Map various source payloads into a common schema used by rules
-    Fill with best-effort; fields missing can be 0/False"""
-    return {
-        "source": src,
-        "mint": (obj.get("mint") or obj.get("address") or obj.get("tokenAddress") or "").lower(),
-        "symbol": obj.get("symbol") or obj.get("baseSymbol") or "",
-        "name": obj.get("name") or "",
-        "ts": int(obj.get("ts") or obj.get("createdAt") or time.time()),
-        "age_min": float(obj.get("age_min") or obj.get("ageMinutes") or 0),
-        "liq_usd": float(obj.get("liq_usd") or obj.get("liquidityUsd") or obj.get("liq$") or 0),
-        "mcap_usd": float(obj.get("mcap_usd") or obj.get("mcap$") or 0),
-        "holders": int(obj.get("holders") or 0),
-        "risk": {
-            "freeze": bool(obj.get("freeze") or obj.get("canFreeze") or False),
-            "mint": bool(obj.get("mint") or obj.get("canMint") or False),
-            "blacklist": bool(obj.get("blacklist") or obj.get("canBlacklist") or False),
-            "renounced": bool(obj.get("renounced") or obj.get("ownerRenounced") or False),
-        },
-    }
-
 def _ensure_scanners():
     """Ensure scanners are initialized in this worker process."""
     global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
@@ -475,6 +203,126 @@ def _ensure_scanners():
         JUPITER_SCANNER = None 
         SOLSCAN_SCANNER = None
         SCANNERS = {}
+
+def _parse_cmd(text: str):
+    """Optimized command parsing with @BotName handling"""
+    if not text or not text.startswith('/'):
+        return None, ""
+    
+    # Strip @BotName suffix (e.g., "/help@MorkFetchBot" -> "/help") 
+    cmd_part = text.split()[0]
+    if '@' in cmd_part:
+        cmd_part = cmd_part.split('@')[0]
+    
+    # Normalize to lowercase for consistent processing
+    cmd = cmd_part.lower()
+    
+    # Extract arguments
+    args = text[len(text.split()[0]):].strip() if len(text.split()) > 1 else ""
+    
+    return cmd, args
+
+def process_telegram_command(update: dict):
+    """Enhanced command processing with unified response architecture"""
+    msg = update.get("message") or {}
+    user = msg.get("from") or {}
+    text = msg.get("text") or ""
+    cmd, args = _parse_cmd(text)
+
+    # Unified reply function - single source of truth for response format
+    def _reply(body: str, status: str = "ok"):
+        return {"status": status, "response": body, "handled": True}
+    
+    import time
+    start_time = time.time()
+    user_id = user.get('id')
+    
+    try:
+        # Check if message is a command
+        is_command = cmd is not None
+        
+        # Admin check
+        from config import ASSISTANT_ADMIN_TELEGRAM_ID
+        is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
+        
+        # Structured logging: command entry
+        logger.info(f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
+        
+        # Basic command routing with streamlined logic
+        if not is_command:
+            return _reply("Not a command", "ignored")
+        
+        # Admin-only check for restricted commands (exclude basic info commands)
+        if not is_admin and cmd not in ["/help", "/ping", "/info", "/test123", "/commands"]:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"[CMD] cmd='{cmd}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
+            return _reply("⛔ Admin only")
+        
+        # Command processing with consistent response handling
+        if cmd == "/help":
+            help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
+                       "**Fast Execution, Trade Control Handler**\n\n" + \
+                       "📋 **Available Commands:**\n" + \
+                       "/help - Show this help\n" + \
+                       "/commands - List all commands\n" + \
+                       "/info - Bot information\n" + \
+                       "/ping - Test connection\n" + \
+                       "/test123 - Connection test\n\n" + \
+                       "💰 **Wallet Commands:**\n" + \
+                       "/wallet - Wallet summary\n" + \
+                       "/wallet_new - Create new wallet\n" + \
+                       "/wallet_addr - Show wallet address\n" + \
+                       "/wallet_balance - Check balance\n" + \
+                       "/wallet_balance_usd - Balance in USD\n" + \
+                       "/wallet_link - Solscan explorer link\n" + \
+                       "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
+                       "/wallet_reset - Reset wallet (2-step confirm)\n" + \
+                       "/wallet_reset_cancel - Cancel pending reset\n" + \
+                       "/wallet_fullcheck - Comprehensive diagnostics\n" + \
+                       "/wallet_export - Export private key [Admin Only]\n\n" + \
+                       "🔍 **Scanner Commands:**\n" + \
+                       "/solscanstats - Scanner status & config\n" + \
+                       "/config_update - Update scanner settings\n" + \
+                       "/config_show - Show current config\n" + \
+                       "/scanner_on / /scanner_off - Toggle scanner\n" + \
+                       "/threshold <score> - Set score threshold\n" + \
+                       "/watch <mint> / /unwatch <mint> - Manage watchlist\n" + \
+                       "/watchlist - Show watchlist\n" + \
+                       "/fetch - Basic token fetch\n" + \
+                       "/fetch_now - Multi-source fetch\n\n" + \
+                       "**Bot Status:** ✅ Online (Polling Mode)"
+            return _reply(help_text)
+        elif cmd == "/ping":
+            return _reply("🎯 **Pong!** Bot is alive and responsive.")
+        elif cmd == "/info":
+            info_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
+
+**Status:** ✅ Online (Polling Mode)
+**Version:** Production v2.0
+**Mode:** Telegram Polling (Webhook Bypass)
+**Scanner:** Solscan Active
+**Wallet:** Enabled
+**Admin:** {user.get('username', 'Unknown')}
+
+*The Degens' Best Friend* 🐕"""
+            return _reply(info_text)
+        elif cmd == "/test123":
+            return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
+        elif cmd == "/commands":
+            commands_text = "📋 **Available Commands**\n\n" + \
+                          "**Basic:** /help /info /ping /test123\n" + \
+                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
+                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n\n" + \
+                          "Use /help for detailed descriptions"
+            return _reply(commands_text)
+        else:
+            # Route to existing webhook logic for complex commands
+            return _reply(f"Command '{cmd}' not implemented in new handler", "fallback")
+    
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"[CMD] cmd='{cmd or text}' user_id={user_id} duration_ms={duration_ms} error={e}")
+        return _reply(f"Internal error: {e}", "error")
 
 # Initialize scanners after admin functions are defined
 try:
@@ -586,1260 +434,6 @@ notification_thread.start()
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
-
-# Telegram mode configuration - use polling to bypass webhook delivery issues
-TELEGRAM_MODE = os.environ.get('TELEGRAM_MODE', 'polling').lower()  # 'webhook' or 'polling'
-
-def _reply(text: str, status: str = "ok"):
-    """SINGLE return shape used everywhere"""
-    return {"status": status, "response": text, "handled": True}
-
-def _require_admin(user):
-    """Returns a dict (to send) or None (to continue)"""
-    try:
-        from config import ASSISTANT_ADMIN_TELEGRAM_ID
-        is_admin_user = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
-    except Exception:
-        is_admin_user = False
-    if not is_admin_user:
-        return _reply("⛔ Wallet commands are admin-only.", status="admin_only")
-    return None
-
-def ensure_admin_or_msg(user):
-    """Legacy helper function - kept for compatibility"""
-    from config import ASSISTANT_ADMIN_TELEGRAM_ID
-    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-        return "⛔ Wallet commands are admin-only."
-    return None
-
-def process_telegram_command(update_data):
-    """Process Telegram command from polling or webhook"""
-    import time
-    start_time = time.time()
-    text = None
-    user_id = None
-    is_admin = False
-    response_text = None
-    try:
-        if not update_data.get('message'):
-            response_text = "No message in update"
-        else:
-            message = update_data['message']
-            user = message.get('from', {})
-            raw_text = (message.get('text') or '')
-            cmd, args = _parse_cmd(raw_text)
-            text = raw_text  # Keep original text for backwards compatibility
-            chat_id = message.get('chat', {}).get('id')
-            user_id = user.get('id')
-            
-            # Check if message is a command
-            is_command = cmd is not None
-            
-            # Admin check
-            from config import ASSISTANT_ADMIN_TELEGRAM_ID
-            is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
-            
-            # Structured logging: command entry
-            logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
-            
-            # Rate limiting - skip for commands
-            if not is_command and is_rate_limited(user_id):
-                duration_ms = int((time.time() - start_time) * 1000)
-                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=throttled")
-                response_text = "Rate limited"
-            # Admin-only check for restricted commands (exclude basic info commands)
-            elif not is_admin and not text.startswith("/wallet") and text not in ["/help", "/ping", "/info", "/test123", "/commands"]:
-                duration_ms = int((time.time() - start_time) * 1000)
-                logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
-                response_text = "⛔ Admin only"
-            else:
-                # Ensure scanners are initialized
-                _ensure_scanners()
-                
-                # Process command
-                if text.strip() == "/help":
-                    help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
-                       "**Fast Execution, Trade Control Handler**\n\n" + \
-                       "📋 **Available Commands:**\n" + \
-                       "/help - Show this help\n" + \
-                       "/commands - List all commands\n" + \
-                       "/info - Bot information\n" + \
-                       "/ping - Test connection\n" + \
-                       "/test123 - Connection test\n\n" + \
-                       "💰 **Wallet Commands:**\n" + \
-                       "/wallet - Wallet summary\n" + \
-                       "/wallet_new - Create new wallet\n" + \
-                       "/wallet_addr - Show wallet address\n" + \
-                       "/wallet_balance - Check balance\n" + \
-                       "/wallet_balance_usd - Balance in USD\n" + \
-                       "/wallet_link - Solscan explorer link\n" + \
-                       "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
-                       "/wallet_reset - Reset wallet (2-step confirm)\n" + \
-                       "/wallet_reset_cancel - Cancel pending reset\n" + \
-                       "/wallet_fullcheck - Comprehensive diagnostics\n" + \
-                       "/wallet_export - Export private key [Admin Only]\n\n" + \
-                       "🔍 **Scanner Commands:**\n" + \
-                       "/solscanstats - Scanner status & config\n" + \
-                       "/config_update - Update scanner settings\n" + \
-                       "/config_show - Show current config\n" + \
-                       "/scanner_on / /scanner_off - Toggle scanner\n" + \
-                       "/threshold <score> - Set score threshold\n" + \
-                       "/watch <mint> / /unwatch <mint> - Manage watchlist\n" + \
-                       "/watchlist - Show watchlist\n" + \
-                       "/fetch - Basic token fetch\n" + \
-                       "/fetch_now - Multi-source fetch\n\n" + \
-                       "**Bot Status:** ✅ Online (Polling Mode)"
-                    response_text = help_text
-                elif text.strip() == "/commands":
-                    response_text = "📋 **Available Commands**\n\n" + \
-                              "**Basic:** /help /info /ping /test123\n" + \
-                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                              "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n\n" + \
-                              "Use /help for detailed descriptions"
-                elif text.strip() == "/info":
-                    response_text = f"""🤖 **Mork F.E.T.C.H Bot Info**
-            
-**Status:** ✅ Online (Polling Mode)
-**Version:** Production v2.0
-**Mode:** Telegram Polling (Webhook Bypass)
-**Scanner:** Solscan Active
-**Wallet:** Enabled
-**Admin:** {user.get('username', 'Unknown')}
-
-*The Degens' Best Friend* 🐕"""
-                elif text.strip() == "/test123":
-                    response_text = "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
-                elif text.strip() == "/ping":
-                    response_text = "🎯 **Pong!** Bot is alive and responsive."
-                # Wallet commands using new helper functions
-                elif text.strip() == "/wallet":
-                    deny = _require_admin(user)
-                    if deny:
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            response_text = wallets.cmd_wallet_summary(user.get('id'))
-                        except Exception as e:
-                            response_text = f"💰 Wallet error: {e}"
-                elif text.strip().startswith("/wallet_new"):
-                    deny = _require_admin(user)
-                    if deny:
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            response_text = wallets.cmd_wallet_new(user.get('id'))
-                        except Exception as e:
-                            response_text = f"💰 Wallet new error: {e}"
-                elif text.strip().startswith("/wallet_addr"):
-                    deny = _require_admin(user)
-                    if deny:
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            response_text = wallets.cmd_wallet_addr(user.get('id'))
-                        except Exception as e:
-                            response_text = f"💰 Wallet addr error: {e}"
-                elif text == "/wallet_balance_usd":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import re, wallets
-                            uid = user.get("id")
-                            bal_text = (wallets.cmd_wallet_balance(uid) or "").strip()
-
-                            # Robust extraction:
-                            #  - Prefer patterns with SOL/◎ labels
-                            #  - Otherwise, fallback to "largest float in text"
-                            def _to_float(x):
-                                try:
-                                    return float(x.replace(",", ""))
-                                except Exception:
-                                    return None
-
-                            sol_amount = None
-
-                            # Patterns: "SOL: 0.123", "SOL 0.123", "◎ 0.123"
-                            patterns = [
-                                r"SOL[:\s]+([0-9][0-9,]*\.?[0-9]*)",
-                                r"◎[:\s]+([0-9][0-9,]*\.?[0-9]*)",
-                            ]
-                            for p in patterns:
-                                m = re.search(p, bal_text, flags=re.IGNORECASE)
-                                if m:
-                                    sol_amount = _to_float(m.group(1))
-                                    if sol_amount is not None:
-                                        break
-
-                            # Fallback: grab the largest-looking float anywhere in the text
-                            if sol_amount is None:
-                                floats = [ _to_float(x) for x in re.findall(r"([0-9][0-9,]*\.?[0-9]*)", bal_text) ]
-                                floats = [f for f in floats if f is not None]
-                                if floats:
-                                    sol_amount = max(floats)
-
-                            if sol_amount is None:
-                                response_text = "⚠️ Could not parse SOL balance."
-                            else:
-                                # Price
-                                try:
-                                    from prices import get_sol_price_usd
-                                except Exception:
-                                    # graceful fallback if prices.py not present
-                                    def get_sol_price_usd(): return None
-
-                                price = get_sol_price_usd()
-                                if price is None:
-                                    response_text = f"{bal_text}\n≈ $— USD (price unavailable)"
-                                else:
-                                    usd = sol_amount * float(price)
-                                    response_text = f"{bal_text}\n≈ ${usd:,.2f} USD"
-                        except Exception as e:
-                            response_text = f"💱 Balance (USD) error: {e}"
-                elif text.strip().startswith("/wallet_balance"):
-                    deny = _require_admin(user)
-                    if deny:
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            response_text = wallets.cmd_wallet_balance(user.get('id'))
-                        except Exception as e:
-                            response_text = f"💰 Wallet balance error: {e}"
-                elif text == "/wallet_selftest":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import re, wallets
-                            uid = user.get("id")
-
-                            addr_text = wallets.cmd_wallet_addr(uid) or ""
-                            summary   = wallets.cmd_wallet_summary(uid) or ""
-                            bal_text  = wallets.cmd_wallet_balance(uid) or ""
-
-                            # Base58 address (32–44 chars, no 0/O/I/l)
-                            base58_re = r"[1-9A-HJ-NP-Za-km-z]{32,44}"
-                            m_addr = re.search(base58_re, addr_text) or re.search(base58_re, summary)
-
-                            # Consider the test passed if we got any address and both strings are non-empty
-                            ok = bool(m_addr) and summary.strip() and bal_text.strip()
-                            if ok:
-                                response_text = "✅ Wallet self-test passed"
-                            else:
-                                # If not ok, surface what we saw (trimmed) so we can adjust quickly
-                                def short(s): 
-                                    s = re.sub(r"\s+", " ", s).strip()
-                                    return (s[:120] + "…") if len(s) > 120 else s
-                                response_text = (
-                                    "⚠️ Self-test incomplete.\n"
-                                    f"- addr_text: {short(addr_text)}\n"
-                                    f"- summary: {short(summary)}\n"
-                                    f"- balance: {short(bal_text)}"
-                                )
-                        except Exception as e:
-                            response_text = f"🧪 Self-test error: {e}"
-                elif text.startswith("/wallet_link"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            addr_output = wallets.cmd_wallet_addr(user.get("id"))
-                            # Extract just the address from output like "Address: `HS8itzXv...`"
-                            addr = addr_output.split('`')[1] if '`' in addr_output else addr_output.strip()
-                            response_text = f"🔗 Solscan: https://solscan.io/address/{addr}"
-                        except Exception as e:
-                            response_text = f"🔗 Link error: {e}"
-                elif text.strip() == "/wallet_reset":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import re, wallets
-                            uid = user.get("id")
-                            # Show current address in the warning
-                            addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
-                            m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
-                            addr = m.group(0) if m else "(unknown)"
-                            _set_reset_pending(uid)
-                            response_text = (
-                                "⚠️ Reset wallet?\n"
-                                f"Current address: {addr}\n\n"
-                                "This will create a NEW burner wallet. "
-                                "Funds at the old address will NOT move automatically.\n\n"
-                                "Type /wallet_reset_confirm within 2 minutes to proceed, or /wallet_reset_cancel to abort."
-                            )
-                        except Exception as e:
-                            response_text = f"💥 Reset prep error: {e}"
-                elif text.strip() == "/wallet_reset_confirm":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import re, wallets
-                            uid = user.get("id")
-
-                            if not _is_reset_pending(uid):
-                                response_text = "⌛ No reset is pending (or it expired). Run /wallet_reset first."
-                            else:
-                                # Capture old address for message
-                                old_addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
-                                m_old = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", old_addr_text)
-                                old_addr = m_old.group(0) if m_old else "(unknown)"
-
-                                # Create new burner
-                                new_msg = wallets.cmd_wallet_new(uid)
-                                new_addr_match = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", new_msg or "")
-                                new_addr = new_addr_match.group(0) if new_addr_match else "(unknown)"
-
-                                _clear_reset_pending(uid)
-
-                                response_text = (
-                                    "✅ Wallet reset complete.\n"
-                                    f"Old: {old_addr}\n"
-                                    f"New: {new_addr}\n\n"
-                                    "⚠️ Reminder: Move any funds from the old address manually if needed."
-                                )
-                        except Exception as e:
-                            response_text = f"💥 Reset error: {e}"
-                elif text.strip() == "/wallet_reset_cancel":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        uid = user.get("id")
-                        if _is_reset_pending(uid):
-                            _clear_reset_pending(uid)
-                            response_text = "🛑 Wallet reset cancelled."
-                        else:
-                            response_text = "ℹ️ No pending wallet reset to cancel."
-                elif text.strip() == "/wallet_fullcheck":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import re, wallets
-                            uid = user.get("id")
-
-                            # --- helpers (local, defensive) ---
-                            base58_re = r"[1-9A-HJ-NP-Za-km-z]{32,44}"
-
-                            def extract_addr(s: str | None):
-                                if not s: return None
-                                m = re.search(base58_re, s)
-                                return m.group(0) if m else None
-
-                            def parse_sol_amount(bal_text: str | None):
-                                if not bal_text: return None
-                                # prefer labeled patterns first
-                                for pat in [r"SOL[:\s]+([0-9][0-9,]*\.?[0-9]*)",
-                                            r"◎[:\s]+([0-9][0-9,]*\.?[0-9]*)"]:
-                                    m = re.search(pat, bal_text, flags=re.IGNORECASE)
-                                    if m:
-                                        try:
-                                            return float(m.group(1).replace(",", ""))
-                                        except Exception:
-                                            pass
-                                # fallback: largest float anywhere
-                                floats = [x.replace(",", "") for x in re.findall(r"([0-9][0-9,]*\.?[0-9]*)", bal_text)]
-                                vals = []
-                                for x in floats:
-                                    try: vals.append(float(x))
-                                    except Exception: pass
-                                return max(vals) if vals else None
-
-                            # --- gather data from existing commands ---
-                            addr_text  = (wallets.cmd_wallet_addr(uid) or "").strip()
-                            summary    = (wallets.cmd_wallet_summary(uid) or "").strip()
-                            bal_text   = (wallets.cmd_wallet_balance(uid) or "").strip()
-
-                            addr_from_addr   = extract_addr(addr_text)
-                            addr_from_summary= extract_addr(summary)
-
-                            sol_amt = parse_sol_amount(bal_text)
-
-                            # price (best-effort)
-                            usd_line = "USD: (price unavailable)"
-                            try:
-                                from prices import get_sol_price_usd
-                                px = get_sol_price_usd()
-                                if px is not None and sol_amt is not None:
-                                    usd_line = f"USD: ≈ ${sol_amt * float(px):,.2f}"
-                            except Exception:
-                                pass
-
-                            # link check (string build; no network)
-                            link_ok = bool(addr_from_addr)
-                            link_str = f"https://solscan.io/address/{addr_from_addr}" if addr_from_addr else "(no link)"
-
-                            # --- verdicts ---
-                            ok_addr_present   = bool(addr_from_addr)
-                            ok_addr_consistent= ok_addr_present and (addr_from_summary == addr_from_addr or addr_from_summary is None)
-                            ok_balance_parse  = sol_amt is not None
-                            ok_summary_nonempty = bool(summary)
-                            ok_balance_nonempty = bool(bal_text)
-
-                            # --- report ---
-                            lines = []
-                            lines.append("🧪 Wallet Full Check")
-                            lines.append(f"{'✅' if ok_addr_present else '❌'} Address detected: {addr_from_addr or '(none)'}")
-                            lines.append(f"{'✅' if ok_addr_consistent else '⚠️'} Address consistent across /wallet and /wallet_addr")
-                            lines.append(f"{'✅' if ok_summary_nonempty else '❌'} /wallet summary returned text")
-                            lines.append(f"{'✅' if ok_balance_nonempty else '❌'} /wallet_balance returned text")
-                            lines.append(f"{'✅' if ok_balance_parse else '⚠️'} SOL parse: " + (f"{sol_amt}" if sol_amt is not None else "(not found)"))
-                            lines.append(f"{'✅' if link_ok else '❌'} Link build: {link_str}")
-                            lines.append(f"ℹ️ {usd_line}")
-
-                            # overall status
-                            hard_fail = not (ok_addr_present and ok_summary_nonempty and ok_balance_nonempty)
-
-                            # small tail with raw (trimmed) snippets for debugging if anything shaky
-                            if not ok_addr_consistent or not ok_balance_parse or hard_fail:
-                                def short(s): 
-                                    import re as _re
-                                    s = _re.sub(r"\s+", " ", s or "").strip()
-                                    return (s[:160] + "…") if len(s) > 160 else s
-                                lines.append("")
-                                lines.append("— details —")
-                                lines.append(f"addr_text: {short(addr_text)}")
-                                lines.append(f"summary:   {short(summary)}")
-                                lines.append(f"balance:   {short(bal_text)}")
-
-                            response_text = "\n".join(lines)
-
-                        except Exception as e:
-                            response_text = f"🧪 Fullcheck error: {e}"
-                elif text == "/wallet_export":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import wallets
-                            export_data = wallets.cmd_wallet_export(user.get("id"))
-                            response_text = export_data
-                        except Exception as e:
-                            response_text = f"🔐 Export error: {e}"
-                elif text.startswith("/wallet_deposit_qr") or text.startswith("/wallet_qr"):
-                    deny = _require_admin(user)
-                    if deny:
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import os, re, time, qrcode, wallets
-                            uid = user.get("id")
-
-                            # Parse optional amount (e.g., "/wallet_deposit_qr 0.5")
-                            parts = text.split()
-                            amt = None
-                            if len(parts) > 1:
-                                try:
-                                    amt = float(parts[1].replace(",", ""))
-                                    if amt <= 0: amt = None
-                                except Exception:
-                                    amt = None
-
-                            # Get address robustly
-                            addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
-                            m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
-                            if not m:
-                                response_text = "⚠️ Unable to detect wallet address."
-                            else:
-                                addr = m.group(0)
-
-                                # Build solana: URI (amount is optional & many wallets honor it)
-                                uri = f"solana:{addr}"
-                                if amt is not None:
-                                    # Don't append scientific notation; keep plain decimal
-                                    uri = f"{uri}?amount={amt:.9f}".rstrip("0").rstrip(".")
-
-                                # Generate QR
-                                os.makedirs("tmp", exist_ok=True)
-                                path = f"tmp/qr_{addr[:6]}_{int(time.time())}.png"
-                                img = qrcode.make(uri)
-                                img.save(path)
-
-                                # Send photo
-                                from telegram_media import send_photo_safe
-                                chat_id = (update_data.get("message", {}).get("chat") or {}).get("id")
-                                caption_lines = [f"Deposit Address:\n{addr}"]
-                                if amt is not None:
-                                    caption_lines.append(f"Requested Amount: {amt} SOL")
-                                caption_lines.append("⚠️ Burner wallet for testing. Do not send large amounts.")
-                                caption = "\n".join(caption_lines)
-
-                                ok, status, _ = send_photo_safe(TELEGRAM_BOT_TOKEN, chat_id, path, caption=caption)
-                                if ok:
-                                    response_text = "📸 Sent deposit QR."
-                                else:
-                                    response_text = "⚠️ Failed to send QR image."
-                        except Exception as e:
-                            response_text = f"🖼️ QR error: {e}"
-                elif text.strip() == "/solscanstats":
-                    try:
-                        from config_manager import get_config
-                        config_mgr = get_config()
-                        
-                        # Get unified scanner status
-                        import scanner
-                        status = scanner.status()
-                        
-                        # Also check Solscan module status
-                        solscan_running = False
-                        if "solscan" in SCANNERS:
-                            solscan_scanner = SCANNERS["solscan"]
-                            solscan_running = getattr(solscan_scanner, 'running', False)
-                        
-                        response_text = (
-                            f"📊 **Scanner System Status**\n\n"
-                            f"**Unified Scanner:**\n"
-                            f"Status: {'✅ Running' if status['thread_alive'] else '❌ Stopped'}\n"
-                            f"Enabled: {'✅' if status['enabled'] else '❌'}\n"
-                            f"Interval: {status['interval_sec']}s\n"
-                            f"Threshold: {status['threshold']}\n"
-                            f"Watchlist: {len(status['watchlist'])} tokens\n"
-                            f"Seen: {status['seen_count']} tokens\n\n"
-                            f"**Solscan Module:**\n"
-                            f"Status: {'✅ Running' if solscan_running else '❌ Stopped'}\n"
-                            f"Config: scanner_state.json"
-                        )
-                    except Exception as e:
-                        response_text = f"📊 Solscan error: {e}"
-                elif text.strip() == "/config_show":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            status = scanner.status()
-                            watchlist = status['watchlist']
-                            
-                            lines = ["⚙️ **Scanner Configuration**"]
-                            lines.append(f"Enabled: {'✅' if status['enabled'] else '❌'}")
-                            lines.append(f"Interval: {status['interval_sec']}s")
-                            lines.append(f"Threshold: {status['threshold']}")
-                            lines.append(f"Watchlist: {len(watchlist)} tokens")
-                            lines.append(f"Seen: {status['seen_count']} tokens")
-                            
-                            if watchlist:
-                                lines.append("**Watchlist:**")
-                                for i, token in enumerate(watchlist[:5]):  # Show first 5
-                                    lines.append(f"  • {token[:8]}...{token[-4:]}")
-                                if len(watchlist) > 5:
-                                    lines.append(f"  ... and {len(watchlist) - 5} more")
-                            
-                            response_text = "\n".join(lines)
-                        except Exception as e:
-                            response_text = f"⚙️ Config error: {e}"
-                elif text.startswith("/config_update"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            
-                            parts = text.split()
-                            if len(parts) < 3:
-                                response_text = (
-                                    "⚙️ **Config Update Usage:**\n"
-                                    "/config_update <key> <value>\n\n"
-                                    "Examples:\n"
-                                    "• /config_update interval 25\n"
-                                    "• /config_update threshold 80\n"
-                                    "• /config_update enabled true"
-                                )
-                            else:
-                                key = parts[1]
-                                value = parts[2]
-                                
-                                # Update scanner configuration
-                                if key == 'interval':
-                                    scanner.set_interval(int(value))
-                                    response_text = f"✅ Updated interval = {value}s"
-                                elif key == 'threshold':
-                                    scanner.set_threshold(int(value))
-                                    response_text = f"✅ Updated threshold = {value}"
-                                elif key == 'enabled':
-                                    enabled = value.lower() == 'true'
-                                    if enabled:
-                                        scanner.enable()
-                                    else:
-                                        scanner.disable()
-                                    response_text = f"✅ Scanner {'enabled' if enabled else 'disabled'}"
-                                else:
-                                    response_text = f"❌ Unknown key: {key}"
-                        except Exception as e:
-                            response_text = f"⚙️ Update error: {e}"
-                elif text.startswith("/scanner_on"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            scanner.enable()
-                            response_text = "🟢 Scanner enabled."
-                        except Exception as e:
-                            response_text = f"⚠️ Scanner enable error: {e}"
-                elif text.startswith("/scanner_off"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            scanner.disable()
-                            response_text = "🔴 Scanner disabled."
-                        except Exception as e:
-                            response_text = f"⚠️ Scanner disable error: {e}"
-                elif text.startswith("/threshold"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            parts = text.split()
-                            if len(parts) < 2:
-                                response_text = "Usage: /threshold <score>"
-                            else:
-                                val = int(parts[1])
-                                import scanner
-                                scanner.set_threshold(val)
-                                response_text = f"✅ Threshold set to {val}."
-                        except Exception as e:
-                            response_text = f"⚠️ Threshold error: {e}"
-                elif text.startswith("/watch "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            mint = text.split(maxsplit=1)[1].strip()
-                            import scanner
-                            ok = scanner.add_watch(mint)
-                            response_text = f"👀 Watching {mint}" if ok else "ℹ️ Already watching."
-                        except Exception as e:
-                            response_text = f"⚠️ Watch error: {e}"
-                elif text.startswith("/unwatch "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            mint = text.split(maxsplit=1)[1].strip()
-                            import scanner
-                            ok = scanner.remove_watch(mint)
-                            response_text = "🗑️ Removed" if ok else "ℹ️ Not on watchlist."
-                        except Exception as e:
-                            response_text = f"⚠️ Unwatch error: {e}"
-                elif text.strip() == "/watchlist":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            watchlist = scanner.get_watchlist()
-                            
-                            if watchlist:
-                                lines = ["👀 **Watchlist:**"]
-                                for i, mint in enumerate(watchlist, 1):
-                                    lines.append(f"{i}. {mint}")
-                                response_text = "\n".join(lines)
-                            else:
-                                response_text = "👀 Watchlist: (empty)"
-                        except Exception as e:
-                            response_text = f"⚠️ Watchlist error: {e}"
-                elif text.startswith("/scanner_interval"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            parts = text.split()
-                            if len(parts) < 2:
-                                response_text = "Usage: /scanner_interval <seconds>"
-                            else:
-                                import scanner
-                                scanner.set_interval(int(parts[1]))
-                                st = scanner.status()
-                                response_text = f"⏱️ Interval set to {st['interval_sec']}s."
-                        except Exception as e:
-                            response_text = f"⚠️ Interval error: {e}"
-                elif text.strip() == "/scanner_status":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            st = scanner.status()
-                            response_text = (
-                                "📡 **Scanner Status**\n"
-                                f"Enabled: {'✅' if st['enabled'] else '❌'}\n"
-                                f"Interval: {st['interval_sec']}s\n"
-                                f"Threshold: {st['threshold']}\n"
-                                f"Seen mints: {st['seen_count']}\n"
-                                f"Thread alive: {'✅' if st['thread_alive'] else '❌'}\n"
-                                f"Watchlist: {', '.join(st['watchlist']) if st['watchlist'] else '(empty)'}"
-                            )
-                        except Exception as e:
-                            response_text = f"⚠️ Status error: {e}"
-                elif text.strip() == "/scanner_seen_clear":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import scanner
-                            scanner.clear_seen()
-                            response_text = "🧹 Cleared seen mints."
-                        except Exception as e:
-                            response_text = f"⚠️ Clear error: {e}"
-                # --- Toggle live trading (off by default) ---
-                elif text.startswith("/trading_on"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store
-                            trade_store.set_live(True)
-                            response_text = "🟢 Trading LIVE mode ENABLED. (Be careful.)"
-                        except Exception as e:
-                            response_text = f"⚠️ Trading enable error: {e}"
-                elif text.startswith("/trading_off"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store
-                            trade_store.set_live(False)
-                            response_text = "🔴 Trading LIVE mode DISABLED. (Dry-run only.)"
-                        except Exception as e:
-                            response_text = f"⚠️ Trading disable error: {e}"
-                # Caps
-                elif text.startswith("/trade_caps"):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store
-                            parts = text.split()
-                            st = trade_store.get_state()
-                            if len(parts) == 1:
-                                response_text = f"📊 **Trade Caps**\nMax SOL: {st['max_sol']} SOL\nSlippage: {st['slippage_bps']} bps\nLive: {'✅' if st['enabled_live'] else '❌'}"
-                            else:
-                                max_sol = float(parts[1]) if len(parts) > 1 else None
-                                slip = int(parts[2]) if len(parts) > 2 else None
-                                trade_store.set_caps(max_sol, slip)
-                                st = trade_store.get_state()
-                                response_text = f"✅ Caps updated — max_sol: {st['max_sol']} | slippage: {st['slippage_bps']} bps"
-                        except Exception as e:
-                            response_text = f"⚠️ trade_caps error: {e}"
-                # BUY (dry-run + confirm)
-                elif text.startswith("/buy "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store, trade_engine, token_fetcher
-                            parts = text.split()
-                            if len(parts) < 3:
-                                response_text = "Usage: /buy <MINT|SYMBOL> <SOL>"
-                            else:
-                                q = parts[1].strip()
-                                sol = float(parts[2])
-                                st = trade_store.get_state()
-                                if sol <= 0 or sol > st["max_sol"]:
-                                    response_text = f"⛔ Size exceeds cap. max_sol={st['max_sol']} SOL"
-                                else:
-                                    tok = token_fetcher.lookup(q)
-                                    mint = tok.get("mint")
-                                    symbol = tok.get("symbol", "TKN")
-                                    qty, px = trade_engine.preview_buy(mint, symbol, sol, st["slippage_bps"])
-                                    action = {"type":"BUY","mint":mint,"symbol":symbol,"sol":sol,"qty_est":qty,"px_est":px}
-                                    cid = trade_store.add_pending(action, ttl_sec=120)
-                                    live_flag = "LIVE" if st["enabled_live"] else "DRY-RUN"
-                                    response_text = (f"🟢 **BUY PREVIEW ({live_flag})**\n"
-                                                   f"{symbol}  {mint[:8]}...\n"
-                                                   f"Size: {sol} SOL  → est qty: {qty:.4f}\n"
-                                                   f"Est price: {px:.8f} SOL/Token  Slippage: {st['slippage_bps']} bps\n"
-                                                   f"Confirm: /buy_confirm {cid}")
-                        except Exception as e:
-                            response_text = f"⚠️ Buy preview error: {e}"
-                elif text.startswith("/buy_confirm "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store, trade_engine
-                            cid = text.split(maxsplit=1)[1].strip()
-                            action = trade_store.pop_pending(cid)
-                            if not action or action.get("type") != "BUY":
-                                response_text = "⌛ No pending BUY with that id (or expired)."
-                            else:
-                                st = trade_store.get_state()
-                                mint = action["mint"]
-                                symbol = action["symbol"]
-                                sol = float(action["sol"])
-                                if st["enabled_live"]:
-                                    qty, px = trade_engine.execute_buy(mint, symbol, sol, st["slippage_bps"])
-                                else:
-                                    qty, px = trade_engine.preview_buy(mint, symbol, sol, st["slippage_bps"])
-                                trade_store.record_fill("BUY", mint, symbol, qty, px, sol_cost=sol)
-                                response_text = f"✅ BUY executed ({'LIVE' if st['enabled_live'] else 'DRY-RUN'})\n{symbol} {mint[:8]}...\nQty: {qty:.4f}  AvgPx: {px:.8f} SOL"
-                        except Exception as e:
-                            response_text = f"⚠️ Buy error: {e}"
-                # SELL (supports percent like 50% or absolute tokens)
-                elif text.startswith("/sell "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store, trade_engine, token_fetcher
-                            parts = text.split()
-                            if len(parts) < 3:
-                                response_text = "Usage: /sell <MINT|SYMBOL> <PCT|TOKENS>\nExamples: /sell XYZ 50%  or  /sell XYZ 1000"
-                            else:
-                                q = parts[1].strip()
-                                amt = parts[2].strip()
-                                tok = token_fetcher.lookup(q)
-                                mint = tok.get("mint")
-                                symbol = tok.get("symbol", "TKN")
-                                st = trade_store.get_state()
-                                pos = trade_store.positions().get(mint, {"qty": 0.0})
-                                pos_qty = float(pos["qty"])
-                                if pos_qty <= 0:
-                                    response_text = "ℹ️ No position to sell."
-                                else:
-                                    if amt.endswith("%"):
-                                        pct = float(amt[:-1])
-                                        qty = max(0.0, min(pos_qty, pos_qty * pct / 100.0))
-                                    else:
-                                        qty = float(amt)
-                                        qty = max(0.0, min(pos_qty, qty))
-                                    if qty <= 0:
-                                        response_text = "ℹ️ Computed sell qty is 0."
-                                    else:
-                                        sol_out, px = trade_engine.preview_sell(mint, symbol, qty, st["slippage_bps"])
-                                        action = {"type":"SELL","mint":mint,"symbol":symbol,"qty":qty,"px_est":px,"sol_est":sol_out}
-                                        cid = trade_store.add_pending(action, ttl_sec=120)
-                                        live_flag = "LIVE" if st["enabled_live"] else "DRY-RUN"
-                                        response_text = (f"🔴 **SELL PREVIEW ({live_flag})**\n"
-                                                       f"{symbol}  {mint[:8]}...\n"
-                                                       f"Qty: {qty:.4f}  → est SOL out: {sol_out:.6f}\n"
-                                                       f"Est px: {px:.8f} SOL/Token  Slippage: {st['slippage_bps']} bps\n"
-                                                       f"Confirm: /sell_confirm {cid}")
-                        except Exception as e:
-                            response_text = f"⚠️ Sell preview error: {e}"
-                elif text.startswith("/sell_confirm "):
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store, trade_engine
-                            cid = text.split(maxsplit=1)[1].strip()
-                            action = trade_store.pop_pending(cid)
-                            if not action or action.get("type") != "SELL":
-                                response_text = "⌛ No pending SELL with that id (or expired)."
-                            else:
-                                st = trade_store.get_state()
-                                mint = action["mint"]
-                                symbol = action["symbol"]
-                                qty = float(action["qty"])
-                                if st["enabled_live"]:
-                                    sol_out, px = trade_engine.execute_sell(mint, symbol, qty, st["slippage_bps"])
-                                else:
-                                    sol_out, px = trade_engine.preview_sell(mint, symbol, qty, st["slippage_bps"])
-                                # record negative qty as sell; store qty and price (px) and sol_out as cost
-                                trade_store.record_fill("SELL", mint, symbol, qty, px, sol_cost=sol_out)
-                                response_text = f"✅ SELL executed ({'LIVE' if st['enabled_live'] else 'DRY-RUN'})\n{symbol} {mint[:8]}...\nQty: {qty:.4f}  AvgPx: {px:.8f}  SOL out: {sol_out:.6f}"
-                        except Exception as e:
-                            response_text = f"⚠️ Sell error: {e}"
-                # Positions / PnL
-                elif text.strip() == "/positions":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store
-                            pos = trade_store.positions()
-                            if not pos:
-                                response_text = "📒 Positions: (none)"
-                            else:
-                                lines = ["📒 **Positions**"]
-                                for m, p in pos.items():
-                                    lines.append(f"{p.get('symbol','?')} {m[:8]}...  Qty: {p['qty']:.4f}  AvgPx: {p['avg_price']:.8f}")
-                                response_text = "\n".join(lines)
-                        except Exception as e:
-                            response_text = f"⚠️ Positions error: {e}"
-                elif text.strip() == "/pnl":
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            import trade_store
-                            fills = trade_store.fills()
-                            if not fills:
-                                response_text = "💹 PnL: (no fills yet)"
-                            else:
-                                # Simple realized PnL approximation: SELL proceeds - BUY cost (no fees/slippage modeling here)
-                                buy_cost = sum(f["sol_cost"] for f in fills if f["side"] == "BUY")
-                                sell_proceeds = sum(f["sol_cost"] for f in fills if f["side"] == "SELL")
-                                realized = sell_proceeds - buy_cost
-                                response_text = f"💹 **Realized PnL (approx)**: {realized:.6f} SOL\nFills: {len(fills)}"
-                        except Exception as e:
-                            response_text = f"⚠️ PnL error: {e}"
-                # --- AutoBuy commands ---
-                elif text.startswith("/autobuy "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import scanner
-                        parts = text.split()
-                        if len(parts) < 3:
-                            return _reply("Usage: /autobuy <MINT> <SOL>")
-                        mint = parts[1].strip()
-                        sol  = float(parts[2])
-                        scanner.autobuy_set(mint, sol)
-                        return _reply(f"🤖 AutoBuy ON for {mint[:8]}… at {sol} SOL")
-                    except Exception as e:
-                        return _reply(f"⚠️ AutoBuy error: {e}", "error")
-
-                elif text.startswith("/autobuy_on "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = scanner.autobuy_on(mint)
-                    return _reply("✅ AutoBuy enabled." if ok else "ℹ️ Not configured.")
-
-                elif text.startswith("/autobuy_off "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = scanner.autobuy_off(mint)
-                    return _reply("✅ AutoBuy disabled." if ok else "ℹ️ Not configured.")
-
-                elif text.startswith("/autobuy_remove "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = scanner.autobuy_remove(mint)
-                    return _reply("✅ AutoBuy removed." if ok else "ℹ️ Not configured.")
-
-                elif text.strip() == "/autobuy_list":
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    configs = scanner.autobuy_list()
-                    if not configs:
-                        return _reply("🤖 AutoBuy: (none)")
-                    lines = ["🤖 **AutoBuy Configs**"]
-                    for mint, cfg in configs.items():
-                        status = "ON" if cfg.get("enabled", True) else "OFF"
-                        lines.append(f"{mint[:8]}... {cfg['sol']} SOL ({status})")
-                    return _reply("\n".join(lines))
-
-                # --- AutoSell: enable/disable/status/interval ---
-                elif (cmd == "/autosell_on") or (text.strip() == "/autosell_on"):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    autosell.enable()
-                    return _reply("🟢 AutoSell enabled.")
-
-                elif (cmd == "/autosell_off") or (text.strip() == "/autosell_off"):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    autosell.disable()
-                    return _reply("🔴 AutoSell disabled.")
-
-                elif (cmd == "/autosell_status") or (text.strip() == "/autosell_status"):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    st = autosell.status()
-                    return _reply(
-                        "🤖 AutoSell Status\n"
-                        f"Enabled: {st['enabled']}\n"
-                        f"Interval: {st['interval_sec']}s\n"
-                        f"Rules: {st['rules_count']}\n"
-                        f"Thread alive: {st['thread_alive']}"
-                    )
-
-                elif (cmd == "/autosell_interval") or (text.strip().startswith("/autosell_interval")):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    try:
-                        seconds = int((args or text.split(maxsplit=1)[1]).split()[0])
-                    except Exception:
-                        return _reply("Usage: /autosell_interval <seconds>")
-                    autosell.set_interval(seconds)
-                    st = autosell.status()
-                    return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
-
-                # --- AutoSell: rules ---
-                elif (cmd == "/autosell_list") or (text.strip() == "/autosell_list"):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    rules = autosell.get_rules()
-                    if not rules:
-                        return _reply("🤖 AutoSell rules: (none)")
-                    lines = ["🤖 AutoSell rules:"]
-                    for m, r in rules.items():
-                        lines.append(
-                            f"{m[:8]}…  tp={r.get('tp_pct')}  sl={r.get('sl_pct')}  "
-                            f"trail={r.get('trail_pct')}  size={r.get('size_pct', 100)}%"
-                        )
-                    return _reply("\n".join(lines))
-
-                elif (cmd == "/autosell_remove") or (text.strip().startswith("/autosell_remove ")):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    target = (args or "").split()[0] if args else (text.split(maxsplit=1)[1].strip() if " " in text else "")
-                    if not target:
-                        return _reply("Usage: /autosell_remove <MINT>")
-                    ok = autosell.remove_rule(target)
-                    return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
-
-                # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
-                elif (cmd == "/autosell_set") or (text.strip().startswith("/autosell_set ")):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import autosell
-                    # prefer normalized args, fall back to raw text
-                    parts = (args or text.split(" ", 1)[1]).split()
-                    if not parts:
-                        return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-                    mint = parts[0].strip()
-                    kv = {"tp": None, "sl": None, "trail": None, "size": None}
-                    for p in parts[1:]:
-                        if "=" in p:
-                            k, v = p.split("=", 1)
-                            try: 
-                                kv[k.lower()] = float(v)
-                            except: 
-                                pass
-                    autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
-                    return _reply(
-                        f"✅ AutoSell set for {mint[:8]}…  "
-                        f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
-                    )
-
-                elif text.startswith("/autobuy_off "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = scanner.autobuy_off(mint)
-                    return _reply("🛑 AutoBuy disabled." if ok else "ℹ️ Not configured.")
-
-                elif text.startswith("/autobuy_remove "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    mint = text.split(maxsplit=1)[1].strip()
-                    ok = scanner.autobuy_remove(mint)
-                    return _reply("🗑️ AutoBuy removed." if ok else "ℹ️ Not configured.")
-
-                elif text.strip() == "/autobuy_list":
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    cfg = scanner.autobuy_list()
-                    if not cfg: return _reply("🤖 AutoBuy: (none)")
-                    lines = ["🤖 AutoBuy Config"]
-                    for m, rec in cfg.items():
-                        lines.append(f"{m[:8]}…  {rec.get('sol')} SOL  {'ON' if rec.get('enabled') else 'off'}")
-                    return _reply("\n".join(lines))
-
-                elif text.startswith("/quick_buy_sol "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import scanner
-                        sol_amount = float(text.split()[1])
-                        if sol_amount <= 0:
-                            return _reply("⚠️ SOL amount must be positive")
-                        scanner.set_quick_buy_sol(sol_amount)
-                        return _reply(f"⚡ Quick buy SOL set to {sol_amount}")
-                    except (ValueError, IndexError):
-                        return _reply("Usage: /quick_buy_sol <amount>\nExample: /quick_buy_sol 0.05")
-                    except Exception as e:
-                        return _reply(f"⚠️ Error: {e}")
-
-                elif text.strip() == "/quick_buy_sol":
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    import scanner
-                    current = scanner.get_quick_buy_sol()
-                    return _reply(f"⚡ Current quick buy SOL: {current}")
-
-                elif text.startswith("/quickbuy "):
-                    deny = _require_admin(user)
-                    if deny: return deny
-                    try:
-                        import scanner
-                        val = float(text.split()[1])
-                        scanner.set_quick_buy_sol(val)
-                        return _reply(f"⚙️ Quick action /buy size set to {val} SOL")
-                    except Exception as e:
-                        return _reply(f"⚠️ quickbuy error: {e}", "error")
-                elif text.startswith("/fetch "):
-                    # /fetch <MINT|SYM> - Look up specific token
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            query = text.split(maxsplit=1)[1].strip()
-                            import token_fetcher
-                            import flip_checklist
-                            
-                            # Look up the specific token
-                            token = token_fetcher.lookup(query)
-                            if token:
-                                score, verdict, details = flip_checklist.score(token)
-                                symbol = token.get("symbol", "Unknown")
-                                price = token.get("usd_price", token.get("price", "?"))
-                                holders = token.get("holders", token.get("holder_count", "?"))
-                                age = token.get("age", token.get("age_seconds", "?"))
-                                
-                                response_text = f"🔍 **Token Lookup: {symbol}**\n\n"
-                                response_text += f"**Verdict:** {verdict} (Score: {score})\n"
-                                response_text += f"**Price:** ${price}\n"
-                                response_text += f"**Holders:** {holders}\n"
-                                response_text += f"**Age:** {age}s\n"
-                                response_text += f"**Details:** {details}"
-                            else:
-                                response_text = f"❌ Token not found: {query}"
-                        except Exception as e:
-                            response_text = f"🔍 Fetch error: {e}"
-                elif text.startswith("/fetchnow"):
-                    # /fetchnow [N] - Scan N tokens immediately
-                    deny = _require_admin(user)
-                    if deny: 
-                        response_text = deny["response"]
-                    else:
-                        try:
-                            parts = text.split()
-                            limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 15
-                            limit = min(limit, 50)  # Cap at 50
-                            
-                            import scanner
-                            results = scanner.scan_now(limit)
-                            
-                            response_text = f"📊 **Immediate Token Scan**\n\n"
-                            response_text += f"Scanned: {len(results)} tokens\n"
-                            
-                            if results:
-                                # Filter for interesting results  
-                                threshold = scanner.status()['threshold']
-                                good_results = [r for r in results if r[1] >= threshold]
-                                if good_results:
-                                    response_text += f"**Good Targets ({len(good_results)}):**\n"
-                                    for i, (token, score, verdict) in enumerate(good_results[:5], 1):
-                                        symbol = token.get("symbol", "Unknown")
-                                        price = token.get("usd_price", token.get("price", "?"))
-                                        response_text += f"{i}. **{symbol}** - {verdict} (Score: {score})\n"
-                                        response_text += f"   Price: ${price}\n"
-                                else:
-                                    response_text += f"**Top 5 Results:**\n"
-                                    for i, (token, score, verdict) in enumerate(results[:5], 1):
-                                        symbol = token.get("symbol", "Unknown")
-                                        price = token.get("usd_price", token.get("price", "?"))
-                                        response_text += f"{i}. **{symbol}** - {verdict} (Score: {score})\n"
-                            else:
-                                response_text += "No tokens found"
-                        except Exception as e:
-                            response_text = f"📊 Scan error: {e}"
-                else:
-                    # Handle unknown commands and plain text
-                    if is_command:
-                        # sanitize unknown so newlines don't look weird
-                        clean = (text or "").replace("\n", " ")
-                        return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.", status="unknown_command")
-                    else:
-                        response_text = "👍"
-        
-        if response_text is None:
-            response_text = "No response generated"
-    except Exception as e:
-        duration_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=error")
-        logger.error(f"Command processing error: {e}")
-        response_text = f"Command processing error: {str(e)}"
-        
-    # Return unified response
-    duration_ms = int((time.time() - start_time) * 1000)
-    logger.info(f"[CMD] cmd='{text}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=ok")
-    return _reply(response_text or "No response generated", status="ok")
-
-def handle_update(update):
-    """Enhanced standalone update handler with single-send guarantee"""
-    chat_id = (update.get("message", {}).get("chat") or {}).get("id")
-    if chat_id is None:
-        return
-
-    result = process_telegram_command(update)
-
-    # Single-send guarantee
-    text_out = None
-    if isinstance(result, dict) and result.get("handled"):
-        text_out = result.get("response")
-    elif isinstance(result, str):
-        text_out = result
-    else:
-        text_out = "⚠️ Processing error occurred."
-
-    from telegram_safety import send_telegram_safe
-    ok, status, js = send_telegram_safe(BOT_TOKEN, chat_id, text_out)
-    # Do NOT also send any additional fallback here.
-
-def start_telegram_polling():
-    """Start Telegram polling in background thread"""
-    try:
-        from telegram_polling import start_polling, disable_webhook_if_polling
-        
-        # Disable webhook to prevent duplicate processing
-        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-        if bot_token:
-            disable_webhook_if_polling(bot_token)
-        
-        polling_instance = start_polling()
-        logger.info("Telegram polling started successfully")
-        return polling_instance
-    except Exception as e:
-        logger.error(f"Failed to start Telegram polling: {e}")
-        return None
 
 @app.route('/')
 def index():
@@ -1963,7 +557,7 @@ def webhook():
     try:
         # Import publish at function level to avoid import issues
         # Enhanced events system
-        # Using global publish function
+        def publish(topic, payload): return BUS.publish(topic, payload)
         
         # Log incoming webhook request - ALWAYS log
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
@@ -1977,15 +571,6 @@ def webhook():
             msg_text = update_data['message'].get('text', '')
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
-            
-            # ULTRA DEBUG: Log ALL incoming messages regardless of command
-            logger.info(f"[WEBHOOK-ULTRA] RAW MESSAGE: text='{msg_text}' user={user_id} chat={update_data['message'].get('chat', {}).get('id', '')}")
-            
-            # Special tracking for test commands
-            if msg_text and '/test123' in msg_text:
-                logger.error(f"[WEBHOOK-SPECIAL] /test123 DETECTED! Raw text: '{msg_text}' User: {user_id}")
-            if msg_text and '/help' in msg_text:
-                logger.error(f"[WEBHOOK-SPECIAL] /help DETECTED! Raw text: '{msg_text}' User: {user_id}")
             
             # ULTRA DEBUG: Track /solscanstats at the earliest possible point
             if msg_text and msg_text.strip() == "/solscanstats":
@@ -2021,9 +606,6 @@ def webhook():
             # Publish command routing event for specific command tracking
             if text and text.startswith('/'):
                 publish("command.route", {"cmd": text.split()[0]})
-                # Enhanced debug for /help command specifically
-                if text.strip() == "/help":
-                    logger.info(f"[WEBHOOK-TRACE] /help command detected early in processing pipeline")
             
             # Check for multiple commands in one message
             commands_in_message = []
@@ -2038,40 +620,96 @@ def webhook():
             if len(commands_in_message) > 1:
                 logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
 
-            # DISABLED: Helper functions for sending replies - now handled by polling loop
+            # Helper functions for sending replies (with auto-split)
             def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                """DISABLED: Direct API calls removed to centralize sending in polling loop"""
-                logger.info(f"[WEBHOOK] _send_chunk called but disabled: {txt[:100]}...")
-                return True
-
-            def _send_safe(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                """DISABLED: Safe send - now handled by polling loop"""
-                logger.info(f"[WEBHOOK] _send_safe called but disabled: {text[:100]}...")
-                return True
+                try:
+                    import requests
+                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                    payload = {
+                        "chat_id": message["chat"]["id"],
+                        "text": txt,
+                        "parse_mode": parse_mode,
+                        "disable_web_page_preview": no_preview,
+                    }
+                    r = requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json=payload,
+                        timeout=15,
+                    )
+                    return r.status_code == 200
+                except Exception as e:
+                    logger.exception("sendMessage failed: %s", e)
+                    return False
 
             def _reply(text: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
-                """DISABLED: Reply function - now handled by polling loop"""
-                logger.info(f"[WEBHOOK] _reply called but disabled: {text[:100]}...")
-                return True
-                
-                # Split large messages on paragraph boundaries where possible
+                # Telegram limit ~4096; stay under 3900 to be safe with code fences
+                MAX = 3900
+                if len(text) <= MAX:
+                    return _send_chunk(text, parse_mode, no_preview)
+                # split on paragraph boundaries where possible
                 i = 0
-                all_success = True
+                ok = True
                 while i < len(text):
                     chunk = text[i:i+MAX]
-                    # Try not to cut mid-line
+                    # try not to cut mid-line
                     cut = chunk.rfind("\n")
-                    if cut > 1000:  # Only use newline break if it helps
+                    if cut > 1000:  # only use if it helps
                         chunk = chunk[:cut]
                         i += cut + 1
                     else:
                         i += len(chunk)
-                    
-                    # Use enhanced safe send for each chunk
-                    chunk_success = _send_safe(chunk, parse_mode=parse_mode, no_preview=no_preview)
-                    all_success = all_success and chunk_success
+                    ok = _send_chunk(chunk, parse_mode, no_preview) and ok
+                return ok
+
+            def handle_update(update: dict):
+                """Enhanced update handler with single-send guarantee"""
+                msg = update.get("message") or update.get("edited_message") or {}
+                user = msg.get("from") or {}
+                text = msg.get("text") or ""
                 
-                return all_success
+                # Idempotency check - prevent duplicate processing
+                import hashlib
+                update_id = f"{msg.get('message_id', 0)}_{user.get('id', 0)}_{text[:50]}"
+                update_hash = hashlib.md5(update_id.encode()).hexdigest()
+                
+                # Simple in-memory deduplication (last 100 updates)
+                if not hasattr(handle_update, "_processed_updates"):
+                    handle_update._processed_updates = set()
+                
+                if update_hash in handle_update._processed_updates:
+                    logger.info(f"[WEBHOOK] Duplicate update skipped: {update_hash}")
+                    return {"status": "duplicate", "handled": True}
+                
+                # Add to processed set (keep only last 100)
+                handle_update._processed_updates.add(update_hash)
+                if len(handle_update._processed_updates) > 100:
+                    handle_update._processed_updates = set(list(handle_update._processed_updates)[-100:])
+                
+                # Try enhanced command processor first
+                try:
+                    result = process_telegram_command(update)
+                    if result.get("handled") and result.get("status") != "fallback":
+                        # Send response using optimized function
+                        if result.get("response"):
+                            _reply(result["response"])
+                        return result
+                except Exception as e:
+                    logger.error(f"[WEBHOOK] Enhanced command processor failed: {e}")
+                    # Fall through to legacy processing
+                
+                # Legacy fallback for complex commands
+                return {"status": "fallback", "handled": False}
+
+            # Process the update with enhanced handler
+            try:
+                result = handle_update(update_data)
+                if result.get("handled"):
+                    logger.info(f"[WEBHOOK] Update handled successfully: {result.get('status')}")
+                    return jsonify({"status": "ok"})
+                # If not handled, continue with legacy processing
+            except Exception as e:
+                logger.error(f"[WEBHOOK] Enhanced handler failed: {e}")
+                # Continue with legacy processing
 
             # Simple admin command processing for immediate testing
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
@@ -2138,37 +776,6 @@ def webhook():
                                     single_response = "📊 Solscan: Not initialized"
                             except Exception as e:
                                 single_response = f"📊 Solscan error: {e}"
-                        elif text.strip() == "/wallet":
-                            try:
-                                import wallets
-                                single_response = wallets.cmd_wallet_summary(user.get('id'))
-                            except Exception as e:
-                                single_response = f"💰 Wallet error: {e}"
-                        elif text.strip().startswith("/wallet_new"):
-                            try:
-                                import wallets
-                                single_response = wallets.cmd_wallet_new(user.get('id'))
-                            except Exception as e:
-                                single_response = f"💰 Wallet new error: {e}"
-                        elif text.strip().startswith("/wallet_addr"):
-                            try:
-                                import wallets
-                                single_response = wallets.cmd_wallet_addr(user.get('id'))
-                            except Exception as e:
-                                single_response = f"💰 Wallet addr error: {e}"
-                        elif text.startswith("/wallet_addr_test"):
-                            # Test case for enhanced wallet functionality
-                            single_response = "Test OK - Enhanced wallet system active"
-                        elif text.strip().startswith("/wallet_balance"):
-                            try:
-                                import wallets
-                                single_response = wallets.cmd_wallet_balance(user.get('id'))
-                            except Exception as e:
-                                single_response = f"💰 Wallet balance error: {e}"
-                        elif text.strip().startswith("/bus_test"):
-                            single_response = handle_bus_test()
-                            BUS.publish("NEW_TOKEN", fake)
-                            single_response = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
                         
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
@@ -2183,9 +790,30 @@ def webhook():
                     # Skip the rest of the command processing for multiple commands
                     logger.info(f"[WEBHOOK] Sending multiple command response: {response_text}")
                     
-                    # DISABLED: Direct API call - now handled by polling loop
-                    logger.info(f"[WEBHOOK] Multiple commands processed, response prepared: {response_text[:100]}...")
-                    reply_success = True  # Always report success since polling handles sending
+                    # Add detailed logging for the Telegram API call
+                    try:
+                        import requests
+                        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                        payload = {
+                            "chat_id": message["chat"]["id"],
+                            "text": response_text,
+                            "parse_mode": "Markdown",
+                            "disable_web_page_preview": True,
+                        }
+                        logger.info(f"[WEBHOOK] Telegram payload: {payload}")
+                        
+                        r = requests.post(
+                            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                            json=payload,
+                            timeout=15,
+                        )
+                        logger.info(f"[WEBHOOK] Telegram API response: {r.status_code}")
+                        if r.status_code != 200:
+                            logger.error(f"[WEBHOOK] Telegram API error: {r.text}")
+                        reply_success = r.status_code == 200
+                    except Exception as e:
+                        logger.exception(f"[WEBHOOK] Telegram API exception: {e}")
+                        reply_success = False
                     
                     logger.info(f"[WEBHOOK] Multiple command reply success: {reply_success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": reply_success, "multiple_commands": len(commands_in_message)})
@@ -2202,11 +830,6 @@ def webhook():
                 if text.strip() in ['/ping', '/a_ping']:
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
-
-                elif text.strip().startswith("/bus_test"):
-                    response_text = handle_bus_test()
-                    _reply(response_text, parse_mode=None, no_preview=True)
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
                 elif text.strip() in ['/status', '/a_status']:
                     publish("admin.command", {"command": "status", "user": user.get("username", "?")})
                     response_text = f'''🤖 Mork F.E.T.C.H Bot Status
@@ -2385,10 +1008,11 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                 elif text.strip() == "/rules_show":
                     logger.info("[WEBHOOK] Routing /rules_show")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        from alerts.telegram import cmd_rules_show_sync
-                        response_text = cmd_rules_show_sync()
+                        _reply("Not authorized.")
+                        return jsonify({"status": "ok", "command": text, "response_sent": True})
+                    from alerts.telegram import cmd_rules_show_sync
+                    _reply(cmd_rules_show_sync())
+                    return jsonify({"status": "ok", "command": text, "response_sent": True})
 
                 # /pumpfun_probe (admin only)
                 elif text.strip().startswith("/pumpfun_probe"):
@@ -2895,7 +1519,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             # Test event publishing
                             try:
                                 # Enhanced events system with deduplication
-        # Using global publish function
+                                def publish(topic, payload): return BUS.publish(topic, payload)
                                 def get_subscriber_count(): return len([sub for subs in BUS._subs.values() for sub in subs])
                                 publish("test.scan", {"test_id": "scan_test", "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
                                 subscriber_count = get_subscriber_count()
@@ -3191,7 +1815,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         response_text = "Not authorized."
                     else:
                         # Enhanced events system
-        # Using global publish function
+                        def publish(topic, payload): return BUS.publish(topic, payload)
                         from birdeye_ws import get_ws
                         def notify_admin(msg):
                             _reply(msg)
@@ -3307,7 +1931,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         try:
                             from birdeye_ws import get_ws
                             # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
                             ws = get_ws(publish=publish, notify=lambda m: _reply(m))
                             ws.stop()
                             time.sleep(0.5)
@@ -3325,7 +1949,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         try:
                             from birdeye_ws import get_ws
                             # Enhanced events system
-        # Using global publish function
+                            def publish(topic, payload): return BUS.publish(topic, payload)
                             ws = get_ws(publish=publish, notify=lambda m: _reply(m))
                             
                             parts = text.split(maxsplit=1)
@@ -3665,318 +2289,70 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
                     except Exception as e:
                         response_text = f"❌ scan_mode failed: {e}"
 
-                # /wallet - Simple wallet info command
-                elif text.strip() == "/wallet":
-                    logger.info("[WEBHOOK] Routing /wallet")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            user_id = str(user.get('id'))
-                            wallet = get_wallet(user_id)
-                            if not wallet:
-                                response_text = "No burner wallet yet. Use /wallet_new to create one."
-                            else:
-                                balance = get_balance_sol(wallet["address"])
-                                
-                                if balance >= 0:
-                                    balance_str = f"{balance:.6f} SOL"
-                                else:
-                                    balance_str = "RPC error"
-                                
-                                created_ts = wallet.get("created_at", 0)
-                                if created_ts:
-                                    from datetime import datetime
-                                    created_date = datetime.fromtimestamp(created_ts).strftime("%Y-%m-%d %H:%M")
-                                else:
-                                    created_date = "Unknown"
-                                
-                                response_text = f"""💰 **Burner Wallet Info**
+                elif text.strip() in ['/help']:
+                    response_text = '''🐕 Mork F.E.T.C.H Bot Commands
 
-Address: `{wallet["address"]}`
-Balance: {balance_str}
-Created: {created_date}
+Admin Commands:
+/ping, /a_ping - Test responsiveness
+/status, /a_status - System status  
+/whoami, /a_whoami - Your Telegram info
+/scan_status, /a_scan_status - Comprehensive system health check
+/scan_test, /a_scan_test - Quick system test with sample data
+/pumpfun_status, /a_pumpfun_status - Pump.fun endpoint status
+/pumpfun_probe, /a_pumpfun_probe - Multi-source diagnostic probe
+/a_logs_tail [n] [level=x] - Recent log entries with filtering
+/a_logs_stream - Log streaming info
+/a_logs_watch - Log monitoring status
+/a_mode - Operation mode details
 
-⚠️ **Development Only**
-This is a temporary wallet for testing.
-Not for production custody."""
-                        except Exception as e:
-                            response_text = f"❌ Wallet error: {e}"
+Live Monitoring:
+/monitor - Open real-time monitoring dashboard
+/live - Open compact live console
 
-                # /rules_show - Display current rules configuration
-                elif text.strip().startswith("/rules_show"):
-                    try:
-                        import rules
-                        import json
-                        R = rules.load_rules()
-                        response_text = "Current rules:\n```\n" + json.dumps(R, indent=2) + "\n```"
-                    except Exception as e:
-                        response_text = f"❌ Rules error: {e}"
+Birdeye Scanner:
+/scan_start - Start background scanning
+/scan_stop - Stop background scanning
+/scan_status - Scanner status and metrics
+/birdeye_start - Start token scanning
+/birdeye_stop - Stop token scanning
+/birdeye_status - Scanner status
+/birdeye_tick - Manual scan
 
-                # /rules_reload - Reload rules from rules.yaml
-                elif text.strip().startswith("/rules_reload"):
-                    try:
-                        import rules
-                        rules.load_rules(force=True)
-                        response_text = "🔄 Rules reloaded."
-                    except Exception as e:
-                        response_text = f"❌ Rules reload error: {e}"
+WebSocket Enhanced Controls:
+/ws_start, /ws_stop - WebSocket scanner controls  
+/ws_restart - Restart with Launchpad priority
+/ws_status - Enhanced connection and subscription stats
+/ws_sub [topics] - Set custom subscription topics
+/ws_mode [strict|all] - Set WebSocket filter mode
+/ws_tap [on|off] - Toggle message debug tap
 
-                # /rules_test - Test rules against a token
-                elif text.strip().startswith("/rules_test"):
-                    parts = text.split(maxsplit=1)
-                    if len(parts) == 1:
-                        response_text = "Usage: /rules_test <mint>"
-                    else:
-                        mint = parts[1].strip().lower()
-                        try:
-                            import rules
-                            # Create a test token object
-                            obj = {"mint": mint, "source": "manual", "age_min": 0, "liq_usd": 0, "mcap_usd": 0, "holders": 0, "risk": {}}
-                            res = rules.check_token(obj)
-                            vibe = "PASS ✅" if res.passed else "FAIL ❌"
-                            response_text = f"Rules test for `{mint}` → *{vibe}*\nreasons: {', '.join(res.reasons) or 'ok'}"
-                        except Exception as e:
-                            response_text = f"❌ Rules test error: {e}"
+Advanced WebSocket Debug:
+/ws_debug on/off/inject/cache/status - Debug mode control
+/ws_dump [n] - View cached raw WebSocket messages
+/ws_probe - Inject synthetic test event
 
+DexScreener Scanner:
+/ds_start [seconds], /ds_stop, /ds_status - Pair scanner controls
 
+Multi-Source Token Discovery:
+/jupiter_start, /jupiter_stop - Jupiter scanner controls
+/jupiter_status - Jupiter scanner status and metrics
+/solscan_start, /solscan_stop - Solscan Pro API scanner controls  
+/solscan_status - Solscan scanner status (requires FEATURE_SOLSCAN=on + Pro API key)
 
-                # /wallet commands - Restore original working format
-                elif text.strip().startswith("/wallet"):
-                    logger.info("[WALLET] /wallet command requested by %s", user.get('id'))
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        from wallet_manager import wallet_manager
-                        user_id = str(user.get('id'))
-                        parts = text.strip().split()
-                        
-                        if len(parts) == 1:  # Just "/wallet"
-                            response_text = "Usage: `/wallet create` or `/wallet import <private_key>`"
-                        elif parts[1].lower() == "create":
-                            result = wallet_manager.create_wallet(user_id, "default")
-                            if result["success"]:
-                                response_text = f"✅ **Wallet Created**\n\nAddress: `{result['pubkey']}`\n\n⚠️ **Important:** Your private key is encrypted and stored securely. Never share it!"
-                            else:
-                                response_text = f"❌ Failed to create wallet: {result['error']}"
-                        elif parts[1].lower() == "import":
-                            if len(parts) < 3:
-                                response_text = "Usage: `/wallet import <private_key>`"
-                            else:
-                                private_key = parts[2]
-                                result = wallet_manager.import_wallet(user_id, private_key, "default")
-                                if result["success"]:
-                                    response_text = f"✅ **Wallet Imported**\n\nAddress: `{result['pubkey']}`\n\n🔒 Your private key is encrypted and secure."
-                                else:
-                                    response_text = f"❌ Failed to import wallet: {result['error']}"
-                        else:
-                            response_text = "Unknown wallet command. Use `create` or `import`."
+AI Assistant:
+/assistant_model [model] - Get/set assistant AI model
+/assistant [request] - AI assistant and code generation
 
-                # /balance - Check wallet balance (original working command)
-                elif text.strip().startswith("/balance"):
-                    logger.info("[WALLET] /balance command requested by %s", user.get('id'))
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        from wallet_manager import wallet_manager
-                        from jupiter_engine import jupiter_engine
-                        from safety_system import safety
-                        
-                        user_id = str(user.get('id'))
-                        
-                        if not wallet_manager.has_wallet(user_id):
-                            response_text = "❌ No wallet found. Use `/wallet create` or `/wallet import` first."
-                        else:
-                            try:
-                                wallet_info = wallet_manager.get_wallet_info(user_id)
-                                wallet_address = wallet_info["default"]["pubkey"]
-                                
-                                # Get SOL balance
-                                sol_balance = jupiter_engine.get_sol_balance(wallet_address)
-                                
-                                # Check MORK holdings  
-                                mork_ok, mork_msg = safety.check_mork_holdings(wallet_address, 1.0)
-                                
-                                response_text = f"""💰 **Wallet Balance**
+F.E.T.C.H Rules System:
+/rules_show, /a_rules_show - Display current rules configuration
+/rules_reload, /a_rules_reload - Reload rules from rules.yaml
+/fetch, /fetch_now, /a_fetch_now - Run token filtering demo
 
-**Address:** `{wallet_address}`
-**SOL Balance:** {sol_balance:.6f} SOL
+/help - This help message
 
-**MORK Holdings:** {mork_msg}
-
-**Trading Status:**
-{'✅ Eligible for all trading' if mork_ok else '⚠️ Need more MORK for full access'}"""
-                                
-                            except Exception as e:
-                                response_text = f"❌ Error checking balance: {str(e)}"
-
-                # /snipe - Manual token trading (original working command)
-                elif text.strip().startswith("/snipe"):
-                    logger.info("[WALLET] /snipe command requested by %s", user.get('id'))
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        from wallet_manager import wallet_manager
-                        from jupiter_engine import jupiter_engine
-                        from safety_system import safety
-                        
-                        user_id = str(user.get('id'))
-                        parts = text.strip().split()
-                        
-                        if len(parts) < 3:
-                            response_text = "Usage: `/snipe <token_mint> <sol_amount>`\n\nExample: `/snipe 7eMJmn1bTJnmhK4qZsZfMPUWuBhzQ5VXx1B1Cj6pump 0.01`"
-                        elif not wallet_manager.has_wallet(user_id):
-                            response_text = "❌ No wallet found. Use `/wallet create` or `/wallet import` first."
-                        else:
-                            try:
-                                token_mint = parts[1]
-                                amount_sol = float(parts[2])
-                                
-                                wallet_info = wallet_manager.get_wallet_info(user_id)
-                                wallet_address = wallet_info["default"]["pubkey"]
-                                
-                                # Safety checks
-                                safe_ok, safe_msg = safety.comprehensive_safety_check(
-                                    user_id, wallet_address, token_mint, amount_sol, "snipe"
-                                )
-                                
-                                if not safe_ok:
-                                    response_text = f"❌ **Safety Check Failed**\n\n{safe_msg}"
-                                else:
-                                    # Execute trade
-                                    private_key = wallet_manager.get_private_key(user_id, "default")
-                                    if not private_key:
-                                        response_text = "❌ Could not access wallet private key"
-                                    else:
-                                        result = jupiter_engine.safe_swap(private_key, token_mint, amount_sol)
-                                        
-                                        if result["success"]:
-                                            safety.record_trade(user_id, amount_sol)
-                                            response_text = f"""🎉 **Snipe Successful!**
-
-**Transaction:** `{result['signature']}`
-**Tokens Received:** {result['delta_raw']:,}
-**Status:** Trade completed and verified
-
-Your tokens are now in your wallet! 🚀"""
-                                        else:
-                                            response_text = f"❌ **Trade Failed**\n\n{result['error']}"
-                                            
-                            except ValueError:
-                                response_text = "❌ Invalid SOL amount. Use a number like 0.01"
-                            except Exception as e:
-                                response_text = f"❌ Error executing snipe: {str(e)}"
-
-                # /bus_test - Test event bus with fake token
-                elif text.strip().startswith("/bus_test"):
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            # publish a synthetic NEW_TOKEN event to prove the end-to-end path
-                            fake = {
-                                "source": "TEST",
-                                "symbol": "TESTCOIN",
-                                "name": "Synthetic Test Token",
-                                "mint": "TestMint1111111111111111111111111111111111",
-                                "holders": 1,
-                                "mcaps": 0,
-                                "liq$": 0,
-                                "age_min": 0,
-                                "risk": "low",
-                                "solscan": None,
-                                "links": {"pumpfun": None, "birdeye": None},
-                                "ts": int(time.time())
-                            }
-                            BUS.publish("NEW_TOKEN", fake)
-                            response_text = "📣 Published synthetic *NEW_TOKEN* to the bus (source=TEST). Check for the formatted alert."
-                        except Exception as e:
-                            response_text = f"❌ Bus test error: {e}"
-
-                # Wallet Commands (single command processing)
-                elif text.strip().startswith("/wallet_new"):
-                    logger.info(f"[WEBHOOK] Processing /wallet_new for user {user.get('id')}")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            from wallets import get_or_create_wallet
-                            uid = str(user.get('id'))
-                            logger.info(f"[WEBHOOK] Creating wallet for uid={uid}")
-                            w = get_or_create_wallet(uid)
-                            response_text = (
-                                "🪪 *Burner wallet created*\n"
-                                f"• Address: `{w['address']}`\n"
-                                "_(Private key stored server-side for testing; will move to secure storage before trading.)_"
-                            )
-                            logger.info(f"[WEBHOOK] Wallet created successfully, response_text length: {len(response_text)}")
-                        except Exception as e:
-                            logger.exception(f"[WEBHOOK] Wallet creation error: {e}")
-                            response_text = f"❌ Wallet creation error: {e}"
-
-                elif text.strip().startswith("/wallet_addr"):
-                    logger.info(f"[WEBHOOK] Processing /wallet_addr for user {user.get('id')}")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            from wallets import get_wallet
-                            uid = str(user.get('id'))
-                            w = get_wallet(uid)
-                            if w:
-                                response_text = f"📬 *Your burner wallet address*\n`{w['address']}`"
-                            else:
-                                response_text = "❌ No wallet found. Use /wallet_new to create one first."
-                        except Exception as e:
-                            logger.exception(f"[WEBHOOK] Wallet address error: {e}")
-                            response_text = f"❌ Wallet address error: {e}"
-
-                elif text.strip().startswith("/wallet_balance"):
-                    logger.info(f"[WEBHOOK] Processing /wallet_balance for user {user.get('id')}")
-                    if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
-                        response_text = "Not authorized."
-                    else:
-                        try:
-                            from wallets import get_wallet, get_balance_sol
-                            uid = str(user.get('id'))
-                            w = get_wallet(uid)
-                            if w:
-                                bal = get_balance_sol(w["address"])
-                                response_text = (
-                                    f"💰 *Wallet balance*\n"
-                                    f"Address: `{w['address']}`\n"
-                                    f"Balance: `{bal:.6f} SOL`"
-                                    f"\n\n_⚠️ Burner wallet for testing only. Private keys stored server-side._"
-                                )
-                            else:
-                                response_text = "❌ No wallet found. Use /wallet_new to create one first."
-                        except Exception as e:
-                            logger.exception(f"[WEBHOOK] Wallet balance error: {e}")
-                            response_text = f"❌ Wallet balance error: {e}"
-
-                elif text.strip() in ['/help', '/commands', '/info', '/menu', '/start']:
-                    logger.info(f"[WEBHOOK-DEBUG] Help command detected: {text.strip()}")
-                    help_text = '''Mork F.E.T.C.H Bot
-
-/ping - Test bot
-/wallet create - New wallet
-/balance - Check balances
-/status - System status
-/fetch - Token scan
-
-Bot working!'''
-                    
-                    # Use _reply() to handle chunking automatically  
-                    logger.info(f"[WEBHOOK-DEBUG] About to send help text, length: {len(help_text)}")
-                    success = _reply(help_text, parse_mode=None, no_preview=True)  # Remove Markdown to avoid parsing issues
-                    logger.info(f"[WEBHOOK-DEBUG] Help message sent, success: {success}")
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
-                
-                elif text.strip() == "/test123":
-                    logger.info(f"[WEBHOOK-DEBUG] Test command detected")
-                    success = _reply("Test successful!", parse_mode=None, no_preview=True)
-                    logger.info(f"[WEBHOOK-DEBUG] Test message sent, success: {success}")
-                    return jsonify({"status": "ok", "command": text, "response_sent": True})
+Bot is operational with direct webhook processing.
+Admin alias commands (a_*) available to avoid conflicts.'''
                 
                 if response_text:
                     logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
@@ -4396,9 +2772,24 @@ def _install_ws_debug_forwarder():
         return
         
     def _send_admin_debug(text: str):
-        """DISABLED: Send debug message to admin chat - now handled by polling loop"""
-        logger.debug(f"_send_admin_debug called but disabled: {text[:100]}...")
-        return
+        """Send debug message to admin chat"""
+        try:
+            import requests
+            bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            if not bot_token:
+                return
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={
+                    "chat_id": admin_id, 
+                    "text": text, 
+                    "parse_mode": "Markdown",
+                    "disable_notification": True  # Don't spam with notifications
+                },
+                timeout=8,
+            )
+        except Exception as e:
+            logger.debug("Admin debug send failed: %s", e)
     
     def _on_debug_event(evt):
         """Handle WS debug events from event bus"""
@@ -4583,44 +2974,9 @@ def start_services():
         "timestamp": time.time()
     })
 
-# Token event subscriber
-def _on_new_token(ev: dict):
-    """Handle NEW_TOKEN events from the bus"""
-    try:
-        res = rules.check_token(ev)
-        vibe = "✅ PASS" if res.passed else "❌ FAIL"
-        reasons = "ok" if res.passed else (", ".join(res.reasons) or "unknown")
-        msg = (
-            f"*New token* ({ev.get('source')})\n"
-            f"`{ev.get('symbol')}` — {ev.get('mint')}\n"
-            f"liq: ${ev.get('liq_usd'):,.0f} | mcap: ${ev.get('mcap_usd'):,.0f} | "
-            f"age: {ev.get('age_min'):.1f}m | holders: {ev.get('holders')}\n"
-            f"Rules: *{vibe}* — {reasons}"
-        )
-        
-        # DISABLED: Direct API call - now handled by polling loop
-        logger.info(f"Token notification prepared but not sent: {msg[:100]}...")
-    except Exception as e:
-        logger.warning(f"Token notification error: {e}")
-
-# Subscribe to NEW_TOKEN events
-BUS.subscribe("NEW_TOKEN", _on_new_token)
-logger.info("Subscribed to NEW_TOKEN events on bus")
-
-# Auto-start services if enabled by environment variable
+# Auto-start services immediately after app creation
 with app.app_context():
-    if os.getenv("AUTO_START_SCANS", "false").lower() == "true":
-        start_services()
-        logger.info("Auto-start scans enabled (AUTO_START_SCANS=true)")
-    else:
-        logger.info("Auto-start scans disabled (AUTO_START_SCANS=false or unset)")
-    
-    # Start Telegram polling mode if enabled (default due to webhook delivery issues)
-    if TELEGRAM_MODE == 'polling':
-        logger.info("Starting Telegram polling mode (bypasses webhook delivery issues)")
-        start_telegram_polling()
-    else:
-        logger.info("Using webhook mode for Telegram")
+    start_services()
 
 # Export app for gunicorn
 application = app
