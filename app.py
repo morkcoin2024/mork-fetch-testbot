@@ -639,7 +639,7 @@ def process_telegram_command(update_data):
                        "/wallet_balance - Check balance\n" + \
                        "/wallet_balance_usd - Balance in USD\n" + \
                        "/wallet_link - Solscan explorer link\n" + \
-                       "/wallet_deposit_qr - Generate deposit QR code\n" + \
+                       "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
                        "/wallet_reset - Reset wallet (2-step confirm)\n" + \
                        "/wallet_export - Export private key [Admin Only]\n\n" + \
                        "🔍 **Scanner Commands:**\n" + \
@@ -651,7 +651,7 @@ def process_telegram_command(update_data):
                 elif text.strip() == "/commands":
                     response_text = "📋 **Available Commands**\n\n" + \
                               "**Basic:** /help /info /ping /test123\n" + \
-                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_reset /wallet_export\n" + \
+                              "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_export\n" + \
                               "**Scanner:** /solscanstats /fetch /fetch_now\n\n" + \
                               "Use /help for detailed descriptions"
                 elif text.strip() == "/info":
@@ -843,34 +843,57 @@ def process_telegram_command(update_data):
                             response_text = export_data
                         except Exception as e:
                             response_text = f"🔐 Export error: {e}"
-                elif text == "/wallet_deposit_qr":
+                elif text.startswith("/wallet_deposit_qr") or text.startswith("/wallet_qr"):
                     deny = _require_admin(user)
-                    if deny: 
+                    if deny:
                         response_text = deny["response"]
                     else:
                         try:
-                            import re, os, time, wallets, qrcode
+                            import os, re, time, qrcode, wallets
                             uid = user.get("id")
-                            addr_text = wallets.cmd_wallet_addr(uid)
-                            m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text or "")
-                            if not m: 
+
+                            # Parse optional amount (e.g., "/wallet_deposit_qr 0.5")
+                            parts = text.split()
+                            amt = None
+                            if len(parts) > 1:
+                                try:
+                                    amt = float(parts[1].replace(",", ""))
+                                    if amt <= 0: amt = None
+                                except Exception:
+                                    amt = None
+
+                            # Get address robustly
+                            addr_text = (wallets.cmd_wallet_addr(uid) or "").strip()
+                            m = re.search(r"[1-9A-HJ-NP-Za-km-z]{32,44}", addr_text)
+                            if not m:
                                 response_text = "⚠️ Unable to detect wallet address."
                             else:
                                 addr = m.group(0)
 
-                                # Generate QR (solana address URI works fine for wallet apps)
+                                # Build solana: URI (amount is optional & many wallets honor it)
                                 uri = f"solana:{addr}"
-                                img = qrcode.make(uri)
+                                if amt is not None:
+                                    # Don't append scientific notation; keep plain decimal
+                                    uri = f"{uri}?amount={amt:.9f}".rstrip("0").rstrip(".")
+
+                                # Generate QR
                                 os.makedirs("tmp", exist_ok=True)
                                 path = f"tmp/qr_{addr[:6]}_{int(time.time())}.png"
+                                img = qrcode.make(uri)
                                 img.save(path)
 
-                                # Send photo via centralized media sender
+                                # Send photo
                                 from telegram_media import send_photo_safe
                                 chat_id = (update_data.get("message", {}).get("chat") or {}).get("id")
-                                ok, status, _ = send_photo_safe(TELEGRAM_BOT_TOKEN, chat_id, path, caption=f"📥 Deposit to:\n{addr}")
+                                caption_lines = [f"Deposit Address:\n{addr}"]
+                                if amt is not None:
+                                    caption_lines.append(f"Requested Amount: {amt} SOL")
+                                caption_lines.append("⚠️ Burner wallet for testing. Do not send large amounts.")
+                                caption = "\n".join(caption_lines)
+
+                                ok, status, _ = send_photo_safe(TELEGRAM_BOT_TOKEN, chat_id, path, caption=caption)
                                 if ok:
-                                    response_text = "📸 Sent QR code for deposit."
+                                    response_text = "📸 Sent deposit QR."
                                 else:
                                     response_text = "⚠️ Failed to send QR image."
                         except Exception as e:
