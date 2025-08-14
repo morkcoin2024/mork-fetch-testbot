@@ -1530,6 +1530,116 @@ def process_telegram_command(update_data):
                     import scanner
                     mint = text.split(maxsplit=1)[1].strip()
                     ok = scanner.autobuy_off(mint)
+                    return _reply("✅ AutoBuy disabled." if ok else "ℹ️ Not configured.")
+
+                elif text.startswith("/autobuy_remove "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = scanner.autobuy_remove(mint)
+                    return _reply("✅ AutoBuy removed." if ok else "ℹ️ Not configured.")
+
+                elif text.strip() == "/autobuy_list":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    configs = scanner.autobuy_list()
+                    if not configs:
+                        return _reply("🤖 AutoBuy: (none)")
+                    lines = ["🤖 **AutoBuy Configs**"]
+                    for mint, cfg in configs.items():
+                        status = "ON" if cfg.get("enabled", True) else "OFF"
+                        lines.append(f"{mint[:8]}... {cfg['sol']} SOL ({status})")
+                    return _reply("\n".join(lines))
+
+                # --- AutoSell commands ---
+                elif text.startswith("/autosell "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        parts = text.split()
+                        if len(parts) < 3:
+                            return _reply("Usage: /autosell <MINT> <TP%> [SL%] [TRAIL%] [SIZE%]\nExample: /autosell ABC123 30 15 5 50")
+                        mint = parts[1].strip()
+                        tp_pct = float(parts[2]) if parts[2] != "-" else None
+                        sl_pct = float(parts[3]) if len(parts) > 3 and parts[3] != "-" else None
+                        trail_pct = float(parts[4]) if len(parts) > 4 and parts[4] != "-" else None
+                        size_pct = float(parts[5]) if len(parts) > 5 and parts[5] != "-" else 100.0
+                        autosell.set_rule(mint, tp_pct, sl_pct, trail_pct, size_pct)
+                        return _reply(f"🧠 AutoSell rule set for {mint[:8]}… TP:{tp_pct}% SL:{sl_pct}% TRAIL:{trail_pct}% SIZE:{size_pct}%")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell error: {e}", "error")
+
+                elif text.startswith("/autosell_remove "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        mint = text.split(maxsplit=1)[1].strip()
+                        ok = autosell.remove_rule(mint)
+                        return _reply("✅ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell remove error: {e}", "error")
+
+                elif text.strip() == "/autosell_list":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        rules = autosell.get_rules()
+                        if not rules:
+                            return _reply("🧠 AutoSell: (no rules)")
+                        lines = ["🧠 **AutoSell Rules**"]
+                        for mint, rule in rules.items():
+                            tp = rule.get("tp_pct", "-")
+                            sl = rule.get("sl_pct", "-")
+                            trail = rule.get("trail_pct", "-")
+                            size = rule.get("size_pct", 100)
+                            lines.append(f"{mint[:8]}... TP:{tp}% SL:{sl}% TRAIL:{trail}% SIZE:{size}%")
+                        return _reply("\n".join(lines))
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell list error: {e}", "error")
+
+                elif text.strip() == "/autosell_on":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        autosell.enable()
+                        return _reply("✅ AutoSell engine started.")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell start error: {e}", "error")
+
+                elif text.strip() == "/autosell_off":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        autosell.disable()
+                        return _reply("✅ AutoSell engine stopped.")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell stop error: {e}", "error")
+
+                elif text.strip() == "/autosell_status":
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    try:
+                        import autosell
+                        status = autosell.status()
+                        return _reply(f"🧠 AutoSell: {'ON' if status['enabled'] else 'OFF'}\n"
+                                    f"Rules: {status['rules_count']}  Interval: {status['interval_sec']}s\n"
+                                    f"Thread: {'ALIVE' if status['thread_alive'] else 'STOPPED'}")
+                    except Exception as e:
+                        return _reply(f"⚠️ AutoSell status error: {e}", "error")
+
+                elif text.startswith("/autobuy_off "):
+                    deny = _require_admin(user)
+                    if deny: return deny
+                    import scanner
+                    mint = text.split(maxsplit=1)[1].strip()
+                    ok = scanner.autobuy_off(mint)
                     return _reply("🛑 AutoBuy disabled." if ok else "ℹ️ Not configured.")
 
                 elif text.startswith("/autobuy_remove "):
