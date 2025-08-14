@@ -43,6 +43,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Unified Handler Architecture:** Single-point update processing with enhanced idempotency for message and edited_message updates.
 - **Idempotency Deduplication System:** Rolling memory system to prevent duplicate message processing.
 - **Webhook Conflict Resolution:** Automatic webhook deletion when polling starts.
+- **Enhanced Command Processing System:** Optimized `_parse_cmd()` function with streamlined @BotName handling, unified `process_telegram_command()` function with clean response architecture, and integrated AutoSell command suite with comprehensive error handling and admin-only access controls.
 
 ## External Dependencies
 - **Telegram Bot API**: For all message handling and user interactions.

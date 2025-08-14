@@ -290,6 +290,13 @@ def process_telegram_command(update: dict):
                        "/watchlist - Show watchlist\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
+                       "🤖 **AutoSell Commands:**\n" + \
+                       "/autosell_on / /autosell_off - Enable/disable AutoSell\n" + \
+                       "/autosell_status - Check AutoSell status\n" + \
+                       "/autosell_interval <seconds> - Set monitoring interval\n" + \
+                       "/autosell_set <mint> [tp=30] [sl=15] [trail=10] [size=100] - Set sell rules\n" + \
+                       "/autosell_list - Show all AutoSell rules\n" + \
+                       "/autosell_remove <mint> - Remove AutoSell rule\n\n" + \
                        "**Bot Status:** ✅ Online (Polling Mode)"
             return _reply(help_text)
         elif cmd == "/ping":
@@ -312,9 +319,118 @@ def process_telegram_command(update: dict):
             commands_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n\n" + \
+                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n" + \
+                          "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
+        
+        # AutoSell Commands - Core functionality
+        elif cmd == "/autosell_on":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                autosell.enable()
+                return _reply("🟢 AutoSell enabled.")
+            except Exception as e:
+                return _reply(f"❌ AutoSell enable failed: {e}")
+        
+        elif cmd == "/autosell_off":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                autosell.disable()
+                return _reply("🔴 AutoSell disabled.")
+            except Exception as e:
+                return _reply(f"❌ AutoSell disable failed: {e}")
+        
+        elif cmd == "/autosell_status":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                st = autosell.status()
+                status_text = "🤖 **AutoSell Status**\n\n" + \
+                             f"**Enabled:** {st['enabled']}\n" + \
+                             f"**Interval:** {st['interval_sec']}s\n" + \
+                             f"**Rules:** {st['rules_count']}\n" + \
+                             f"**Thread alive:** {st['thread_alive']}"
+                return _reply(status_text)
+            except Exception as e:
+                return _reply(f"❌ AutoSell status failed: {e}")
+        
+        elif cmd == "/autosell_interval":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                if not args:
+                    return _reply("📝 Usage: /autosell_interval <seconds>")
+                seconds = int(args.split()[0])
+                autosell.set_interval(seconds)
+                st = autosell.status()
+                return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
+            except ValueError:
+                return _reply("❌ Invalid number format")
+            except Exception as e:
+                return _reply(f"❌ AutoSell interval failed: {e}")
+        
+        elif cmd == "/autosell_set":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                parts = args.split()
+                if not parts:
+                    return _reply("📝 Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
+                mint = parts[0]
+                kv = {"tp": None, "sl": None, "trail": None, "size": None}
+                for p in parts[1:]:
+                    if "=" in p:
+                        k, v = p.split("=", 1)
+                        try:
+                            kv[k.lower()] = float(v)
+                        except:
+                            pass
+                autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
+                return _reply(
+                    f"✅ AutoSell set for {mint[:8]}…\n" +
+                    f"**TP:** {kv['tp']} **SL:** {kv['sl']} **Trail:** {kv['trail']} **Size:** {kv['size']}"
+                )
+            except Exception as e:
+                return _reply(f"❌ AutoSell set failed: {e}")
+        
+        elif cmd == "/autosell_list":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                rules = autosell.get_rules()
+                if not rules:
+                    return _reply("🤖 **AutoSell rules:** (none)")
+                lines = ["🤖 **AutoSell rules:**\n"]
+                for m, r in rules.items():
+                    lines.append(
+                        f"**{m[:8]}…** tp={r.get('tp_pct')} sl={r.get('sl_pct')} " +
+                        f"trail={r.get('trail_pct')} size={r.get('size_pct', 100)}%"
+                    )
+                return _reply("\n".join(lines))
+            except Exception as e:
+                return _reply(f"❌ AutoSell list failed: {e}")
+        
+        elif cmd == "/autosell_remove":
+            if not is_admin:
+                return _reply("⛔ Admin only")
+            try:
+                import autosell
+                if not args:
+                    return _reply("📝 Usage: /autosell_remove <MINT>")
+                ok = autosell.remove_rule(args.split()[0])
+                return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+            except Exception as e:
+                return _reply(f"❌ AutoSell remove failed: {e}")
+        
         else:
             # Route to existing webhook logic for complex commands
             return _reply(f"Command '{cmd}' not implemented in new handler", "fallback")
