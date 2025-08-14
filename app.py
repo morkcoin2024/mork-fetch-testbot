@@ -706,26 +706,58 @@ def process_telegram_command(update_data):
                         response_text = deny["response"]
                     else:
                         try:
-                            import wallets
-                            import re
-                            summary = wallets.cmd_wallet_balance(user.get("id"))  # expects SOL: x.y
-                            # extract float; adapt if your format differs
-                            m = re.search(r"SOL:\s*([0-9.]+)", summary)
-                            if not m: 
-                                logging.error(f"[USD] Could not parse SOL from: {summary}")
+                            import re, wallets
+                            uid = user.get("id")
+                            bal_text = (wallets.cmd_wallet_balance(uid) or "").strip()
+
+                            # Robust extraction:
+                            #  - Prefer patterns with SOL/◎ labels
+                            #  - Otherwise, fallback to "largest float in text"
+                            def _to_float(x):
+                                try:
+                                    return float(x.replace(",", ""))
+                                except Exception:
+                                    return None
+
+                            sol_amount = None
+
+                            # Patterns: "SOL: 0.123", "SOL 0.123", "◎ 0.123"
+                            patterns = [
+                                r"SOL[:\s]+([0-9][0-9,]*\.?[0-9]*)",
+                                r"◎[:\s]+([0-9][0-9,]*\.?[0-9]*)",
+                            ]
+                            for p in patterns:
+                                m = re.search(p, bal_text, flags=re.IGNORECASE)
+                                if m:
+                                    sol_amount = _to_float(m.group(1))
+                                    if sol_amount is not None:
+                                        break
+
+                            # Fallback: grab the largest-looking float anywhere in the text
+                            if sol_amount is None:
+                                floats = [ _to_float(x) for x in re.findall(r"([0-9][0-9,]*\.?[0-9]*)", bal_text) ]
+                                floats = [f for f in floats if f is not None]
+                                if floats:
+                                    sol_amount = max(floats)
+
+                            if sol_amount is None:
                                 response_text = "⚠️ Could not parse SOL balance."
                             else:
-                                sol = float(m.group(1))
-                                logging.info(f"[USD] Parsed SOL amount: {sol}")
-                                usd_price = get_sol_price_usd()
-                                logging.info(f"[USD] SOL price fetched: ${usd_price}")
-                                usd = sol * float(usd_price)
-                                result = f"{summary}\n≈ ${usd:,.2f} USD (${usd_price:,.2f}/SOL)"
-                                logging.info(f"[USD] Final result length: {len(result)}")
-                                response_text = result
+                                # Price
+                                try:
+                                    from prices import get_sol_price_usd
+                                except Exception:
+                                    # graceful fallback if prices.py not present
+                                    def get_sol_price_usd(): return None
+
+                                price = get_sol_price_usd()
+                                if price is None:
+                                    response_text = f"{bal_text}\n≈ $— USD (price unavailable)"
+                                else:
+                                    usd = sol_amount * float(price)
+                                    response_text = f"{bal_text}\n≈ ${usd:,.2f} USD"
                         except Exception as e:
-                            logging.error(f"[USD] Exception in USD balance: {e}")
-                            response_text = f"💰 USD balance error: {e}"
+                            response_text = f"💱 Balance (USD) error: {e}"
                 elif text.strip().startswith("/wallet_balance"):
                     deny = _require_admin(user)
                     if deny:
