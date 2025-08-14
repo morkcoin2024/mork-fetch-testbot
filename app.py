@@ -1252,6 +1252,32 @@ def process_telegram_command(update_data):
                                 response_text = "👀 Watchlist: (empty)"
                         except Exception as e:
                             response_text = f"⚠️ Watchlist error: {e}"
+                elif text.strip() in ["/fetch_now", "/fetch"]:
+                    deny = _require_admin(user)
+                    if deny: 
+                        response_text = deny["response"]
+                    else:
+                        try:
+                            import scanner
+                            results = scanner.scan_now(15)
+                            
+                            response_text = f"📊 **Token Scan Results**\n\n"
+                            response_text += f"Scanned: {len(results)} tokens\n"
+                            
+                            if results:
+                                response_text += "**Top 5 Results:**\n"
+                                for i, (token, score, verdict) in enumerate(results[:5], 1):
+                                    symbol = token.get("symbol", "Unknown")
+                                    price = token.get("usd_price", token.get("price", "?"))
+                                    holders = token.get("holders", token.get("holder_count", "?"))
+                                    age = token.get("age", token.get("age_seconds", "?"))
+                                    
+                                    response_text += f"{i}. **{symbol}** - {verdict}\n"
+                                    response_text += f"   Score: {score} | Price: ${price} | Holders: {holders} | Age: {age}s\n"
+                            else:
+                                response_text += "No tokens found"
+                        except Exception as e:
+                            response_text = f"📊 Fetch error: {e}"
                 elif text.strip() == "/fetch":
                     try:
                         import data_fetcher

@@ -97,24 +97,18 @@ def scan_now(n: int = 15) -> List[Tuple[dict, int, str]]:
     """Perform immediate scan and return top results"""
     try:
         # Import scanner dependencies
-        import data_fetcher
-        from token_filter import TokenFilter
+        import token_fetcher
+        import flip_checklist
         
         # Get recent tokens
-        tokens = data_fetcher.multi_source_fetch(limit=n)
+        tokens = token_fetcher.recent(n)
         if not tokens:
             return []
         
-        # Score tokens using filter system
-        filter_system = TokenFilter()
-        results = filter_system.process_tokens(tokens, "default")
-        
-        # Convert to expected format
+        # Score tokens
         scored_tokens = []
-        for token_data in results.get("tokens", []):
-            token = token_data.get("token", {})
-            score = token_data.get("score", 0)
-            verdict = token_data.get("verdict", "UNKNOWN")
+        for token in tokens:
+            score, verdict, details = flip_checklist.score(token)
             scored_tokens.append((token, score, verdict))
         
         # Sort by score descending
@@ -140,12 +134,23 @@ def _loop():
         
         if enabled:
             try:
-                # Perform scan
-                results = scan_now(20)  # Get more tokens for filtering
+                # Import dependencies
+                import token_fetcher
+                import flip_checklist
                 
-                # Filter by threshold and check for new tokens
+                # Get recent tokens
+                tokens = token_fetcher.recent(20)
+                
+                # Include watchlist tokens (force-fetch)
+                for mint in watchlist:
+                    if mint:
+                        watchlist_token = token_fetcher.lookup(mint)
+                        if watchlist_token:
+                            tokens.append(watchlist_token)
+                
+                # Score and filter tokens
                 new_tokens = []
-                for token, score, verdict in results:
+                for token in tokens:
                     mint = token.get("mint")
                     if not mint:
                         continue
@@ -153,15 +158,20 @@ def _loop():
                     # Skip if already seen (unless on watchlist)
                     if is_seen(mint) and mint not in watchlist:
                         continue
-                        
+                    
+                    # Score the token
+                    score, verdict, details = flip_checklist.score(token)
+                    
                     # Check if meets threshold or is on watchlist
                     if score >= threshold or mint in watchlist:
-                        new_tokens.append((token, score, verdict))
+                        new_tokens.append((token, score, verdict, details))
                         mark_seen(mint)
                 
                 # Send alerts for qualifying tokens
                 if new_tokens:
-                    _send_alerts(new_tokens[:5])  # Limit to top 5
+                    # Sort by score and take top 5
+                    new_tokens.sort(key=lambda x: x[1], reverse=True)
+                    _send_alerts(new_tokens[:5])
                     
             except Exception as e:
                 print(f"[scanner] loop error: {e}")
@@ -169,7 +179,7 @@ def _loop():
         # Sleep for configured interval (minimum 5 seconds)
         time.sleep(max(5, interval))
 
-def _send_alerts(tokens: List[Tuple[dict, int, str]]):
+def _send_alerts(tokens: List[Tuple[dict, int, str, str]]):
     """Send Telegram alerts for qualifying tokens"""
     try:
         from telegram_polling import send_telegram_safe
@@ -178,28 +188,36 @@ def _send_alerts(tokens: List[Tuple[dict, int, str]]):
         admin_id = os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID")
         
         if not admin_id:
+            print("[scanner] No admin ID configured for alerts")
             return
             
-        for token, score, verdict in tokens:
+        for token, score, verdict, details in tokens:
             symbol = token.get("symbol", "Unknown")
             mint = token.get("mint", "")
             price = token.get("usd_price", token.get("price", "?"))
             mcap = token.get("market_cap", token.get("fdv", "?"))
+            age = token.get("age", token.get("age_seconds", "?"))
+            holders = token.get("holders", token.get("holder_count", "?"))
             
-            # Format message
+            # Format message with enhanced details
             msg = (
-                f"🚨 **Token Alert** ({verdict})\n"
-                f"**{symbol}** - Score: {score}\n"
-                f"Mint: `{mint[:12]}...`\n"
-                f"Price: ${price}\n"
-                f"Market Cap: ${mcap}\n"
-                f"Threshold: {config.get('scanner.threshold', 75)}"
+                f"🚨 **Scanner Alert**\n"
+                f"**{symbol}** ({verdict})\n"
+                f"Score: **{score}** (threshold: {config.get('scanner.threshold', 75)})\n\n"
+                f"💰 Price: ${price}\n"
+                f"📊 Market Cap: ${mcap:,} \n"
+                f"👥 Holders: {holders}\n"
+                f"⏰ Age: {age}s\n\n"
+                f"📋 Details: {details}\n\n"
+                f"🔗 `{mint}`"
             )
             
             # Send alert
             success, status_code, response = send_telegram_safe(admin_id, msg)
-            if not success:
-                print(f"[scanner] Alert send failed: {status_code}")
+            if success:
+                print(f"[scanner] Alert sent for {symbol} (score: {score})")
+            else:
+                print(f"[scanner] Alert send failed for {symbol}: {status_code}")
                 
     except Exception as e:
         print(f"[scanner] Alert error: {e}")
