@@ -582,7 +582,11 @@ def ensure_admin_or_msg(user):
 
 def process_telegram_command(update_data):
     """Process Telegram command from polling or webhook"""
+    import time
     start_time = time.time()
+    text = None
+    user_id = None
+    is_admin = False
     response_text = None
     try:
         if not update_data.get('message'):
@@ -812,7 +816,7 @@ def process_telegram_command(update_data):
 
                                 # Send photo via centralized media sender
                                 from telegram_media import send_photo_safe
-                                chat_id = (data.get("message", {}).get("chat") or {}).get("id")
+                                chat_id = (update_data.get("message", {}).get("chat") or {}).get("id")
                                 ok, status, _ = send_photo_safe(TELEGRAM_BOT_TOKEN, chat_id, path, caption=f"📥 Deposit to:\n{addr}")
                                 if ok:
                                     response_text = "📸 Sent QR code for deposit."
