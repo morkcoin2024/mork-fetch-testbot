@@ -252,8 +252,26 @@ def process_telegram_command(update: dict):
         if not is_command:
             return _reply("Not a command", "ignored")
         
-        # Admin-only check for restricted commands (exclude basic info commands)
-        if not is_admin and cmd not in ["/help", "/ping", "/info", "/test123", "/commands"]:
+        # Define public commands that don't require admin access
+        public_commands = ["/help", "/ping", "/info", "/test123", "/commands"]
+        
+        # Check if this is a recognized command
+        all_commands = public_commands + [
+            "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
+            "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
+            "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
+            "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
+            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+            "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
+        ]
+        
+        # If command is not recognized, show unknown command message
+        if cmd not in all_commands:
+            clean = (text or "").replace("\n", " ")
+            return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.")
+        
+        # Admin-only check for restricted commands
+        if not is_admin and cmd not in public_commands:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[CMD] cmd='{cmd}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
             return _reply("⛔ Admin only")
@@ -432,8 +450,8 @@ def process_telegram_command(update: dict):
                 return _reply(f"❌ AutoSell remove failed: {e}")
         
         else:
-            # Route to existing webhook logic for complex commands
-            return _reply(f"Command '{cmd}' not implemented in new handler", "fallback")
+            # This should not be reached due to command validation above
+            return _reply("Command processing error")
     
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
