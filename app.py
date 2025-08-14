@@ -204,23 +204,35 @@ def _ensure_scanners():
         SOLSCAN_SCANNER = None
         SCANNERS = {}
 
+import re
+
+# Normalize odd whitespace and zero-width chars so "/\nautosell_on" still parses.
+_ZW = "".join([
+    "\u200b",  # ZERO WIDTH SPACE
+    "\u200c",  # ZERO WIDTH NON-JOINER
+    "\u200d",  # ZERO WIDTH JOINER
+    "\u2060",  # WORD JOINER
+    "\ufeff",  # BOM
+])
+
+_CMD_RE = re.compile(r"^/\s*([A-Za-z0-9_]+)(?:@[\w_]+)?(?:\s+(.*))?$", re.S)
+
 def _parse_cmd(text: str):
-    """Optimized command parsing with @BotName handling"""
-    if not text or not text.startswith('/'):
+    """Enhanced command parsing with zero-width character normalization and regex-based parsing"""
+    s = (text or "").strip()
+    if not s.startswith("/"):
         return None, ""
-    
-    # Strip @BotName suffix (e.g., "/help@MorkFetchBot" -> "/help") 
-    cmd_part = text.split()[0]
-    if '@' in cmd_part:
-        cmd_part = cmd_part.split('@')[0]
-    
-    # Normalize to lowercase for consistent processing
-    cmd = cmd_part.lower()
-    
-    # Extract arguments
-    args = text[len(text.split()[0]):].strip() if len(text.split()) > 1 else ""
-    
-    return cmd, args
+    # strip zero-widths globally
+    for ch in _ZW:
+        s = s.replace(ch, "")
+    m = _CMD_RE.match(s)
+    if not m:
+        # Fallback: treat lone "/" as unknown but still return something
+        head = s.split()[0]
+        return head.lower(), s[len(head):].strip()
+    name = m.group(1).lower()
+    args = (m.group(2) or "").strip()
+    return f"/{name}", args
 
 def process_telegram_command(update: dict):
     """Enhanced command processing with unified response architecture"""
