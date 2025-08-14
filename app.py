@@ -819,14 +819,28 @@ def webhook():
                 if len(handle_update._processed_updates) > 100:
                     handle_update._processed_updates = set(list(handle_update._processed_updates)[-100:])
                 
-                # Try enhanced command processor first
+                # Try enhanced command processor with robust result handling
                 try:
                     result = process_telegram_command(update)
-                    if result.get("handled") and result.get("status") != "fallback":
-                        # Send response using optimized function
-                        if result.get("response"):
-                            _reply(result["response"])
+                    out = None
+                    if isinstance(result, dict) and result.get("handled"):
+                        out = result.get("response")
+                    elif isinstance(result, str):
+                        out = result
+                    else:
+                        out = "⚠️ Processing error occurred."
+
+                    # Send response using safe telegram delivery
+                    if out:
+                        from telegram_safety import send_telegram_safe
+                        chat_id = msg.get('chat', {}).get('id')
+                        if chat_id:
+                            send_telegram_safe(BOT_TOKEN, chat_id, out)
+                    
+                    # Return handled result if processed successfully
+                    if isinstance(result, dict) and result.get("handled"):
                         return result
+                        
                 except Exception as e:
                     logger.error(f"[WEBHOOK] Enhanced command processor failed: {e}")
                     # Fall through to legacy processing
