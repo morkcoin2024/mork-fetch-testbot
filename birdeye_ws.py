@@ -223,7 +223,7 @@ class BirdeyeWS:
                         try:
                             # Import here to avoid circular imports
                             from app import _normalize_token
-                            ev = _normalize_token("birdeye-ws", token_data)
+                            ev = _normalize_token(token_data, "birdeye-ws")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             log.warning("[WS] NEW_TOKEN publish failed: %s", norm_e)

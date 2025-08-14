@@ -240,7 +240,7 @@ class BirdeyeScanner:
                         # Publish individual NEW_TOKEN event
                         try:
                             from app import _normalize_token
-                            ev = _normalize_token("birdeye-http", it)
+                            ev = _normalize_token(it, "birdeye-http")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             logging.warning("[SCAN] NEW_TOKEN publish failed: %s", norm_e)

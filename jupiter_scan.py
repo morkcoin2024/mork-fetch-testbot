@@ -69,7 +69,7 @@ class JupiterScan:
                 if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
                     try:
                         from app import _normalize_token
-                        ev = _normalize_token("jupiter", t)
+                        ev = _normalize_token(t, "jupiter")
                         self.publish("NEW_TOKEN", ev)
                     except Exception as norm_e:
                         log.warning("[JUPITER] NEW_TOKEN publish failed: %s", norm_e)

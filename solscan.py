@@ -182,7 +182,7 @@ class SolscanScanner:
                     if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
                         try:
                             from app import _normalize_token
-                            ev = _normalize_token("solscan", token)
+                            ev = _normalize_token(token, "solscan")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             log.warning("[SOLSCAN] NEW_TOKEN publish failed: %s", norm_e)
@@ -214,7 +214,7 @@ class SolscanScanner:
                     if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
                         try:
                             from app import _normalize_token
-                            ev = _normalize_token("solscan", token)
+                            ev = _normalize_token(token, "solscan")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             log.warning("[SOLSCAN] NEW_TOKEN publish failed: %s", norm_e)
