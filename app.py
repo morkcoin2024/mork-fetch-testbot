@@ -924,6 +924,16 @@ def webhook():
             "timestamp": int(__import__('time').time())
         }), 200
 
+@app.route('/')
+def home():
+    """Root endpoint for health checks"""
+    return jsonify({
+        "status": "online",
+        "bot": "Mork F.E.T.C.H Bot",
+        "webhook": "active",
+        "timestamp": int(__import__('time').time())
+    })
+
 @app.route('/status')
 def status():
     """Bot status endpoint"""
