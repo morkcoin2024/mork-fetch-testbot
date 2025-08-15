@@ -132,8 +132,8 @@ class TelegramPollingService:
             # Import autosell module
             import autosell
             
-            def _reply(msg: str) -> str:
-                """Helper function for consistent replies"""
+            def _reply(msg: str, status: str = "ok") -> str:
+                """Helper function for consistent replies with optional status"""
                 return msg
             
             if cmd == "/autosell_status":
@@ -178,7 +178,8 @@ class TelegramPollingService:
                     return _reply(f"⏱️ AutoSell interval: {current_interval}s\nUsage: /autosell_interval <seconds>")
             
             else:
-                return f"❓ Unknown AutoSell command: {cmd}"
+                clean = (cmd or "").replace("\n", " ")
+                return _reply(f"❓ Unknown AutoSell command: {clean}\nUse /help for available commands.", status="unknown_command")
                 
         except Exception as e:
             logger.error(f"Error processing AutoSell command {cmd}: {e}")
@@ -252,8 +253,9 @@ class TelegramPollingService:
                 return True
             
             else:
-                # Unknown command
-                self._send_message(chat_id, f"❓ Unknown command: {text}\nUse /help for available commands.")
+                # Unknown command with clean formatting
+                clean = (text or "").replace("\n", " ")
+                self._send_message(chat_id, f"❓ Unknown command: {clean}\nUse /help for available commands.")
                 return True
                 
         except Exception as e:
