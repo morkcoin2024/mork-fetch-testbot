@@ -211,8 +211,12 @@ class TelegramPollingService:
     
     def handle_update(self, update):
         """Handle update with perimeter deduplication"""
+        # TEMPORARY: Log exact update for 409 debugging
         uid = update.get("update_id")
+        print(f"[TEMP-POLLING] Processing update_id={uid}, full_update={update}")
+        
         if uid is not None and _dupe(uid): 
+            print(f"[TEMP-POLLING] DUPLICATE detected for update_id={uid}")
             return  # ignore duplicate delivery
 
         # Import required modules for the router

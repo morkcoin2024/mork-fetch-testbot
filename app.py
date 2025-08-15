@@ -256,6 +256,11 @@ def _normalize_token(token_data, source=None):
 
 def process_telegram_command(update: dict):
     """Enhanced command processing with unified response architecture"""
+    # TEMPORARY: Log exact update once for 409 debugging
+    update_id = update.get("update_id")
+    if update_id and update_id % 100 == 0:  # Log every 100th update to avoid spam
+        print(f"[TEMP-DEBUG] Full update: {update}")
+    
     print(f"[router] ENTER {__file__}:{__name__}")
     msg = update.get("message") or {}
     user = msg.get("from") or {}
