@@ -29,6 +29,26 @@ def _seen_update(uid):
         _seen_updates.popitem(last=False)
     return False
 
+# Message-level deduplication with TTL
+import time
+_last_msgs = {}
+_LAST_TTL = 2.0  # seconds
+
+def _is_dup_message(msg):
+    """Check for duplicate message by (message_id, user_id, chat_id) with TTL"""
+    mid = (msg.get("message_id"), (msg.get("from") or {}).get("id"), (msg.get("chat") or {}).get("id"))
+    if mid[0] is None:
+        return False
+    now = time.time()
+    # purge old
+    for k,t in list(_last_msgs.items()):
+        if now - t > _LAST_TTL:
+            _last_msgs.pop(k, None)
+    if mid in _last_msgs:
+        return True
+    _last_msgs[mid] = now
+    return False
+
 # Global process lock to prevent multiple polling instances
 _polling_lock = threading.Lock()
 _polling_active = False
@@ -219,8 +239,14 @@ class TelegramPollingService:
         print(f"[TEMP-POLLING] Processing update_id={uid}, full_update={update}")
         
         if _seen_update(uid): 
-            print(f"[TEMP-POLLING] DUPLICATE detected for update_id={uid}")
+            print(f"[TEMP-POLLING] DUPLICATE update_id detected: {uid}")
             return  # ignore duplicate delivery
+
+        # Message-level deduplication
+        message = update.get("message") or {}
+        if _is_dup_message(message):
+            print(f"[TEMP-POLLING] DUPLICATE message detected: {message.get('message_id')}")
+            return  # ignore duplicate message
 
         # Import required modules for the router
         import sys

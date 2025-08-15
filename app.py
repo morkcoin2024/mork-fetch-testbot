@@ -744,6 +744,26 @@ def _webhook_seen_update(uid):
         _webhook_seen_updates.popitem(last=False)
     return False
 
+# Message-level deduplication with TTL
+import time
+_webhook_last_msgs = {}
+_WEBHOOK_LAST_TTL = 2.0  # seconds
+
+def _webhook_is_dup_message(msg):
+    """Check for duplicate message by (message_id, user_id, chat_id) with TTL"""
+    mid = (msg.get("message_id"), (msg.get("from") or {}).get("id"), (msg.get("chat") or {}).get("id"))
+    if mid[0] is None:
+        return False
+    now = time.time()
+    # purge old
+    for k,t in list(_webhook_last_msgs.items()):
+        if now - t > _WEBHOOK_LAST_TTL:
+            _webhook_last_msgs.pop(k, None)
+    if mid in _webhook_last_msgs:
+        return True
+    _webhook_last_msgs[mid] = now
+    return False
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
@@ -782,7 +802,12 @@ def webhook():
         # Enhanced perimeter deduplication
         uid = update_data.get("update_id")
         if _webhook_seen_update(uid):
-            return jsonify({"status": "ok", "message": "duplicate ignored"}), 200
+            return jsonify({"status": "ok", "message": "duplicate update_id ignored"}), 200
+            
+        # Message-level deduplication
+        message = update_data.get("message") or {}
+        if _webhook_is_dup_message(message):
+            return jsonify({"status": "ok", "message": "duplicate message ignored"}), 200
         
         if update_data.get('message'):
             msg_text = update_data['message'].get('text', '')
