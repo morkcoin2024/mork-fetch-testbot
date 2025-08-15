@@ -14,16 +14,19 @@ from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
-# Perimeter deduplication system 
-_seen = OrderedDict()
-_MAX = 200
+# Enhanced deduplication system
+_seen_updates = OrderedDict()
+_SEEN_MAX = 256
 
-def _dupe(uid):
-    if uid in _seen: 
+def _seen_update(uid):
+    """Check if update_id already processed with LRU eviction"""
+    if uid is None:  # be safe; let router dedupe by message_id
+        return False
+    if uid in _seen_updates:
         return True
-    _seen[uid] = 1
-    while len(_seen) > _MAX: 
-        _seen.popitem(last=False)
+    _seen_updates[uid] = 1
+    while len(_seen_updates) > _SEEN_MAX:
+        _seen_updates.popitem(last=False)
     return False
 
 # Global process lock to prevent multiple polling instances
@@ -215,7 +218,7 @@ class TelegramPollingService:
         uid = update.get("update_id")
         print(f"[TEMP-POLLING] Processing update_id={uid}, full_update={update}")
         
-        if uid is not None and _dupe(uid): 
+        if _seen_update(uid): 
             print(f"[TEMP-POLLING] DUPLICATE detected for update_id={uid}")
             return  # ignore duplicate delivery
 
@@ -237,6 +240,7 @@ class TelegramPollingService:
         
         try:
             result = process_telegram_command(update)
+            
             if isinstance(result, dict) and result.get("handled"):
                 out = result["response"]
             elif isinstance(result, str):

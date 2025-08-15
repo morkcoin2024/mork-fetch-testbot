@@ -728,17 +728,20 @@ def debug_pid():
         "has_solscan": "solscan" in SCANNERS
     })
 
-# Perimeter deduplication for webhook
+# Enhanced webhook deduplication system
 from collections import OrderedDict
-_webhook_seen = OrderedDict()
-_WEBHOOK_MAX = 200
+_webhook_seen_updates = OrderedDict()
+_WEBHOOK_SEEN_MAX = 256
 
-def _webhook_dupe(uid):
-    if uid in _webhook_seen: 
+def _webhook_seen_update(uid):
+    """Check if update_id already processed with LRU eviction"""
+    if uid is None:  # be safe; let router dedupe by message_id
+        return False
+    if uid in _webhook_seen_updates:
         return True
-    _webhook_seen[uid] = 1
-    while len(_webhook_seen) > _WEBHOOK_MAX: 
-        _webhook_seen.popitem(last=False)
+    _webhook_seen_updates[uid] = 1
+    while len(_webhook_seen_updates) > _WEBHOOK_SEEN_MAX:
+        _webhook_seen_updates.popitem(last=False)
     return False
 
 @app.route('/webhook', methods=['POST'])
@@ -776,9 +779,9 @@ def webhook():
             logger.warning("[WEBHOOK] No JSON data received")
             return jsonify({"status": "error", "message": "No data received"}), 400
         
-        # Perimeter deduplication
+        # Enhanced perimeter deduplication
         uid = update_data.get("update_id")
-        if uid is not None and _webhook_dupe(uid):
+        if _webhook_seen_update(uid):
             return jsonify({"status": "ok", "message": "duplicate ignored"}), 200
         
         if update_data.get('message'):
