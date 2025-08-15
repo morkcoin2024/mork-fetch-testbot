@@ -713,6 +713,15 @@ def webhook():
     print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
     app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
     
+    # ENHANCED DEBUG: Log raw request data
+    try:
+        raw_data = request.get_data(as_text=True)
+        print(f"[WEBHOOK-RAW-{timestamp}] Raw body: {raw_data[:500]}...")
+        app.logger.info(f"[WEBHOOK-RAW] Content length: {len(raw_data)}, first 100 chars: {raw_data[:100]}")
+    except Exception as e:
+        print(f"[WEBHOOK-RAW-ERROR] {e}")
+        app.logger.error(f"[WEBHOOK-RAW-ERROR] {e}")
+    
     # Ensure scanners are initialized in this worker process
     _ensure_scanners()
     
