@@ -439,8 +439,11 @@ def process_telegram_command(update: dict):
             for p in parts[1:]:
                 if "=" in p:
                     k, v = p.split("=", 1)
-                    try: kv[k.lower()] = float(v)
-                    except: pass
+                    try: 
+                        if k.lower() in ["tp", "sl", "trail", "size"]:
+                            kv[k.lower()] = float(v)
+                    except: 
+                        pass
             autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
             return _reply(
                 f"✅ AutoSell set for {mint[:8]}…  "
@@ -575,7 +578,9 @@ def _notification_thread():
     """Background thread to handle Birdeye notifications"""
     while True:
         try:
-            evt = _notification_queue.get(timeout=30)
+            evt = _notification_queue.get(timeout=30) if _notification_queue else None
+            if not evt:
+                continue
             if evt.get("type") == "scan.birdeye.new":
                 _on_new(evt.get("data", {}))
         except queue.Empty:
@@ -840,18 +845,21 @@ def webhook():
                 update_id = f"{msg.get('message_id', 0)}_{user.get('id', 0)}_{text[:50]}"
                 update_hash = hashlib.md5(update_id.encode()).hexdigest()
                 
-                # Simple in-memory deduplication (last 100 updates)
-                if not hasattr(handle_update, "_processed_updates"):
-                    handle_update._processed_updates = set()
+                # Simple in-memory deduplication using global set
+                global _processed_updates
+                try:
+                    _processed_updates
+                except NameError:
+                    _processed_updates = set()
                 
-                if update_hash in handle_update._processed_updates:
+                if update_hash in _processed_updates:
                     logger.info(f"[WEBHOOK] Duplicate update skipped: {update_hash}")
                     return {"status": "duplicate", "handled": True}
                 
                 # Add to processed set (keep only last 100)
-                handle_update._processed_updates.add(update_hash)
-                if len(handle_update._processed_updates) > 100:
-                    handle_update._processed_updates = set(list(handle_update._processed_updates)[-100:])
+                _processed_updates.add(update_hash)
+                if len(_processed_updates) > 100:
+                    _processed_updates = set(list(_processed_updates)[-100:])
                 
                 # Single sender & single fallback pattern
                 try:
@@ -865,9 +873,10 @@ def webhook():
                     
                     # Single send using safe telegram delivery
                     from telegram_safety import send_telegram_safe
+                    from config import TELEGRAM_BOT_TOKEN
                     chat_id = msg.get('chat', {}).get('id')
-                    if chat_id:
-                        send_telegram_safe(BOT_TOKEN, chat_id, out)
+                    if chat_id and TELEGRAM_BOT_TOKEN:
+                        send_telegram_safe(TELEGRAM_BOT_TOKEN, chat_id, out)
                     
                     # Return handled result if processed successfully
                     if isinstance(result, dict) and result.get("handled"):
@@ -980,7 +989,13 @@ def events():
     """Server-Sent Events endpoint for real-time monitoring."""
     def event_stream():
         # Import here to avoid circular imports
-        from eventbus import get_recent_events
+        def get_recent_events(limit=5):
+            try:
+                from eventbus import get_recent_events as _get_events
+                return _get_events(limit)
+            except (ImportError, AttributeError):
+                # Fallback if eventbus doesn't have get_recent_events
+                return [{"timestamp": "N/A", "message": "Event system unavailable"}]
         import time
         
         while True:
