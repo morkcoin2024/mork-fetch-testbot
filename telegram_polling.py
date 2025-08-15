@@ -14,19 +14,16 @@ from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
-# Deduplication system for updates
-_last_updates = OrderedDict()  # update_id -> ts
+# Perimeter deduplication system 
+_seen = OrderedDict()
 _MAX = 200
 
-def _seen_update(uid):
-    """Check if we've seen this update ID before"""
-    now = time.time()
-    if uid in _last_updates:
+def _dupe(uid):
+    if uid in _seen: 
         return True
-    _last_updates[uid] = now
-    # trim LRU
-    while len(_last_updates) > _MAX:
-        _last_updates.popitem(last=False)
+    _seen[uid] = 1
+    while len(_seen) > _MAX: 
+        _seen.popitem(last=False)
     return False
 
 class TelegramPollingService:
@@ -73,7 +70,7 @@ class TelegramPollingService:
             try:
                 updates = self._get_updates()
                 for update in updates:
-                    self._process_update(update)
+                    self.handle_update(update)
                 time.sleep(2)  # Poll every 2 seconds
             except Exception as e:
                 logger.error(f"Polling error: {e}")
@@ -193,82 +190,42 @@ class TelegramPollingService:
             logger.error(f"Error processing AutoSell command {cmd}: {e}")
             return f"❌ Error processing command: {str(e)}"
     
-    def _process_update(self, update: Dict[str, Any]) -> bool:
-        """Process a single update with deduplication"""
+    def handle_update(self, update):
+        """Handle update with perimeter deduplication"""
+        uid = update.get("update_id")
+        if uid is not None and _dupe(uid): 
+            return  # ignore duplicate delivery
+
+        # Import required modules for the router
+        import sys
+        sys.path.insert(0, '/home/runner/workspace')
+        
+        from app import process_telegram_command
+        from telegram_safety import send_telegram_safe
+        
+        # Get chat_id for responses
+        message = update.get("message") or {}
+        chat_id = message.get("chat", {}).get("id")
+        user_id = message.get("from", {}).get("id")
+        
+        # Only process messages from admin
+        if user_id != self.admin_id or not chat_id:
+            return
+        
         try:
-            # Debug logging for router
-            print(f"[router] ENTER raw={repr((update.get('message') or {}).get('text'))}")
-            
-            # Get update ID for deduplication
-            update_id = update.get('update_id')
-            
-            # Deduplicate at the perimeter
-            if update_id is not None and _seen_update(update_id):
-                return False  # silently ignore repeats
-            
-            if 'message' not in update:
-                return False
-            
-            message = update['message']
-            text = message.get('text', '').strip()
-            user_id = message.get('from', {}).get('id')
-            chat_id = message.get('chat', {}).get('id')
-            
-            # Only process messages from admin
-            if user_id != self.admin_id:
-                return False
-            
-            # Only process commands
-            if not text.startswith('/'):
-                return False
-            
-            # Parse command
-            parts = text.split()
-            cmd = parts[0].lower()
-            args = ' '.join(parts[1:]) if len(parts) > 1 else ''
-            
-            # Remove @botname suffix if present
-            if '@' in cmd:
-                cmd = cmd.split('@')[0]
-            
-            logger.info(f"Processing command: {cmd} with args: {args}")
-            
-            # Handle AutoSell commands
-            if cmd.startswith('/autosell'):
-                response = self._process_autosell_command(cmd, args)
-                self._send_message(chat_id, response)
-                return True
-            
-            # Handle other commands
-            elif cmd in ['/ping', '/test']:
-                self._send_message(chat_id, "🏓 Pong! Polling service active.")
-                return True
-            
-            elif cmd == '/help':
-                help_text = """🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**
-
-**AutoSell Commands:**
-/autosell_status - Show AutoSell status
-/autosell_on - Enable AutoSell
-/autosell_off - Disable AutoSell  
-/autosell_list - List all rules
-/autosell_interval <seconds> - Set check interval
-
-**Other Commands:**
-/ping - Test connection
-/help - Show this help"""
-                self._send_message(chat_id, help_text)
-                return True
-            
+            result = process_telegram_command(update)
+            if isinstance(result, dict) and result.get("handled"):
+                out = result["response"]
+            elif isinstance(result, str):
+                out = result
             else:
-                # Unknown command with clean formatting
-                clean = (text or "").replace("\n", " ")
-                self._send_message(chat_id, f"❓ Command not recognized: {clean}\nUse /help for available commands.")
-                return True
-                
+                out = "⚠️ Processing error occurred."
+            
+            send_telegram_safe(self.bot_token, chat_id, out)
+            
         except Exception as e:
-            logger.error(f"Error processing update: {e}")
-            return False
+            logger.error(f"Error in handle_update: {e}")
+            send_telegram_safe(self.bot_token, chat_id, "⚠️ Processing error occurred.")
 
 # Global instance
 polling_service = None
