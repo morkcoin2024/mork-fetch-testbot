@@ -262,7 +262,13 @@ def process_telegram_command(update: dict):
         print(f"[TEMP-DEBUG] Full update: {update}")
     
     print(f"[router] ENTER update_id={update.get('update_id')} text={repr((update.get('message') or {}).get('text'))}")
+    
+    # Message-level deduplication in router
     msg = update.get("message") or {}
+    if _webhook_is_dup_message(msg):
+        print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
+        return {"status":"ok","response":"", "handled":True}  # swallow duplicate
+    
     user = msg.get("from") or {}
     text = msg.get("text") or ""
     cmd, args = _parse_cmd(text)

@@ -95,13 +95,21 @@ class TelegramPollingService:
                 return
             _polling_active = True
             
-        # Aggressive webhook cleanup before starting polling
+        # Nuclear webhook cleanup and forced logout before starting polling
         try:
+            # Delete webhook
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
             requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
-            logger.info("Webhook cleanup completed")
-        except Exception:
-            pass
+            
+            # Force logout to terminate any existing sessions
+            logout_url = f"https://api.telegram.org/bot{self.bot_token}/logOut"
+            requests.post(logout_url, timeout=10)
+            
+            # Wait for API to reset
+            time.sleep(3)
+            logger.info("Nuclear cleanup completed: webhook deleted, forced logout")
+        except Exception as e:
+            logger.warning(f"Cleanup failed: {e}")
             
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -142,8 +150,15 @@ class TelegramPollingService:
                 time.sleep(2)  # Poll every 2 seconds
             except Exception as e:
                 if "409" in str(e) or "Conflict" in str(e):
-                    logger.warning(f"409 conflict detected, backing off: {e}")
-                    time.sleep(10)  # Longer backoff for conflicts
+                    logger.warning(f"409 conflict detected, aggressive cleanup: {e}")
+                    # Aggressive webhook cleanup on conflict
+                    try:
+                        delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
+                        requests.post(delete_url, json={"drop_pending_updates": True}, timeout=5)
+                        logger.info("Emergency webhook cleanup completed")
+                    except:
+                        pass
+                    time.sleep(15)  # Longer backoff for conflicts
                 else:
                     logger.error(f"Polling error: {e}")
                     time.sleep(5)  # Wait longer on error
@@ -272,11 +287,11 @@ class TelegramPollingService:
             print(f"[TEMP-POLLING] DUPLICATE update_id detected: {uid}")
             return  # ignore duplicate delivery
 
-        # Message-level deduplication
-        message = update.get("message") or {}
-        if _is_dup_message(message):
-            print(f"[TEMP-POLLING] DUPLICATE message detected: {message.get('message_id')}")
-            return  # ignore duplicate message
+        # Message-level deduplication with handled response
+        msg = update.get("message") or {}
+        if _is_dup_message(msg):
+            print(f"[TEMP-POLLING] DUPLICATE message detected: {msg.get('message_id')}")
+            return {"status":"ok","response":"", "handled":True}  # swallow duplicate
 
         # Import required modules for the router
         import sys
