@@ -9,7 +9,7 @@ Brand colors: Mork Coin branding with green primary color (#7cb342) and light gr
 Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text. The bot is positioned as "The Degens' Best Friend" with playful dog-themed messaging around "fetching" profits and "sniffing" trades. F.E.T.C.H. = Fast Execution, Trade Control Handler. Uses casual, meme-friendly language appealing to crypto degenerates while maintaining professionalism.
 
 ## System Architecture
-The application uses Flask with a webhook-based architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
+The application uses Flask with a polling-based architecture for Telegram integration (switched from webhook due to external domain 404 issues), managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
 **Core Architectural Decisions & Features:**
 - **Unified Single-Process Architecture:** Gunicorn configured for single-worker to ensure webhook handlers and scanner threads share the same process and data.
@@ -18,7 +18,7 @@ The application uses Flask with a webhook-based architecture for Telegram integr
 - **Enhanced Tri-Source Token Engine:** Comprehensive filtering and scoring architecture with real-time blockchain monitoring and advanced Solana RPC enrichment.
 - **Live Monitoring Dashboard & Console:** Secure, token-gated interfaces for real-time event streaming via Server-Sent Events (SSE) and an ultra-lightweight console.
 - **Enhanced Event Publishing System:** Advanced real-time event tracking with deduplication capabilities across all system components, featuring a thread-safe publish/subscribe architecture and comprehensive event fingerprinting.
-- **Telegram Integration:** Production-ready polling mode integration, comprehensive admin command routing, unified command processing system, and reliable Telegram API integration with proper error handling and fallback protection.
+- **Telegram Integration:** Production-ready polling mode integration (active), comprehensive admin command routing, unified command processing system, and reliable Telegram API integration with proper error handling and fallback protection. Includes dedicated `telegram_polling.py` service for reliable AutoSell command processing.
 - **Enhanced Logging System:** Dual-layer logging with `RotatingFileHandler` and `RingBufferHandler`.
 - **Enhanced Multi-Source Diagnostics:** Complete diagnostic system for live module reloading, version tracking, real-time endpoint monitoring, and debugging.
 - **Production Readiness:** Robust system with reliable thread-safe data, enterprise-grade timestamp precision, and automatic recovery capabilities for WebSocket connections.
