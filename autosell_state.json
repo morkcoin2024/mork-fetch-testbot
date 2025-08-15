@@ -1,1 +1,1 @@
-{"enabled": true, "interval_sec": 10, "rules": {"MINT123": {"tp_pct": 5.0, "sl_pct": 10.0}}}
+{"enabled": false, "interval_sec": 10, "rules": {}}
