@@ -723,6 +723,19 @@ def debug_pid():
         "has_solscan": "solscan" in SCANNERS
     })
 
+# Perimeter deduplication for webhook
+from collections import OrderedDict
+_webhook_seen = OrderedDict()
+_WEBHOOK_MAX = 200
+
+def _webhook_dupe(uid):
+    if uid in _webhook_seen: 
+        return True
+    _webhook_seen[uid] = 1
+    while len(_webhook_seen) > _WEBHOOK_MAX: 
+        _webhook_seen.popitem(last=False)
+    return False
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
@@ -757,6 +770,11 @@ def webhook():
         if not update_data:
             logger.warning("[WEBHOOK] No JSON data received")
             return jsonify({"status": "error", "message": "No data received"}), 400
+        
+        # Perimeter deduplication
+        uid = update_data.get("update_id")
+        if uid is not None and _webhook_dupe(uid):
+            return jsonify({"status": "ok", "message": "duplicate ignored"}), 200
         
         if update_data.get('message'):
             msg_text = update_data['message'].get('text', '')

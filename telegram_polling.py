@@ -221,11 +221,11 @@ class TelegramPollingService:
             else:
                 out = "⚠️ Processing error occurred."
             
-            send_telegram_safe(self.bot_token, chat_id, out)
+            send_telegram_safe(self.bot_token or "", chat_id, out)
             
         except Exception as e:
             logger.error(f"Error in handle_update: {e}")
-            send_telegram_safe(self.bot_token, chat_id, "⚠️ Processing error occurred.")
+            send_telegram_safe(self.bot_token or "", chat_id, "⚠️ Processing error occurred.")
 
 # Global instance
 polling_service = None
