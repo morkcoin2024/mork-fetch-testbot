@@ -26,6 +26,10 @@ def _dupe(uid):
         _seen.popitem(last=False)
     return False
 
+# Global process lock to prevent multiple polling instances
+_polling_lock = threading.Lock()
+_polling_active = False
+
 class TelegramPollingService:
     def __init__(self):
         self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -40,14 +44,26 @@ class TelegramPollingService:
         logger.info(f"TelegramPollingService initialized for admin {self.admin_id}")
     
     def start(self):
-        """Start polling in background thread"""
-        if self.running:
-            return
+        """Start polling in background thread with process lock"""
+        global _polling_active
+        
+        with _polling_lock:
+            if _polling_active or self.running:
+                logger.warning("Polling already active, skipping start")
+                return
+            _polling_active = True
             
-        # Clean up any existing webhook before starting polling
+        # Aggressively disable webhook before starting polling
         try:
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
-            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
+            # Multiple attempts to ensure webhook is disabled
+            for attempt in range(3):
+                response = requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
+                result = response.json()
+                if result.get('ok'):
+                    logger.info(f"Webhook cleanup attempt {attempt + 1}: {result.get('description', 'Success')}")
+                    break
+                time.sleep(1)
             logger.info("Webhook cleanup completed")
         except Exception as e:
             logger.debug(f"Webhook cleanup error (expected): {e}")
@@ -58,10 +74,16 @@ class TelegramPollingService:
         logger.info("Telegram polling service started")
     
     def stop(self):
-        """Stop polling"""
+        """Stop polling and release lock"""
+        global _polling_active
+        
         self.running = False
         if self.thread:
             self.thread.join(timeout=5)
+            
+        with _polling_lock:
+            _polling_active = False
+            
         logger.info("Telegram polling service stopped")
     
     def _poll_loop(self):
@@ -73,8 +95,12 @@ class TelegramPollingService:
                     self.handle_update(update)
                 time.sleep(2)  # Poll every 2 seconds
             except Exception as e:
-                logger.error(f"Polling error: {e}")
-                time.sleep(5)  # Wait longer on error
+                if "409" in str(e) or "Conflict" in str(e):
+                    logger.warning(f"409 conflict detected, backing off: {e}")
+                    time.sleep(10)  # Longer backoff for conflicts
+                else:
+                    logger.error(f"Polling error: {e}")
+                    time.sleep(5)  # Wait longer on error
     
     def _get_updates(self) -> list:
         """Get new updates from Telegram"""
