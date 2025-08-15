@@ -271,19 +271,11 @@ def process_telegram_command(update: dict):
         # Structured logging: command entry
         logger.info(f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
         
-        # AutoSell safety override  
+        # Admin check helper
         def _require_admin(user):
             if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                 return _reply("⛔ Admin only")
             return None
-        
-        if cmd in {"/autosell_on","/autosell_off","/autosell_status",
-                   "/autosell_interval","/autosell_set","/autosell_list",
-                   "/autosell_remove"}:
-            deny = _require_admin(user)
-            if deny: 
-                return deny
-            return _reply("🛑 AutoSell temporarily disabled while we tidy routing.")
         
         # Basic command routing with streamlined logic
         if not is_command:
@@ -395,112 +387,90 @@ def process_telegram_command(update: dict):
                 f"args: {repr(args_debug)}"
             )
         
-        # AutoSell Commands - Core functionality
         elif cmd == "/autosell_on":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                autosell.enable()
-                return _reply("🟢 AutoSell enabled.")
-            except Exception as e:
-                return _reply(f"❌ AutoSell enable failed: {e}")
-        
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.enable()
+            return _reply("🟢 AutoSell enabled.")
+
         elif cmd == "/autosell_off":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                autosell.disable()
-                return _reply("🔴 AutoSell disabled.")
-            except Exception as e:
-                return _reply(f"❌ AutoSell disable failed: {e}")
-        
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.disable()
+            return _reply("🔴 AutoSell disabled.")
+
         elif cmd == "/autosell_status":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                st = autosell.status()
-                status_text = "🤖 **AutoSell Status**\n\n" + \
-                             f"**Enabled:** {st['enabled']}\n" + \
-                             f"**Interval:** {st['interval_sec']}s\n" + \
-                             f"**Rules:** {st['rules_count']}\n" + \
-                             f"**Thread alive:** {st['thread_alive']}"
-                return _reply(status_text)
-            except Exception as e:
-                return _reply(f"❌ AutoSell status failed: {e}")
-        
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            st = autosell.status()
+            return _reply(
+                "🤖 AutoSell Status\n"
+                f"Enabled: {st['enabled']}\n"
+                f"Interval: {st['interval_sec']}s\n"
+                f"Rules: {st['rules_count']}\n"
+                f"Thread alive: {st['thread_alive']}"
+            )
+
         elif cmd == "/autosell_interval":
-            if not is_admin:
-                return _reply("⛔ Admin only")
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
             try:
-                import autosell
-                if not args:
-                    return _reply("📝 Usage: /autosell_interval <seconds>")
-                seconds = int(args.split()[0])
-                autosell.set_interval(seconds)
-                st = autosell.status()
-                return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
-            except ValueError:
-                return _reply("❌ Invalid number format")
-            except Exception as e:
-                return _reply(f"❌ AutoSell interval failed: {e}")
-        
+                seconds = int((args or "").split()[0])
+            except Exception:
+                return _reply("Usage: /autosell_interval <seconds>")
+            autosell.set_interval(seconds)
+            st = autosell.status()
+            return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
+
+        # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
         elif cmd == "/autosell_set":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                parts = args.split()
-                if not parts:
-                    return _reply("📝 Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-                mint = parts[0]
-                kv = {"tp": None, "sl": None, "trail": None, "size": None}
-                for p in parts[1:]:
-                    if "=" in p:
-                        k, v = p.split("=", 1)
-                        try:
-                            kv[k.lower()] = float(v)
-                        except:
-                            pass
-                autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
-                return _reply(
-                    f"✅ AutoSell set for {mint[:8]}…\n" +
-                    f"**TP:** {kv['tp']} **SL:** {kv['sl']} **Trail:** {kv['trail']} **Size:** {kv['size']}"
-                )
-            except Exception as e:
-                return _reply(f"❌ AutoSell set failed: {e}")
-        
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            parts = (args or "").split()
+            if not parts:
+                return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
+            mint = parts[0]
+            kv = {"tp": None, "sl": None, "trail": None, "size": None}
+            for p in parts[1:]:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    try: kv[k.lower()] = float(v)
+                    except: pass
+            autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
+            return _reply(
+                f"✅ AutoSell set for {mint[:8]}…  "
+                f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
+            )
+
         elif cmd == "/autosell_list":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                rules = autosell.get_rules()
-                if not rules:
-                    return _reply("🤖 **AutoSell rules:** (none)")
-                lines = ["🤖 **AutoSell rules:**\n"]
-                for m, r in rules.items():
-                    lines.append(
-                        f"**{m[:8]}…** tp={r.get('tp_pct')} sl={r.get('sl_pct')} " +
-                        f"trail={r.get('trail_pct')} size={r.get('size_pct', 100)}%"
-                    )
-                return _reply("\n".join(lines))
-            except Exception as e:
-                return _reply(f"❌ AutoSell list failed: {e}")
-        
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            rules = autosell.get_rules()
+            if not rules:
+                return _reply("🤖 AutoSell rules: (none)")
+            lines = ["🤖 AutoSell rules:"]
+            for m, r in rules.items():
+                lines.append(
+                    f"{m[:8]}…  tp={r.get('tp_pct')}  sl={r.get('sl_pct')}  "
+                    f"trail={r.get('trail_pct')}  size={r.get('size_pct', 100)}%"
+                )
+            return _reply("\n".join(lines))
+
         elif cmd == "/autosell_remove":
-            if not is_admin:
-                return _reply("⛔ Admin only")
-            try:
-                import autosell
-                if not args:
-                    return _reply("📝 Usage: /autosell_remove <MINT>")
-                ok = autosell.remove_rule(args.split()[0])
-                return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
-            except Exception as e:
-                return _reply(f"❌ AutoSell remove failed: {e}")
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            target = (args or "").split()[0] if args else ""
+            if not target:
+                return _reply("Usage: /autosell_remove <MINT>")
+            ok = autosell.remove_rule(target)
+            return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
         
         else:
             # This should not be reached due to command validation above
