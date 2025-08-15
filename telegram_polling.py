@@ -255,7 +255,7 @@ class TelegramPollingService:
             else:
                 # Unknown command with clean formatting
                 clean = (text or "").replace("\n", " ")
-                self._send_message(chat_id, f"❓ Unknown command: {clean}\nUse /help for available commands.")
+                self._send_message(chat_id, f"❓ Command not recognized: {clean}\nUse /help for available commands.")
                 return True
                 
         except Exception as e:

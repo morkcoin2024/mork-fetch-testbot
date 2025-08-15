@@ -308,7 +308,7 @@ def process_telegram_command(update: dict):
         if cmd not in all_commands:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
-            return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.",
+            return _reply(f"❓ Command not recognized: {clean}\nUse /help for available commands.",
                           status="unknown_command")
         
         # Admin-only check for restricted commands

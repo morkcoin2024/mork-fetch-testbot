@@ -178,7 +178,7 @@ class PollingBot:
             
             else:
                 # Unknown command
-                self.send_message(chat_id, f"❓ Unknown command: {text}\nUse /help for available commands.")
+                self.send_message(chat_id, f"❓ Command not recognized: {text}\nUse /help for available commands.")
                 return True
                 
         except Exception as e:
