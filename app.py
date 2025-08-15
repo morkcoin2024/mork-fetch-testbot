@@ -876,7 +876,10 @@ def webhook():
                     from config import TELEGRAM_BOT_TOKEN
                     chat_id = msg.get('chat', {}).get('id')
                     if chat_id and TELEGRAM_BOT_TOKEN:
-                        send_telegram_safe(TELEGRAM_BOT_TOKEN, chat_id, out)
+                        ok, status, resp = send_telegram_safe(TELEGRAM_BOT_TOKEN, chat_id, out)
+                        logger.info(f"[WEBHOOK] Message sent: ok={ok}, status={status}, chat_id={chat_id}")
+                    else:
+                        logger.warning(f"[WEBHOOK] Send failed: chat_id={chat_id}, token_exists={bool(TELEGRAM_BOT_TOKEN)}")
                     
                     # Return handled result if processed successfully
                     if isinstance(result, dict) and result.get("handled"):

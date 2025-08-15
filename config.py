@@ -17,6 +17,7 @@ ASSISTANT_FAILSAFE = os.getenv("ASSISTANT_FAILSAFE", "OFF").upper()  # "ON" or "
 
 # Bot Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
 
 # Database Configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
