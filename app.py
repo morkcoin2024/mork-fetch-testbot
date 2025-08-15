@@ -872,23 +872,21 @@ def webhook():
                 if len(handle_update._processed_updates) > 100:
                     handle_update._processed_updates = set(list(handle_update._processed_updates)[-100:])
                 
-                # Try enhanced command processor with robust result handling
+                # Single sender & single fallback pattern
                 try:
                     result = process_telegram_command(update)
-                    out = None
                     if isinstance(result, dict) and result.get("handled"):
-                        out = result.get("response")
+                        out = result["response"]
                     elif isinstance(result, str):
                         out = result
                     else:
                         out = "⚠️ Processing error occurred."
-
-                    # Send response using safe telegram delivery
-                    if out:
-                        from telegram_safety import send_telegram_safe
-                        chat_id = msg.get('chat', {}).get('id')
-                        if chat_id:
-                            send_telegram_safe(BOT_TOKEN, chat_id, out)
+                    
+                    # Single send using safe telegram delivery
+                    from telegram_safety import send_telegram_safe
+                    chat_id = msg.get('chat', {}).get('id')
+                    if chat_id:
+                        send_telegram_safe(BOT_TOKEN, chat_id, out)
                     
                     # Return handled result if processed successfully
                     if isinstance(result, dict) and result.get("handled"):

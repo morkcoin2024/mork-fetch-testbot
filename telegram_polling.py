@@ -135,20 +135,17 @@ class TelegramPolling:
             logger.debug(f"Duplicate update ignored: {dedupe_key}")
             return
 
-        # Process command through main router
+        # Single sender & single fallback pattern
         from app import process_telegram_command
         result = process_telegram_command(update)
-
-        # Single-send guarantee
-        text_out = None
         if isinstance(result, dict) and result.get("handled"):
-            text_out = result.get("response")
+            out = result["response"]
         elif isinstance(result, str):
-            text_out = result
+            out = result
         else:
-            text_out = "⚠️ Processing error occurred."
-
-        ok, status, js = send_telegram_safe(self.bot_token, chat_id, text_out)
+            out = "⚠️ Processing error occurred."
+        
+        send_telegram_safe(self.bot_token, chat_id, out)
         # Do NOT also send any additional fallback here.
 
 # Global polling instance
