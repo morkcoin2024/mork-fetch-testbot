@@ -190,6 +190,9 @@ class TelegramPollingService:
     def _process_update(self, update: Dict[str, Any]) -> bool:
         """Process a single update with deduplication"""
         try:
+            # Debug logging for router
+            print(f"[router] ENTER raw={repr((update.get('message') or {}).get('text'))}")
+            
             # Get update ID for deduplication
             update_id = update.get('update_id')
             
