@@ -47,6 +47,14 @@ class TelegramPollingService:
         if self.running:
             return
             
+        # Clean up any existing webhook before starting polling
+        try:
+            delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
+            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
+            logger.info("Webhook cleanup completed")
+        except Exception as e:
+            logger.debug(f"Webhook cleanup error (expected): {e}")
+            
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.thread.start()
