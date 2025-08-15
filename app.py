@@ -257,6 +257,7 @@ def _normalize_token(token_data, source=None):
 
 def process_telegram_command(update: dict):
     """Enhanced command processing with unified response architecture"""
+    print(f"[router] ENTER {__file__}:{__name__}")
     msg = update.get("message") or {}
     user = msg.get("from") or {}
     text = msg.get("text") or ""
