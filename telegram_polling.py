@@ -1,184 +1,249 @@
 #!/usr/bin/env python3
 """
-Production Telegram polling service integrated with main app
+Telegram Polling Service - Integrated with main application
 """
+
 import os
+import sys
 import time
 import requests
-import logging
 import threading
-import json
-from typing import Optional, Dict, Any
-from collections import deque
-from telegram_safety import send_telegram_safe
-
-# Import webhook processing function - delay import to avoid circular imports
+import logging
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Bridge function to redirect legacy send_message calls to centralized system
-def send_message(chat_id: int, text: str):
-    """Bridge function: redirects to centralized send_telegram_safe()"""
-    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-    ok, status, _ = send_telegram_safe(bot_token, chat_id, text)
-    if not ok:
-        logger.warning("send_message_failed", extra={"status": status})
-    return ok
-
-# Idempotency: de-dupe by update_id / message_id (pre-send)
-_PROCESSED = deque(maxlen=1000)   # recent keys
-_PROCESSED_SET = set()
-
-def _seen(key: str, ttl_sec=120) -> bool:
-    """Simple rolling memory; swap to time-based if needed"""
-    if key in _PROCESSED_SET:
-        return True
-    _PROCESSED.append((time.time(), key))
-    _PROCESSED_SET.add(key)
-    # Periodic cleanup (optional)
-    if len(_PROCESSED) >= 990:
-        cutoff = time.time() - ttl_sec
-        while _PROCESSED and _PROCESSED[0][0] < cutoff:
-            _, old = _PROCESSED.popleft()
-            _PROCESSED_SET.discard(old)
-    return False
-
-def disable_webhook_if_polling(bot_token: str):
-    """Kill webhook when starting polling to prevent duplicate processing"""
-    try:
-        response = requests.get(f"https://api.telegram.org/bot{bot_token}/deleteWebhook", timeout=5)
-        if response.json().get('ok'):
-            logger.info("[startup] Deleted Telegram webhook (polling mode).")
-        else:
-            logger.warning(f"[startup] Webhook delete failed: {response.json()}")
-    except Exception as e:
-        logger.warning(f"[startup] Warning: failed to delete webhook: {e}")
-
-class TelegramPolling:
+class TelegramPollingService:
     def __init__(self):
         self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-        self.admin_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
+        self.admin_id = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
+        self.last_update_id = 0
         self.running = False
-        self.offset = None
         self.thread = None
         
+        if not self.bot_token or not self.admin_id:
+            raise ValueError("Missing TELEGRAM_BOT_TOKEN or ASSISTANT_ADMIN_TELEGRAM_ID")
+            
+        logger.info(f"TelegramPollingService initialized for admin {self.admin_id}")
+    
     def start(self):
         """Start polling in background thread"""
         if self.running:
-            logger.warning("Polling already running")
             return
             
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.thread.start()
-        logger.info("Telegram polling started")
-        
+        logger.info("Telegram polling service started")
+    
     def stop(self):
         """Stop polling"""
         self.running = False
         if self.thread:
             self.thread.join(timeout=5)
-        logger.info("Telegram polling stopped")
-        
-    def get_updates(self) -> Optional[Dict[str, Any]]:
-        """Get updates from Telegram"""
-        url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
-        params = {"timeout": 10}
-        if self.offset:
-            params["offset"] = self.offset
-            
-        try:
-            response = requests.get(url, params=params, timeout=15)
-            return response.json()
-        except Exception as e:
-            logger.error(f"Error getting updates: {e}")
-            return None
-            
+        logger.info("Telegram polling service stopped")
+    
     def _poll_loop(self):
         """Main polling loop"""
-        logger.info("Starting polling loop")
-        
         while self.running:
             try:
-                result = self.get_updates()
-                if not result or not result.get("ok"):
-                    if result:
-                        logger.warning(f"Bad response: {result}")
-                    time.sleep(5)
-                    continue
-                    
-                updates = result.get("result", [])
-                if updates:
-                    logger.info(f"Processing {len(updates)} updates")
-                    
-                    for update in updates:
-                        self.offset = update["update_id"] + 1
-                        self._handle_update(update)
-                            
-                time.sleep(1)  # Brief pause between polls
-                
+                updates = self._get_updates()
+                for update in updates:
+                    self._process_update(update)
+                time.sleep(2)  # Poll every 2 seconds
             except Exception as e:
                 logger.error(f"Polling error: {e}")
-                time.sleep(5)
+                time.sleep(5)  # Wait longer on error
+    
+    def _get_updates(self) -> list:
+        """Get new updates from Telegram"""
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+            params = {
+                "offset": self.last_update_id + 1,
+                "limit": 10,
+                "timeout": 5
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json()
+            
+            if data.get('ok'):
+                updates = data.get('result', [])
+                if updates:
+                    self.last_update_id = updates[-1]['update_id']
+                return updates
+            else:
+                logger.error(f"Failed to get updates: {data}")
+                return []
                 
-    def _handle_update(self, update: dict):
-        """Enhanced update handler with single-send guarantee"""
-        chat_id = (update.get("message", {}).get("chat") or {}).get("id")
-        if chat_id is None:
-            return
-
-        # Idempotency check
-        upd_id = update.get("update_id")
-        msg_id = update.get("message", {}).get("message_id")
-        dedupe_key = f"{upd_id}:{msg_id}:{chat_id}"
-        if _seen(dedupe_key):
-            logger.debug(f"Duplicate update ignored: {dedupe_key}")
-            return
-
-        # Single sender & single fallback pattern
-        from app import process_telegram_command
-        result = process_telegram_command(update)
-        if isinstance(result, dict) and result.get("handled"):
-            out = result["response"]
-        elif isinstance(result, str):
-            out = result
-        else:
-            out = "⚠️ Processing error occurred."
-        
-        send_telegram_safe(self.bot_token, chat_id, out)
-        # Do NOT also send any additional fallback here.
-
-# Global polling instance
-_polling_instance = None
-
-def start_polling():
-    """Start polling service"""
-    global _polling_instance
-    if not _polling_instance:
-        _polling_instance = TelegramPolling()
-    _polling_instance.start()
-    return _polling_instance
+        except Exception as e:
+            logger.error(f"Error getting updates: {e}")
+            return []
     
-def stop_polling():
-    """Stop polling service"""
-    global _polling_instance
-    if _polling_instance:
-        _polling_instance.stop()
+    def _send_message(self, chat_id: int, text: str) -> bool:
+        """Send message to chat"""
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+            payload = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown"
+            }
+            
+            response = requests.post(url, json=payload, timeout=10)
+            result = response.json()
+            
+            if result.get('ok'):
+                logger.info(f"Message sent successfully to {chat_id}")
+                return True
+            else:
+                logger.error(f"Failed to send message: {result}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
+            return False
+    
+    def _process_autosell_command(self, cmd: str, args: str) -> str:
+        """Process AutoSell commands directly"""
+        try:
+            from autosell import AutoSell
+            
+            autosell = AutoSell()
+            
+            if cmd == "/autosell_status":
+                enabled = autosell.enabled
+                interval = autosell.interval
+                rules_count = len(autosell.rules)
+                thread_alive = autosell.thread and autosell.thread.is_alive()
+                
+                return f"🤖 AutoSell Status\nEnabled: {enabled}\nInterval: {interval}s\nRules: {rules_count}\nThread alive: {thread_alive}"
+            
+            elif cmd == "/autosell_on":
+                autosell.enabled = True
+                autosell.save_state()
+                return "🟢 AutoSell enabled."
+            
+            elif cmd == "/autosell_off":
+                autosell.enabled = False
+                autosell.save_state()
+                return "🔴 AutoSell disabled."
+            
+            elif cmd == "/autosell_list":
+                if not autosell.rules:
+                    return "🤖 AutoSell rules: (none)"
+                
+                lines = ["🤖 AutoSell rules:"]
+                for mint, rule in autosell.rules.items():
+                    take_profit = rule.get('take_profit', 'None')
+                    stop_loss = rule.get('stop_loss', 'None') 
+                    lines.append(f"• {mint[:8]}... TP:{take_profit}% SL:{stop_loss}%")
+                
+                return "\n".join(lines)
+            
+            elif cmd == "/autosell_interval":
+                if args:
+                    try:
+                        interval = int(args)
+                        autosell.interval = interval
+                        autosell.save_state()
+                        return f"🕐 AutoSell interval set to {interval}s"
+                    except ValueError:
+                        return "❌ Invalid interval. Use: /autosell_interval <seconds>"
+                else:
+                    return f"🕐 Current interval: {autosell.interval}s\nUsage: /autosell_interval <seconds>"
+            
+            else:
+                return f"❓ Unknown AutoSell command: {cmd}"
+                
+        except Exception as e:
+            logger.error(f"Error processing AutoSell command {cmd}: {e}")
+            return f"❌ Error processing command: {str(e)}"
+    
+    def _process_update(self, update: Dict[str, Any]) -> bool:
+        """Process a single update"""
+        try:
+            if 'message' not in update:
+                return False
+            
+            message = update['message']
+            text = message.get('text', '').strip()
+            user_id = message.get('from', {}).get('id')
+            chat_id = message.get('chat', {}).get('id')
+            
+            # Only process messages from admin
+            if user_id != self.admin_id:
+                return False
+            
+            # Only process commands
+            if not text.startswith('/'):
+                return False
+            
+            # Parse command
+            parts = text.split()
+            cmd = parts[0].lower()
+            args = ' '.join(parts[1:]) if len(parts) > 1 else ''
+            
+            # Remove @botname suffix if present
+            if '@' in cmd:
+                cmd = cmd.split('@')[0]
+            
+            logger.info(f"Processing command: {cmd} with args: {args}")
+            
+            # Handle AutoSell commands
+            if cmd.startswith('/autosell'):
+                response = self._process_autosell_command(cmd, args)
+                self._send_message(chat_id, response)
+                return True
+            
+            # Handle other commands
+            elif cmd in ['/ping', '/test']:
+                self._send_message(chat_id, "🏓 Pong! Polling service active.")
+                return True
+            
+            elif cmd == '/help':
+                help_text = """🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**
 
-if __name__ == "__main__":
-    # Setup logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    # Start polling
-    polling = TelegramPolling()
-    polling.start()
-    
+**AutoSell Commands:**
+/autosell_status - Show AutoSell status
+/autosell_on - Enable AutoSell
+/autosell_off - Disable AutoSell  
+/autosell_list - List all rules
+/autosell_interval <seconds> - Set check interval
+
+**Other Commands:**
+/ping - Test connection
+/help - Show this help"""
+                self._send_message(chat_id, help_text)
+                return True
+            
+            else:
+                # Unknown command
+                self._send_message(chat_id, f"❓ Unknown command: {text}\nUse /help for available commands.")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error processing update: {e}")
+            return False
+
+# Global instance
+polling_service = None
+
+def start_polling_service():
+    """Start the global polling service"""
+    global polling_service
     try:
-        # Keep running
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        polling.stop()
+        if polling_service is None:
+            polling_service = TelegramPollingService()
+        polling_service.start()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to start polling service: {e}")
+        return False
+
+def stop_polling_service():
+    """Stop the global polling service"""
+    global polling_service
+    if polling_service:
+        polling_service.stop()
