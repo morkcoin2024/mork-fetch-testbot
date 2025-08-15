@@ -261,7 +261,7 @@ def process_telegram_command(update: dict):
     if update_id and update_id % 100 == 0:  # Log every 100th update to avoid spam
         print(f"[TEMP-DEBUG] Full update: {update}")
     
-    print(f"[router] ENTER {__file__}:{__name__}")
+    print(f"[router] ENTER update_id={update.get('update_id')} text={repr((update.get('message') or {}).get('text'))}")
     msg = update.get("message") or {}
     user = msg.get("from") or {}
     text = msg.get("text") or ""
