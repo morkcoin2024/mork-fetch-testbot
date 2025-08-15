@@ -53,6 +53,11 @@ def _is_dup_message(msg):
 _polling_lock = threading.Lock()
 _polling_active = False
 
+# File-based lock to prevent multiple gunicorn workers from starting polling
+import fcntl
+_LOCK_FILE = "/tmp/telegram_polling.lock"
+_lock_fd = None
+
 class TelegramPollingService:
     def __init__(self):
         self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -67,8 +72,22 @@ class TelegramPollingService:
         logger.info(f"TelegramPollingService initialized for admin {self.admin_id}")
     
     def start(self):
-        """Start polling in background thread with process lock"""
-        global _polling_active
+        """Start polling in background thread with file-based lock"""
+        global _polling_active, _lock_fd
+        
+        # Try to acquire file lock first
+        try:
+            _lock_fd = open(_LOCK_FILE, 'w')
+            fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_fd.write(f"{os.getpid()}\n")
+            _lock_fd.flush()
+            logger.info(f"Acquired polling lock for PID {os.getpid()}")
+        except (OSError, IOError) as e:
+            if _lock_fd:
+                _lock_fd.close()
+                _lock_fd = None
+            logger.info(f"Another process holds polling lock: {e}")
+            return
         
         with _polling_lock:
             if _polling_active or self.running:
@@ -76,7 +95,7 @@ class TelegramPollingService:
                 return
             _polling_active = True
             
-        # Simple webhook cleanup before starting polling
+        # Aggressive webhook cleanup before starting polling
         try:
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
             requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
@@ -91,7 +110,7 @@ class TelegramPollingService:
     
     def stop(self):
         """Stop polling and release lock"""
-        global _polling_active
+        global _polling_active, _lock_fd
         
         self.running = False
         if self.thread:
@@ -99,6 +118,17 @@ class TelegramPollingService:
             
         with _polling_lock:
             _polling_active = False
+            
+        # Release file lock
+        if _lock_fd:
+            try:
+                fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_UN)
+                _lock_fd.close()
+                os.unlink(_LOCK_FILE)
+                logger.info(f"Released polling lock for PID {os.getpid()}")
+            except:
+                pass
+            _lock_fd = None
             
         logger.info("Telegram polling service stopped")
     
