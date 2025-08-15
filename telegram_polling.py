@@ -108,33 +108,34 @@ class TelegramPollingService:
     def _process_autosell_command(self, cmd: str, args: str) -> str:
         """Process AutoSell commands directly"""
         try:
-            # Import autosell functions directly
+            # Import autosell module functions directly
             import sys
             import os
             sys.path.insert(0, '/home/runner/workspace')
             
-            # Import autosell module functions directly
+            # Import autosell module
             import autosell
-            
-            # Get autosell instance or create one
-            if hasattr(autosell, 'get_instance'):
-                autosell_instance = autosell.get_instance()
-            else:
-                # Create instance directly
-                autosell_instance = autosell.AutoSell()
             
             if cmd == "/autosell_status":
                 # Use correct autosell module functions
-                result = autosell.status()
-                return result if result else "🤖 AutoSell Status: Unable to fetch status"
+                status_data = autosell.status()
+                if isinstance(status_data, dict):
+                    enabled = status_data.get('enabled', False)
+                    interval = status_data.get('interval_sec', 0)
+                    rules_count = status_data.get('rules_count', 0)
+                    thread_alive = status_data.get('thread_alive', False)
+                    
+                    return f"🤖 AutoSell Status\nEnabled: {enabled}\nInterval: {interval}s\nRules: {rules_count}\nThread alive: {thread_alive}"
+                else:
+                    return "🤖 AutoSell Status: Unable to fetch status"
             
             elif cmd == "/autosell_on":
-                result = autosell.enable()
-                return result if result else "🟢 AutoSell enabled."
+                autosell.enable()
+                return "🟢 AutoSell enabled."
             
             elif cmd == "/autosell_off":
-                result = autosell.disable()
-                return result if result else "🔴 AutoSell disabled."
+                autosell.disable()
+                return "🔴 AutoSell disabled."
             
             elif cmd == "/autosell_list":
                 rules = autosell.get_rules()
@@ -153,14 +154,15 @@ class TelegramPollingService:
                 if args:
                     try:
                         interval = int(args)
-                        result = autosell.set_interval(interval)
-                        return result if result else f"🕐 AutoSell interval set to {interval}s"
+                        autosell.set_interval(interval)
+                        return f"🕐 AutoSell interval set to {interval}s"
                     except ValueError:
                         return "❌ Invalid interval. Use: /autosell_interval <seconds>"
                 else:
                     # Get current status to show interval
-                    status_result = autosell.status()
-                    return f"🕐 Current AutoSell status:\n{status_result}\n\nUsage: /autosell_interval <seconds>"
+                    status_data = autosell.status()
+                    current_interval = status_data.get('interval_sec', 0) if isinstance(status_data, dict) else 0
+                    return f"🕐 Current interval: {current_interval}s\nUsage: /autosell_interval <seconds>"
             
             else:
                 return f"❓ Unknown AutoSell command: {cmd}"
