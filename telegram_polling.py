@@ -132,31 +132,29 @@ class TelegramPollingService:
             # Import autosell module
             import autosell
             
+            def _reply(msg: str) -> str:
+                """Helper function for consistent replies"""
+                return msg
+            
             if cmd == "/autosell_status":
-                # Use correct autosell module functions
-                status_data = autosell.status()
-                if isinstance(status_data, dict):
-                    enabled = status_data.get('enabled', False)
-                    interval = status_data.get('interval_sec', 0)
-                    rules_count = status_data.get('rules_count', 0)
-                    thread_alive = status_data.get('thread_alive', False)
-                    
-                    return f"🤖 AutoSell Status\nEnabled: {enabled}\nInterval: {interval}s\nRules: {rules_count}\nThread alive: {thread_alive}"
+                st = autosell.status()
+                if isinstance(st, dict):
+                    return _reply(f"🤖 AutoSell Status\nEnabled: {st.get('enabled', False)}\nInterval: {st.get('interval_sec', 0)}s\nRules: {st.get('rules_count', 0)}\nThread alive: {st.get('thread_alive', False)}")
                 else:
-                    return "🤖 AutoSell Status: Unable to fetch status"
+                    return _reply("🤖 AutoSell Status: Unable to fetch status")
             
             elif cmd == "/autosell_on":
                 autosell.enable()
-                return "🟢 AutoSell enabled."
+                return _reply("🟢 AutoSell enabled.")
             
             elif cmd == "/autosell_off":
                 autosell.disable()
-                return "🔴 AutoSell disabled."
+                return _reply("🔴 AutoSell disabled.")
             
             elif cmd == "/autosell_list":
                 rules = autosell.get_rules()
                 if not rules:
-                    return "🤖 AutoSell rules: (none)"
+                    return _reply("🤖 AutoSell rules: (none)")
                 
                 lines = ["🤖 AutoSell rules:"]
                 for mint, rule in rules.items():
@@ -164,21 +162,20 @@ class TelegramPollingService:
                     stop_loss = rule.get('sl_pct', 'None') 
                     lines.append(f"• {mint[:8]}... TP:{take_profit}% SL:{stop_loss}%")
                 
-                return "\n".join(lines)
+                return _reply("\n".join(lines))
             
             elif cmd == "/autosell_interval":
                 if args:
                     try:
                         interval = int(args)
                         autosell.set_interval(interval)
-                        return f"🕐 AutoSell interval set to {interval}s"
+                        return _reply(f"⏱️ AutoSell interval set to {interval}s")
                     except ValueError:
-                        return "❌ Invalid interval. Use: /autosell_interval <seconds>"
+                        return _reply("❌ Invalid interval. Use: /autosell_interval <seconds>")
                 else:
-                    # Get current status to show interval
-                    status_data = autosell.status()
-                    current_interval = status_data.get('interval_sec', 0) if isinstance(status_data, dict) else 0
-                    return f"🕐 Current interval: {current_interval}s\nUsage: /autosell_interval <seconds>"
+                    st = autosell.status()
+                    current_interval = st.get('interval_sec', 0) if isinstance(st, dict) else 0
+                    return _reply(f"⏱️ AutoSell interval: {current_interval}s\nUsage: /autosell_interval <seconds>")
             
             else:
                 return f"❓ Unknown AutoSell command: {cmd}"
