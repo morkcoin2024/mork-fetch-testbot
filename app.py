@@ -271,8 +271,18 @@ def process_telegram_command(update: dict):
         # Structured logging: command entry
         logger.info(f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
         
-        # Temporary AutoSell safety override
-        if (text or "").lstrip().startswith("/autosell"):
+        # AutoSell safety override  
+        def _require_admin(user):
+            if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+                return _reply("⛔ Admin only")
+            return None
+        
+        if cmd in {"/autosell_on","/autosell_off","/autosell_status",
+                   "/autosell_interval","/autosell_set","/autosell_list",
+                   "/autosell_remove"}:
+            deny = _require_admin(user)
+            if deny: 
+                return deny
             return _reply("🛑 AutoSell temporarily disabled while we tidy routing.")
         
         # Basic command routing with streamlined logic
