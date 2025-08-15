@@ -271,6 +271,10 @@ def process_telegram_command(update: dict):
         # Structured logging: command entry
         logger.info(f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
         
+        # Temporary AutoSell safety override
+        if (text or "").lstrip().startswith("/autosell"):
+            return _reply("🛑 AutoSell temporarily disabled while we tidy routing.")
+        
         # Basic command routing with streamlined logic
         if not is_command:
             return _reply("Not a command", "ignored")
