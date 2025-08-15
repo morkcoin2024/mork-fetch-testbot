@@ -292,11 +292,12 @@ def process_telegram_command(update: dict):
             "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
         ]
         
-        # If command is not recognized, show unknown command message
+        # Router fallback (and only one in repo)
         if cmd not in all_commands:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
-            return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.")
+            return _reply(f"❓ Unknown command: {clean}\nUse /help for available commands.",
+                          status="unknown_command")
         
         # Admin-only check for restricted commands
         if not is_admin and cmd not in public_commands:
