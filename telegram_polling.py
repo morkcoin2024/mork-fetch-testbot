@@ -95,17 +95,13 @@ class TelegramPollingService:
                 return
             _polling_active = True
             
-        # Aggressive webhook cleanup before starting polling
+        # Simple webhook cleanup before starting polling
         try:
-            # Delete webhook with pending updates
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
-            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
-            
-            # Wait for API to reset
-            time.sleep(2)
-            logger.info("Aggressive webhook cleanup completed")
-        except Exception as e:
-            logger.warning(f"Cleanup failed: {e}")
+            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=5)
+            logger.info("Webhook cleanup completed")
+        except Exception:
+            pass
             
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -146,13 +142,13 @@ class TelegramPollingService:
                 time.sleep(2)  # Poll every 2 seconds
             except Exception as e:
                 if "409" in str(e) or "Conflict" in str(e):
-                    logger.warning(f"409 conflict detected, aggressive cleanup: {e}")
-                    # Aggressive webhook cleanup on conflict
+                    logger.warning(f"409 conflict detected, emergency cleanup: {e}")
+                    # Emergency webhook cleanup on conflict
                     try:
                         delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
                         requests.post(delete_url, json={"drop_pending_updates": True}, timeout=5)
                         logger.info("Emergency webhook cleanup completed")
-                    except:
+                    except Exception:
                         pass
                     time.sleep(15)  # Longer backoff for conflicts
                 else:
