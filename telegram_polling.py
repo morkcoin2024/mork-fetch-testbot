@@ -10,8 +10,24 @@ import requests
 import threading
 import logging
 from typing import Dict, Any, Optional
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
+
+# Deduplication system for updates
+_last_updates = OrderedDict()  # update_id -> ts
+_MAX = 200
+
+def _seen_update(uid):
+    """Check if we've seen this update ID before"""
+    now = time.time()
+    if uid in _last_updates:
+        return True
+    _last_updates[uid] = now
+    # trim LRU
+    while len(_last_updates) > _MAX:
+        _last_updates.popitem(last=False)
+    return False
 
 class TelegramPollingService:
     def __init__(self):
@@ -172,8 +188,15 @@ class TelegramPollingService:
             return f"❌ Error processing command: {str(e)}"
     
     def _process_update(self, update: Dict[str, Any]) -> bool:
-        """Process a single update"""
+        """Process a single update with deduplication"""
         try:
+            # Get update ID for deduplication
+            update_id = update.get('update_id')
+            
+            # Deduplicate at the perimeter
+            if update_id is not None and _seen_update(update_id):
+                return False  # silently ignore repeats
+            
             if 'message' not in update:
                 return False
             
