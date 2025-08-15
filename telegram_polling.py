@@ -95,19 +95,15 @@ class TelegramPollingService:
                 return
             _polling_active = True
             
-        # Nuclear webhook cleanup and forced logout before starting polling
+        # Aggressive webhook cleanup before starting polling
         try:
-            # Delete webhook
+            # Delete webhook with pending updates
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
             requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
             
-            # Force logout to terminate any existing sessions
-            logout_url = f"https://api.telegram.org/bot{self.bot_token}/logOut"
-            requests.post(logout_url, timeout=10)
-            
             # Wait for API to reset
-            time.sleep(3)
-            logger.info("Nuclear cleanup completed: webhook deleted, forced logout")
+            time.sleep(2)
+            logger.info("Aggressive webhook cleanup completed")
         except Exception as e:
             logger.warning(f"Cleanup failed: {e}")
             
