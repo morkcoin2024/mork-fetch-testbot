@@ -53,20 +53,13 @@ class TelegramPollingService:
                 return
             _polling_active = True
             
-        # Aggressively disable webhook before starting polling
+        # Simple webhook cleanup before starting polling
         try:
             delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
-            # Multiple attempts to ensure webhook is disabled
-            for attempt in range(3):
-                response = requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
-                result = response.json()
-                if result.get('ok'):
-                    logger.info(f"Webhook cleanup attempt {attempt + 1}: {result.get('description', 'Success')}")
-                    break
-                time.sleep(1)
+            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=10)
             logger.info("Webhook cleanup completed")
-        except Exception as e:
-            logger.debug(f"Webhook cleanup error (expected): {e}")
+        except Exception:
+            pass
             
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)
