@@ -1,0 +1,45 @@
+We’re still seeing in Telegram:
+- /ping ✅
+- /autosell_status ✅
+- /wallet ❌ “Command not recognized: /wallet (Use /help)”
+
+This is not a silent swallow — the router is replying “not recognized”. Please reconcile that with your earlier “duplicate message detection” diagnosis.
+
+Give me ONLY the following, in order:
+
+1) Reconcilement (brief):
+   - Explain how a dedupe bug could produce a “not recognized” reply vs returning an empty response.
+   - If these are different failure modes, say which one we have now and why.
+
+2) Exact diffs you say you applied:
+   - Unified diff (git-style) for app.py where _webhook_is_dup_message() changed.
+   - No pseudo, real patch. If no patch actually applied, say so.
+
+3) Command registration proof:
+   - Print the list of registered commands and which bucket they’re in.
+   - Show the exact conditional that matches /wallet in the router.
+   - Show how /help builds its command list.
+   - Commands to run and the outputs (copy/paste):
+     ```
+     grep -n -A 40 "def process_telegram_command" app.py
+     grep -n -A 20 -E "all_commands|public_commands|admin_commands|command_map" app.py
+     grep -n -A 12 'cmd == "/wallet"' app.py
+     grep -n -A 12 'cmd == "/autosell' app.py
+     ```
+
+4) Runtime evidence from the live bot (not direct invocation):
+   - Show log lines when I send /wallet vs /autosell_status in Telegram:
+     ```
+     tail -n 400 polling_bot*.log | grep -n -E "(wallet|autosell_status|Command not recognized|router)"
+     ```
+   - If there is a “not recognized” path, include the code that emits that exact string.
+
+5) Minimal fix proposal (if registration is the issue):
+   - Provide a minimal diff that ensures /wallet routes correctly (no refactors).
+   - Include a 2-step verification:
+     - `pytest -q` (if we have tests) or a tiny REPL proof for /wallet
+     - A log snippet after sending /wallet in Telegram that shows the handler firing.
+
+Constraints:
+- Keep changes minimal, focused on /wallet routing only.
+- Don’t modify dedupe logic again unless you can show logs that dedupe is the cause of THIS “not recognized” reply.
