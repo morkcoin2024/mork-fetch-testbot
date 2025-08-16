@@ -1,0 +1,54 @@
+Single polling bot is running. Webhook is OFF. Offset resets to 0 at start. We added temporary logs.
+
+Now I need you to prove exactly how the live /wallet update is parsed, then give a MINIMAL fix ONLY if evidence shows a parsing issue (e.g., “/wallet@BotName” or whitespace). No refactors.
+
+A) Foreground run + live messages (I’ll run this and paste logs)
+Command:
+LOG_LEVEL=DEBUG python3 -u simple_polling_bot.py
+
+From Telegram (same private chat), I’ll send these 3 messages, in this order (exactly):
+1) /wallet
+2) /wallet@<MY_BOT_USERNAME>        # replace with actual username
+3)  ␠/wallet                         # note leading space before slash
+
+B) What I will paste back
+Please tell me to paste the exact 25 log lines that include:
+- “[poll] got … updates; last_update_id=…”
+- “[poll] raw update: …” for each of the 3 messages
+- “[poll] text repr: …”
+- “[router] clean= … cmd= … args= …”
+- “Response sent: …”
+
+C) While I collect logs, confirm parser behavior
+1) Paste the exact _parse_cmd implementation you are assuming (with line numbers).
+2) Show the regex/logic that strips “@BotName” and leading whitespace/newlines.
+3) Provide 6 tiny unit examples of what _parse_cmd SHOULD return:
+   “/wallet” → cmd="/wallet", args=""
+   “/wallet@MyBot” → cmd="/wallet", args=""
+   “ /wallet” → cmd="/wallet", args=""
+   “/wallet balance” → cmd="/wallet", args="balance"
+   “/wallet @MyBot” → cmd="/wallet", args=""
+   “/autosell_status” → cmd="/autosell_status", args=""
+
+D) Minimal fix ONLY IF LOGS PROVE IT
+If (and only if) the foreground logs show that:
+- clean="/wallet@MyBot" or clean=" /wallet" (or similar) AND cmd != "/wallet"
+then give a tiny git-style diff (just a few lines) that:
+- normalizes: clean = clean.strip()
+- removes any “@<bot_username>” suffix from the FIRST token only (safe for groups)
+- leaves all other behavior unchanged
+
+Also include two verifications to run:
+1) Foreground run again; show a log line “\[router] clean='/wallet' cmd='/wallet' args=''” for the live message.
+2) A “Response sent: True” line and no “Command not recognized” path.
+
+E) If logs show cmd="/wallet" already, but we still get “Command not recognized”
+Then:
+- Paste the exact branch that emits that string with 5 surrounding lines.
+- Explain, with the log evidence, why code falls into that branch (e.g., different variable `clean` vs `cmd`, or early return)
+- Provide the minimal one-line fix and a log proof plan.
+
+Constraints:
+- No refactors.
+- Keep diffs as small as possible.
+- Don’t touch dedupe, networking, or unrelated commands.
