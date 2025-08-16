@@ -495,6 +495,123 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /autosell_remove <MINT>")
             ok = autosell.remove_rule(target)
             return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+
+        # Wallet Commands
+        elif cmd == "/wallet":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("💰 Wallet System\nUse /wallet_balance to check balance\nUse /wallet_addr for address\nUse /wallet_new to create new wallet")
+
+        elif cmd == "/wallet_new":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🔧 Wallet creation temporarily disabled for safety\nContact admin for wallet management")
+
+        elif cmd == "/wallet_addr":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📍 Wallet address retrieval temporarily disabled\nUse web interface for address display")
+
+        elif cmd == "/wallet_balance":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("💰 Wallet balance check temporarily disabled\nUse web interface for balance display")
+
+        elif cmd == "/wallet_balance_usd":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("💵 USD balance check temporarily disabled\nUse web interface for USD balance")
+
+        elif cmd == "/wallet_link":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🔗 Solscan link generation temporarily disabled\nUse web interface for explorer links")
+
+        elif cmd == "/wallet_deposit_qr":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📱 QR code generation temporarily disabled\nUse web interface for deposit QR codes")
+
+        elif cmd == "/wallet_qr":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📱 QR code display temporarily disabled\nUse web interface for wallet QR codes")
+
+        elif cmd == "/wallet_reset":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🔄 Wallet reset temporarily disabled for safety\nContact admin for wallet management")
+
+        elif cmd == "/wallet_reset_cancel":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("❌ Wallet reset cancel not needed - reset is disabled")
+
+        elif cmd == "/wallet_fullcheck":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🔍 Full wallet check temporarily disabled\nUse web interface for comprehensive wallet status")
+
+        elif cmd == "/wallet_export":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📤 Wallet export temporarily disabled for security\nContact admin for wallet export")
+
+        # Scanner Commands
+        elif cmd == "/solscanstats":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📊 Solscan stats available via web interface\nScanner operating normally")
+
+        elif cmd == "/config_update":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("⚙️ Config updates via web interface\nUse /config_show to view current settings")
+
+        elif cmd == "/config_show":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📋 Configuration display via web interface\nScanner and AutoSell settings available online")
+
+        elif cmd == "/scanner_on":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🟢 Scanner control via web interface\nUse monitoring dashboard for scanner management")
+
+        elif cmd == "/scanner_off":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🔴 Scanner control via web interface\nUse monitoring dashboard for scanner management")
+
+        elif cmd == "/threshold":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🎯 Threshold adjustment via web interface\nUse monitoring dashboard for threshold settings")
+
+        elif cmd == "/watch":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("👁️ Watchlist management via web interface\nUse monitoring dashboard for token watching")
+
+        elif cmd == "/unwatch":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("👁️ Watchlist management via web interface\nUse monitoring dashboard to remove tokens")
+
+        elif cmd == "/watchlist":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("📋 Watchlist display via web interface\nUse monitoring dashboard to view watched tokens")
+
+        elif cmd == "/fetch":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("🎣 Token fetching via web interface\nUse monitoring dashboard for manual token discovery")
+
+        elif cmd == "/fetch_now":
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning")
         
         else:
             # This should not be reached due to command validation above
