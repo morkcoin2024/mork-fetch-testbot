@@ -819,8 +819,69 @@ def index():
 
 @app.route('/webhook_v2', methods=['POST'])
 def webhook_v2():
-    """New webhook endpoint to bypass deployment caching issues - FORCE REFRESH"""
-    return webhook()
+    """Clean webhook handler - replacement for broken webhook"""
+    try:
+        logger.info(f"[WEBHOOK_V2] Received request from {request.remote_addr}")
+        
+        # Get JSON data
+        update_data = request.get_json()
+        if not update_data:
+            logger.warning("[WEBHOOK_V2] No JSON data received")
+            return jsonify({"status": "error", "message": "No data received"}), 400
+        
+        # Basic deduplication by update_id
+        uid = update_data.get("update_id")
+        if uid and _webhook_seen_update(uid):
+            return jsonify({"status": "ok", "message": "duplicate ignored"}), 200
+        
+        # Process message
+        if 'message' in update_data:
+            msg = update_data['message']
+            text = msg.get('text', '')
+            user_id = msg.get('from', {}).get('id', '')
+            chat_id = msg.get('chat', {}).get('id', '')
+            
+            logger.info(f"[WEBHOOK_V2] Processing '{text}' from user {user_id}")
+            
+            # Process command and get response
+            try:
+                result = process_telegram_command(update_data)
+                
+                # Extract response text
+                if isinstance(result, dict) and result.get("handled"):
+                    response_text = result.get("response", "Command processed")
+                elif isinstance(result, str):
+                    response_text = result
+                else:
+                    response_text = "⚠️ Command processing error"
+                
+                # Send response using simple method
+                import requests
+                import os
+                bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+                if chat_id and bot_token and response_text:
+                    payload = {
+                        "chat_id": chat_id,
+                        "text": response_text,
+                        "parse_mode": "Markdown"
+                    }
+                    resp = requests.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json=payload,
+                        timeout=10
+                    )
+                    logger.info(f"[WEBHOOK_V2] Response sent: {resp.status_code}")
+                
+            except Exception as e:
+                logger.error(f"[WEBHOOK_V2] Command processing failed: {e}")
+                logger.exception("Command processing exception:")
+        
+        return jsonify({"status": "ok"})
+        
+    except Exception as e:
+        logger.error(f"[WEBHOOK_V2] Error: {e}")
+        logger.exception("Webhook exception:")
+        return jsonify({"status": "error"}), 200
 
 @app.route('/debug_scanners', methods=['GET'])
 def debug_scanners():
