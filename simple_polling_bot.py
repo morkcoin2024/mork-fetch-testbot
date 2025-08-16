@@ -59,18 +59,26 @@ class SimplePollingBot:
     def send_message(self, chat_id, text):
         """Send message to Telegram"""
         try:
+            payload = {
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'Markdown',
+                'disable_web_page_preview': True
+            }
             response = requests.post(
                 f"{self.base_url}/sendMessage",
-                json={
-                    'chat_id': chat_id,
-                    'text': text,
-                    'parse_mode': 'Markdown'
-                },
+                json=payload,
                 timeout=10
             )
-            return response.status_code == 200
+            
+            if response.status_code == 200:
+                logger.info(f"Message sent successfully to chat {chat_id}")
+                return True
+            else:
+                logger.error(f"Failed to send message: {response.status_code} - {response.text}")
+                return False
         except Exception as e:
-            logger.error(f"Failed to send message: {e}")
+            logger.error(f"Exception sending message: {e}")
             return False
     
     def process_update(self, update):
