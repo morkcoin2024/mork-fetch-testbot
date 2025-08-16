@@ -1,0 +1,45 @@
+Current state:
+- Polling bot is NOT running (no process, empty logs).
+- Therefore Telegram commands aren’t reaching the router.
+- Do NOT propose code changes yet. First, help me surface the exact startup error and prove the loop is alive.
+
+Give me ONLY the following, in order.
+
+A) Foreground run to capture the crash
+Provide a single command that runs the polling bot in the foreground (unbuffered), with DEBUG logging, so the exception prints to the terminal. Example shape:
+  python3 -u simple_polling_bot.py
+Also show how to set LOG_LEVEL=DEBUG via env for this run.
+I will paste back the full terminal output.
+
+B) Minimal temporary logging (no refactor)
+Show the exact small edits (git-style diff) to add:
+  - A top-level try/except around main() that logs full traceback to stderr.
+  - logger.basicConfig with level from env (LOG_LEVEL, default INFO).
+  - A “startup OK” log line right after the bot begins polling, including the offset value.
+  - A log line inside get_updates() that prints the GET URL without the token and the HTTP status code + first 200 chars of response.
+No other changes.
+
+C) Sanity checks to rule out config/env issues
+Give me the exact commands to run and what “good” vs “bad” outputs look like:
+1) Confirm token is set (mask actual token):
+   python3 - <<'PY'
+   import os; t=os.getenv("TELEGRAM_BOT_TOKEN",""); print("len(token)=", len(t)); print("starts_with=skipped")
+   PY
+2) Verify bot identity:
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok'), d.get('result',{}).get('username'))"
+3) Check pending updates:
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok'), len(d.get('result',[])))"
+
+D) Liveness proof after start
+Tell me exactly what lines I should see in the logs when the loop is running normally (with examples), including:
+  - “[poll] startup OK offset=<n>”
+  - one “[poll] raw update …” entry after I send /wallet in Telegram
+  - the subsequent “Processing command ‘/wallet’ …” line and “Response sent: True/False”
+
+E) If the foreground run shows an exception
+Give me a very small, targeted fix ONLY if you can attribute it to a concrete exception (paste the minimal diff). Otherwise, tell me precisely what additional 3 lines of instrumentation to add to expose the failure point (line numbers and logger calls).
+
+Constraints:
+- No refactors.
+- No switching to webhooks.
+- Keep diffs minimal and only for temporary diagnostics until we see the crash or the first live /wallet update in logs.

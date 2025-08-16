@@ -10,8 +10,10 @@ import traceback
 from app import process_telegram_command
 
 # Setup logging
+import os
+log_level = getattr(logging, os.environ.get('LOG_LEVEL', 'INFO').upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ class SimplePollingBot:
     def get_updates(self):
         """Get updates from Telegram API"""
         try:
+            url = f"https://api.telegram.org/bot****/getUpdates"
             response = requests.get(
                 f"{self.base_url}/getUpdates",
                 params={
@@ -38,6 +41,9 @@ class SimplePollingBot:
                 },
                 timeout=15
             )
+            
+            response_preview = response.text[:200] if response.text else "empty"
+            logger.debug(f"[poll] GET {url} -> {response.status_code} {response_preview}")
             
             if response.status_code == 200:
                 return response.json()
@@ -120,6 +126,8 @@ class SimplePollingBot:
             logger.error(f"Failed to connect to Telegram API: {e}")
             return
         
+        logger.info(f"[poll] startup OK offset={self.offset}")
+        
         while self.running:
             try:
                 updates_data = self.get_updates()
@@ -155,7 +163,9 @@ def main():
         bot = SimplePollingBot()
         bot.run()
     except Exception as e:
+        import traceback
         logger.error(f"Failed to start bot: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
