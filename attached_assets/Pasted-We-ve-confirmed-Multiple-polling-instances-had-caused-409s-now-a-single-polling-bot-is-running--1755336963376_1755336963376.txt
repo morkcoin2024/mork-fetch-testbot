@@ -1,0 +1,61 @@
+We’ve confirmed:
+- Multiple polling instances had caused 409s; now a single polling bot is running.
+- We still need to prove that a live /wallet update reaches the router and is parsed as "/wallet" (not "/wallet@BotName" or something else), then fix only if evidence shows a parsing/offset issue.
+
+Please provide ONLY the following, in order. No refactors.
+
+A) Webhook and polling exclusivity checks
+1) Commands (I will run and paste outputs):
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok'), d.get('result'))"
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok=',d.get('ok'),'n_updates=',len(d.get('result',[]))); 
+   [print((u.get('update_id'), u.get('message',{}).get('text'))) for u in d.get('result',[])]"
+2) Based on those results, state clearly:
+   - webhook set? (yes/no)
+   - last update_id seen by Telegram
+   - whether there are pending updates visible to getUpdates
+
+B) Temporary logging (minimal diffs only)
+Provide git-style diffs to add **temporary** logs:
+1) In simple_polling_bot.py:
+   - Right after we enter process_update(update):
+     print("[poll] raw update:", json.dumps(update)[:800])
+   - Right before sending to router:
+     print("[poll] text repr:", repr(text), "chat_id=", chat_id, "user_id=", user_id)
+   - After get_updates() returns:
+     print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
+2) In app.py, inside process_telegram_command:
+   - Immediately after pulling text/clean and calling _parse_cmd(clean):
+     print("[router] clean=", repr(clean), "cmd=", repr(cmd), "args=", repr(args))
+
+C) Offset handling sanity
+Paste the code lines (with numbers) that show:
+   - How self.offset is initialized (value when bot starts)
+   - Where we set self.offset = update['update_id'] + 1
+   - Whether we persist offset anywhere between runs
+Then tell me if a stale too-high offset could skip fresh messages. If yes, give me ONE command to reset offset to 0 for a single foreground run (no code changes), and the exact log lines I should expect that prove new updates are consumed.
+
+D) Live proof with raw update JSON
+Steps for me:
+   1) Start bot in foreground: LOG_LEVEL=DEBUG python3 -u simple_polling_bot.py
+   2) From Telegram (same private chat), send **exactly**: /wallet
+   3) I will paste the 20 lines of logs containing:
+      - “[poll] raw update: …” for that message
+      - “[poll] text repr: …”
+      - “[router] clean=… cmd=… args=…”
+State what each line should look like if things are healthy and the command will be recognized.
+
+E) Likely root-cause hypotheses to confirm/deny with the above logs
+Answer each with “confirm/deny, because …” using evidence from logs:
+1) The update arrives as edited_message/channel_post and is ignored by our `if 'message' not in update` filter.
+2) The text is “/wallet@BotName” (group format) and our `_parse_cmd` doesn’t strip “@BotName”.
+3) `text.startswith('/')` gate rejects due to leading spaces/newlines or entities (quote from raw update).
+4) Stale offset is skipping the new /wallet update.
+5) Chat/user filter exists elsewhere that drops /wallet but not /autosell_status.
+
+F) Minimal targeted fix (only if evidenced)
+If (and only if) we see from logs that `_parse_cmd` fails on `/wallet@BotName` or leading spaces, provide a **tiny diff** that:
+   - Normalizes `clean` to strip bot mentions and leading whitespace.
+   - Keeps existing behavior unchanged otherwise.
+Also include two quick verifications:
+   1) A foreground run log showing `[router] clean='/wallet' cmd='/wallet'` for the live message.
+   2) A tail of polling logs confirming the wallet handler branch executed and “Response sent: True”.

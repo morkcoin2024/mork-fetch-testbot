@@ -272,7 +272,9 @@ def process_telegram_command(update: dict):
     
     user = msg.get("from") or {}
     text = msg.get("text") or ""
-    cmd, args = _parse_cmd(text)
+    clean = (text or "").strip() 
+    cmd, args = _parse_cmd(clean)
+    print("[router] clean=", repr(clean), "cmd=", repr(cmd), "args=", repr(args))
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):

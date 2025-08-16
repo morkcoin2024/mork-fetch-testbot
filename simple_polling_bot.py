@@ -75,6 +75,9 @@ class SimplePollingBot:
     def process_update(self, update):
         """Process a single update"""
         try:
+            import json
+            print("[poll] raw update:", json.dumps(update)[:800])
+            
             if 'message' not in update:
                 return
                 
@@ -86,6 +89,7 @@ class SimplePollingBot:
             if not text.startswith('/'):
                 return
                 
+            print("[poll] text repr:", repr(text), "chat_id=", chat_id, "user_id=", user_id)
             logger.info(f"Processing command '{text}' from user {user_id}")
             
             # Use the existing command processor
@@ -134,6 +138,7 @@ class SimplePollingBot:
                 
                 if updates_data and updates_data.get('ok'):
                     updates = updates_data.get('result', [])
+                    print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
                     
                     for update in updates:
                         try:
