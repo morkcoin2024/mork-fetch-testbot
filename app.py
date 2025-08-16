@@ -416,8 +416,11 @@ def process_telegram_command(update: dict):
             return _reply("🟢 AutoSell enabled.")
 
         elif cmd == "/autosell_off":
-            # Handled by telegram_polling.py to avoid duplicate responses
-            return _reply("⚠️ Command processed by polling service")
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.disable()
+            return _reply("🔴 AutoSell disabled.")
 
         elif cmd == "/autosell_status":
             deny = _require_admin(user)
@@ -516,15 +519,7 @@ try:
     }
     logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
     
-    # Start polling service for telegram commands
-    try:
-        from telegram_polling import start_polling_service
-        if start_polling_service():
-            logger.info("Telegram polling service started successfully")
-        else:
-            logger.warning("Failed to start telegram polling service")
-    except Exception as e:
-        logger.error("Error starting telegram polling service: %s", e)
+    # Polling service startup moved to single location to prevent duplicates
 except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
     # Continue without scanners if initialization fails
