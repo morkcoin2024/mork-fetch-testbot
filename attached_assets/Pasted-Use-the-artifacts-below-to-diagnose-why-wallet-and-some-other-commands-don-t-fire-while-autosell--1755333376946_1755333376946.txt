@@ -1,0 +1,100 @@
+Use the artifacts below to diagnose why /wallet and some other commands don’t fire, while /autosell, /ping, /help do.
+
+## A) Core Router Logic (process_telegram_command)
+# command I ran:
+grep -n -A 50 "def process_telegram_command" app.py
+
+# output:
+[PASTE HERE]
+
+## B) Command List Definitions (all_commands / public_commands / admin_commands etc.)
+# command:
+grep -n -A 20 -E "all_commands|public_commands|admin_commands|command_map|router" app.py
+
+# output:
+[PASTE HERE]
+
+## C) Failing Command Handler (/wallet)
+# command:
+grep -n -A 15 -n "cmd == \"/wallet\"" app.py
+
+# output:
+[PASTE HERE]
+
+## D) Working Command Handler (/autosell or /autosell_status)
+# command:
+grep -n -A 15 -n "cmd == \"/autosell" app.py
+
+# output:
+[PASTE HERE]
+
+## E) Polling/Runner integration (simple_polling_bot.py or similar)
+# commands:
+grep -n -A 60 -E "process_telegram_command|handle_update|dispatch|on_message" simple_polling_bot.py
+sed -n '1,160p' simple_polling_bot.py | sed -n '1,200p'  # if small file, paste first ~200 lines
+
+# output:
+[PASTE HERE]
+
+## F) Recent Logs filtered for relevant lines
+# command:
+tail -n 300 polling_bot_restart.log | grep -E "(Processing|wallet|ping|autosell|help|ERROR|Exception|Traceback)" -n
+
+# output:
+[PASTE HERE]
+
+## G) Direct invocation tests (bypass Telegram)
+# commands I ran in a Python REPL to isolate router behavior:
+
+python - <<'PY'
+import json
+import types
+from app import process_telegram_command  # adjust import if function is elsewhere
+
+def mk_update(text, chat_id=123, user_id=456, username="testuser"):
+    return {
+        "message": {
+            "message_id": 1,
+            "date": 0,
+            "chat": {"id": chat_id, "type": "private"},
+            "from": {"id": user_id, "is_bot": False, "username": username},
+            "text": text
+        }
+    }
+
+tests = ["/ping", "/help", "/autosell", "/wallet", "/wallet balance", "/wallet_show"]
+for t in tests:
+    try:
+        out = process_telegram_command(mk_update(t))
+        print(f">>> {t}\n{out}\n")
+    except Exception as e:
+        print(f">>> {t}\nRAISED: {type(e).__name__}: {e}\n")
+PY
+
+# output:
+[PASTE HERE]
+
+## H) Version & file layout (helps spot import path issues)
+# commands:
+python -V
+pip freeze | grep -E "python-telegram-bot|telebot|flask|pytelegram" || true
+ls -la
+tree -L 2 || true
+
+# output:
+[PASTE HERE]
+
+## I) Any admin/permission checks used by /wallet
+# command:
+grep -n -A 20 -E "is_admin|admin_only|check_permission|require_admin" -R .
+
+# output:
+[PASTE HERE]
+
+-----
+
+Given the above, please:
+1) Pinpoint why /wallet doesn’t route (registration, parse mismatch, permission gate, signature error, or integration issue).
+2) Provide the **minimal diff** to fix it and a brief explanation.
+3) Give 2 quick tests (commands to run) to confirm the fix.
+4) If multiple causes are plausible, rank by likelihood and how to disambiguate fast.
