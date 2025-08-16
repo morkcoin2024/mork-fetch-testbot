@@ -18,7 +18,7 @@ The application uses Flask with a polling-based architecture for Telegram integr
 - **Enhanced Tri-Source Token Engine:** Comprehensive filtering and scoring architecture with real-time blockchain monitoring and advanced Solana RPC enrichment.
 - **Live Monitoring Dashboard & Console:** Secure, token-gated interfaces for real-time event streaming via Server-Sent Events (SSE) and an ultra-lightweight console.
 - **Enhanced Event Publishing System:** Advanced real-time event tracking with deduplication capabilities across all system components, featuring a thread-safe publish/subscribe architecture and comprehensive event fingerprinting.
-- **Telegram Integration:** Production-ready polling mode integration (active), comprehensive admin command routing, unified command processing system, and reliable Telegram API integration with proper error handling and fallback protection. Includes dedicated `telegram_polling.py` service for reliable AutoSell command processing.
+- **Telegram Integration:** Production-ready polling mode integration (active), comprehensive admin command routing, unified command processing system, and reliable Telegram API integration with proper error handling and fallback protection. Uses `simple_polling_bot.py` for direct Telegram API polling to avoid SSL certificate issues with webhooks.
 - **Enhanced Logging System:** Dual-layer logging with `RotatingFileHandler` and `RingBufferHandler`.
 - **Enhanced Multi-Source Diagnostics:** Complete diagnostic system for live module reloading, version tracking, real-time endpoint monitoring, and debugging.
 - **Production Readiness:** Robust system with reliable thread-safe data, enterprise-grade timestamp precision, and automatic recovery capabilities for WebSocket connections.

@@ -1,113 +1,162 @@
 #!/usr/bin/env python3
-"""
-Simple polling bot - fixed version
-Handles all admin commands with direct polling
-"""
+"""Simple polling bot to replace broken webhook - Mork F.E.T.C.H Bot"""
 
-import asyncio
-import logging
 import os
 import sys
-from telegram import Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+import time
+import logging
+import requests
+import traceback
+from app import process_telegram_command
 
-# Configure logging
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-ADMIN_ID = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', 0))
-
-async def handle_ping(update, context):
-    """Handle /ping command"""
-    user = update.effective_user
-    logger.info(f"PING command from {user.username} (ID: {user.id})")
+class SimplePollingBot:
+    def __init__(self):
+        self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        if not self.bot_token:
+            raise ValueError("TELEGRAM_BOT_TOKEN not set")
+        
+        self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
+        self.offset = 0
+        self.running = False
+        
+    def get_updates(self):
+        """Get updates from Telegram API"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/getUpdates",
+                params={
+                    'offset': self.offset,
+                    'timeout': 10,
+                    'limit': 10
+                },
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Failed to get updates: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting updates: {e}")
+            return None
     
-    if user.id == ADMIN_ID:
-        await update.message.reply_text('🏓 **Pong!** Bot is working in polling mode.')
-        logger.info("Pong response sent")
-    else:
-        logger.info(f"Ping ignored from non-admin user {user.id}")
-
-async def handle_status(update, context):
-    """Handle /status command"""
-    user = update.effective_user
-    logger.info(f"STATUS command from {user.username} (ID: {user.id})")
+    def send_message(self, chat_id, text):
+        """Send message to Telegram"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/sendMessage",
+                json={
+                    'chat_id': chat_id,
+                    'text': text,
+                    'parse_mode': 'Markdown'
+                },
+                timeout=10
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
+            return False
     
-    if user.id == ADMIN_ID:
-        await update.message.reply_text('''🤖 **Mork F.E.T.C.H Bot Status**
-
-Mode: Polling (direct)
-System: Operational
-Bot: Responding
-Admin: Authorized
-
-All systems working correctly.''', parse_mode='Markdown')
-        logger.info("Status response sent")
-
-async def handle_whoami(update, context):
-    """Handle /whoami command"""
-    user = update.effective_user
-    logger.info(f"WHOAMI command from {user.username} (ID: {user.id})")
+    def process_update(self, update):
+        """Process a single update"""
+        try:
+            if 'message' not in update:
+                return
+                
+            message = update['message']
+            text = message.get('text', '')
+            user_id = message.get('from', {}).get('id', '')
+            chat_id = message.get('chat', {}).get('id', '')
+            
+            if not text.startswith('/'):
+                return
+                
+            logger.info(f"Processing command '{text}' from user {user_id}")
+            
+            # Use the existing command processor
+            result = process_telegram_command(update)
+            
+            # Extract response
+            if isinstance(result, dict) and result.get("handled"):
+                response_text = result.get("response", "Command processed")
+            elif isinstance(result, str):
+                response_text = result
+            else:
+                response_text = "⚠️ Command processing error"
+            
+            # Send response
+            if response_text and chat_id:
+                success = self.send_message(chat_id, response_text)
+                logger.info(f"Response sent: {success}")
+                
+        except Exception as e:
+            logger.error(f"Error processing update: {e}")
+            traceback.print_exc()
     
-    is_admin = user.id == ADMIN_ID
-    await update.message.reply_text(f'''**Your Telegram Info:**
-ID: `{user.id}`
-Username: @{user.username or 'unknown'}
-Admin: {'Yes' if is_admin else 'No'}''', parse_mode='Markdown')
-    logger.info("Whoami response sent")
-
-async def handle_all_messages(update, context):
-    """Handle all other messages"""
-    user = update.effective_user
-    text = update.message.text or '[no text]'
-    logger.info(f"Message from {user.username} (ID: {user.id}): {text}")
-    
-    # Only respond to admin for unhandled commands
-    if user.id == ADMIN_ID and text.startswith('/'):
-        await update.message.reply_text(f'Command received: {text}\nBot is working. Available commands: /ping, /status, /whoami')
+    def run(self):
+        """Main polling loop"""
+        self.running = True
+        logger.info("🤖 Mork F.E.T.C.H Bot starting in polling mode...")
+        
+        # Get bot info
+        try:
+            response = requests.get(f"{self.base_url}/getMe", timeout=10)
+            if response.status_code == 200:
+                bot_info = response.json().get('result', {})
+                logger.info(f"Bot ready: @{bot_info.get('username', 'unknown')}")
+            else:
+                logger.error("Failed to get bot info")
+                return
+        except Exception as e:
+            logger.error(f"Failed to connect to Telegram API: {e}")
+            return
+        
+        while self.running:
+            try:
+                updates_data = self.get_updates()
+                
+                if updates_data and updates_data.get('ok'):
+                    updates = updates_data.get('result', [])
+                    
+                    for update in updates:
+                        try:
+                            self.process_update(update)
+                            # Update offset to mark message as processed
+                            self.offset = update['update_id'] + 1
+                        except Exception as e:
+                            logger.error(f"Error processing individual update: {e}")
+                            # Still update offset to avoid getting stuck
+                            self.offset = update['update_id'] + 1
+                
+                else:
+                    time.sleep(1)  # Brief pause if no updates
+                    
+            except KeyboardInterrupt:
+                logger.info("Bot stopped by user")
+                break
+            except Exception as e:
+                logger.error(f"Polling error: {e}")
+                time.sleep(5)  # Wait before retrying
+        
+        self.running = False
+        logger.info("Bot stopped")
 
 def main():
-    """Start the polling bot"""
-    if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not found")
-        sys.exit(1)
-        
-    if not ADMIN_ID:
-        logger.error("ASSISTANT_ADMIN_TELEGRAM_ID not found") 
-        sys.exit(1)
-        
-    logger.info(f"Starting simple polling bot for admin ID: {ADMIN_ID}")
-    
-    # Build application
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    # Add command handlers
-    app.add_handler(CommandHandler("ping", handle_ping))
-    app.add_handler(CommandHandler("status", handle_status)) 
-    app.add_handler(CommandHandler("whoami", handle_whoami))
-    
-    # Handle all other messages (for debugging)
-    app.add_handler(MessageHandler(filters.ALL, handle_all_messages))
-    
-    logger.info("Starting polling...")
-    
     try:
-        # Start polling with error handling
-        app.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=['message'],
-            timeout=20,
-            poll_interval=1.0
-        )
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        bot = SimplePollingBot()
+        bot.run()
     except Exception as e:
-        logger.error(f"Bot error: {e}")
-        raise
+        logger.error(f"Failed to start bot: {e}")
+        sys.exit(1)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
