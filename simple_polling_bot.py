@@ -7,7 +7,8 @@ import time
 import logging
 import requests
 import traceback
-from app import process_telegram_command
+# Import moved to process_update to avoid initialization blocking
+# from app import process_telegram_command
 
 # Setup logging
 import os
@@ -92,7 +93,8 @@ class SimplePollingBot:
             print("[poll] text repr:", repr(text), "chat_id=", chat_id, "user_id=", user_id)
             logger.info(f"Processing command '{text}' from user {user_id}")
             
-            # Use the existing command processor
+            # Use the existing command processor (lazy import to avoid init blocking)
+            from app import process_telegram_command
             result = process_telegram_command(update)
             
             # Extract response
