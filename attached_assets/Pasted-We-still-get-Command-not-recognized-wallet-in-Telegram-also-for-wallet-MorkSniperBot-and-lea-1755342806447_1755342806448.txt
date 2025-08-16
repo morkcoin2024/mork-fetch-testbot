@@ -1,0 +1,44 @@
+We still get “❓ Command not recognized: /wallet” in Telegram (also for /wallet@MorkSniperBot and leading-space variant).
+
+I need you to pinpoint WHY the router hits the unknown-command branch and give a one-line minimal fix if it’s comparing the wrong variable.
+
+Please provide ONLY the following, in order (no extra commentary):
+
+A) Show the exact unknown-command branch
+- Paste ~20 lines around the code that emits:
+  "❓ Command not recognized: {clean}\nUse /help for available commands."
+- Identify exactly which variable the membership check uses (e.g., `if clean not in all_commands:` or `if cmd not in all_commands:`).
+- State the values used in the check (e.g., leading slash? lowercased?).
+
+B) Command list construction proof
+- Paste the lines where `all_commands` (and related lists/maps) are built.
+- Confirm each entry format (leading slash + lowercase), and that "/wallet" is present.
+- Provide a tiny snippet that prints these at runtime once (first 10 items) to logs for verification.
+
+C) Temporary trace (minimal diff)
+Provide a tiny git-style diff adding **temporary** debug lines inside the router just before the unknown-command check:
+  print("[router] DBG", "clean=", repr(clean), "cmd=", repr(cmd),
+        "in_all_clean=", (clean in all_commands),
+        "in_all_cmd=", (cmd in all_commands))
+No other changes.
+
+D) Likely root cause & minimal fix
+If the check compares `clean` (which may be "/wallet@MorkSniperBot") instead of `cmd` ("/wallet"), propose the one-line fix:
+- change the membership test to use `cmd` (already normalized by `_parse_cmd`)
+- ensure `cmd` is lowercased and starts with "/"
+Provide the one-line git-style diff only.
+
+E) Verification steps (I will run and paste logs)
+- Foreground run:
+  LOG_LEVEL=DEBUG python3 -u simple_polling_bot.py
+- Send in Telegram (private chat) in this order:
+  1) /wallet
+  2) /wallet@MorkSniperBot
+  3)  ␠/wallet   (leading space)
+- Expected healthy trace (you specify exact lines I should see), including:
+  [router] DBG clean=..., cmd='/wallet', in_all_cmd=True
+  Response sent: True
+
+Constraints:
+- Minimal change focused ONLY on the unknown-command membership check.
+- No refactors. Don’t touch dedupe/networking.

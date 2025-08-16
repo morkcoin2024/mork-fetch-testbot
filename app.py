@@ -322,6 +322,9 @@ def process_telegram_command(update: dict):
         ]
         
         # Router fallback (and only one in repo)
+        print("[router] DBG", "clean=", repr(clean), "cmd=", repr(cmd),
+              "in_all_clean=", (clean in all_commands),
+              "in_all_cmd=", (cmd in all_commands))
         if cmd not in all_commands:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
