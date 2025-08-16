@@ -102,6 +102,9 @@ class TelegramPollingService:
             logger.info("Webhook cleanup completed")
         except Exception:
             pass
+        
+        # Additional wait to ensure no competing processes
+        time.sleep(3)
             
         self.running = True
         self.thread = threading.Thread(target=self._poll_loop, daemon=True)

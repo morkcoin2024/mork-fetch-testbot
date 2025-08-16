@@ -416,11 +416,8 @@ def process_telegram_command(update: dict):
             return _reply("🟢 AutoSell enabled.")
 
         elif cmd == "/autosell_off":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.disable()
-            return _reply("🔴 AutoSell disabled.")
+            # Handled by telegram_polling.py to avoid duplicate responses
+            return _reply("⚠️ Command processed by polling service")
 
         elif cmd == "/autosell_status":
             deny = _require_admin(user)
