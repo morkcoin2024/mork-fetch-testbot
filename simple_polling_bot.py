@@ -253,7 +253,8 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    import time, traceback
+    import time, traceback, os
+    print("[POLL] boot pid=", os.getpid())
     while True:
         try:
             bot = SimplePollingBot()

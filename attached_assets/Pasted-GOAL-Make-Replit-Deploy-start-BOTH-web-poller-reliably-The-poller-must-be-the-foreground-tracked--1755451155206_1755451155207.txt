@@ -1,0 +1,61 @@
+GOAL
+Make Replit Deploy start BOTH web + poller reliably. The poller must be the foreground-tracked process (or an auto-restart loop) so it never silently dies.
+
+DELIVERABLES
+1) A short checklist I can follow in the Replit UI (Deploy) to set the Start command to `bash run.sh`.
+2) A minimal diff to add loud startup beacons so logs prove run.sh is used and the poller is alive.
+3) One verification block to run (commands + expected lines).
+
+A) UI CHECKLIST (Replit Deploy)
+- Open: Deployments → (current deployment) → Stop
+- Click: Edit Deployment
+- **Start command**: `bash run.sh`   (not gunicorn)
+- Env: ensure TELEGRAM_BOT_TOKEN is present
+- Save → Redeploy
+- Open Logs for this deployment
+
+B) CODE DIFFS (beacons only, no refactors)
+--- a/run.sh
++++ b/run.sh
+@@
+ #!/usr/bin/env bash
+ set -euo pipefail
+ export LOG_LEVEL=${LOG_LEVEL:-INFO}
+ export PYTHONUNBUFFERED=1
++echo "[RUNSH] starting run.sh at $(date -u +%FT%TZ)"
+
+ # Always clear webhook on boot so polling isn't conflicted
+ if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+   curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+ fi
+
+ # Start web app (background)
+ export FETCH_ENABLE_SCANNERS=1
++echo "[RUNSH] launching gunicorn (web)"
+ gunicorn app:app --bind 0.0.0.0:5000 --workers=1 &
+
+ # Poller (foreground) with simple auto-restart
+ export FETCH_ENABLE_SCANNERS=0
+ while true; do
+-  echo "[run] starting poller..."
++  echo "[RUNSH] starting poller loop..."
+   python3 -u simple_polling_bot.py || true
+-  echo "[run] poller exited; restarting in 2s"
++  echo "[RUNSH] poller exited; restarting in 2s"
+   sleep 2
+ done
+
+--- a/simple_polling_bot.py
++++ b/simple_polling_bot.py
+@@
+ if __name__ == "__main__":
+-    import time, traceback
++    import time, traceback, os
++    print("[POLL] boot pid=", os.getpid())
+     while True:
+         try:
+             bot = SimplePollingBot()
+             bot.run()
+         except Exception as e:
+             logger.exception("[poll] FATAL: unhandled exception; will restart")
+         time.sleep(2)

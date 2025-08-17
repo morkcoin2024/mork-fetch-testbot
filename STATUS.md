@@ -116,3 +116,37 @@
   curl getUpdates -> pending=0 ✅
   ```
 - **Rollback**: Not needed - completed successfully
+
+### Change Ticket - Deploy Beacons & Checklist ✅ COMPLETED
+- **Goal**: Add loud startup beacons to run.sh and simple_polling_bot.py for Replit Deploy reliability
+- **Files touched**: run.sh, simple_polling_bot.py, DEPLOY_CHECKLIST.md (new)
+- **Diff (short)**: 
+  ```diff
+  + echo "[RUNSH] starting run.sh at $(date -u +%FT%TZ)"
+  + echo "[RUNSH] launching gunicorn (web)"
+  + echo "[RUNSH] starting poller loop..."
+  + print("[POLL] boot pid=", os.getpid())
+  ```
+- **Commands to run**: 
+  ```bash
+  timeout 10 bash run.sh | head -20
+  ```
+- **Results**:
+  ```
+  ✅ [RUNSH] starting run.sh at 2025-08-17T17:20:13Z
+  ✅ [RUNSH] launching gunicorn (web)  
+  ✅ [RUNSH] starting poller loop...
+  ✅ [POLL] boot pid= 22331
+  ✅ Bot ready: @MorkSniperBot processed /ping command
+  ✅ Delivered message_id=9420 to chat_id=1653046781
+  ```
+- **Verification**: 
+  ```bash
+  cat DEPLOY_CHECKLIST.md  # Complete checklist created ✅
+  grep -E "\[RUNSH\]|\[POLL\]" run_output  # Beacons working ✅
+  ```
+- **Rollback**: 
+  ```bash
+  git checkout run.sh simple_polling_bot.py
+  rm DEPLOY_CHECKLIST.md
+  ```
