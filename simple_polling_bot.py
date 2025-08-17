@@ -95,6 +95,8 @@ class SimplePollingBot:
         }
         r = requests.post(url, json=payload, timeout=15)
         if r.status_code == 200 and r.json().get("ok") is True:
+            logger.info("Delivered message_id=%s to chat_id=%s",
+                        r.json().get("result", {}).get("message_id"), chat_id)
             return True
 
         # Attempt 2: if MarkdownV2 parsing failed, escape and retry
@@ -105,6 +107,8 @@ class SimplePollingBot:
             r2 = requests.post(url, json=payload, timeout=15)
             r2_status = r2.status_code
             if r2.status_code == 200 and r2.json().get("ok") is True:
+                logger.info("Delivered message_id=%s to chat_id=%s",
+                            r2.json().get("result", {}).get("message_id"), chat_id)
                 return True
             logger.error(f"MarkdownV2 escaped send failed: {r2.status_code} - {r2.text}")
 
@@ -113,6 +117,8 @@ class SimplePollingBot:
         payload["text"] = text
         r3 = requests.post(url, json=payload, timeout=15)
         if r3.status_code == 200 and r3.json().get("ok") is True:
+            logger.info("Delivered message_id=%s to chat_id=%s",
+                        r3.json().get("result", {}).get("message_id"), chat_id)
             return True
 
         logger.error(f"Failed to send message (all attempts): "
