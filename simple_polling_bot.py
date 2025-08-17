@@ -33,16 +33,18 @@ class SimplePollingBot:
     def get_updates(self):
         """Get updates from Telegram API"""
         try:
-            url = f"https://api.telegram.org/bot****/getUpdates"
+            url = f"{self.base_url}/getUpdates"
             response = requests.get(
-                f"{self.base_url}/getUpdates",
-                params={
-                    'offset': self.offset,
-                    'timeout': 10,
-                    'limit': 10
-                },
+                url,
+                params={"timeout": 25, "offset": self.offset},
                 timeout=15
             )
+            
+            if response.status_code == 409:
+                logger.error("[poll] 409 Conflict from Telegram: webhook set or another poller is consuming updates.")
+                logger.error("[poll] run: curl -s -X POST \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteWebhook\"")
+                self.running = False
+                return {"ok": False}
             
             response_preview = response.text[:200] if response.text else "empty"
             logger.debug(f"[poll] GET {url} -> {response.status_code} {response_preview}")
