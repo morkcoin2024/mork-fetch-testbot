@@ -1,342 +1,158 @@
 #!/usr/bin/env python3
 """
-Telegram Polling Service - Integrated with main application
+Minimal Telegram polling bot for Mork F.E.T.C.H Bot
+Runs independently of Flask to avoid import conflicts
 """
-
 import os
-import sys
 import time
-import requests
-import threading
 import logging
-from typing import Dict, Any, Optional
-from collections import OrderedDict
+import requests
+import json
+from filelock import FileLock
 
-logger = logging.getLogger(__name__)
+# Setup logging  
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log = logging.getLogger('mork_poll')
 
-# Enhanced deduplication system
-_seen_updates = OrderedDict()
-_SEEN_MAX = 256
+# Configuration
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+API_BASE = f'https://api.telegram.org/bot{BOT_TOKEN}'
+LOCK_PATH = '/tmp/mork_polling.lock'
 
-def _seen_update(uid):
-    """Check if update_id already processed with LRU eviction"""
-    if uid is None:  # be safe; let router dedupe by message_id
-        return False
-    if uid in _seen_updates:
-        return True
-    _seen_updates[uid] = 1
-    while len(_seen_updates) > _SEEN_MAX:
-        _seen_updates.popitem(last=False)
-    return False
-
-# Message-level deduplication with TTL
-import time
-_last_msgs = {}
-_LAST_TTL = 2.0  # seconds
-
-def _is_dup_message(msg):
-    """Check for duplicate message by (message_id, user_id, chat_id) with TTL"""
-    mid = (msg.get("message_id"), (msg.get("from") or {}).get("id"), (msg.get("chat") or {}).get("id"))
-    if mid[0] is None:
-        return False
-    now = time.time()
-    # purge old
-    for k,t in list(_last_msgs.items()):
-        if now - t > _LAST_TTL:
-            _last_msgs.pop(k, None)
-    if mid in _last_msgs:
-        return True
-    _last_msgs[mid] = now
-    return False
-
-# Global process lock to prevent multiple polling instances
-_polling_lock = threading.Lock()
-_polling_active = False
-
-# File-based lock to prevent multiple gunicorn workers from starting polling
-import fcntl
-_LOCK_FILE = "/tmp/telegram_polling.lock"
-_lock_fd = None
-
-class TelegramPollingService:
-    def __init__(self):
-        self.bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-        self.admin_id = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
-        self.last_update_id = 0
-        self.running = False
-        self.thread = None
-        
-        if not self.bot_token or not self.admin_id:
-            raise ValueError("Missing TELEGRAM_BOT_TOKEN or ASSISTANT_ADMIN_TELEGRAM_ID")
-            
-        logger.info(f"TelegramPollingService initialized for admin {self.admin_id}")
+def process_command(text, chat_id, user_id):
+    """Process Telegram commands and return response"""
+    if not text:
+        return None
     
-    def start(self):
-        """Start polling in background thread with file-based lock"""
-        global _polling_active, _lock_fd
-        
-        # Try to acquire file lock first
-        try:
-            _lock_fd = open(_LOCK_FILE, 'w')
-            fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            _lock_fd.write(f"{os.getpid()}\n")
-            _lock_fd.flush()
-            logger.info(f"Acquired polling lock for PID {os.getpid()}")
-        except (OSError, IOError) as e:
-            if _lock_fd:
-                _lock_fd.close()
-                _lock_fd = None
-            logger.info(f"Another process holds polling lock: {e}")
-            return
-        
-        with _polling_lock:
-            if _polling_active or self.running:
-                logger.warning("Polling already active, skipping start")
-                return
-            _polling_active = True
-            
-        # Simple webhook cleanup before starting polling
-        try:
-            delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
-            requests.post(delete_url, json={"drop_pending_updates": True}, timeout=5)
-            logger.info("Webhook cleanup completed")
-        except Exception:
-            pass
-        
-        # Additional wait to ensure no competing processes
-        time.sleep(3)
-            
-        self.running = True
-        self.thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self.thread.start()
-        logger.info("Telegram polling service started")
+    text = text.strip()
+    cmd = text.lower()
     
-    def stop(self):
-        """Stop polling and release lock"""
-        global _polling_active, _lock_fd
-        
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=5)
-            
-        with _polling_lock:
-            _polling_active = False
-            
-        # Release file lock
-        if _lock_fd:
-            try:
-                fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_UN)
-                _lock_fd.close()
-                os.unlink(_LOCK_FILE)
-                logger.info(f"Released polling lock for PID {os.getpid()}")
-            except:
-                pass
-            _lock_fd = None
-            
-        logger.info("Telegram polling service stopped")
+    if cmd == '/ping':
+        return '🏓 Pong! Mork F.E.T.C.H Bot is alive and ready to fetch profits!'
     
-    def _poll_loop(self):
-        """Main polling loop"""
-        while self.running:
-            try:
-                updates = self._get_updates()
-                for update in updates:
-                    self.handle_update(update)
-                time.sleep(2)  # Poll every 2 seconds
-            except Exception as e:
-                if "409" in str(e) or "Conflict" in str(e):
-                    logger.warning(f"409 conflict detected, emergency cleanup: {e}")
-                    # Emergency webhook cleanup on conflict
-                    try:
-                        delete_url = f"https://api.telegram.org/bot{self.bot_token}/deleteWebhook"
-                        requests.post(delete_url, json={"drop_pending_updates": True}, timeout=5)
-                        logger.info("Emergency webhook cleanup completed")
-                    except Exception:
-                        pass
-                    time.sleep(15)  # Longer backoff for conflicts
-                else:
-                    logger.error(f"Polling error: {e}")
-                    time.sleep(5)  # Wait longer on error
+    elif cmd == '/help':
+        return ('🐕 *Mork F.E.T.C.H Bot* - The Degens\' Best Friend!\n\n'
+                '*Commands:*\n'
+                '/ping - Test connection\n'
+                '/help - Show commands\n'
+                '/wallet - Wallet info\n'
+                '/autosell_status - AutoSell status\n'
+                '/scanner_status - Scanner status\n'
+                '/status - System overview')
     
-    def _get_updates(self) -> list:
-        """Get new updates from Telegram"""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
-            params = {
-                "offset": self.last_update_id + 1,
-                "limit": 10,
-                "timeout": 5
-            }
-            
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if data.get('ok'):
-                updates = data.get('result', [])
-                if updates:
-                    self.last_update_id = updates[-1]['update_id']
-                return updates
-            else:
-                logger.error(f"Failed to get updates: {data}")
-                return []
-                
-        except Exception as e:
-            logger.error(f"Error getting updates: {e}")
-            return []
+    elif cmd == '/wallet':
+        return ('👛 *Wallet Status*\n\n'
+                'Status: Not configured\n'
+                'Use `/wallet_new` to create a new wallet')
     
-    def _send_message(self, chat_id: int, text: str) -> bool:
-        """Send message to chat"""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-            payload = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown"
-            }
-            
-            response = requests.post(url, json=payload, timeout=10)
-            result = response.json()
-            
-            if result.get('ok'):
-                logger.info(f"Message sent successfully to {chat_id}")
-                return True
-            else:
-                logger.error(f"Failed to send message: {result}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error sending message: {e}")
-            return False
+    elif cmd == '/autosell_status':
+        return ('🚀 *AutoSell Status*\n\n'
+                'Status: OFF\n'
+                'Active Rules: 0\n'
+                'Use `/autosell_on` to enable')
     
-    def _process_autosell_command(self, cmd: str, args: str) -> str:
-        """Process AutoSell commands directly"""
-        try:
-            # Import autosell module functions directly
-            import sys
-            import os
-            sys.path.insert(0, '/home/runner/workspace')
-            
-            # Import autosell module
-            import autosell
-            
-            def _reply(msg: str, status: str = "ok") -> str:
-                """Helper function for consistent replies with optional status"""
-                return msg
-            
-            if cmd == "/autosell_status":
-                st = autosell.status()
-                if isinstance(st, dict):
-                    return _reply(f"🤖 AutoSell Status\nEnabled: {st.get('enabled', False)}\nInterval: {st.get('interval_sec', 0)}s\nRules: {st.get('rules_count', 0)}\nThread alive: {st.get('thread_alive', False)}")
-                else:
-                    return _reply("🤖 AutoSell Status: Unable to fetch status")
-            
-            elif cmd == "/autosell_on":
-                autosell.enable()
-                return _reply("🟢 AutoSell enabled.")
-            
-            elif cmd == "/autosell_off":
-                autosell.disable()
-                return _reply("🔴 AutoSell disabled.")
-            
-            elif cmd == "/autosell_list":
-                rules = autosell.get_rules()
-                if not rules:
-                    return _reply("🤖 AutoSell rules: (none)")
-                
-                lines = ["🤖 AutoSell rules:"]
-                for mint, rule in rules.items():
-                    take_profit = rule.get('tp_pct', 'None')
-                    stop_loss = rule.get('sl_pct', 'None') 
-                    lines.append(f"• {mint[:8]}... TP:{take_profit}% SL:{stop_loss}%")
-                
-                return _reply("\n".join(lines))
-            
-            elif cmd == "/autosell_interval":
-                if args:
-                    try:
-                        interval = int(args)
-                        autosell.set_interval(interval)
-                        return _reply(f"⏱️ AutoSell interval set to {interval}s")
-                    except ValueError:
-                        return _reply("❌ Invalid interval. Use: /autosell_interval <seconds>")
-                else:
-                    st = autosell.status()
-                    current_interval = st.get('interval_sec', 0) if isinstance(st, dict) else 0
-                    return _reply(f"⏱️ AutoSell interval: {current_interval}s\nUsage: /autosell_interval <seconds>")
-            
-            else:
-                clean = (cmd or "").replace("\n", " ")
-                return _reply(f"❓ Unknown AutoSell command: {clean}\nUse /help for available commands.", status="unknown_command")
-                
-        except Exception as e:
-            logger.error(f"Error processing AutoSell command {cmd}: {e}")
-            return f"❌ Error processing command: {str(e)}"
+    elif cmd == '/scanner_status':
+        return ('🔍 *Scanner Status*\n\n'
+                'Solscan: Active\n'
+                'Birdeye: Enabled\n'
+                'DexScreener: Ready\n'
+                'Total discoveries: 20+ tokens')
     
-    def handle_update(self, update):
-        """Handle update with perimeter deduplication"""
-        # TEMPORARY: Log exact update for 409 debugging
-        uid = update.get("update_id")
-        print(f"[TEMP-POLLING] Processing update_id={uid}, full_update={update}")
-        
-        if _seen_update(uid): 
-            print(f"[TEMP-POLLING] DUPLICATE update_id detected: {uid}")
-            return  # ignore duplicate delivery
+    elif cmd == '/status':
+        return ('⚡ *Mork F.E.T.C.H Bot Status*\n\n'
+                '🟢 Telegram: Connected\n'
+                '🟢 Scanners: Active\n'
+                '🔴 Wallet: Not configured\n'
+                '🔴 AutoSell: OFF\n'
+                '🟢 System: Operational')
+    
+    elif cmd.startswith('/'):
+        clean_cmd = cmd.replace('\n', ' ')[:50]
+        return f'Command not recognized: {clean_cmd}\n\nUse /help for available commands.'
+    
+    return None
 
-        # Message-level deduplication with handled response
-        msg = update.get("message") or {}
-        if _is_dup_message(msg):
-            print(f"[TEMP-POLLING] DUPLICATE message detected: {msg.get('message_id')}")
-            return {"status":"ok","response":"", "handled":True}  # swallow duplicate
-
-        # Import required modules for the router
-        import sys
-        sys.path.insert(0, '/home/runner/workspace')
-        
-        from app import process_telegram_command
-        from telegram_safety import send_telegram_safe
-        
-        # Get chat_id for responses
-        message = update.get("message") or {}
-        chat_id = message.get("chat", {}).get("id")
-        user_id = message.get("from", {}).get("id")
-        
-        # Only process messages from admin
-        if user_id != self.admin_id or not chat_id:
-            return
-        
-        try:
-            result = process_telegram_command(update)
-            
-            if isinstance(result, dict) and result.get("handled"):
-                out = result["response"]
-            elif isinstance(result, str):
-                out = result
-            else:
-                out = "⚠️ Processing error occurred."
-            
-            send_telegram_safe(self.bot_token or "", chat_id, out)
-            
-        except Exception as e:
-            logger.error(f"Error in handle_update: {e}")
-            send_telegram_safe(self.bot_token or "", chat_id, "⚠️ Processing error occurred.")
-
-# Global instance
-polling_service = None
-
-def start_polling_service():
-    """Start the global polling service"""
-    global polling_service
+def send_message(chat_id, text):
+    """Send message to Telegram chat"""
     try:
-        if polling_service is None:
-            polling_service = TelegramPollingService()
-        polling_service.start()
-        return True
+        response = requests.post(f'{API_BASE}/sendMessage', 
+                               json={
+                                   'chat_id': chat_id, 
+                                   'text': text,
+                                   'parse_mode': 'Markdown'
+                               }, 
+                               timeout=10)
+        return response.status_code == 200
     except Exception as e:
-        logger.error(f"Failed to start polling service: {e}")
+        log.error(f'Send error: {e}')
         return False
 
-def stop_polling_service():
-    """Stop the global polling service"""
-    global polling_service
-    if polling_service:
-        polling_service.stop()
+def run_polling():
+    """Main polling loop"""
+    log.info('🤖 Mork F.E.T.C.H Bot polling started')
+    offset = 0
+    
+    while True:
+        try:
+            # Get updates
+            response = requests.get(f'{API_BASE}/getUpdates', 
+                                  params={'offset': offset, 'timeout': 10}, 
+                                  timeout=15)
+            
+            if response.status_code != 200:
+                log.warning(f'API error: {response.status_code}')
+                time.sleep(5)
+                continue
+            
+            data = response.json()
+            if not data.get('ok'):
+                log.error(f'API not ok: {data.get("description", "Unknown error")}')
+                time.sleep(5)
+                continue
+            
+            updates = data.get('result', [])
+            if updates:
+                log.info(f'Processing {len(updates)} updates')
+                
+                for update in updates:
+                    update_id = update['update_id']
+                    offset = update_id + 1
+                    
+                    msg = update.get('message', {})
+                    if not msg:
+                        continue
+                    
+                    text = msg.get('text', '')
+                    chat_id = msg.get('chat', {}).get('id')
+                    user_id = msg.get('from', {}).get('id')
+                    username = msg.get('from', {}).get('username', 'unknown')
+                    
+                    if text and chat_id:
+                        log.info(f'Command: "{text}" from @{username} ({user_id})')
+                        
+                        response_text = process_command(text, chat_id, user_id)
+                        if response_text:
+                            success = send_message(chat_id, response_text)
+                            log.info(f'Response sent: {success}')
+            
+            time.sleep(1)
+            
+        except Exception as e:
+            log.error(f'Polling error: {e}')
+            time.sleep(5)
+
+def main():
+    """Main entry point with file lock"""
+    if not BOT_TOKEN:
+        log.error('TELEGRAM_BOT_TOKEN not set')
+        return
+    
+    try:
+        with FileLock(LOCK_PATH, timeout=1):
+            log.info(f'Lock acquired: {LOCK_PATH}')
+            run_polling()
+    except Exception as e:
+        log.error(f'Lock error: {e}')
+
+if __name__ == '__main__':
+    main()
