@@ -11,5 +11,5 @@ gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app &
 export FETCH_ENABLE_SCANNERS=0
 nohup python3 simple_polling_bot.py >> polling_bot.log 2>&1 &
 
-# Keep script alive by waiting on the first child
-wait -n
+# Keep script alive by waiting on all children
+wait
