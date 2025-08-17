@@ -11,6 +11,17 @@ from flask import Flask, request, jsonify, Response, stream_with_context, render
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 print(f"[app] import OK tag={APP_BUILD_TAG} file={__file__}")
+
+# Define all commands at module scope to avoid UnboundLocalError
+ALL_COMMANDS = [
+    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd",
+    "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
+    "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
+    "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
+    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
+    "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
+]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
 
@@ -262,29 +273,19 @@ def _normalize_token(token_data, source=None):
     return normalized
 
 def process_telegram_command(update: dict):
-    print("[router] ENTER", "update_id=", (update or {}).get("update_id"),
-          "text repr=", repr(((update or {}).get("message") or {}).get("text","")))
+
     """Enhanced command processing with unified response architecture"""
     # TEMPORARY: Log exact update once for 409 debugging
     update_id = update.get("update_id")
     if update_id and update_id % 100 == 0:  # Log every 100th update to avoid spam
         print(f"[TEMP-DEBUG] Full update: {update}")
     
-    print(f"[router] ENTER update_id={update.get('update_id')} text={repr((update.get('message') or {}).get('text'))}")
+
     
     # Message-level deduplication in router
     msg = update.get("message") or {}
     
-    # Debug entities for user testing
-    entities = msg.get("entities", [])
-    print(f"[router] ENTITIES: {entities}")
-    if entities:
-        for ent in entities:
-            if ent.get("type") == "bot_command":
-                text_raw = msg.get("text", "")
-                offset, length = ent.get("offset", 0), ent.get("length", 0)
-                slice_text = text_raw[offset:offset+length]
-                print(f"[router] ENT bot_command slice: {repr(slice_text)}")
+
     # Skip deduplication for test scenarios (no update_id) or direct calls
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
@@ -294,11 +295,7 @@ def process_telegram_command(update: dict):
     text = msg.get("text") or ""
     clean = (text or "").strip() 
     cmd, args = _parse_cmd(clean)
-    print("[router] clean=", repr(clean), "cmd=", repr(cmd), "args=", repr(args))
-    
-    # Debug codepoints for user testing
-    print(f"[router] TEXT cp: {[hex(ord(c)) for c in text]} / CLEAN cp: {[hex(ord(c)) for c in clean]} / CMD cp: {[hex(ord(c)) for c in cmd] if cmd else None}")
-    print(f"[router] DBG2 cmd={repr(cmd)} in_all_clean={clean in all_commands} in_all_cmd={cmd in all_commands}")
+
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
@@ -332,18 +329,9 @@ def process_telegram_command(update: dict):
         # Define public commands that don't require admin access
         public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
         
-        # Check if this is a recognized command
-        all_commands = public_commands + [
-            "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
-            "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
-            "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
-            "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
-            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
-            "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
-        ]
-        
-        # Router fallback (and only one in repo)
-        if cmd not in all_commands:
+        # Router fallback (and only one in repo) 
+
+        if cmd not in ALL_COMMANDS:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
             return _reply(f"❓ Command not recognized: {clean}\nUse /help for available commands.",
