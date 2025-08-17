@@ -268,6 +268,7 @@ def process_telegram_command(update: dict):
     
     # Message-level deduplication in router
     msg = update.get("message") or {}
+    print(f"[DEBUG] telegram entities at top: {msg.get('entities', [])}")
     # Skip deduplication for test scenarios (no update_id) or direct calls
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
