@@ -11,6 +11,8 @@ Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on ligh
 ## System Architecture
 The application uses Flask with a polling-based architecture for Telegram integration (switched from webhook due to external domain 404 issues), managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
+**Recent Critical Fix (Aug 17, 2025)**: Resolved MarkdownV2 parsing errors that were preventing Telegram message delivery. Implemented 3-tier fallback system (MarkdownV2 → escaped MarkdownV2 → plain text) with resilient timeout handling for production-ready message delivery.
+
 **Core Architectural Decisions & Features:**
 - **Dual-Service Architecture with Scanner Control:** Flask web application runs with configurable scanner initialization controlled by `FETCH_ENABLE_SCANNERS` environment variable. Polling bot runs with scanners disabled (`FETCH_ENABLE_SCANNERS=0`) to prevent import conflicts. Production deployment uses `run.sh` script enabling scanners for web app (`FETCH_ENABLE_SCANNERS=1`) while keeping polling bot scanner-free for clean process separation.
 - **Environment-Controlled Scanner Initialization:** Scanner imports and initialization wrapped in conditional blocks to prevent conflicts during polling bot startup. Allows flexible deployment configurations where web interface can use full scanner functionality while Telegram polling operates independently.

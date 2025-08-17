@@ -54,33 +54,35 @@ class SimplePollingBot:
         self.running = False
         
     def get_updates(self):
-        """Get updates from Telegram API"""
+        """Get updates from Telegram API with resilient timeouts and clear logs."""
+        import time
         try:
+            params = {
+                "timeout": 8,                 # Telegram long-poll window (seconds)
+                "offset": self.offset,
+                "allowed_updates": ["message"]  # only what we handle
+            }
             url = f"{self.base_url}/getUpdates"
-            response = requests.get(
-                url,
-                params={"timeout": 10, "offset": self.offset},
-                timeout=12
-            )
-            
-            if response.status_code == 409:
-                logger.error("[poll] 409 Conflict from Telegram: webhook set or another poller is consuming updates.")
-                logger.error("[poll] run: curl -s -X POST \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteWebhook\"")
+            r = requests.get(url, params=params, timeout=(5, 10))  # (connect, read)
+            if r.status_code == 200:
+                data = r.json()
+                res = data.get("result", [])
+                logger.info(f"[poll] got {len(res)} updates; last_offset={self.offset}")
+                return data
+            if r.status_code == 409:
+                logger.error("[poll] 409 Conflict (webhook or another poller). Stopping.")
                 self.running = False
                 return {"ok": False}
-            
-            response_preview = response.text[:200] if response.text else "empty"
-            logger.debug(f"[poll] GET {url} -> {response.status_code} {response_preview}")
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.error(f"Failed to get updates: {response.status_code}")
-                return None
-                
+            logger.warning(f"[poll] getUpdates unexpected status={r.status_code} body={r.text[:160]}")
+            time.sleep(1)
+            return {"ok": False}
+        except requests.Timeout:
+            logger.warning("[poll] getUpdates timeout; retrying soon")
+            return {"ok": False}
         except Exception as e:
-            logger.error(f"Error getting updates: {e}")
-            return None
+            logger.error(f"[poll] getUpdates error: {e}")
+            time.sleep(1)
+            return {"ok": False}
     
     def send_message(self, chat_id, text):
         url = f"{self.base_url}/sendMessage"
