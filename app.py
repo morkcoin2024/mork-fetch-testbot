@@ -6,7 +6,11 @@ Handles Telegram webhooks and provides web interface
 import os
 import logging
 import threading
+import time
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+
+APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
+print(f"[app] import OK tag={APP_BUILD_TAG} file={__file__}")
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
 
@@ -258,6 +262,8 @@ def _normalize_token(token_data, source=None):
     return normalized
 
 def process_telegram_command(update: dict):
+    print("[router] ENTER", "update_id=", (update or {}).get("update_id"),
+          "text repr=", repr(((update or {}).get("message") or {}).get("text","")))
     """Enhanced command processing with unified response architecture"""
     # TEMPORARY: Log exact update once for 409 debugging
     update_id = update.get("update_id")

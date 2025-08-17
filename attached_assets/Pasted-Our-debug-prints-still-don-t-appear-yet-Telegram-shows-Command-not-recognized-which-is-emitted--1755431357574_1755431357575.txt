@@ -1,0 +1,61 @@
+Our debug prints still don’t appear, yet Telegram shows “Command not recognized…”, which is emitted by our code. I need to prove the running process is importing the SAME app.py I edited, and capture the precise cmd/clean path. Please give ONLY the following, in order.
+
+A) Module identity & source-hash verification (commands to run)
+# Show which file Python imported as 'app' and the router’s source hash, and compare to ./app.py
+python3 - <<'PY'
+import sys, inspect, hashlib, importlib
+import app
+print("app.__file__ =", app.__file__)
+print("sys.path[:5] =", sys.path[:5])
+fn = inspect.getsourcefile(app.process_telegram_command)
+src = inspect.getsource(app.process_telegram_command)
+print("router file    =", fn)
+print("router sha256  =", hashlib.sha256(src.encode()).hexdigest()[:20])
+print("disk sha256    =", hashlib.sha256(open("app.py","rb").read()).hexdigest()[:20])
+PY
+
+# Also check for duplicate files containing the fallback string
+grep -R -n "Command not recognized:" .
+
+B) Minimal import-time beacon (git-style diff)
+# Add a one-line beacon so we KNOW which file/path is loaded when the bot starts.
+# (Use print(), not logger.)
+# Show a tiny unified diff we can apply:
+
+--- a/app.py
++++ b/app.py
+@@
++import os, time
++APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
++print(f"[app] import OK tag={APP_BUILD_TAG} file={__file__}")
+
+# Also add a beacon at the top of process_telegram_command:
+@@
+ def process_telegram_command(update: dict):
++    print("[router] ENTER", "update_id=", (update or {}).get("update_id"),
++          "text repr=", repr(((update or {}).get("message") or {}).get("text","")))
+
+C) Foreground run (so prints are visible) and single-instance safety
+# Run in foreground unbuffered and confirm only ONE polling bot:
+pkill -f simple_polling_bot.py || true
+LOG_LEVEL=DEBUG PYTHONUNBUFFERED=1 python3 -u simple_polling_bot.py
+
+D) Live proof with /wallet (private chat). I will send:
+1) /wallet
+2) /wallet@MorkSniperBot
+3)  ␠/wallet   (leading space)
+
+Tell me to paste back ~25 lines including:
+- “[app] import OK … file=…”
+- “[router] ENTER … text repr= ‘…’”
+- our existing “[router] clean= … cmd= … args= …”
+- membership debug (in_all_cmd) if present
+- the line that emits “Command not recognized” OR the handler line and “Response sent: True”
+
+E) If app.__file__ or router file ≠ ./app.py OR hashes differ
+- Explain why (duplicate module, different working directory, or a second copy of app.py).
+- Give the ONE-LINE fix to the import in simple_polling_bot.py so it imports from the correct path (e.g., `sys.path.insert(0, os.getcwd())` before `from app import ...`) with a tiny diff.
+- Then re-run Step C and D.
+
+F) If hashes match and ENTER logs show the messages but we STILL hit unknown-command
+- Provide a tiny diff to print **codepoints** for `text`, `clean`, and `cmd` just before the `if cmd not in all_commands:` check:
