@@ -1,13 +1,13 @@
 # Mork F.E.T.C.H Bot - System Status
 
 ## Current Configuration
-- **MODE**: polling
-- **START COMMAND**: bash run.sh
-- **FOREGROUND PROCESS**: simple_polling_bot.py (autoloop)
-- **WEBHOOK**: disabled (deleteWebhook on boot)
+- **MODE**: webhook (single process)
+- **START COMMAND**: `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`
+- **FOREGROUND PROCESS**: gunicorn Flask web server
+- **WEBHOOK**: `https://morkcoin2024.replit.app/webhook` (ACTIVE)
 - **TOKEN**: rotated 2025-08-17 (do not store token)
 - **ADMIN_CHAT_ID**: <redacted>
-- **LAST COMMIT**: 96533d5
+- **LAST COMMIT**: webhook mode implementation
 
 ## Health Status (Last Check: 2025-08-17 17:16:00 UTC)
 
