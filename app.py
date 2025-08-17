@@ -330,7 +330,6 @@ def process_telegram_command(update: dict):
         
         # Router fallback (and only one in repo) 
         if cmd not in ALL_COMMANDS:
-            print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
             return _reply(f"❓ Command not recognized: {clean}\nUse /help for available commands.",
                           status="unknown_command")
