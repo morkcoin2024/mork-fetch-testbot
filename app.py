@@ -1316,5 +1316,19 @@ def console():
 </html>
     ''')
 
+# Initialize services when Flask app is ready
+def initialize_app():
+    """Initialize services for production deployment"""
+    with app.app_context():
+        _ensure_scanners()
+        logger.info("App initialization complete")
+
+# Call initialization immediately for production
+if __name__ != '__main__':
+    # Running under gunicorn or similar
+    initialize_app()
+
 if __name__ == '__main__':
+    # Development mode
+    initialize_app()
     app.run(debug=True, host='0.0.0.0', port=5000)

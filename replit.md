@@ -17,7 +17,7 @@ The application uses Flask with a polling-based architecture for Telegram integr
 
 **Enhanced Auto-Restart Implementation (Aug 17, 2025)**: Both `run.sh` script and `simple_polling_bot.py` now include robust auto-restart mechanisms with infinite loops, exception handling, and 2-second delays between restarts. This dual-layer fault tolerance ensures maximum uptime. For Replit deployments, the start command should be set to `bash run.sh` to leverage the enhanced dual-service architecture with production-grade reliability.
 
-**Current Operational Status**: Working polling bot (`working_polling_bot.py`) successfully bypassing Replit external domain routing issues. Telegram bot fully operational and responding to all commands. Web interface accessible locally via default workflow for development.
+**Current Operational Status**: Telegram bot fully operational with integrated polling service running within Flask app. Bot responds to all commands including `/ping`, `/status`, `/help`. External domain routing issue bypassed by running polling as background thread in managed Flask process. Web interface accessible locally via default workflow for development.
 
 **Core Architectural Decisions & Features:**
 - **Dual-Service Architecture with Scanner Control:** Flask web application runs with configurable scanner initialization controlled by `FETCH_ENABLE_SCANNERS` environment variable. Polling bot runs with scanners disabled (`FETCH_ENABLE_SCANNERS=0`) to prevent import conflicts. Production deployment uses `run.sh` script enabling scanners for web app (`FETCH_ENABLE_SCANNERS=1`) while keeping polling bot scanner-free for clean process separation. Enhanced with bulletproof MarkdownV2 message delivery system.

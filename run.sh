@@ -1,24 +1,51 @@
-#!/usr/bin/env bash
-set -euo pipefail
-export LOG_LEVEL=${LOG_LEVEL:-INFO}
-export PYTHONUNBUFFERED=1
-echo "[RUNSH] starting run.sh at $(date -u +%FT%TZ)"
+#!/bin/bash
 
-# Always clear webhook on boot so polling isn't conflicted
-if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
-  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
-fi
+# Enhanced dual-service startup script for Mork F.E.T.C.H Bot
+# Runs both web app (with scanners) and polling bot (scanner-free)
 
-# Start web app (background)
-export FETCH_ENABLE_SCANNERS=1
-echo "[RUNSH] launching gunicorn (web)"
-gunicorn app:app --bind 0.0.0.0:5000 --workers=1 &
+echo "🚀 Starting Mork F.E.T.C.H Bot Dual-Service Mode"
+echo "================================================"
 
-# Poller (foreground) with simple auto-restart
-export FETCH_ENABLE_SCANNERS=0
-while true; do
-  echo "[RUNSH] starting poller loop..."
-  python3 -u simple_polling_bot.py || true
-  echo "[RUNSH] poller exited; restarting in 2s"
-  sleep 2
-done
+# Kill any existing instances
+pkill -f "simple_polling_bot.py" 2>/dev/null || true
+pkill -f "gunicorn" 2>/dev/null || true
+sleep 2
+
+# Function to start web app in background
+start_web_app() {
+    echo "🌐 Starting web application with scanners enabled..."
+    export FETCH_ENABLE_SCANNERS=1
+    nohup gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app > web_app.log 2>&1 &
+    WEB_PID=$!
+    echo "Web app started with PID: $WEB_PID"
+    sleep 3
+}
+
+# Function to start polling bot in foreground
+start_polling_bot() {
+    echo "🤖 Starting Telegram polling bot..."
+    export FETCH_ENABLE_SCANNERS=0
+    python3 simple_polling_bot.py
+}
+
+# Auto-restart wrapper
+restart_loop() {
+    while true; do
+        echo "$(date): Starting services..."
+        
+        # Start web app
+        start_web_app
+        
+        # Start polling bot (foreground - main process)
+        start_polling_bot
+        
+        echo "$(date): Polling bot stopped - restarting in 2 seconds..."
+        sleep 2
+    done
+}
+
+# Trap signals for clean shutdown
+trap 'echo "Shutting down..."; pkill -f simple_polling_bot; pkill -f gunicorn; exit 0' SIGTERM SIGINT
+
+# Start the restart loop
+restart_loop
