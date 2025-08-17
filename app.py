@@ -1193,6 +1193,19 @@ def status():
         logger.error(f"Status endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/health')
+def health():
+    import os, time, json
+    hb = {"polling_healthy": False, "reason": "no_heartbeat"}
+    try:
+        with open("/tmp/mork_polling.lock") as f:
+            hb["poller_pid"] = f.read().strip()
+        hb["polling_healthy"] = True
+        hb["reason"] = "ok"
+    except Exception:
+        pass
+    return jsonify({"status": "ok", **hb}), 200
+
 # Live event streaming dashboard routes
 @app.route('/monitor')
 def monitor_dashboard():
