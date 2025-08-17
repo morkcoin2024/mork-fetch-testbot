@@ -9,6 +9,9 @@ import threading
 import time
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
+# Disable scanners by default for the poller process.
+FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
+
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 # Define all commands at module scope to avoid UnboundLocalError
@@ -60,65 +63,71 @@ from jupiter_scan import JupiterScan
 # Initialize components after admin functions are defined
 def _init_scanners():
     global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, SCANNERS
-    SCANNERS.clear()
-    SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
     
-    # Only initialize WebSocket if enabled
-    feature_ws = os.environ.get('FEATURE_WS', 'off').lower()  # Default to off
-    if feature_ws == 'on':
-        try:
-            ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
-            logger.info("[WS] WebSocket client enabled (FEATURE_WS=on)")
-        except Exception as e:
+    if FETCH_ENABLE_SCANNERS:
+        # (existing scanner initialization goes here unchanged)
+        SCANNERS.clear()
+        SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
+        
+        # Only initialize WebSocket if enabled
+        feature_ws = os.environ.get('FEATURE_WS', 'off').lower()  # Default to off
+        if feature_ws == 'on':
+            try:
+                ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+                logger.info("[WS] WebSocket client enabled (FEATURE_WS=on)")
+            except Exception as e:
+                ws_client = None
+                logger.warning(f"[WS] WebSocket initialization failed: {e}")
+        else:
             ws_client = None
-            logger.warning(f"[WS] WebSocket initialization failed: {e}")
-    else:
-        ws_client = None
-        logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
-    
-    DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
-    JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
-    # Initialize Solscan Pro scanner if configured
-    global SOLSCAN_SCANNER
-    solscan_api_key = os.getenv("SOLSCAN_API_KEY")
-    feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
-    
-    # Unmistakable boot logs for debugging
-    logger.info("[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or ""))
-    
-    if feature_solscan and solscan_api_key:
-        try:
-            from solscan import get_solscan_scanner
-            SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
-            if SOLSCAN_SCANNER:
-                # SCANNERS registry will be populated after init
-                logger.info("[INIT][SOLSCAN] created=True id=%s", id(SOLSCAN_SCANNER))
-                SOLSCAN_SCANNER.start()
-                logger.info("[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
-                           getattr(SOLSCAN_SCANNER, "enabled", None), getattr(SOLSCAN_SCANNER, "running", None), os.getpid())
-            else:
+            logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
+        
+        DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
+        JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
+        # Initialize Solscan Pro scanner if configured
+        global SOLSCAN_SCANNER
+        solscan_api_key = os.getenv("SOLSCAN_API_KEY")
+        feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
+        
+        # Unmistakable boot logs for debugging
+        logger.info("[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or ""))
+        
+        if feature_solscan and solscan_api_key:
+            try:
+                from solscan import get_solscan_scanner
+                SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
+                if SOLSCAN_SCANNER:
+                    # SCANNERS registry will be populated after init
+                    logger.info("[INIT][SOLSCAN] created=True id=%s", id(SOLSCAN_SCANNER))
+                    SOLSCAN_SCANNER.start()
+                    logger.info("[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
+                               getattr(SOLSCAN_SCANNER, "enabled", None), getattr(SOLSCAN_SCANNER, "running", None), os.getpid())
+                else:
+                    SOLSCAN_SCANNER = None
+                    logger.warning("Failed to create Solscan Pro scanner instance")
+            except Exception as e:
                 SOLSCAN_SCANNER = None
-                logger.warning("Failed to create Solscan Pro scanner instance")
-        except Exception as e:
+                logger.exception("[INIT][SOLSCAN] failed: %s", e)
+        else:
             SOLSCAN_SCANNER = None
-            logger.exception("[INIT][SOLSCAN] failed: %s", e)
+            logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
+        
+        # Boot status logs
+        logger.info("[INIT][SOLSCAN] created=%s", bool(SOLSCAN_SCANNER))
+        if SOLSCAN_SCANNER:
+            logger.info("[INIT][SOLSCAN] enabled=%s running=%s", SOLSCAN_SCANNER.enabled, SOLSCAN_SCANNER.running)
+        
+        # Register scanners in centralized registry
+        SCANNERS = {
+            'birdeye': SCANNER,
+            'jupiter': JUPITER_SCANNER,
+            'solscan': SOLSCAN_SCANNER,
+            'dexscreener': DS_SCANNER,
+            'websocket': ws_client
+        }
     else:
-        SOLSCAN_SCANNER = None
-        logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
-    
-    # Boot status logs
-    logger.info("[INIT][SOLSCAN] created=%s", bool(SOLSCAN_SCANNER))
-    if SOLSCAN_SCANNER:
-        logger.info("[INIT][SOLSCAN] enabled=%s running=%s", SOLSCAN_SCANNER.enabled, SOLSCAN_SCANNER.running)
-    
-    # Register scanners in centralized registry
-    SCANNERS = {
-        'birdeye': SCANNER,
-        'jupiter': JUPITER_SCANNER,
-        'solscan': SOLSCAN_SCANNER,
-        'dexscreener': DS_SCANNER,
-        'websocket': ws_client
-    }
+        print("[SCANNERS] disabled for polling-only run (set FETCH_ENABLE_SCANNERS=1 to enable)")
+        SCANNERS = {}
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
