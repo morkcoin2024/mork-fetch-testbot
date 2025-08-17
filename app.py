@@ -330,7 +330,7 @@ def process_telegram_command(update: dict):
         public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
         
         # Router fallback (and only one in repo) 
-        print(f"[DEBUG] cmd={cmd} in ALL_COMMANDS={cmd in ALL_COMMANDS} len(ALL_COMMANDS)={len(ALL_COMMANDS)}")
+        print(f"[router] VERIFY cmd='{cmd}' in_all={cmd in ALL_COMMANDS}")
         if cmd not in ALL_COMMANDS:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
