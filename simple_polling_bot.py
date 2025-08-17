@@ -249,4 +249,12 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    import time, traceback
+    while True:
+        try:
+            bot = SimplePollingBot()
+            bot.run()  # returns when self.running becomes False or an error happens
+        except Exception as e:
+            logger.exception("[poll] FATAL: unhandled exception; will restart")
+        # brief pause to avoid hot-looping on persistent errors
+        time.sleep(2)
