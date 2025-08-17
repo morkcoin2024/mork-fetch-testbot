@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import logging
+import fcntl
 import requests
 import traceback
 # Import moved to process_update to avoid initialization blocking
@@ -123,52 +124,68 @@ class SimplePollingBot:
             traceback.print_exc()
     
     def run(self):
-        """Main polling loop"""
-        self.running = True
-        logger.info("🤖 Mork F.E.T.C.H Bot starting in polling mode...")
-        
-        # Get bot info
+        """Start polling loop"""
         try:
-            response = requests.get(f"{self.base_url}/getMe", timeout=10)
-            if response.status_code == 200:
-                bot_info = response.json().get('result', {})
-                logger.info(f"Bot ready: @{bot_info.get('username', 'unknown')}")
-            else:
-                logger.error("Failed to get bot info")
-                return
-        except Exception as e:
-            logger.error(f"Failed to connect to Telegram API: {e}")
-            return
-        
-        logger.info(f"[poll] startup OK offset={self.offset}")
-        
-        while self.running:
+            # Single-instance lock (Linux)
+            self._lock_fd = open("/tmp/mork_polling.lock", "w")
             try:
-                updates_data = self.get_updates()
-                
-                if updates_data and updates_data.get('ok'):
-                    updates = updates_data.get('result', [])
-                    print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
-                    
-                    for update in updates:
-                        try:
-                            self.process_update(update)
-                            # Update offset to mark message as processed
-                            self.offset = update['update_id'] + 1
-                        except Exception as e:
-                            logger.error(f"Error processing individual update: {e}")
-                            # Still update offset to avoid getting stuck
-                            self.offset = update['update_id'] + 1
-                
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._lock_fd.write(str(os.getpid()))
+                self._lock_fd.flush()
+                logger.info("[poll] lock acquired /tmp/mork_polling.lock")
+            except BlockingIOError:
+                logger.error("[poll] another polling instance is already running; exiting")
+                return
+
+            self.running = True
+            logger.info("🤖 Mork F.E.T.C.H Bot starting in polling mode...")
+            
+            # Get bot info
+            try:
+                response = requests.get(f"{self.base_url}/getMe", timeout=10)
+                if response.status_code == 200:
+                    bot_info = response.json().get('result', {})
+                    logger.info(f"Bot ready: @{bot_info.get('username', 'unknown')}")
                 else:
-                    time.sleep(1)  # Brief pause if no updates
-                    
-            except KeyboardInterrupt:
-                logger.info("Bot stopped by user")
-                break
+                    logger.error("Failed to get bot info")
+                    return
             except Exception as e:
-                logger.error(f"Polling error: {e}")
-                time.sleep(5)  # Wait before retrying
+                logger.error(f"Failed to connect to Telegram API: {e}")
+                return
+            
+            logger.info(f"[poll] startup OK offset={self.offset}")
+            
+            while self.running:
+                try:
+                    updates_data = self.get_updates()
+                    
+                    if updates_data and updates_data.get('ok'):
+                        updates = updates_data.get('result', [])
+                        print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
+                        
+                        for update in updates:
+                            try:
+                                self.process_update(update)
+                                # Update offset to mark message as processed
+                                self.offset = update['update_id'] + 1
+                            except Exception as e:
+                                logger.error(f"Error processing individual update: {e}")
+                                # Still update offset to avoid getting stuck
+                                self.offset = update['update_id'] + 1
+                    
+                    else:
+                        time.sleep(1)  # Brief pause if no updates
+                        
+                except KeyboardInterrupt:
+                    logger.info("Bot stopped by user")
+                    break
+                except Exception as e:
+                    logger.error(f"Polling error: {e}")
+                    time.sleep(5)  # Wait before retrying
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize polling bot: {e}")
+            return
         
         self.running = False
         logger.info("Bot stopped")
