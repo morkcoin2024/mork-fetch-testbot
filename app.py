@@ -278,6 +278,14 @@ def process_telegram_command(update: dict):
     clean = (text or "").strip() 
     cmd, args = _parse_cmd(clean)
     print("[router] clean=", repr(clean), "cmd=", repr(cmd), "args=", repr(args))
+    
+    # Ultra-precise debug for command parsing issues
+    print(f"[DEBUG] raw text: {repr(text)}")
+    print(f"[DEBUG] clean bytes: {clean.encode('utf-8')}")
+    print(f"[DEBUG] cmd bytes: {cmd.encode('utf-8') if cmd else None}")
+    print(f"[DEBUG] telegram entities: {msg.get('entities', [])}")
+    print(f"[DEBUG] _parse_cmd input: {repr(clean)}")
+    print(f"[DEBUG] _parse_cmd output: cmd={repr(cmd)}, args={repr(args)}")
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
