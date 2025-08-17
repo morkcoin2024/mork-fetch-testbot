@@ -10,7 +10,6 @@ import time
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
-print(f"[app] import OK tag={APP_BUILD_TAG} file={__file__}")
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
@@ -330,7 +329,6 @@ def process_telegram_command(update: dict):
         public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
         
         # Router fallback (and only one in repo) 
-        print(f"[router] VERIFY cmd='{cmd}' in_all={cmd in ALL_COMMANDS}")
         if cmd not in ALL_COMMANDS:
             print(f"[route] UNKNOWN raw={repr(text)} parsed_cmd={cmd} args={args}")
             clean = (text or "").replace("\n", " ")
