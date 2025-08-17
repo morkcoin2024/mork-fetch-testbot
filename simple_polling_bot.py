@@ -220,6 +220,10 @@ class SimplePollingBot:
                                 logger.error(f"Error processing individual update: {e}")
                                 # Still update offset to avoid getting stuck
                                 self.offset = update['update_id'] + 1
+                        
+                        # after processing updates list:
+                        if not updates:
+                            logger.info("[poll] heartbeat offset=%s (no updates)", self.offset)
                     
                     else:
                         time.sleep(1)  # Brief pause if no updates
