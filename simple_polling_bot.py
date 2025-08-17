@@ -59,8 +59,8 @@ class SimplePollingBot:
             url = f"{self.base_url}/getUpdates"
             response = requests.get(
                 url,
-                params={"timeout": 25, "offset": self.offset},
-                timeout=15
+                params={"timeout": 10, "offset": self.offset},
+                timeout=12
             )
             
             if response.status_code == 409:
