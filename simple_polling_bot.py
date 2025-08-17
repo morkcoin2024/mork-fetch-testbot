@@ -98,10 +98,12 @@ class SimplePollingBot:
             return True
 
         # Attempt 2: if MarkdownV2 parsing failed, escape and retry
+        r2_status = "N/A"
         if _is_mdv2_parse_error(r):
             safe_text = _escape_markdown_v2(text)
             payload["text"] = safe_text
             r2 = requests.post(url, json=payload, timeout=15)
+            r2_status = r2.status_code
             if r2.status_code == 200 and r2.json().get("ok") is True:
                 return True
             logger.error(f"MarkdownV2 escaped send failed: {r2.status_code} - {r2.text}")
@@ -114,7 +116,7 @@ class SimplePollingBot:
             return True
 
         logger.error(f"Failed to send message (all attempts): "
-                     f"r1={r.status_code} r2={'N/A' if not _is_mdv2_parse_error(r) else r2.status_code} "
+                     f"r1={r.status_code} r2={r2_status} "
                      f"r3={r3.status_code} body3={r3.text}")
         return False
     
@@ -197,7 +199,11 @@ class SimplePollingBot:
                     
                     if updates_data and updates_data.get('ok'):
                         updates = updates_data.get('result', [])
-                        print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
+                        if isinstance(updates, list):
+                            print("[poll] got", len(updates), "updates; last_update_id=", updates[-1]['update_id'] if updates else None)
+                        else:
+                            updates = []
+                            print("[poll] got 0 updates; invalid result format")
                         
                         for update in updates:
                             try:
