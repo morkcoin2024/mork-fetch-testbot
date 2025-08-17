@@ -958,22 +958,6 @@ def _webhook_is_dup_message(msg):
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
-    # ULTRA BASIC DEBUG - First line of function
-    import time
-    import os  # Import locally to avoid scoping issues
-    timestamp = time.time()
-    print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
-    app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
-    
-    # ENHANCED DEBUG: Log raw request data
-    try:
-        raw_data = request.get_data(as_text=True)
-        print(f"[WEBHOOK-RAW-{timestamp}] Raw body: {raw_data[:500]}...")
-        app.logger.info(f"[WEBHOOK-RAW] Content length: {len(raw_data)}, first 100 chars: {raw_data[:100]}")
-    except Exception as e:
-        print(f"[WEBHOOK-RAW-ERROR] {e}")
-        app.logger.error(f"[WEBHOOK-RAW-ERROR] {e}")
-    
     # Ensure scanners are initialized in this worker process
     _ensure_scanners()
     
@@ -1004,16 +988,6 @@ def webhook():
             msg_text = update_data['message'].get('text', '')
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
-            
-            # ULTRA DEBUG: Track /solscanstats at the earliest possible point
-            if msg_text and msg_text.strip() == "/solscanstats":
-                logger.info(f"[WEBHOOK-ULTRA-DEBUG] /solscanstats detected at entry! user_id={user_id}")
-                # Add SCANNERS registry debugging for /solscanstats
-                try:
-                    logger.info("[WEBHOOK][SOLSCAN] pid=%s keys=%s has_solscan=%s",
-                               os.getpid(), list(SCANNERS.keys()), "solscan" in SCANNERS)
-                except Exception:
-                    pass
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
         
