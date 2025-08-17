@@ -10,11 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import process_telegram_command
 
-def make_update(text, user_id=999999):
+def mk(cmd, user_id=999999):
     """Helper to create test update"""
     return {
         "message": {
-            "text": text,
+            "text": cmd,
             "from": {"id": user_id},
             "chat": {"id": 12345}
         }
@@ -22,37 +22,37 @@ def make_update(text, user_id=999999):
 
 def test_wallet_non_admin():
     """Test /wallet (non-admin user ID) → status "ok" """
-    result = process_telegram_command(make_update("/wallet"))
+    result = process_telegram_command(mk("/wallet"))
     assert result["status"] == "ok"
 
 def test_autosell_status_non_admin():
     """Test /autosell_status (non-admin) → status "ok" """
-    result = process_telegram_command(make_update("/autosell_status"))
+    result = process_telegram_command(mk("/autosell_status"))
     assert result["status"] == "ok"
 
 def test_ping():
     """Test /ping → status "ok" """
-    result = process_telegram_command(make_update("/ping"))
+    result = process_telegram_command(mk("/ping"))
     assert result["status"] == "ok"
 
 def test_help():
     """Test /help → status "ok" """
-    result = process_telegram_command(make_update("/help"))
+    result = process_telegram_command(mk("/help"))
     assert result["status"] == "ok"
 
 def test_wallet_with_bot_suffix():
     """Test /wallet@SomeBot → status "ok" (parsed to /wallet)"""
-    result = process_telegram_command(make_update("/wallet@SomeBot"))
+    result = process_telegram_command(mk("/wallet@SomeBot"))
     assert result["status"] == "ok"
 
 def test_wallet_with_leading_space():
     """Test leading-space " /wallet" → status "ok" """
-    result = process_telegram_command(make_update(" /wallet"))
+    result = process_telegram_command(mk(" /wallet"))
     assert result["status"] == "ok"
 
 def test_unknown_command():
     """Test /not_a_real_cmd → status "unknown_command" """
-    result = process_telegram_command(make_update("/not_a_real_cmd"))
+    result = process_telegram_command(mk("/not_a_real_cmd"))
     assert result["status"] == "unknown_command"
 
 if __name__ == "__main__":
