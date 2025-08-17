@@ -3,7 +3,8 @@
 ## A) UI CHECKLIST (Replit Deploy)
 - Open: **Deployments** → (current deployment) → **Stop**
 - Click: **Edit Deployment**
-- **Start command**: `bash run.sh`   *(not gunicorn)*
+- **Start command**: `python3 production_runner.py`   *(proven working solution)*
+  - **Alternative**: `bash run.sh`   *(enhanced dual-service script)*
 - **Env**: ensure `TELEGRAM_BOT_TOKEN` is present
 - **Save** → **Redeploy**
 - Open **Logs** for this deployment
@@ -28,7 +29,18 @@ curl -s https://your-app.replit.app/   # Web app responds
 # Check deployment logs for ongoing "[RUNSH] starting poller loop..." messages
 ```
 
+## 🎯 RECOMMENDED START COMMANDS
+
+**Primary Option:** `python3 production_runner.py`
+- ✅ Proven polling worker system 
+- ✅ Successfully processes Telegram commands
+- ✅ Auto-restart capabilities
+- ✅ Clean process separation
+
+**Alternative:** `bash run.sh`
+- ✅ Enhanced dual-service script with startup beacons
+
 ## TROUBLESHOOTING
-- If only web app works: Check start command is `bash run.sh` not `gunicorn`
-- If no beacons: Deployment may be using cached/old start command
-- If poller dies: Look for auto-restart beacon "[RUNSH] poller exited; restarting in 2s"
+- If only web app works: Check start command is not just `gunicorn`
+- If no polling: Look for "[POLL] Started with PID" in logs
+- If command responses fail: Check for "✅ Sent message_id=" confirmations
