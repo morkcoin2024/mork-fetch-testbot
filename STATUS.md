@@ -1,13 +1,14 @@
 # Mork F.E.T.C.H Bot - System Status
 
 ## Current Configuration
-- **MODE**: webhook (single process)
-- **START COMMAND**: `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`
-- **FOREGROUND PROCESS**: gunicorn Flask web server
-- **WEBHOOK**: `https://morkcoin2024.replit.app/webhook` (ACTIVE)
+- **MODE**: TROUBLESHOOTING - Replit external domain routing issue
+- **PROBLEM**: External domain `https://morkcoin2024.replit.app` returns 404 for all routes
+- **FLASK APP**: Works perfectly locally (confirmed all routes available)
+- **DIAGNOSIS**: Replit platform infrastructure issue, not code issue
+- **WEBHOOK**: Deleted (external domain broken)
 - **TOKEN**: rotated 2025-08-17 (do not store token)
 - **ADMIN_CHAT_ID**: <redacted>
-- **LAST COMMIT**: webhook mode implementation
+- **LAST COMMIT**: diagnosed external routing failure
 
 ## Health Status (Last Check: 2025-08-17 17:16:00 UTC)
 

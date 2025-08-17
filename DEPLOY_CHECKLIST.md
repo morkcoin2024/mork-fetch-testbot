@@ -3,8 +3,8 @@
 ## A) UI CHECKLIST (Replit Deploy)
 - Open: **Deployments** → (current deployment) → **Stop**
 - Click: **Edit Deployment**
-- **Start command**: `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`   *(webhook mode - RECOMMENDED)*
-  - **Alternative**: `python3 production_runner.py`   *(dual-service polling)*
+- **Start command**: `python3 production_runner.py`   *(RECOMMENDED - polling mode)*
+  - **Issue**: Webhook mode broken due to Replit external domain routing failure
 - **Env**: ensure `TELEGRAM_BOT_TOKEN` is present
 - **Save** → **Redeploy**
 - Open **Logs** for this deployment
@@ -31,11 +31,11 @@ curl -s https://your-app.replit.app/   # Web app responds
 
 ## 🎯 RECOMMENDED START COMMANDS
 
-**WEBHOOK MODE (RECOMMENDED):** `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`
-- ✅ Proven webhook system with Telegram API integration
-- ✅ Successfully processes all Telegram commands 
-- ✅ Single process, maximum reliability
-- ✅ No polling conflicts, clean architecture
+**⚠️ WEBHOOK MODE (BROKEN ON REPLIT):** External domain routing issue
+- ❌ `https://morkcoin2024.replit.app` returns 404 for all routes
+- ✅ Flask app works perfectly locally (all routes confirmed)
+- ❌ Replit platform infrastructure problem, not code issue
+- 🔄 Use polling mode until external domain fixed
 
 **Alternative Options:**
 - `python3 production_runner.py` (dual-service polling)
