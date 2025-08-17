@@ -13,6 +13,8 @@ The application uses Flask with a polling-based architecture for Telegram integr
 
 **Recent Critical Fix (Aug 17, 2025)**: Resolved MarkdownV2 parsing errors that were preventing Telegram message delivery. Implemented 3-tier fallback system (MarkdownV2 → escaped MarkdownV2 → plain text) with resilient timeout handling for production-ready message delivery.
 
+**Production Deployment Architecture (Aug 17, 2025)**: Successfully deployed with integrated Telegram bot functionality within the Flask application. The system runs as a single gunicorn process with embedded Telegram polling, providing both web interface access and real-time Telegram command processing. Enhanced message delivery logging shows specific message_id and chat_id for comprehensive monitoring. Scanner functionality properly controlled via FETCH_ENABLE_SCANNERS environment variable.
+
 **Core Architectural Decisions & Features:**
 - **Dual-Service Architecture with Scanner Control:** Flask web application runs with configurable scanner initialization controlled by `FETCH_ENABLE_SCANNERS` environment variable. Polling bot runs with scanners disabled (`FETCH_ENABLE_SCANNERS=0`) to prevent import conflicts. Production deployment uses `run.sh` script enabling scanners for web app (`FETCH_ENABLE_SCANNERS=1`) while keeping polling bot scanner-free for clean process separation. Enhanced with bulletproof MarkdownV2 message delivery system.
 - **Environment-Controlled Scanner Initialization:** Scanner imports and initialization wrapped in conditional blocks to prevent conflicts during polling bot startup. Allows flexible deployment configurations where web interface can use full scanner functionality while Telegram polling operates independently.
