@@ -1167,7 +1167,7 @@ def webhook():
             try:
                 result = handle_update(update_data)
                 logger.info(f"[WEBHOOK] Update handled: {result.get('status')}")
-                return jsonify({"status": "ok"})
+                return jsonify({"status": result.get('status', 'ok')})
             except Exception as e:
                 logger.error(f"[WEBHOOK] Enhanced handler failed: {e}")
                 return jsonify({"status": "error_handled"}), 200
