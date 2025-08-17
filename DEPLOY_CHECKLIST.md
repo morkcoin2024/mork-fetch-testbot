@@ -3,8 +3,8 @@
 ## A) UI CHECKLIST (Replit Deploy)
 - Open: **Deployments** → (current deployment) → **Stop**
 - Click: **Edit Deployment**
-- **Start command**: `python3 production_runner.py`   *(RECOMMENDED - polling mode)*
-  - **Issue**: Webhook mode broken due to Replit external domain routing failure
+- **Start command**: `python3 working_polling_bot.py`   *(WORKING SOLUTION)*
+  - **Status**: Successfully bypasses Replit external domain issues
 - **Env**: ensure `TELEGRAM_BOT_TOKEN` is present
 - **Save** → **Redeploy**
 - Open **Logs** for this deployment
