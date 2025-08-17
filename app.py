@@ -1098,9 +1098,7 @@ def webhook():
                 
                 # Simple in-memory deduplication using global set
                 global _processed_updates
-                try:
-                    _processed_updates
-                except NameError:
+                if '_processed_updates' not in globals():
                     _processed_updates = set()
                 
                 if update_hash in _processed_updates:

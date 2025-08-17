@@ -3,8 +3,8 @@
 ## A) UI CHECKLIST (Replit Deploy)
 - Open: **Deployments** → (current deployment) → **Stop**
 - Click: **Edit Deployment**
-- **Start command**: `python3 production_runner.py`   *(proven working solution)*
-  - **Alternative**: `bash run.sh`   *(enhanced dual-service script)*
+- **Start command**: `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`   *(webhook mode - RECOMMENDED)*
+  - **Alternative**: `python3 production_runner.py`   *(dual-service polling)*
 - **Env**: ensure `TELEGRAM_BOT_TOKEN` is present
 - **Save** → **Redeploy**
 - Open **Logs** for this deployment
@@ -31,14 +31,15 @@ curl -s https://your-app.replit.app/   # Web app responds
 
 ## 🎯 RECOMMENDED START COMMANDS
 
-**Primary Option:** `python3 production_runner.py`
-- ✅ Proven polling worker system 
-- ✅ Successfully processes Telegram commands
-- ✅ Auto-restart capabilities
-- ✅ Clean process separation
+**WEBHOOK MODE (RECOMMENDED):** `gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app`
+- ✅ Proven webhook system with Telegram API integration
+- ✅ Successfully processes all Telegram commands 
+- ✅ Single process, maximum reliability
+- ✅ No polling conflicts, clean architecture
 
-**Alternative:** `bash run.sh`
-- ✅ Enhanced dual-service script with startup beacons
+**Alternative Options:**
+- `python3 production_runner.py` (dual-service polling)
+- `bash run.sh` (enhanced dual-service script)
 
 ## TROUBLESHOOTING
 - If only web app works: Check start command is not just `gunicorn`

@@ -1,0 +1,112 @@
+ACTION REQUEST — SWITCH TO WEBHOOK MODE (single process)
+Goal: Eliminate polling instability on Replit by running only the Flask app and handling Telegram via HTTPS webhook.
+
+Constraints:
+- Minimal diffs, no refactors
+- Single process: gunicorn only
+- Use existing /webhook endpoint
+- Do NOT touch business logic/handlers
+
+Deliverables:
+1) Code diffs (only these files if needed):
+   - run.sh (remove poller, or delete file)
+   - .replit (start gunicorn directly)
+   - scripts/set_webhook.sh and scripts/delete_webhook.sh (new)
+   - STATUS.md (update)
+
+2) Exact commands to run (I will paste and run them verbatim)
+
+3) Expected log lines to confirm success
+
+4) Verification steps in Telegram (and fallback curl test)
+
+--- DIFFS ---
+
+A) .replit — start ONLY the web app
+-----------------------------------
+run = "gunicorn app:app --bind 0.0.0.0:5000 --workers 1"
+
+B) Remove poller from run.sh or delete run.sh entirely
+------------------------------------------------------
+# If you keep run.sh, make it just a thin gunicorn wrapper:
+#!/usr/bin/env bash
+set -euo pipefail
+exec gunicorn app:app --bind 0.0.0.0:5000 --workers 1
+
+C) Add webhook scripts
+----------------------
+# scripts/set_webhook.sh
+#!/usr/bin/env bash
+set -euo pipefail
+: "${TELEGRAM_BOT_TOKEN?set in env}"
+: "${PUBLIC_URL?e.g. https://<your-repl>.repl.co}"
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  -d url="${PUBLIC_URL}/webhook" \
+| python3 -c "import sys,json as j;print(j.dumps(j.load(sys.stdin), indent=2))"
+
+# scripts/delete_webhook.sh
+#!/usr/bin/env bash
+set -euo pipefail
+: "${TELEGRAM_BOT_TOKEN?set in env}"
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
+| python3 -c "import sys,json as j;print(j.dumps(j.load(sys.stdin), indent=2))"
+
+Make both executable:
+chmod +x scripts/set_webhook.sh scripts/delete_webhook.sh
+
+D) STATUS.md update fields
+--------------------------
+- MODE: webhook
+- START COMMAND: gunicorn app:app --bind 0.0.0.0:5000 --workers 1
+- WEBHOOK: ${PUBLIC_URL}/webhook
+- TOKENS/SECRETS: TELEGRAM_BOT_TOKEN present in Deploy
+- HEALTH: getWebhookInfo shows the above URL
+
+--- COMMANDS TO RUN (after you push the diffs) ---
+
+# 1) Ensure Deploy has TELEGRAM_BOT_TOKEN set (Deploy secrets, not just Workspace)
+# 2) Set PUBLIC_URL for this session:
+export PUBLIC_URL="https://<your-repl-subdomain>"
+
+# 3) Remove any polling remnants (idempotent)
+pkill -f simple_polling_bot.py || true
+rm -f /tmp/mork_polling.lock || true
+
+# 4) Start (or Redeploy) with .replit run command (gunicorn only)
+# If using Replit Run:
+#   Click Run (should show only gunicorn logs)
+# If using Deploy: set Start command to:
+#   gunicorn app:app --bind 0.0.0.0:5000 --workers 1
+# Then redeploy.
+
+# 5) Register webhook
+./scripts/set_webhook.sh
+
+# 6) Verify
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 -c "import sys,json as j; d=j.load(sys.stdin); print(d.get('ok'), d.get('result',{}).get('url'))"
+
+--- EXPECTED LOG LINES (in Replit logs) ---
+- Gunicorn startup (no poller logs)
+- On first Telegram message:
+  - [WEBHOOK] Received POST /webhook
+  - [CMD] cmd='/ping' user_id=... is_admin=...
+  - Delivered message_id=... to chat_id=...
+
+--- VERIFICATION (Telegram app) ---
+1) In DM with @MorkSniperBot, send:
+/ping
+/help
+/wallet
+Expect replies within ~1s each.
+
+--- FALLBACK CURL TEST (simulates Telegram) ---
+curl -X POST "${PUBLIC_URL}/webhook" \
+ -H "Content-Type: application/json" \
+ -d '{"update_id":999999,"message":{"text":"/ping","from":{"id":1653046781},"chat":{"id":1653046781},"entities":[{"type":"bot_command","offset":0,"length":5}]}}'
+
+Expect HTTP 200 JSON with status ok and a reply delivered (check logs).
+
+--- ROLLBACK (if needed) ---
+./scripts/delete_webhook.sh
+# then revert .replit to run.sh and re-enable poller if desired
