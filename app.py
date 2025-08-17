@@ -268,6 +268,17 @@ def process_telegram_command(update: dict):
     
     # Message-level deduplication in router
     msg = update.get("message") or {}
+    
+    # Debug entities for user testing
+    entities = msg.get("entities", [])
+    print(f"[router] ENTITIES: {entities}")
+    if entities:
+        for ent in entities:
+            if ent.get("type") == "bot_command":
+                text_raw = msg.get("text", "")
+                offset, length = ent.get("offset", 0), ent.get("length", 0)
+                slice_text = text_raw[offset:offset+length]
+                print(f"[router] ENT bot_command slice: {repr(slice_text)}")
     # Skip deduplication for test scenarios (no update_id) or direct calls
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
@@ -278,6 +289,10 @@ def process_telegram_command(update: dict):
     clean = (text or "").strip() 
     cmd, args = _parse_cmd(clean)
     print("[router] clean=", repr(clean), "cmd=", repr(cmd), "args=", repr(args))
+    
+    # Debug codepoints for user testing
+    print(f"[router] TEXT cp: {[hex(ord(c)) for c in text]} / CLEAN cp: {[hex(ord(c)) for c in clean]} / CMD cp: {[hex(ord(c)) for c in cmd] if cmd else None}")
+    print(f"[router] DBG2 cmd={repr(cmd)} in_all_clean={clean in all_commands} in_all_cmd={cmd in all_commands}")
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
