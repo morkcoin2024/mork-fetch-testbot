@@ -2,59 +2,123 @@
 Telegram Polling Service - Integrated with Flask App
 Runs as a background thread within the Flask process
 """
-import os
-import sys
-import time
-import json
-import requests
+import requests, logging, os, time, json, random, signal
 import threading
-import logging
 from typing import Optional
+try:
+    import fcntl
+except Exception:  # windows safety; replit is linux so fine
+    fcntl = None
 
-# Configure logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("telegram_polling")
+
+# --- Rotating logs + console mirror (idempotent) ---
+def _ensure_logging():
+    try:
+        from logging.handlers import RotatingFileHandler
+        if not any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
+            fh = RotatingFileHandler("live_bot.log", maxBytes=1_000_000, backupCount=5)
+            fh.setLevel(logging.INFO)
+            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            logger.addHandler(fh)
+        if not any(h for h in logger.handlers if getattr(h, "_is_console", False)):
+            ch = logging.StreamHandler()
+            ch.setLevel(logging.INFO)
+            ch.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            ch._is_console = True
+            logger.addHandler(ch)
+    except Exception as e:
+        logger.error("log setup failed: %s", e)
+
+_ensure_logging()
 
 # Import unified sender and command processor from app
-try:
-    from app import tg_send, process_telegram_command
-except ImportError:
-    tg_send = None
-    process_telegram_command = None
+from app import process_telegram_command, tg_send
 
 class TelegramPollingService:
-    def __init__(self, bot_token: str, message_handler=None):
-        self.bot_token = bot_token
-        self.api_url = f"https://api.telegram.org/bot{bot_token}"
-        self.message_handler = message_handler
+    def __init__(self, token, admin_chat_id=None):
+        self.token = token
+        self.admin_chat_id = admin_chat_id
+        self.base_url = f"https://api.telegram.org/bot{self.token}"
+        self.offset = 0
+        self._hb_last = 0
+        self._lock_fd = None
         self.running = False
         self.polling_thread = None
-        self.offset = 0
         
-    def send_message(self, chat_id: int, text: str, parse_mode: Optional[str] = None) -> bool:
-        """Send message using unified tg_send with enhanced logging"""
+    def send_message(self, chat_id, text):
         ln = len(text or "")
         preview = (text or "")[:120].replace("\n"," ")
         logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
-        
-        if tg_send:
-            res = tg_send(chat_id, text, preview=True)
-            ok = bool(res.get("ok"))
-            logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
-            return ok
-        else:
-            # Fallback to direct API call
-            try:
-                url = f"{self.api_url}/sendMessage"
-                data = {"chat_id": chat_id, "text": text}
-                if parse_mode:
-                    data["parse_mode"] = parse_mode
-                response = requests.post(url, json=data, timeout=10)
-                ok = response.ok
-                logger.info("[SEND] result=%s fallback", ok)
-                return ok
-            except Exception as e:
-                logger.error(f"❌ Send error: {e}")
-                return False
+        res = tg_send(chat_id, text, preview=True)
+        ok = bool(res.get("ok"))
+        logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
+        return ok
+
+    # --- single-instance lock using flock (linux) or soft lock fallback ---
+    def acquire_lock(self, path="/tmp/mork_polling.lock"):
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+            self._lock_fd = fd
+            if fcntl:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except Exception:
+                    logger.error("[lock] another poller holds %s; exiting", path)
+                    return False
+            os.ftruncate(fd, 0)
+            os.write(fd, str(os.getpid()).encode())
+            logger.info("[lock] acquired %s pid=%s", path, os.getpid())
+            return True
+        except Exception as e:
+            logger.error("[lock] failed: %s", e)
+            return True  # don't block startup if lock fails oddly
+
+    def release_lock(self, path="/tmp/mork_polling.lock"):
+        try:
+            if self._lock_fd is not None:
+                if fcntl:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                os.close(self._lock_fd)
+            # leave file present for diagnostics
+            logger.info("[lock] released %s", path)
+        except Exception:
+            pass
+
+    def get_updates(self, timeout=25):
+        """Get updates from Telegram API"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/getUpdates",
+                params={
+                    "timeout": timeout,
+                    "offset": self.offset,
+                },
+                timeout=(10, timeout+5)  # (connect, read)
+            )
+            if response.status_code == 409:
+                # Webhook/poller conflict — alert admin and exit for supervisor to restart
+                desc = ""
+                try: desc = response.json().get("description","")
+                except Exception: desc = response.text[:200]
+                logger.error("[poll] 409 Conflict from Telegram API: %s", desc)
+                if self.admin_chat_id:
+                    try:
+                        tg_send(self.admin_chat_id, "⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.", preview=True)
+                    except Exception: pass
+                # exit main loop by raising
+                raise RuntimeError("409 conflict")
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error("Failed to get updates: %s - %s", response.status_code, response.text)
+                return None
+        except requests.exceptions.ReadTimeout:
+            # harmless in long polling; just loop
+            return {"ok": True, "result": []}
+        except Exception as e:
+            logger.error(f"Failed to connect to Telegram API: {e}")
+            return None
     
     def process_update(self, update: dict):
         """Process a single Telegram update"""
@@ -116,12 +180,12 @@ class TelegramPollingService:
         """Clear any pending Telegram updates"""
         try:
             logger.info("Clearing pending updates...")
-            response = requests.get(f"{self.api_url}/getUpdates", timeout=10)
+            response = requests.get(f"{self.base_url}/getUpdates", timeout=10)
             if response.ok:
                 updates = response.json().get('result', [])
                 if updates:
                     last_update_id = max(update.get('update_id', 0) for update in updates)
-                    requests.get(f"{self.api_url}/getUpdates", 
+                    requests.get(f"{self.base_url}/getUpdates", 
                                params={'offset': last_update_id + 1}, timeout=10)
                     logger.info(f"Cleared {len(updates)} pending updates")
                 else:
@@ -131,69 +195,58 @@ class TelegramPollingService:
         except Exception as e:
             logger.error(f"Error clearing updates: {e}")
     
-    def polling_loop(self):
-        """Main polling loop running in background thread"""
-        logger.info("🚀 Starting integrated Telegram polling")
+    def run(self):
+        """Main polling loop"""
+        logger.info("Polling service started")
+
+        # single-instance lock (for main process only, skip in thread)
+        if threading.current_thread() is threading.main_thread():
+            if not self.acquire_lock():
+                return
         
-        # Delete webhook first
-        try:
-            requests.post(f"{self.api_url}/deleteWebhook", timeout=10)
-            logger.info("Webhook deleted - polling mode active")
-        except Exception as e:
-            logger.error(f"Webhook delete error: {e}")
-        
-        # Clear pending updates
-        self.clear_pending_updates()
-        
-        consecutive_errors = 0
-        
+        # Test API connectivity
+        test = self.get_updates(timeout=1)
+        if not test or not test.get('ok', False):
+            logger.error("Initial connectivity test failed")
+            return
+        logger.info("Polling service started successfully")
+        backoff = 1.0
         while self.running:
-            try:
-                params = {
-                    'offset': self.offset,
-                    'limit': 10,
-                    'timeout': 25
-                }
-                
-                response = requests.get(f"{self.api_url}/getUpdates", params=params, timeout=30)
-                
-                if not response.ok:
-                    consecutive_errors += 1
-                    logger.error(f"❌ Poll failed: {response.status_code} (error #{consecutive_errors})")
-                    if consecutive_errors > 5:
-                        time.sleep(30)
-                    else:
-                        time.sleep(5)
-                    continue
-                
-                consecutive_errors = 0
-                data = response.json()
-                
-                if not data.get('ok'):
-                    logger.error(f"API error response: {data}")
-                    time.sleep(5)
-                    continue
-                
-                updates = data.get('result', [])
-                
+            # heartbeat every ~60s
+            now = time.time()
+            if now - self._hb_last > 60:
+                self._hb_last = now
+                logger.info("[hb] alive offset=%s", self.offset)
+            updates_data = self.get_updates()
+            if updates_data and updates_data.get('ok'):
+                updates = updates_data.get('result', [])
                 if updates:
-                    logger.info(f"📥 Processing {len(updates)} updates")
-                    
-                    for update in updates:
-                        update_id = update.get('update_id', 0)
-                        self.offset = max(self.offset, update_id + 1)
-                        self.process_update(update)
-                        
-                logger.debug(f"Polling cycle complete, offset: {self.offset}")
-                
-            except requests.exceptions.Timeout:
-                logger.debug("Poll timeout - continuing...")
-            except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"❌ Unexpected polling error: {e} (error #{consecutive_errors})")
-                time.sleep(10 if consecutive_errors < 3 else 30)
-        
-        logger.info("Polling loop stopped")
+                    last_id = updates[-1]['update_id']
+                    logger.info("[poll] got %s updates; last_update_id=%s", len(updates), last_id)
+                    for upd in updates:
+                        try:
+                            self.process_update(upd)
+                        except Exception as e:
+                            logger.error("Error processing update: %s", e)
+                        finally:
+                            # advance offset even on individual errors
+                            self.offset = upd['update_id'] + 1
+                    # success — reset backoff
+                    backoff = 1.0
+                else:
+                    # idle — small jitter
+                    time.sleep(0.5 + random.random()*0.3)
+                    backoff = min(backoff*1.1, 8.0)
+            else:
+                # request problem — backoff with jitter
+                wait = min(backoff, 15.0) + random.random()*0.5
+                logger.warning("[poll] transient issue; backing off %.1fs", wait)
+                time.sleep(wait)
+                backoff = min(backoff*2.0, 30.0)
+        # exit path
+        if threading.current_thread() is threading.main_thread():
+            self.release_lock()
+        logger.info("Polling service stopped")
     
     def start_polling(self):
         """Start polling in background thread"""
@@ -202,7 +255,7 @@ class TelegramPollingService:
             return False
             
         self.running = True
-        self.polling_thread = threading.Thread(target=self.polling_loop, daemon=True)
+        self.polling_thread = threading.Thread(target=self.run, daemon=True)
         self.polling_thread.start()
         logger.info("Polling service started")
         return True
@@ -233,7 +286,8 @@ def start_polling_service(message_handler=None) -> bool:
         logger.warning("Polling service already running")
         return True
     
-    _polling_service = TelegramPollingService(bot_token, message_handler)
+    admin_chat_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
+    _polling_service = TelegramPollingService(bot_token, admin_chat_id)
     return _polling_service.start_polling()
 
 def stop_polling_service():

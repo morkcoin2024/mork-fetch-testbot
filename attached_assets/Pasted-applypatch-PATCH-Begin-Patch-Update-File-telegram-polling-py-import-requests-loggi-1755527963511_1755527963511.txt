@@ -1,0 +1,189 @@
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: telegram_polling.py
+@@
+-import requests, logging, os, time, json
+-from app import process_telegram_command, tg_send
++import requests, logging, os, time, json, random, signal
++from app import process_telegram_command, tg_send
++try:
++    import fcntl
++except Exception:  # windows safety; replit is linux so fine
++    fcntl = None
+@@
+-logger = logging.getLogger("telegram_polling")
++logger = logging.getLogger("telegram_polling")
++
++# --- Rotating logs + console mirror (idempotent) ---
++def _ensure_logging():
++    try:
++        from logging.handlers import RotatingFileHandler
++        if not any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
++            fh = RotatingFileHandler("live_bot.log", maxBytes=1_000_000, backupCount=5)
++            fh.setLevel(logging.INFO)
++            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
++            logger.addHandler(fh)
++        if not any(h for h in logger.handlers if getattr(h, "_is_console", False)):
++            ch = logging.StreamHandler()
++            ch.setLevel(logging.INFO)
++            ch.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
++            ch._is_console = True
++            logger.addHandler(ch)
++    except Exception as e:
++        logger.error("log setup failed: %s", e)
++
++_ensure_logging()
+@@
+ class TelegramPollingService:
+     def __init__(self, token, admin_chat_id=None):
+         self.token = token
+         self.admin_chat_id = admin_chat_id
+         self.base_url = f"https://api.telegram.org/bot{self.token}"
+-        self.offset = 0
++        self.offset = 0
++        self._hb_last = 0
++        self._lock_fd = None
+@@
+     def send_message(self, chat_id, text):
+         ln = len(text or "")
+         preview = (text or "")[:120].replace("\n"," ")
+         logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
+         res = tg_send(chat_id, text, preview=True)
+         ok = bool(res.get("ok"))
+         logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
+         return ok
++
++    # --- single-instance lock using flock (linux) or soft lock fallback ---
++    def acquire_lock(self, path="/tmp/mork_polling.lock"):
++        try:
++            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
++            self._lock_fd = fd
++            if fcntl:
++                try:
++                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++                except Exception:
++                    logger.error("[lock] another poller holds %s; exiting", path)
++                    return False
++            os.ftruncate(fd, 0)
++            os.write(fd, str(os.getpid()).encode())
++            logger.info("[lock] acquired %s pid=%s", path, os.getpid())
++            return True
++        except Exception as e:
++            logger.error("[lock] failed: %s", e)
++            return True  # don't block startup if lock fails oddly
++
++    def release_lock(self, path="/tmp/mork_polling.lock"):
++        try:
++            if self._lock_fd is not None:
++                if fcntl:
++                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
++                os.close(self._lock_fd)
++            # leave file present for diagnostics
++            logger.info("[lock] released %s", path)
++        except Exception:
++            pass
+@@
+-    def get_updates(self, timeout=15):
++    def get_updates(self, timeout=25):
+         """Get updates from Telegram API"""
+         try:
+             response = requests.get(
+                 f"{self.base_url}/getUpdates",
+                 params={
+                     "timeout": timeout,
+                     "offset": self.offset,
+                 },
+-                timeout=15
++                timeout=(10, timeout+5)  # (connect, read)
+             )
+-            if response.status_code == 200:
++            if response.status_code == 409:
++                # Webhook/poller conflict — alert admin and exit for supervisor to restart
++                desc = ""
++                try: desc = response.json().get("description","")
++                except Exception: desc = response.text[:200]
++                logger.error("[poll] 409 Conflict from Telegram API: %s", desc)
++                if self.admin_chat_id:
++                    try:
++                        tg_send(self.admin_chat_id, "⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.", preview=True)
++                    except Exception: pass
++                # exit main loop by raising
++                raise RuntimeError("409 conflict")
++            if response.status_code == 200:
+                 return response.json()
+             else:
+                 logger.error("Failed to get updates: %s - %s", response.status_code, response.text)
+                 return None
+         except requests.exceptions.ReadTimeout:
+             # harmless in long polling; just loop
+             return {"ok": True, "result": []}
+         except Exception as e:
+             logger.error(f"Failed to connect to Telegram API: {e}")
+             return None
+@@
+-    def run(self):
++    def run(self):
+         """Main polling loop"""
+-        logger.info("Polling service started")
++        logger.info("Polling service started")
++
++        # graceful shutdown
++        stop = {"v": False}
++        def _sigterm(*_): 
++            stop["v"] = True
++            logger.info("[sig] terminating…")
++        signal.signal(signal.SIGTERM, _sigterm)
++        signal.signal(signal.SIGINT, _sigterm)
++
++        # single-instance
++        if not self.acquire_lock():
++            return
+         # Test API connectivity
+         test = self.get_updates(timeout=1)
+         if not test or not test.get('ok', False):
+             logger.error("Initial connectivity test failed")
+             return
+-        logger.info("Polling service started successfully")
++        logger.info("Polling service started successfully")
+         backoff = 1.0
+         while True:
+-            updates_data = self.get_updates()
++            if stop["v"]:
++                break
++            # heartbeat every ~60s
++            now = time.time()
++            if now - self._hb_last > 60:
++                self._hb_last = now
++                logger.info("[hb] alive offset=%s", self.offset)
++            updates_data = self.get_updates()
+             if updates_data and updates_data.get('ok'):
+                 updates = updates_data.get('result', [])
+                 if updates:
+                     last_id = updates[-1]['update_id']
+                     logger.info("[poll] got %s updates; last_update_id=%s", len(updates), last_id)
+                     for upd in updates:
+                         try:
+                             self.process_update(upd)
+                         except Exception as e:
+                             logger.error("Error processing update: %s", e)
+                         finally:
+                             # advance offset even on individual errors
+                             self.offset = upd['update_id'] + 1
+                     # success — reset backoff
+                     backoff = 1.0
+                 else:
+                     # idle — small jitter
+-                    time.sleep(0.5)
++                    time.sleep(0.5 + random.random()*0.3)
+                     backoff = min(backoff*1.1, 8.0)
+             else:
+                 # request problem — backoff with jitter
+                 wait = min(backoff, 15.0) + random.random()*0.5
+                 logger.warning("[poll] transient issue; backing off %.1fs", wait)
+                 time.sleep(wait)
+                 backoff = min(backoff*2.0, 30.0)
++        # exit path
++        self.release_lock()
++        logger.info("Polling service stopped")
+*** End Patch
+PATCH
