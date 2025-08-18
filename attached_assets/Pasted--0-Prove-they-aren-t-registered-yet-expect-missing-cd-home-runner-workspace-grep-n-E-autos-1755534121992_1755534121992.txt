@@ -1,0 +1,87 @@
+# 0) Prove they aren't registered yet (expect "missing")
+cd /home/runner/workspace
+grep -n -E 'autosell_(logs|dryrun|ruleinfo)' app.py || echo "missing"
+
+# 1) Add commands to the router and to the command list
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        # Check if this is a recognized command
+-        all_commands = public_commands + [
++        # Check if this is a recognized command
++        all_commands = public_commands + [
+             "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
+             "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
+             "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
+             "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
+             "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+-            "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
++            "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
++            "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo"
+         ]
+@@
+         elif cmd == "/autosell_remove":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             mint = (args or "").strip()
+             if not mint:
+                 return _reply("Usage: /autosell_remove <mint>")
+             n = autosell.remove_rule(mint)
+             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
++
++        elif cmd == "/autosell_logs":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            n = 10
++            a = (args or "").strip()
++            if a.isdigit(): n = max(1, min(int(a), 100))
++            lines = autosell.events(n)
++            return _reply("📜 Last events:\n" + "\n".join(lines) if lines else "📜 No events yet.")
++
++        elif cmd == "/autosell_dryrun":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            m = (args or "").strip() or None
++            lines = autosell.dryrun_eval(m)
++            return _reply("\n".join(lines))
++
++        elif cmd == "/autosell_ruleinfo":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            m = (args or "").strip()
++            if not m: return _reply("Usage: /autosell_ruleinfo <mint>")
++            rules = [r for r in autosell.list_rules() if r.get("mint","").lower()==m.lower()]
++            if not rules: return _reply("No such rule.")
++            r = rules[0]
++            bits = [f"{k}={r[k]}" for k in ("tp","sl","trail","size","ref","peak") if k in r]
++            return _reply("🔎 Rule info: " + r["mint"] + (" " + " ".join(bits) if bits else ""))
+*** End Patch
+PATCH
+
+# 2) Quick router smoke test as ADMIN (should all be 'ok')
+python3 - <<'PY'
+import os
+from app import process_telegram_command
+admin = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':admin,'type':'private'},
+                    'from':{'id':admin,'is_bot':False,'username':'admin'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(f"{t:22} -> {out.get('status'):8} len={len(out.get('response') or '')}")
+for t in ["/autosell_logs 5","/autosell_dryrun MINT1","/autosell_ruleinfo MINT1"]:
+    mk(t)
+PY
+
+# 3) Hot-reload worker and poller
+touch app.py
+sleep 2
+
+# 4) Telegram (admin DM) — try:
+# /autosell_logs 10
+# /autosell_dryrun MINT1
+# /autosell_ruleinfo MINT1

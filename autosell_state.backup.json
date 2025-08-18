@@ -3,12 +3,21 @@
   "interval": 10,
   "rules": [
     {
-      "mint": "ABC123mint",
-      "tp": 25,
-      "sl": 10,
-      "trail": 5,
-      "ref": 0.528341,
-      "peak": 0.528341
+      "mint": "MINT1",
+      "tp": 5,
+      "sl": 8,
+      "trail": 3,
+      "ref": 0.973535,
+      "peak": 0.973535
+    },
+    {
+      "mint": "MINT2",
+      "tp": 15,
+      "sl": 5,
+      "trail": 7,
+      "size": 50,
+      "ref": 0.840489,
+      "peak": 0.840489
     }
   ],
   "dry_run": true

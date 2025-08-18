@@ -25,7 +25,8 @@ ALL_COMMANDS = [
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
-    "/autosell_events", "/autosell_eval", "/uptime", "/health"
+    "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
+    "/uptime", "/health"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -638,6 +639,36 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /autosell_remove <mint>")
             n = autosell.remove_rule(mint)
             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
+
+        elif cmd == "/autosell_logs":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            n = 10
+            a = (args or "").strip()
+            if a.isdigit(): n = max(1, min(int(a), 100))
+            lines = autosell.events(n)
+            return _reply("📜 Last events:\n" + "\n".join(lines) if lines else "📜 No events yet.")
+
+        elif cmd == "/autosell_dryrun":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            m = (args or "").strip() or None
+            lines = autosell.dryrun_eval(m)
+            return _reply("\n".join(lines))
+
+        elif cmd == "/autosell_ruleinfo":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            m = (args or "").strip()
+            if not m: return _reply("Usage: /autosell_ruleinfo <mint>")
+            rules = [r for r in autosell.list_rules() if r.get("mint","").lower()==m.lower()]
+            if not rules: return _reply("No such rule.")
+            r = rules[0]
+            bits = [f"{k}={r[k]}" for k in ("tp","sl","trail","size","ref","peak") if k in r]
+            return _reply("🔎 Rule info: " + r["mint"] + (" " + " ".join(bits) if bits else ""))
 
         elif cmd == "/autosell_save":
             deny = _require_admin(user)
