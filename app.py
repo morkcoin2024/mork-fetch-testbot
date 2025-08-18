@@ -25,7 +25,7 @@ ALL_COMMANDS = [
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
-    "/uptime", "/health"
+    "/autosell_events", "/autosell_eval", "/uptime", "/health"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -695,6 +695,30 @@ def process_telegram_command(update: dict):
                 f"HB age: {hb_age}s  ticks={st.get('ticks')}",
                 f"Rules: {len(st.get('rules', []))}",
             ]
+            return _reply("\n".join(lines))
+
+        elif cmd == "/autosell_events":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            n = 10  # default
+            if args and args.isdigit():
+                n = max(1, min(int(args), 100))
+            events = autosell.events(n)
+            if not events:
+                return _reply("📜 No AutoSell events yet.")
+            lines = [f"📜 Last {len(events)} AutoSell events:"]
+            lines.extend(events)
+            return _reply("\n".join(lines))
+
+        elif cmd == "/autosell_eval":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            mint = args.strip() if args else None
+            results = autosell.dryrun_eval(mint)
+            lines = ["🧪 AutoSell DRY-RUN evaluation:"]
+            lines.extend(results)
             return _reply("\n".join(lines))
 
         # Wallet Commands

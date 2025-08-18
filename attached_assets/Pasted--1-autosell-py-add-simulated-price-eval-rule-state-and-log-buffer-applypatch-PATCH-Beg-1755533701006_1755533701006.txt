@@ -1,0 +1,119 @@
+# 1) autosell.py — add simulated price eval, rule state, and log buffer
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-import threading, time, logging, os, json
++import threading, time, logging, os, json, math, hashlib, collections
+ logger = logging.getLogger("autosell")
+@@
+ _RULES = []  # in-memory, dry-run only  [{mint,tp,sl,trail,size}]
+ PERSIST_PATH = os.environ.get("FETCH_AUTOSAVE_PATH","data/autosell.json")
+ BACKUP_PATH  = os.environ.get("FETCH_AUTOSAVE_BACKUP","data/autosell.backup.json")
++_EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
+@@
+ def _dry_run_tick():
+-    # This is intentionally a no-op placeholder that simulates “work”
+-    # Expand later with safe, read-only scanner checks / rule evals
+-    pass
++    # Iterate rules and produce a DRY-RUN decision + log line
++    changed = False
++    with _LOCK:
++        rules = [dict(r) for r in _RULES]
++    for r in rules:
++        mint = r.get("mint","").strip()
++        if not mint:
++            continue
++        price, source = _get_price(mint)
++        if price is None:
++            price, source = _sim_price(mint), "sim"
++        # initialize per-rule reference/peak
++        if "ref" not in r or r["ref"] is None:
++            r["ref"] = float(price); changed = True
++        if "peak" not in r or r["peak"] is None:
++            r["peak"] = float(price); changed = True
++        if price > r["peak"]:
++            r["peak"] = float(price); changed = True
++        # evaluate conditions
++        reason = None
++        ref  = float(r["ref"]); peak = float(r["peak"])
++        tp   = _as_int(r.get("tp"));    sl = _as_int(r.get("sl"))
++        trail= _as_int(r.get("trail")); size = _as_int(r.get("size"))
++        if sl   is not None and price <= ref  * (1 - sl/100.0):   reason = f"SL{sl}%"
++        if tp   is not None and price >= ref  * (1 + tp/100.0):   reason = reason or f"TP{tp}%"
++        if trail is not None and price <= peak * (1 - trail/100.0): reason = reason or f"TRAIL{trail}%"
++        if reason:
++            _log_event(f"[DRY] would SELL {mint} @ {price:.6f} reason={reason} src={source} ref={ref:.6f} peak={peak:.6f}" + (f" size={size}" if size else ""))
++        else:
++            _log_event(f"[DRY] hold {mint} price={price:.6f} src={source} ref={ref:.6f} peak={peak:.6f}")
++        # write back mutated state to canonical rules
++        _merge_rule_runtime(mint, ref=r["ref"], peak=r["peak"])
++    if changed:
++        _save()
++
++def _as_int(v):
++    try:
++        return int(v) if v is not None else None
++    except:
++        return None
++
++def _merge_rule_runtime(mint, **kw):
++    with _LOCK:
++        for rr in _RULES:
++            if rr.get("mint","").lower()==mint.lower():
++                for k,v in kw.items(): rr[k]=v
++                break
++
++def _log_event(s: str):
++    ts = time.strftime("%H:%M:%S", time.gmtime())
++    line = f"{ts} {s}"
++    _EVENTS.append(line)
++    logger.info("[autosell] %s", s)
++
++# ------- price sources -------
++def _get_price(mint:str):
++    """Return (price, source) or (None, None). Hook up real scanners later."""
++    # TODO: integrate dexscreener/birdeye read-only; for now return None to use sim
++    return None, None
++
++def _sim_price(mint:str):
++    """Deterministic-ish pseudo price for safe DRY-RUN testing."""
++    # base from hash(mint), gentle oscillation by time
++    h = int(hashlib.sha256(mint.encode()).hexdigest(), 16)
++    base = 0.5 + (h % 5000) / 10000.0          # 0.5 .. 1.0
++    t = time.time() / 12.0                     # 12s cycle
++    wiggle = 1.0 + 0.03 * math.sin(2*math.pi*t + (h % 360))
++    return round(base * wiggle, 6)
++
++# --------- public helpers for bot ---------
++def events(n=10):
++    n = max(1, min(int(n), 100))
++    with _LOCK:
++        return list(_EVENTS)[-n:]
++
++def dryrun_eval(mint=None):
++    """Run one DRY-RUN evaluation now for either a specific mint or all rules, return list of strings."""
++    out = []
++    with _LOCK:
++        rules = [dict(r) for r in _RULES if (not mint or r.get("mint","").lower()==mint.lower())]
++    if not rules:
++        out.append("No matching rules.")
++        return out
++    # do a single-shot evaluation like the tick
++    for r in rules:
++        m = r["mint"]
++        price, source = _get_price(m)
++        if price is None: price, source = _sim_price(m), "sim"
++        ref = float(r.get("ref") or price); peak=float(r.get("peak") or price)
++        tp=_as_int(r.get("tp")); sl=_as_int(r.get("sl")); trail=_as_int(r.get("trail"))
++        reason=None
++        if sl is not None and price <= ref*(1-sl/100.0): reason=f"SL{sl}%"
++        if tp is not None and price >= ref*(1+tp/100.0): reason=reason or f"TP{tp}%"
++        if trail is not None and price <= peak*(1-trail/100.0): reason=reason or f"TRAIL{trail}%"
++        if reason:
++            out.append(f"[DRY] would SELL {m} @ {price:.6f} reason={reason} src={source} ref={ref:.6f} peak={peak:.6f}")
++        else:
++            out.append(f"[DRY] hold {m} price={price:.6f} src={source} ref={ref:.6f} peak={peak:.6f}")
++    return out
+*** End Patch
+PATCH

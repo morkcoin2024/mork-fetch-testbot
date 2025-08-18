@@ -1,6 +1,15 @@
 {
-  "enabled": false,
+  "enabled": true,
   "interval": 10,
-  "rules": [],
+  "rules": [
+    {
+      "mint": "ABC123mint",
+      "tp": 25,
+      "sl": 10,
+      "trail": 5,
+      "ref": 0.528341,
+      "peak": 0.528341
+    }
+  ],
   "dry_run": true
 }
