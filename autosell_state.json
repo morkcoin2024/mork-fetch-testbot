@@ -1,1 +1,1 @@
-{"rules": [{"mint": "So11111111111111111111111111111111111111112", "tp": 10, "sl": 5, "trail": 3, "ref": 182.028, "peak": 182.028}], "watch": {"WSOL": {"last": null}, "TEST123": {"last": null}}, "watch_sens": 2.0, "interval": 10, "alerts": true}
+{"rules": [], "watch": {}, "watch_sens": 1.0, "interval": 10, "alerts": true, "ledger": {"positions": {}, "realized": 0.0}}

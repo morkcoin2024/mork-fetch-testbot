@@ -1,0 +1,191 @@
+# === Paper-trade ledger (DRY-RUN) ===
+cd /home/runner/workspace
+
+# 1) autosell.py — minimal ledger with persistence
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+ _ALERTS_ENABLED = True
+ _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
++_LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
+@@
+ def status():
+     with _LOCK:
+         return {
+@@
+             "watch_sens_pct": _WATCH_SENS,
+             "alerts": _ALERTS_ENABLED,
++            "ledger_positions": len(_LEDGER["positions"]),
++            "ledger_realized": round(_LEDGER["realized"], 6),
+         }
+@@
+ def _save_state():
+@@
+         with _LOCK:
+             data = {
+                 "rules": list(_RULES),
+                 "watch": {k: {"last": v.get("last")} for k,v in _WATCH.items()},
+                 "watch_sens": _WATCH_SENS,
+                 "interval": _STATE["interval"],
+                 "alerts": _ALERTS_ENABLED,
++                "ledger": _LEDGER,
+             }
+@@
+ def restore_state():
+@@
+         rules = data.get("rules") or []
+         watch = data.get("watch") or {}
+         sens = float(data.get("watch_sens", _WATCH_SENS))
+         interval = int(data.get("interval", _STATE["interval"]))
+         alerts = bool(data.get("alerts", True))
++        ledger = data.get("ledger") or {"positions": {}, "realized": 0.0}
+         with _LOCK:
+@@
+             _STATE["ticks"] = 0
+             _STATE["alive"] = bool(_STATE.get("thr") and _STATE["thr"].is_alive())
+             global _WATCH_SENS, _ALERTS_ENABLED
+             _WATCH_SENS = max(0.1, min(sens, 100.0))
+             _ALERTS_ENABLED = alerts
++            # ledger (validate types)
++            if not isinstance(ledger, dict): ledger = {"positions": {}, "realized": 0.0}
++            pos = ledger.get("positions") or {}
++            if not isinstance(pos, dict): pos = {}
++            _LEDGER["positions"] = {k: {"qty": float(v.get("qty",0.0)), "avg": float(v.get("avg",0.0))} for k,v in pos.items()}
++            _LEDGER["realized"] = float(ledger.get("realized", 0.0))
+         _event("[RESTORE] state loaded")
+         return True
+@@
+ def _get_price(mint:str):
+@@
+     return None, None
++
++# ---------- Ledger (paper trading) ----------
++def ledger_snapshot():
++    with _LOCK:
++        pos = {k: {"qty": round(v["qty"], 6), "avg": round(v["avg"], 6)} for k,v in _LEDGER["positions"].items()}
++        return {"positions": pos, "realized": round(_LEDGER["realized"], 6)}
++
++def ledger_reset():
++    with _LOCK:
++        _LEDGER["positions"].clear()
++        _LEDGER["realized"] = 0.0
++    _save_state()
++    _event("[LEDGER] reset")
++    return True
++
++def _ensure_pos(mint:str):
++    with _LOCK:
++        _LEDGER["positions"].setdefault(mint, {"qty": 0.0, "avg": 0.0})
++        return dict(_LEDGER["positions"][mint])
++
++def ledger_buy(mint:str, qty:float, price:float=None):
++    if price is None:
++        p,_ = _get_price(mint)
++        price = p if p is not None else _sim_price(mint)
++    qty = float(qty); price = float(price)
++    if qty <= 0 or price <= 0: return False, "bad qty/price"
++    with _LOCK:
++        pos = _LEDGER["positions"].setdefault(mint, {"qty":0.0,"avg":0.0})
++        new_qty = pos["qty"] + qty
++        pos["avg"] = (pos["avg"]*pos["qty"] + price*qty) / new_qty if new_qty>0 else 0.0
++        pos["qty"] = new_qty
++        _LEDGER["positions"][mint] = pos
++    _save_state()
++    _event(f"[LEDGER] BUY {mint} qty={qty:.6f} px={price:.6f} pos_qty={pos['qty']:.6f} avg={pos['avg']:.6f}")
++    return True, pos
++
++def ledger_sell(mint:str, qty:float, price:float=None):
++    if price is None:
++        p,_ = _get_price(mint)
++        price = p if p is not None else _sim_price(mint)
++    qty = float(qty); price = float(price)
++    if qty <= 0 or price <= 0: return False, "bad qty/price"
++    with _LOCK:
++        pos = _LEDGER["positions"].get(mint, {"qty":0.0,"avg":0.0})
++        if pos["qty"] <= 0: return False, "no position"
++        sell_qty = min(qty, pos["qty"])
++        pnl = (price - pos["avg"]) * sell_qty
++        _LEDGER["realized"] += pnl
++        pos["qty"] -= sell_qty
++        if pos["qty"] == 0: pos["avg"] = 0.0
++        _LEDGER["positions"][mint] = pos
++    _save_state()
++    _event(f"[LEDGER] SELL {mint} qty={sell_qty:.6f} px={price:.6f} pnl={pnl:.6f} pos_qty={pos['qty']:.6f}")
++    return True, {"pnl": pnl, "pos": pos}
+*** End Patch
+PATCH
+
+# 2) app.py — commands for ledger ops (admin)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+             "/watch", "/unwatch", "/watchlist", "/watch_sens"
++            , "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset"
+         ]
+@@
+         elif cmd == "/watch_sens":
+@@
+                 return _reply("Usage: /watch_sens <percent>")
++
++        # -------- Paper ledger (admin) --------
++        elif cmd == "/paper_buy":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            parts = (args or "").split()
++            if len(parts) < 2: return _reply("Usage: /paper_buy <mint> <qty> [price]")
++            mint, qty = parts[0], parts[1]
++            price = float(parts[2]) if len(parts) >= 3 else None
++            ok, res = autosell.ledger_buy(mint, float(qty), price)
++            if not ok: return _reply(f"BUY failed: {res}")
++            pos = res
++            return _reply(f"🧾 BUY {mint}\nqty={pos['qty']:.6f} avg={pos['avg']:.6f}")
++
++        elif cmd == "/paper_sell":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            parts = (args or "").split()
++            if len(parts) < 2: return _reply("Usage: /paper_sell <mint> <qty> [price]")
++            mint, qty = parts[0], parts[1]
++            price = float(parts[2]) if len(parts) >= 3 else None
++            ok, res = autosell.ledger_sell(mint, float(qty), price)
++            if not ok: return _reply(f"SELL failed: {res}")
++            return _reply(f"🧾 SELL {mint}\nrealized={res['pnl']:.6f}\npos_qty={res['pos']['qty']:.6f}")
++
++        elif cmd == "/ledger":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell, json
++            snap = autosell.ledger_snapshot()
++            if not snap["positions"]:
++                return _reply(f"📒 Ledger: (empty)\nrealized={snap['realized']:.6f}")
++            lines = [f"- {k} qty={v['qty']:.6f} avg={v['avg']:.6f}" for k,v in snap["positions"].items()]
++            return _reply("📒 Ledger:\n" + "\n".join(lines) + f"\nrealized={snap['realized']:.6f}")
++
++        elif cmd == "/ledger_reset":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            autosell.ledger_reset()
++            return _reply("🧹 Ledger reset")
+*** End Patch
+PATCH
+
+# 3) Quick smoke test
+python3 - <<'PY'
+from app import process_telegram_command
+def run(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},'from':{'id':1,'is_bot':False,'username':'x'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(t, "->", out.get("status"), (out.get("response") or "")[:90].replace("\n"," "))
+for t in [
+    "/paper_buy So11111111111111111111111111111111111111112 1",
+    "/paper_sell So11111111111111111111111111111111111111112 0.4",
+    "/ledger",
+    "/ledger_reset",
+    "/ledger",
+]: run(t)
+PY

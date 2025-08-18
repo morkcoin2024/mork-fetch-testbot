@@ -21,6 +21,7 @@ _WATCH = {}   # mint -> {"last": float|None}
 _WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
 _ALERTS_ENABLED = True
 _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
+_LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
 
 def status():
     with _LOCK:
@@ -29,6 +30,8 @@ def status():
             "watch": sorted(list(_WATCH.keys())),
             "watch_sens_pct": _WATCH_SENS,
             "alerts": _ALERTS_ENABLED,
+            "ledger_positions": len(_LEDGER["positions"]),
+            "ledger_realized": round(_LEDGER["realized"], 6),
         }
 
 def set_interval(seconds: int):
@@ -395,6 +398,7 @@ def _save_state():
                 "watch_sens": _WATCH_SENS,
                 "interval": _STATE["interval"],
                 "alerts": _ALERTS_ENABLED,
+                "ledger": _LEDGER,
             }
         tmp = _STATE_FILE + ".tmp"
         with open(tmp, "w") as f:
@@ -417,6 +421,7 @@ def restore_state():
         sens = float(data.get("watch_sens", _WATCH_SENS))
         interval = int(data.get("interval", _STATE["interval"]))
         alerts = bool(data.get("alerts", True))
+        ledger = data.get("ledger") or {"positions": {}, "realized": 0.0}
         with _LOCK:
             _RULES[:] = rules
             _WATCH.clear()
@@ -427,6 +432,12 @@ def restore_state():
             _STATE["alive"] = bool(_STATE.get("thread_alive"))
             _WATCH_SENS = max(0.1, min(sens, 100.0))
             _ALERTS_ENABLED = alerts
+            # ledger (validate types)
+            if not isinstance(ledger, dict): ledger = {"positions": {}, "realized": 0.0}
+            pos = ledger.get("positions") or {}
+            if not isinstance(pos, dict): pos = {}
+            _LEDGER["positions"] = {k: {"qty": float(v.get("qty",0.0)), "avg": float(v.get("avg",0.0))} for k,v in pos.items()}
+            _LEDGER["realized"] = float(ledger.get("realized", 0.0))
         _log_event("[RESTORE] state loaded")
         return True
     except Exception:
@@ -469,3 +480,57 @@ def dryrun_eval(mint=None):
         else:
             out.append(f"[DRY] hold {m} price={price:.6f} src={source} ref={ref:.6f} peak={peak:.6f}")
     return out
+
+# ---------- Ledger (paper trading) ----------
+def ledger_snapshot():
+    with _LOCK:
+        pos = {k: {"qty": round(v["qty"], 6), "avg": round(v["avg"], 6)} for k,v in _LEDGER["positions"].items()}
+        return {"positions": pos, "realized": round(_LEDGER["realized"], 6)}
+
+def ledger_reset():
+    with _LOCK:
+        _LEDGER["positions"].clear()
+        _LEDGER["realized"] = 0.0
+    _save_state()
+    _log_event("[LEDGER] reset")
+    return True
+
+def _ensure_pos(mint:str):
+    with _LOCK:
+        _LEDGER["positions"].setdefault(mint, {"qty": 0.0, "avg": 0.0})
+        return dict(_LEDGER["positions"][mint])
+
+def ledger_buy(mint:str, qty:float, price:float=None):
+    if price is None:
+        p,_ = _get_price(mint)
+        price = p if p is not None else _sim_price(mint)
+    qty = float(qty); price = float(price)
+    if qty <= 0 or price <= 0: return False, "bad qty/price"
+    with _LOCK:
+        pos = _LEDGER["positions"].setdefault(mint, {"qty":0.0,"avg":0.0})
+        new_qty = pos["qty"] + qty
+        pos["avg"] = (pos["avg"]*pos["qty"] + price*qty) / new_qty if new_qty>0 else 0.0
+        pos["qty"] = new_qty
+        _LEDGER["positions"][mint] = pos
+    _save_state()
+    _log_event(f"[LEDGER] BUY {mint} qty={qty:.6f} px={price:.6f} pos_qty={pos['qty']:.6f} avg={pos['avg']:.6f}")
+    return True, pos
+
+def ledger_sell(mint:str, qty:float, price:float=None):
+    if price is None:
+        p,_ = _get_price(mint)
+        price = p if p is not None else _sim_price(mint)
+    qty = float(qty); price = float(price)
+    if qty <= 0 or price <= 0: return False, "bad qty/price"
+    with _LOCK:
+        pos = _LEDGER["positions"].get(mint, {"qty":0.0,"avg":0.0})
+        if pos["qty"] <= 0: return False, "no position"
+        sell_qty = min(qty, pos["qty"])
+        pnl = (price - pos["avg"]) * sell_qty
+        _LEDGER["realized"] += pnl
+        pos["qty"] -= sell_qty
+        if pos["qty"] == 0: pos["avg"] = 0.0
+        _LEDGER["positions"][mint] = pos
+    _save_state()
+    _log_event(f"[LEDGER] SELL {mint} qty={sell_qty:.6f} px={price:.6f} pnl={pnl:.6f} pos_qty={pos['qty']:.6f}")
+    return True, {"pnl": pnl, "pos": pos}

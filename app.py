@@ -28,7 +28,8 @@ ALL_COMMANDS = [
     "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
     "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
     "/watch", "/unwatch", "/watchlist", "/watch_sens",
-    "/autosell_restore", "/alerts_on", "/alerts_off"
+    "/autosell_restore", "/alerts_on", "/alerts_off",
+    "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -860,6 +861,55 @@ def process_telegram_command(update: dict):
             import autosell
             autosell.alerts_set(False)
             return _reply("🔕 Alerts muted")
+
+        # -------- Paper ledger (admin) --------
+        elif cmd == "/paper_buy":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            parts = (args or "").split()
+            if len(parts) < 2: return _reply("Usage: /paper_buy <mint> <qty> [price]")
+            mint, qty = parts[0], parts[1]
+            price = float(parts[2]) if len(parts) >= 3 else None
+            try:
+                ok, res = autosell.ledger_buy(mint, float(qty), price)
+                if not ok: return _reply(f"BUY failed: {res}")
+                pos = res
+                return _reply(f"🧾 BUY {mint}\nqty={pos['qty']:.6f} avg={pos['avg']:.6f}")
+            except Exception as e:
+                return _reply(f"BUY error: {e}")
+
+        elif cmd == "/paper_sell":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            parts = (args or "").split()
+            if len(parts) < 2: return _reply("Usage: /paper_sell <mint> <qty> [price]")
+            mint, qty = parts[0], parts[1]
+            price = float(parts[2]) if len(parts) >= 3 else None
+            try:
+                ok, res = autosell.ledger_sell(mint, float(qty), price)
+                if not ok: return _reply(f"SELL failed: {res}")
+                return _reply(f"🧾 SELL {mint}\nrealized={res['pnl']:.6f}\npos_qty={res['pos']['qty']:.6f}")
+            except Exception as e:
+                return _reply(f"SELL error: {e}")
+
+        elif cmd == "/ledger":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            snap = autosell.ledger_snapshot()
+            if not snap["positions"]:
+                return _reply(f"📒 Ledger: (empty)\nrealized={snap['realized']:.6f}")
+            lines = [f"- {k} qty={v['qty']:.6f} avg={v['avg']:.6f}" for k,v in snap["positions"].items()]
+            return _reply("📒 Ledger:\n" + "\n".join(lines) + f"\nrealized={snap['realized']:.6f}")
+
+        elif cmd == "/ledger_reset":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.ledger_reset()
+            return _reply("🧹 Ledger reset")
 
         # Wallet Commands
         elif cmd == "/wallet":
