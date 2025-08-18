@@ -16,7 +16,7 @@ APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd",
+    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -382,7 +382,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -475,6 +475,19 @@ def process_telegram_command(update: dict):
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
+        
+        # /version — show build stamp
+        elif cmd == "/version":
+            import json, os
+            stamp = []
+            try:
+                info = json.load(open("build-info.json"))
+                stamp.append(f"🏷 Release: {info.get('label','stable')} {info.get('release_ts_utc','')}")
+                stamp.append(f"Mode: {info.get('mode','?')}")
+                stamp.append(f"Router: {info.get('router_hash','?')}")
+            except Exception:
+                stamp.append("🏷 No build-info.json found")
+            return _reply("\n".join(stamp))
         elif cmd == "/debug_cmd":
             # Debug command to introspect what the router sees
             raw = update.get("message", {}).get("text") or ""
