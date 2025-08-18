@@ -1,0 +1,51 @@
+# A) Router smoke test — does the app return text for the “silent” commands?
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(text, uid=1653046781):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':uid,'type':'private'},
+                    'from':{'id':uid,'is_bot':False,'username':'test'},'text':text}}
+    out=process_telegram_command(upd) or {}
+    resp = out.get('response') or ''
+    print(f"{text:18} -> status={out.get('status')} len={len(resp)} head={repr(resp[:120])}")
+for t in ["/ping","/help","/wallet","/wallet_balance","/autosell_status","/autosell_on","/autosell_off"]:
+    mk(t)
+PY
+
+# B) Patch production poller to use the unified sender with explicit JSON logging
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: production_polling_bot.py
+@@
+-import requests
+-from app import process_telegram_command
++import requests, json
++from app import process_telegram_command, tg_send
+@@
+-    def send_message(self, chat_id, text):
+-        payload = {"chat_id": chat_id, "text": text, "parse_mode": "MarkdownV2", "disable_web_page_preview": True}
+-        r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=15)
+-        ok = (r.status_code == 200 and r.json().get("ok") is True)
+-        if not ok:
+-            logger.error(f"Failed to send message: {r.status_code} - {r.text}")
+-        else:
+-            logger.info("Sent message %s to chat %s", getattr(self, "msg_seq", 0), chat_id)
+-            self.msg_seq = getattr(self, "msg_seq", 0) + 1
+-        return ok
++    def send_message(self, chat_id, text):
++        ln = len(text or "")
++        preview = (text or "")[:120].replace("\n"," ")
++        logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
++        res = tg_send(chat_id, text, preview=True)
++        ok = bool(res.get("ok"))
++        logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
++        return ok
+*** End Patch
+PATCH
+
+# C) Restart poller in FOREGROUND for observation (60s window)
+pkill -f production_polling_bot\.py || true
+LOG_LEVEL=INFO PYTHONUNBUFFERED=1 timeout 60s python3 -u production_polling_bot.py
+# (Turk will now send: /wallet, /wallet_balance, /autosell_status in Telegram)
+
+# D) Grab focused logs
+tail -n 100 live_bot.log 2>/dev/null || true

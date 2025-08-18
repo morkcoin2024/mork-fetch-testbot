@@ -40,37 +40,38 @@ class ProductionPollingBot:
         
         # Import command processor
         try:
-            from app import process_telegram_command, _require_admin
+            from app import process_telegram_command, tg_send
             self.process_command = process_telegram_command
-            self.require_admin = _require_admin
+            self.tg_send = tg_send
             logger.info("✅ Command processor imported successfully")
         except Exception as e:
             logger.error(f"Failed to import command processor: {e}")
             self.process_command = None
-            self.require_admin = None
+            self.tg_send = None
         
         logger.info("🤖 Production Polling Bot initialized")
     
-    def send_telegram_message(self, chat_id, text):
-        """Send message via Telegram API with production error handling"""
-        try:
-            url = f"{self.api_url}/sendMessage"
-            payload = {"chat_id": chat_id, "text": text}
-            
-            response = requests.post(url, json=payload, timeout=10)
-            
-            if response.ok:
-                result = response.json().get('result', {})
-                msg_id = result.get('message_id')
-                logger.info(f"✅ Sent message {msg_id} to chat {chat_id}")
-                return True
-            else:
-                logger.error(f"❌ Send failed: {response.status_code} - {response.text}")
+    def send_message(self, chat_id, text):
+        ln = len(text or "")
+        preview = (text or "")[:120].replace("\n"," ")
+        logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
+        if self.tg_send:
+            res = self.tg_send(chat_id, text, preview=True)
+            ok = bool(res.get("ok"))
+            logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
+            return ok
+        else:
+            # Fallback to direct API call
+            try:
+                url = f"{self.api_url}/sendMessage"
+                payload = {"chat_id": chat_id, "text": text}
+                response = requests.post(url, json=payload, timeout=10)
+                ok = response.ok
+                logger.info("[SEND] result=%s fallback", ok)
+                return ok
+            except Exception as e:
+                logger.error(f"❌ Send error: {e}")
                 return False
-                
-        except Exception as e:
-            logger.error(f"❌ Send error: {e}")
-            return False
     
     def process_update(self, update):
         """Process incoming update with production-grade error handling"""
@@ -96,10 +97,10 @@ class ProductionPollingBot:
             # Use imported command processor if available
             if self.process_command:
                 try:
-                    result = self.process_command(text, user, {})
+                    result = self.process_command(update)
                     if result and isinstance(result, dict):
-                        response_text = result.get('text', 'Command processed')
-                        self.send_telegram_message(chat_id, response_text)
+                        response_text = result.get('response', 'Command processed')
+                        self.send_message(chat_id, response_text)
                         logger.info(f"✅ Processed via app.py: {text}")
                         return
                 except Exception as e:
@@ -107,16 +108,16 @@ class ProductionPollingBot:
             
             # Fallback command handling
             if text.startswith('/ping'):
-                self.send_telegram_message(chat_id, "🤖 Mork F.E.T.C.H Bot\n✅ ONLINE via production polling\n🔥 Ready to fetch!")
+                self.send_message(chat_id, "🤖 Mork F.E.T.C.H Bot\n✅ ONLINE via production polling\n🔥 Ready to fetch!")
                 logger.info("✅ Responded to /ping")
             elif text.startswith('/status'):
-                self.send_telegram_message(chat_id, f"✅ Bot Status: OPERATIONAL\n⚡ Mode: Production Polling\n🕐 Time: {datetime.now().strftime('%H:%M:%S')}")
+                self.send_message(chat_id, f"✅ Bot Status: OPERATIONAL\n⚡ Mode: Production Polling\n🕐 Time: {datetime.now().strftime('%H:%M:%S')}")
                 logger.info("✅ Responded to /status")
             elif text.startswith('/help'):
-                self.send_telegram_message(chat_id, "🐕 Mork F.E.T.C.H Bot - The Degens' Best Friend\n\n/ping - Test connectivity\n/status - System status\n/help - Show commands\n/wallet - Wallet management\n\n🚀 Production deployment active!")
+                self.send_message(chat_id, "🐕 Mork F.E.T.C.H Bot - The Degens' Best Friend\n\n/ping - Test connectivity\n/status - System status\n/help - Show commands\n/wallet - Wallet management\n\n🚀 Production deployment active!")
                 logger.info("✅ Responded to /help")
             elif text.startswith('/'):
-                self.send_telegram_message(chat_id, f"Command '{text}' not recognized. Use /help for available commands.")
+                self.send_message(chat_id, f"Command '{text}' not recognized. Use /help for available commands.")
                 logger.info(f"❓ Unknown command: {text}")
                 
         except Exception as e:
