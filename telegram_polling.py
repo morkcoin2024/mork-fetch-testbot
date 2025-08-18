@@ -26,7 +26,7 @@ def _ensure_logging():
             ch = logging.StreamHandler()
             ch.setLevel(logging.INFO)
             ch.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-            ch._is_console = True
+            setattr(ch, '_is_console', True)
             logger.addHandler(ch)
     except Exception as e:
         logger.error("log setup failed: %s", e)
