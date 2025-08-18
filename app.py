@@ -31,10 +31,19 @@ ALL_COMMANDS = [
     "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
     "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
-    "/paper_auto_on", "/paper_auto_off", "/paper_auto_status"
+    "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
+    "/alerts_chat_set", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
+
+# Alert routing config (persisted)
+_ALERT_CFG_PATH = os.path.join(os.path.dirname(__file__), "alert_chat.json")
+try:
+    with open(_ALERT_CFG_PATH, "r") as f:
+        _ALERT_CFG = json.load(f)
+except Exception:
+    _ALERT_CFG = {"chat_id": None}
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -991,6 +1000,60 @@ def process_telegram_command(update: dict):
             st = autosell.paper_auto_status()
             return _reply(f"🤖 paper-auto status: enabled={st['enabled']} qty={st['qty']}")
 
+        # ------- Alert routing admin commands -------
+        elif cmd == "/alerts_chat_set":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args:
+                return _reply("Usage: /alerts_chat_set <chat_id>")
+            try:
+                chat_id = int(args.strip())
+            except Exception:
+                return _reply("⚠️ Invalid chat_id. It must be an integer.")
+            _ALERT_CFG["chat_id"] = chat_id
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            try:
+                import autosell
+                autosell.set_notifier(lambda t: tg_send(chat_id, t, preview=True))
+            except Exception:
+                pass
+            return _reply(f"📡 Alerts will be routed to chat {chat_id}.")
+
+        elif cmd == "/alerts_chat_clear":
+            deny = _require_admin(user)
+            if deny: return deny
+            _ALERT_CFG["chat_id"] = None
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            try:
+                import autosell
+                autosell.set_notifier(None)
+            except Exception:
+                pass
+            return _reply("📴 Alert routing disabled.")
+
+        elif cmd == "/alerts_chat_status":
+            deny = _require_admin(user)
+            if deny: return deny
+            cid = _ALERT_CFG.get("chat_id")
+            return _reply(f"📟 Alerts chat: {cid if cid else 'not set'}")
+
+        elif cmd == "/alerts_test":
+            deny = _require_admin(user)
+            if deny: return deny
+            cid = _ALERT_CFG.get("chat_id")
+            if not cid:
+                return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
+            ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
+            return _reply(f"🧪 Test sent: {ok}")
+
         # Wallet Commands
         elif cmd == "/wallet":
             deny = _require_admin(user)
@@ -1130,6 +1193,17 @@ try:
         'websocket': ws_client
     }
     logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
+    
+    # Wire notifier into autosell for alert routing
+    try:
+        import autosell
+        def _notify_line(txt: str):
+            cid = _ALERT_CFG.get("chat_id")
+            if cid:
+                tg_send(int(cid), txt, preview=True)
+        autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
+    except Exception as e:
+        logger.warning(f"Failed to setup notifier: {e}")
     
     # Polling service startup moved to single location to prevent duplicates
 except Exception as e:

@@ -24,6 +24,7 @@ _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
 _BACKUP_FILE = os.environ.get("FETCH_BACKUP_FILE", "autosell_backup.json")
 _LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
 _PRICE_OVERRIDES = {}  # mint -> float
+_NOTIFY = None  # optional callable: fn(text:str) -> None
 
 # --- Paper-auto state ---
 _PAPER_AUTO = {"enabled": False, "qty": 0.1}
@@ -267,6 +268,18 @@ def _log_event(s: str):
     line = f"{ts} {s}"
     _EVENTS.append(line)
     logger.info("[autosell] %s", s)
+    # forward important lines if a notifier is registered
+    try:
+        if _NOTIFY and ("[ALERT]" in s or "[AUTO]" in s):
+            _NOTIFY(s)
+    except Exception:
+        # never let notifications break core flow
+        logger.warning("[NOTIFY] failed to deliver")
+
+def set_notifier(fn):
+    """Register a callback to deliver important alert lines (or None to disable)."""
+    global _NOTIFY
+    _NOTIFY = fn
 
 def _pos_qty(mint: str) -> float:
     p = _LEDGER["positions"].get(mint)

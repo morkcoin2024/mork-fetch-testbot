@@ -1,0 +1,150 @@
+# === Alert Routing to Group/Channel ===
+# Adds admin commands:
+#   /alerts_chat_set <chat_id>   -> route alerts to this chat (group/channel/DM)
+#   /alerts_chat_clear           -> stop routing (DM replies still work)
+#   /alerts_chat_status          -> show current target
+#   /alerts_test <text>          -> send a test message to the target (if set)
+#
+# Notes:
+# - You must add the bot to that group/channel first and grab its chat_id.
+# - Only lines containing "[ALERT]" or "[AUTO]" are forwarded.
+# - State persists to 'alert_chat.json' in the project root.
+
+cd /home/runner/workspace
+
+# 1) autosell.py — notifier hook
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+ _EVENTS = deque(maxlen=200)   # existing event buffer used by /autosell_logs
+ _LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}
+ _PRICE_OVERRIDES = {}
++_NOTIFY = None  # optional callable: fn(text:str) -> None
+@@
+ def _event(msg: str):
+     """Append a human-friendly event line to the ring buffer and log it."""
+     logging.getLogger(__name__).info(msg)
+     _EVENTS.append(msg)
++    # forward important lines if a notifier is registered
++    try:
++        if _NOTIFY and ("[ALERT]" in msg or "[AUTO]" in msg):
++            _NOTIFY(msg)
++    except Exception:
++        # never let notifications break core flow
++        logging.getLogger(__name__).warning("[NOTIFY] failed to deliver")
++
++def set_notifier(fn):
++    """Register a callback to deliver important alert lines (or None to disable)."""
++    global _NOTIFY
++    _NOTIFY = fn
+*** End Patch
+PATCH
+
+# 2) app.py — commands & persistence
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os, re, time, logging
++import os, re, time, json, logging
+@@
+-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/version"]
++        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/version"]
+@@
+-            "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
++            "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
+             "/paper_auto_on", "/paper_auto_off", "/paper_auto_status"
+         ]
++        # alert routing config (persisted)
++        _ALERT_CFG_PATH = os.path.join(os.path.dirname(__file__), "alert_chat.json")
++        try:
++            with open(_ALERT_CFG_PATH, "r") as f:
++                _ALERT_CFG = json.load(f)
++        except Exception:
++            _ALERT_CFG = {"chat_id": None}
++        # wire notifier into autosell
++        try:
++            import autosell
++            def _notify_line(txt: str):
++                cid = _ALERT_CFG.get("chat_id")
++                if cid:
++                    tg_send(int(cid), txt, preview=True)
++            autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
++        except Exception:
++            pass
+@@
+         elif cmd == "/ledger_pnl_csv":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             csv = autosell.ledger_mark_to_market_csv()
+             return _reply("```\n" + csv + "\n```")
++
++        # ------- Alert routing admin commands -------
++        elif cmd == "/alerts_chat_set":
++            deny = _require_admin(user)
++            if deny: return deny
++            if not args:
++                return _reply("Usage: /alerts_chat_set <chat_id>")
++            try:
++                chat_id = int(args.strip())
++            except Exception:
++                return _reply("⚠️ Invalid chat_id. It must be an integer.")
++            _ALERT_CFG["chat_id"] = chat_id
++            try:
++                with open(_ALERT_CFG_PATH, "w") as f:
++                    json.dump(_ALERT_CFG, f)
++            except Exception:
++                pass
++            try:
++                import autosell
++                autosell.set_notifier(lambda t: tg_send(chat_id, t, preview=True))
++            except Exception:
++                pass
++            return _reply(f"📡 Alerts will be routed to chat {chat_id}.")
++
++        elif cmd == "/alerts_chat_clear":
++            deny = _require_admin(user)
++            if deny: return deny
++            _ALERT_CFG["chat_id"] = None
++            try:
++                with open(_ALERT_CFG_PATH, "w") as f:
++                    json.dump(_ALERT_CFG, f)
++            except Exception:
++                pass
++            try:
++                import autosell
++                autosell.set_notifier(None)
++            except Exception:
++                pass
++            return _reply("📴 Alert routing disabled.")
++
++        elif cmd == "/alerts_chat_status":
++            deny = _require_admin(user)
++            if deny: return deny
++            cid = _ALERT_CFG.get("chat_id")
++            return _reply(f"📟 Alerts chat: {cid if cid else 'not set'}")
++
++        elif cmd == "/alerts_test":
++            deny = _require_admin(user)
++            if deny: return deny
++            cid = _ALERT_CFG.get("chat_id")
++            if not cid:
++                return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
++            ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
++            return _reply(f"🧪 Test sent: {ok}")
+*** End Patch
+PATCH
+
+# 3) Router smoke test
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'admin'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(t, "->", out.get("status"), (out.get("response") or "")[:80].replace("\n"," "))
+for t in ["/alerts_chat_status","/alerts_chat_set 12345","/alerts_chat_status","/alerts_test ping","/alerts_chat_clear","/alerts_chat_status"]:
+    mk(t)
+PY
