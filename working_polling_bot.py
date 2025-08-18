@@ -7,20 +7,35 @@ import sys
 import time
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import requests
 import threading
 from datetime import datetime
+
+def _notify_admin(msg: str):
+    try:
+        token = os.getenv("TELEGRAM_BOT_TOKEN","")
+        admin = os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","")
+        if not (token and admin): 
+            return
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(url, json={"chat_id": admin, "text": f"⚠️ F.E.T.C.H alert:\n{msg}"}, timeout=10)
+    except Exception:
+        pass
 
 # Import the working command processor from app.py
 sys.path.insert(0, '/home/runner/workspace')
 from app import process_telegram_command
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [POLLING] %(message)s'
-)
+# Setup logging with rotation
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+_file = RotatingFileHandler("live_bot.log", maxBytes=1_000_000, backupCount=5)
+_file.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_file)
+_stream = logging.StreamHandler()
+_stream.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_stream)
 
 class WorkingPollingBot:
     def __init__(self):
@@ -132,6 +147,11 @@ class WorkingPollingBot:
             response = requests.get(url, params=params, timeout=30)
             
             if not response.ok:
+                if response.status_code == 409:
+                    logger.error("[poll] 409 Conflict (webhook or another poller). Stopping.")
+                    _notify_admin("409 Conflict from Telegram (webhook set or another poller). Poller stopping.")
+                    self.running = False
+                    return
                 logger.error(f"Poll failed: {response.status_code}")
                 return
             

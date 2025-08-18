@@ -1,0 +1,87 @@
+# A) Add rotating logs + console mirror
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: working_polling_bot.py
+@@
+-import logging
++import logging
++from logging.handlers import RotatingFileHandler
+@@
+-logging.basicConfig(
+-    level=logging.INFO,
+-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+-)
++logger = logging.getLogger(__name__)
++logger.setLevel(logging.INFO)
++_file = RotatingFileHandler("live_bot.log", maxBytes=1_000_000, backupCount=5)
++_file.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
++logger.addHandler(_file)
++_stream = logging.StreamHandler()
++_stream.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
++logger.addHandler(_stream)
+*** End Patch
+PATCH
+
+# B) Add lightweight admin alert on hard failures (uses ASSISTANT_ADMIN_TELEGRAM_ID)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: working_polling_bot.py
+@@
+ import os, requests
+@@
++def _notify_admin(msg: str):
++    try:
++        token = os.getenv("TELEGRAM_BOT_TOKEN","")
++        admin = os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","")
++        if not (token and admin): 
++            return
++        url = f"https://api.telegram.org/bot{token}/sendMessage"
++        requests.post(url, json={"chat_id": admin, "text": f"⚠️ F.E.T.C.H alert:\n{msg}"}, timeout=10)
++    except Exception:
++        pass
+*** End Patch
+PATCH
+
+# C) Call alerts in critical spots
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: working_polling_bot.py
+@@
+-        if r.status_code == 409:
+-            logger.error("[poll] 409 Conflict (webhook or another poller). Stopping.")
+-            self.running = False
++        if r.status_code == 409:
++            logger.error("[poll] 409 Conflict (webhook or another poller). Stopping.")
++            _notify_admin("409 Conflict from Telegram (webhook set or another poller). Poller stopping.")
++            self.running = False
+             return {"ok": False}
+*** End Patch
+PATCH
+
+# D) Quick health tools
+mkdir -p scripts
+cat > scripts/health_check.sh <<'SH'
+#!/usr/bin/env bash
+set -e
+echo "Process:" && ps aux | grep -E "working_polling_bot\.py" | grep -v grep || echo "NO POLLER"
+echo -n "Webhook: " && curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 -c "import sys,json as j; d=j.load(sys.stdin); print(d.get('result',{}).get('url'))"
+echo -n "Pending: " && curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" \
+| python3 -c "import sys,json as j; d=j.load(sys.stdin); print(len(d.get('result',[])))"
+echo "--- live_bot.log (tail) ---" && tail -n 30 live_bot.log || true
+SH
+chmod +x scripts/health_check.sh
+
+cat > scripts/smoke_test.sh <<'SH'
+#!/usr/bin/env bash
+set -e
+echo "Send these in Telegram DM with @MorkSniperBot:"
+echo "/ping  /help  /status  /wallet  /wallet_balance  /autosell_status  /not_a_real_cmd"
+SH
+chmod +x scripts/smoke_test.sh
+
+# E) Clean restart (Deploy will usually handle; keep idempotent)
+pkill -f working_polling_bot\.py || true
+nohup python3 -u working_polling_bot.py >> live_bot.log 2>&1 &
+sleep 2
+./scripts/health_check.sh
