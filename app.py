@@ -30,7 +30,7 @@ ALL_COMMANDS = [
     "/watch", "/unwatch", "/watchlist", "/watch_sens",
     "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
-    "/ledger_pnl", "/paper_setprice"
+    "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -946,6 +946,23 @@ def process_telegram_command(update: dict):
             mint, price = parts[0], parts[1]
             ok = autosell.set_price_override(mint, price)
             return _reply("🧪 Price override " + ("set." if ok else "failed."))
+
+        elif cmd == "/paper_clearprice":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            if not args:
+                return _reply("Usage: /paper_clearprice <mint>")
+            autosell.clear_price_override(args.strip())
+            return _reply("🧹 Price override cleared.")
+
+        elif cmd == "/ledger_pnl_csv":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            csv = autosell.ledger_mark_to_market_csv()
+            # keep it simple: send as text block (fits Telegram limits for small ledgers)
+            return _reply("```\n" + csv + "\n```")
 
         # Wallet Commands
         elif cmd == "/wallet":

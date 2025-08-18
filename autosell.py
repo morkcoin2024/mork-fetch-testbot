@@ -357,6 +357,16 @@ def clear_price_override(mint:str):
     _log_event(f"[PRICE] override cleared {mint}")
     return True
 
+def ledger_mark_to_market_csv():
+    snap = ledger_mark_to_market()
+    lines = ["mint,qty,avg,px,source,unrealized"]
+    for l in snap["lines"]:
+        lines.append(f"{l['mint']},{l['qty']},{l['avg']},{l['px']},{l['src']},{l['unreal']}")
+    lines.append(f"realized,{snap['realized']},,,,")
+    lines.append(f"unrealized,{snap['unreal']},,,,")
+    lines.append(f"total,{snap['total']},,,,")
+    return "\n".join(lines)
+
 def ledger_mark_to_market():
     """Return detailed P&L snapshot using live (or override/sim) prices."""
     lines = []

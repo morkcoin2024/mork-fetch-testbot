@@ -1,0 +1,86 @@
+# === QoL Pack: clear override + CSV P&L ===
+# Adds:
+#   /paper_clearprice <mint>   (admin) — remove a manual price override
+#   /ledger_pnl_csv            (admin) — compact CSV of P&L lines + totals
+
+cd /home/runner/workspace
+
+# 1) autosell.py — expose clear override + CSV helper
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+ def clear_price_override(mint:str):
+     with _LOCK:
+         _PRICE_OVERRIDES.pop(mint, None)
+     _event(f"[PRICE] override cleared {mint}")
+     return True
++
++def ledger_mark_to_market_csv():
++    snap = ledger_mark_to_market()
++    lines = ["mint,qty,avg,px,source,unrealized"]
++    for l in snap["lines"]:
++        lines.append(f"{l['mint']},{l['qty']},{l['avg']},{l['px']},{l['src']},{l['unreal']}")
++    lines.append(f"realized,{snap['realized']},,,,")
++    lines.append(f"unrealized,{snap['unreal']},,,,")
++    lines.append(f"total,{snap['total']},,,,")
++    return "\n".join(lines)
+*** End Patch
+PATCH
+
+# 2) app.py — wire commands
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+             "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
+-            "/ledger_pnl", "/paper_setprice"
++            "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv"
+         ]
+@@
+         elif cmd == "/paper_setprice":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             parts = (args or "").split()
+             if len(parts) < 2:
+                 return _reply("Usage: /paper_setprice <mint> <price>")
+             mint, price = parts[0], parts[1]
+             ok = autosell.set_price_override(mint, price)
+             return _reply("🧪 Price override " + ("set." if ok else "failed."))
++
++        elif cmd == "/paper_clearprice":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            if not args:
++                return _reply("Usage: /paper_clearprice <mint>")
++            autosell.clear_price_override(args.strip())
++            return _reply("🧹 Price override cleared.")
++
++        elif cmd == "/ledger_pnl_csv":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            csv = autosell.ledger_mark_to_market_csv()
++            # keep it simple: send as text block (fits Telegram limits for small ledgers)
++            return _reply("```\n" + csv + "\n```")
+*** End Patch
+PATCH
+
+# 3) Quick smoke (router-only)
+python3 - <<'PY'
+from app import process_telegram_command
+def run(text):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'x'},'text':text}}
+    out=process_telegram_command(upd) or {}
+    print(text, "->", out.get("status"), (out.get("response") or "")[:120].replace("\n"," "))
+tests = [
+    "/paper_setprice So11111111111111111111111111111111111111112 101",
+    "/ledger_pnl",
+    "/ledger_pnl_csv",
+    "/paper_clearprice So11111111111111111111111111111111111111112",
+]
+for t in tests: run(t)
+PY
