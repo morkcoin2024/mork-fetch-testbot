@@ -1,0 +1,105 @@
+# Implement Discord alert mirror (inactive until webhook is set)
+# Safe to re-run: no-ops if already applied.
+
+cd /home/runner/workspace
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import json, re, time, traceback
++import json, re, time, traceback, os
++try:
++    import requests
++except Exception:
++    requests = None
+@@
+-        except Exception:
+-            _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60, "muted_until": 0}
++        except Exception:
++            _ALERT_CFG = {
++                "chat_id": None,
++                "min_move_pct": 0.0,
++                "rate_per_min": 60,
++                "muted_until": 0,
++                "discord_webhook": None,
++            }
+@@
+-            return _reply(
++            return _reply(
+                 "📟 Alerts settings:\n"
+                 f"chat: {cid if cid else 'not set'}\n"
+                 f"min_move_pct: { _ALERT_CFG.get('min_move_pct', 0.0) }%\n"
+                 f"rate_per_min: { _ALERT_CFG.get('rate_per_min', 60) }\n"
+-                f"muted: {'yes' if remaining>0 else 'no'}"
++                f"muted: {'yes' if remaining>0 else 'no'}"
+                 + (f" ({remaining}s left)" if remaining>0 else "")
++                + "\n"
++                + f"discord: {'set' if (_ALERT_CFG.get('discord_webhook') or os.getenv('DISCORD_WEBHOOK_URL')) else 'not set'}"
+             )
+@@
+             def _notify_line(txt: str):
+                 cid = _ALERT_CFG.get("chat_id")
+                 if cid:
+                     # mute / threshold / rate checks (existing)
+                     nonlocal _ALERT_LAST_SENT
+                     now = time.time()
+                     min_interval = max(1.0, 60.0 / float(_ALERT_CFG.get("rate_per_min", 60) or 60))
+                     if now - _ALERT_LAST_SENT < min_interval:
+                         return
+                     _ALERT_LAST_SENT = now
+                     tg_send(cid, txt, preview=True)
++                    # Best-effort Discord mirror (no-op if not configured)
++                    try: _discord_send(txt)
++                    except Exception: pass
++
++        # --- Discord helpers & commands (optional mirror) ---
++        def _discord_send(text: str):
++            url = (_ALERT_CFG.get("discord_webhook") or os.getenv("DISCORD_WEBHOOK_URL"))
++            if not url or not requests:  # inactive if no webhook or requests unavailable
++                return {"ok": False, "reason": "inactive"}
++            try:
++                r = requests.post(url, json={"content": text}, timeout=8)
++                return {"ok": r.status_code in (200, 204), "status": r.status_code}
++            except Exception as e:
++                return {"ok": False, "error": str(e)}
++
++        elif cmd == "/discord_set":
++            deny = _require_admin(user)
++            if deny: return deny
++            if not args:
++                return _reply("Usage: /discord_set <webhook-url> (send in DM, not group)")
++            _ALERT_CFG["discord_webhook"] = args.strip()
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            ok = _discord_send("✅ Discord webhook set (test)")
++            return _reply(f"✅ Discord set: {bool(ok.get('ok'))}")
++
++        elif cmd == "/discord_clear":
++            deny = _require_admin(user)
++            if deny: return deny
++            _ALERT_CFG["discord_webhook"] = None
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            return _reply("🧹 Discord webhook cleared")
++
++        elif cmd == "/discord_test":
++            deny = _require_admin(user)
++            if deny: return deny
++            msg = (args or "test").strip()
++            ok = _discord_send(f"[TEST] {msg}")
++            return _reply(f"📤 Discord test sent: {bool(ok.get('ok'))}")
+*** End Patch
+PATCH
+
+# Quick check (without webhook set, this stays inactive)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'admin'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(t, "->", out.get("status"), (out.get("response") or "").replace("\n"," ")[:120])
+for t in ["/alerts_settings","/discord_test hello"]:
+    mk(t)
+PY

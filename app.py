@@ -7,7 +7,12 @@ import os
 import logging
 import threading
 import time
+import json, re, traceback
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+try:
+    import requests
+except Exception:  # very defensive
+    requests = None
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
@@ -33,7 +38,8 @@ ALL_COMMANDS = [
     "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
     "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
     "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test",
-    "/alerts_min_move", "/alerts_rate", "/alerts_settings", "/alerts_mute", "/alerts_unmute"
+    "/alerts_min_move", "/alerts_rate", "/alerts_settings", "/alerts_mute", "/alerts_unmute",
+    "/discord_set", "/discord_clear", "/discord_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -44,7 +50,13 @@ try:
     with open(_ALERT_CFG_PATH, "r") as f:
         _ALERT_CFG = json.load(f)
 except Exception:
-    _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60, "muted_until": 0}
+    _ALERT_CFG = {
+        "chat_id": None,
+        "min_move_pct": 0.0,
+        "rate_per_min": 60,
+        "muted_until": 0,
+        "discord_webhook": None,
+    }
 
 # --- notifier state for rate-limiting (sliding window) ---
 _ALERT_SENT_TS = []  # unix seconds of recent sends
@@ -1158,6 +1170,38 @@ def process_telegram_command(update: dict):
                 pass
             return _reply("🔔 Alerts unmuted")
 
+        elif cmd == "/discord_set":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args:
+                return _reply("Usage: /discord_set <webhook-url> (send this in DM, not group)")
+            _ALERT_CFG["discord_webhook"] = args.strip()
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            ok = _discord_send("✅ Discord webhook set (test)")
+            return _reply(f"✅ Discord set: {bool(ok.get('ok'))}")
+
+        elif cmd == "/discord_clear":
+            deny = _require_admin(user)
+            if deny: return deny
+            _ALERT_CFG["discord_webhook"] = None
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            return _reply("🧹 Discord webhook cleared")
+
+        elif cmd == "/discord_test":
+            deny = _require_admin(user)
+            if deny: return deny
+            msg = args.strip() or "test"
+            ok = _discord_send(f"[TEST] {msg}")
+            return _reply(f"📤 Discord test sent: {bool(ok.get('ok'))}")
+
         elif cmd == "/alerts_settings":
             deny = _require_admin(user)
             if deny: return deny
@@ -1165,6 +1209,8 @@ def process_telegram_command(update: dict):
             import time
             mu = float(_ALERT_CFG.get("muted_until", 0) or 0)
             remaining = max(0, int(mu - time.time()))
+            import os
+            discord_set = bool(_ALERT_CFG.get('discord_webhook') or os.getenv('DISCORD_WEBHOOK_URL'))
             return _reply(
                 "📟 Alert flood control settings:\n"
                 f"chat: {cid if cid else 'not set'}\n"
@@ -1173,6 +1219,8 @@ def process_telegram_command(update: dict):
                 f"sent_last_min: {len(_ALERT_SENT_TS)}\n"
                 f"muted: {'yes' if remaining>0 else 'no'}"
                 + (f" ({remaining}s left)" if remaining>0 else "")
+                + "\n"
+                + f"discord: {'set' if discord_set else 'not set'}"
             )
 
         # Wallet Commands
@@ -1315,6 +1363,18 @@ try:
     }
     logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
     
+    # --- Discord helper & commands ---
+    def _discord_send(text: str):
+        url = (_ALERT_CFG.get("discord_webhook")
+               or os.getenv("DISCORD_WEBHOOK_URL"))
+        if not url or not requests:
+            return {"ok": False, "reason": "no_webhook_or_requests"}
+        try:
+            r = requests.post(url, json={"content": text}, timeout=8)
+            return {"ok": r.status_code in (200, 204), "status": r.status_code}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     # Wire notifier into autosell for alert routing
     try:
         import autosell
@@ -1345,6 +1405,11 @@ try:
                 res = tg_send(int(cid), txt, preview=True)
                 if res.get("ok"):
                     _ALERT_SENT_TS.append(now)
+                # Discord mirror (best-effort; won't raise)
+                try:
+                    _discord_send(txt)
+                except Exception:
+                    pass
         autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
     except Exception as e:
         logger.warning(f"Failed to setup notifier: {e}")
