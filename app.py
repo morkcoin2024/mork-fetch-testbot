@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 import json, re, traceback
+import datetime as _dt
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 try:
     import requests
@@ -39,7 +40,8 @@ ALL_COMMANDS = [
     "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
     "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test",
     "/alerts_min_move", "/alerts_rate", "/alerts_settings", "/alerts_mute", "/alerts_unmute",
-    "/discord_set", "/discord_clear", "/discord_test"
+    "/discord_set", "/discord_clear", "/discord_test",
+    "/digest_status", "/digest_on", "/digest_off", "/digest_time", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -56,6 +58,7 @@ except Exception:
         "rate_per_min": 60,
         "muted_until": 0,
         "discord_webhook": None,
+        "digest": {"enabled": False, "time": "09:00", "chat_id": None}
     }
 
 # --- notifier state for rate-limiting (sliding window) ---
@@ -1202,6 +1205,58 @@ def process_telegram_command(update: dict):
             ok = _discord_send(f"[TEST] {msg}")
             return _reply(f"📤 Discord test sent: {bool(ok.get('ok'))}")
 
+        # ----- Daily Digest admin commands -----
+        elif cmd == "/digest_status":
+            deny = _require_admin(user)
+            if deny: return deny
+            d = _ALERT_CFG.get("digest", {})
+            return _reply(f"🗞 Digest: {'on' if d.get('enabled') else 'off'} @ {d.get('time','09:00')} UTC\n"
+                          f"chat: { _digest_target_chat() or 'not set'}")
+
+        elif cmd == "/digest_on":
+            deny = _require_admin(user)
+            if deny: return deny
+            _ALERT_CFG.setdefault("digest", {})["enabled"] = True
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            _ensure_digest_thread()
+            return _reply("✅ Daily digest enabled")
+
+        elif cmd == "/digest_off":
+            deny = _require_admin(user)
+            if deny: return deny
+            _ALERT_CFG.setdefault("digest", {})["enabled"] = False
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            return _reply("🛑 Daily digest disabled")
+
+        elif cmd == "/digest_time":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args or not _parse_hhmm(args):
+                return _reply("Usage: /digest_time HH:MM  (UTC)")
+            _ALERT_CFG.setdefault("digest", {})["time"] = args.strip()
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            return _reply(f"⏰ Digest time set to {args.strip()} UTC")
+
+        elif cmd == "/digest_test":
+            deny = _require_admin(user)
+            if deny: return deny
+            note = args.strip() if args else "manual test"
+            _ensure_digest_thread()
+            res = _digest_send(note)
+            return _reply(f"📤 Digest sent: {bool(res.get('ok'))}")
+
         elif cmd == "/alerts_settings":
             deny = _require_admin(user)
             if deny: return deny
@@ -1221,6 +1276,9 @@ def process_telegram_command(update: dict):
                 + (f" ({remaining}s left)" if remaining>0 else "")
                 + "\n"
                 + f"discord: {'set' if discord_set else 'not set'}"
+                + "\n"
+                + f"digest: {'on' if (_ALERT_CFG.get('digest',{}).get('enabled')) else 'off'} @ "
+                + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
             )
 
         # Wallet Commands
@@ -1374,6 +1432,103 @@ try:
             return {"ok": r.status_code in (200, 204), "status": r.status_code}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # --- Daily Digest (heartbeat) helper functions ---
+    global _DIGEST_THREAD_STARTED
+    try:
+        _DIGEST_THREAD_STARTED
+    except NameError:
+        _DIGEST_THREAD_STARTED = False
+
+    def _digest_target_chat():
+        # prefer explicit digest chat, then alerts chat, then admin env
+        cid = (_ALERT_CFG.get("digest",{}).get("chat_id")
+               or _ALERT_CFG.get("chat_id"))
+        if not cid:
+            try:
+                cid = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","0")) or None
+            except Exception:
+                cid = None
+        return cid
+
+    def _digest_compose(note: str = ""):
+        ts = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        lines = [f"🗞 Daily Digest — {ts}"]
+        # autosell status (best-effort)
+        try:
+            import autosell
+            st = autosell.status()
+            lines.append(f"AutoSell: enabled={st.get('enabled')} alive={st.get('alive')} interval={st.get('interval_sec','?')}s")
+            lines.append(f"Rules: {st.get('rules', 0)}")
+            hb = st.get('heartbeat_age', None)
+            if hb is not None:
+                lines.append(f"HB age: {hb}s ticks={st.get('ticks',0)}")
+        except Exception:
+            lines.append("AutoSell: n/a")
+        # alert settings summary
+        try:
+            lines.append(f"Alerts: chat={'set' if _ALERT_CFG.get('chat_id') else 'not set'} "
+                         f"min_move={_ALERT_CFG.get('min_move_pct',0)}% muted_until={_ALERT_CFG.get('muted_until',0)}")
+        except Exception:
+            pass
+        if note:
+            lines.append(f"Note: {note}")
+        lines.append("—")
+        lines.append("Tips: /help  •  /autosell_status  •  /watchlist  •  /autosell_logs 10")
+        return "\n".join(lines)
+
+    def _digest_send(note: str = ""):
+        chat = _digest_target_chat()
+        if not chat:
+            return {"ok": False, "reason": "no_chat"}
+        msg = _digest_compose(note)
+        return tg_send(chat, msg, preview=True)
+
+    def _parse_hhmm(s: str):
+        m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", s.strip())
+        if not m: return None
+        return int(m.group(1)), int(m.group(2))
+
+    def _secs_until_next(hh: int, mm: int):
+        now = _dt.datetime.utcnow()
+        nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if nxt <= now:
+            nxt = nxt + _dt.timedelta(days=1)
+        return max(1, int((nxt - now).total_seconds()))
+
+    def _ensure_digest_thread():
+        global _DIGEST_THREAD_STARTED
+        if _DIGEST_THREAD_STARTED:
+            return
+        _DIGEST_THREAD_STARTED = True
+        def _worker():
+            # tiny scheduler loop
+            while True:
+                try:
+                    dcfg = _ALERT_CFG.get("digest", {})
+                    if not dcfg.get("enabled", False):
+                        time.sleep(30)
+                        continue
+                    t = dcfg.get("time","09:00")
+                    hm = _parse_hhmm(t) or (9,0)
+                    sleep_s = _secs_until_next(*hm)
+                    # coarse sleep with ability to react to config changes
+                    while sleep_s > 0 and dcfg.get("enabled", False):
+                        step = 30 if sleep_s > 60 else sleep_s
+                        time.sleep(step)
+                        sleep_s -= step
+                        dcfg = _ALERT_CFG.get("digest", {})
+                    if dcfg.get("enabled", False):
+                        try: _digest_send()
+                        except Exception: pass
+                except Exception:
+                    # never die
+                    time.sleep(10)
+        th = threading.Thread(target=_worker, name="digest-heartbeat", daemon=True)
+        th.start()
+
+    # make sure the thread exists after the first command processing
+    _ensure_digest_thread()
 
     # Wire notifier into autosell for alert routing
     try:

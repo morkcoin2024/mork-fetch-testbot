@@ -1,0 +1,211 @@
+# === Daily Heartbeat Digest (disabled until you turn it on) ===
+# Features:
+# - /digest_on /digest_off (admin)
+# - /digest_time HH:MM (UTC) (admin)
+# - /digest_status (admin)
+# - /digest_test [note] (admin) -> sends an immediate digest
+# - Runs in a tiny background thread (daemon) with 1 worker; respects workers=1
+
+cd /home/runner/workspace
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import json, re, time, traceback, os
++import json, re, time, traceback, os, threading, datetime as _dt
+@@
+-        except Exception:
++        except Exception:
+             _ALERT_CFG = {
+                 "chat_id": None,
+                 "min_move_pct": 0.0,
+                 "rate_per_min": 60,
+                 "muted_until": 0,
+                 "discord_webhook": None,
++                "digest": {"enabled": False, "time": "09:00", "chat_id": None}
+             }
+@@
+-            return _reply(
++            return _reply(
+                 "📟 Alerts settings:\n"
+                 f"chat: {cid if cid else 'not set'}\n"
+                 f"min_move_pct: { _ALERT_CFG.get('min_move_pct', 0.0) }%\n"
+                 f"rate_per_min: { _ALERT_CFG.get('rate_per_min', 60) }\n"
+                 f"muted: {'yes' if remaining>0 else 'no'}"
+                 + (f" ({remaining}s left)" if remaining>0 else "")
+                 + "\n"
+                 + f"discord: {'set' if (_ALERT_CFG.get('discord_webhook') or os.getenv('DISCORD_WEBHOOK_URL')) else 'not set'}"
++                + "\n"
++                + f"digest: {'on' if (_ALERT_CFG.get('digest',{}).get('enabled')) else 'off'} @ "
++                + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
+             )
+@@
+         def _discord_send(text: str):
+             url = (_ALERT_CFG.get("discord_webhook") or os.getenv("DISCORD_WEBHOOK_URL"))
+             if not url or not requests:
+                 return {"ok": False, "reason": "inactive"}
+             try:
+                 r = requests.post(url, json={"content": text}, timeout=8)
+                 return {"ok": (r.status_code in (200, 204)), "status": r.status_code}
+             except Exception as e:
+                 return {"ok": False, "error": str(e)}
++
++        # ---------------- Daily Digest (heartbeat) ----------------
++        _DIGEST_THREAD_STARTED = globals().get("_DIGEST_THREAD_STARTED", False)
++
++        def _digest_target_chat():
++            # prefer explicit digest chat, then alerts chat, then admin env
++            cid = (_ALERT_CFG.get("digest",{}).get("chat_id")
++                   or _ALERT_CFG.get("chat_id"))
++            if not cid:
++                try:
++                    cid = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","0")) or None
++                except Exception:
++                    cid = None
++            return cid
++
++        def _digest_compose(note: str = ""):
++            ts = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
++            lines = [f"🗞 Daily Digest — {ts}"]
++            # autosell status (best-effort)
++            try:
++                import autosell
++                st = autosell.status()
++                lines.append(f"AutoSell: enabled={st.get('enabled')} alive={st.get('alive')} interval={st.get('interval_sec','?')}s")
++                lines.append(f"Rules: {st.get('rules', 0)}")
++                hb = st.get('heartbeat_age', None)
++                if hb is not None:
++                    lines.append(f"HB age: {hb}s ticks={st.get('ticks',0)}")
++            except Exception:
++                lines.append("AutoSell: n/a")
++            # alert settings summary
++            try:
++                lines.append(f"Alerts: chat={'set' if _ALERT_CFG.get('chat_id') else 'not set'} "
++                             f"min_move={_ALERT_CFG.get('min_move_pct',0)}% muted_until={_ALERT_CFG.get('muted_until',0)}")
++            except Exception:
++                pass
++            if note:
++                lines.append(f"Note: {note}")
++            lines.append("—")
++            lines.append("Tips: /help  •  /autosell_status  •  /watchlist  •  /autosell_logs 10")
++            return "\n".join(lines)
++
++        def _digest_send(note: str = ""):
++            chat = _digest_target_chat()
++            if not chat:
++                return {"ok": False, "reason": "no_chat"}
++            msg = _digest_compose(note)
++            return tg_send(chat, msg, preview=True)
++
++        def _parse_hhmm(s: str):
++            m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", s.strip())
++            if not m: return None
++            return int(m.group(1)), int(m.group(2))
++
++        def _secs_until_next(hh: int, mm: int):
++            now = _dt.datetime.utcnow()
++            nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
++            if nxt <= now:
++                nxt = nxt + _dt.timedelta(days=1)
++            return max(1, int((nxt - now).total_seconds()))
++
++        def _ensure_digest_thread():
++            nonlocal _DIGEST_THREAD_STARTED
++            if _DIGEST_THREAD_STARTED:
++                return
++            _DIGEST_THREAD_STARTED = True
++            def _worker():
++                # tiny scheduler loop
++                while True:
++                    try:
++                        dcfg = _ALERT_CFG.get("digest", {})
++                        if not dcfg.get("enabled", False):
++                            time.sleep(30)
++                            continue
++                        t = dcfg.get("time","09:00")
++                        hm = _parse_hhmm(t) or (9,0)
++                        sleep_s = _secs_until_next(*hm)
++                        # coarse sleep with ability to react to config changes
++                        while sleep_s > 0 and dcfg.get("enabled", False):
++                            step = 30 if sleep_s > 60 else sleep_s
++                            time.sleep(step)
++                            sleep_s -= step
++                            dcfg = _ALERT_CFG.get("digest", {})
++                        if dcfg.get("enabled", False):
++                            try: _digest_send()
++                            except Exception: pass
++                    except Exception:
++                        # never die
++                        time.sleep(10)
++            th = threading.Thread(target=_worker, name="digest-heartbeat", daemon=True)
++            th.start()
++
++        # make sure the thread exists after the first command processing
++        _ensure_digest_thread()
+@@
+         elif cmd == "/discord_test":
+             deny = _require_admin(user)
+             if deny: return deny
+             msg = (args or "test").strip()
+             ok = _discord_send(f"[TEST] {msg}")
+             return _reply(f"📤 Discord test sent: {bool(ok.get('ok'))}")
++
++        # ----- Digest admin commands -----
++        elif cmd == "/digest_status":
++            deny = _require_admin(user);  # keep admin-only
++            if deny: return deny
++            d = _ALERT_CFG.get("digest", {})
++            return _reply(f"🗞 Digest: {'on' if d.get('enabled') else 'off'} @ {d.get('time','09:00')} UTC\n"
++                          f"chat: { _digest_target_chat() or 'not set'}")
++
++        elif cmd == "/digest_on":
++            deny = _require_admin(user)
++            if deny: return deny
++            _ALERT_CFG.setdefault("digest", {})["enabled"] = True
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            _ensure_digest_thread()
++            return _reply("✅ Daily digest enabled")
++
++        elif cmd == "/digest_off":
++            deny = _require_admin(user)
++            if deny: return deny
++            _ALERT_CFG.setdefault("digest", {})["enabled"] = False
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            return _reply("🛑 Daily digest disabled")
++
++        elif cmd == "/digest_time":
++            deny = _require_admin(user)
++            if deny: return deny
++            if not args or not _parse_hhmm(args):
++                return _reply("Usage: /digest_time HH:MM  (UTC)")
++            _ALERT_CFG.setdefault("digest", {})["time"] = args.strip()
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            return _reply(f"⏰ Digest time set to {args.strip()} UTC")
++
++        elif cmd == "/digest_test":
++            deny = _require_admin(user)
++            if deny: return deny
++            note = args.strip() if args else "manual test"
++            _ensure_digest_thread()
++            res = _digest_send(note)
++            return _reply(f"📤 Digest sent: {bool(res.get('ok'))}")
+*** End Patch
+PATCH
+
+# Quick local smoke test (no TG send here; just command wiring)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(txt):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'admin'}, 'text':txt}}
+    out=process_telegram_command(upd) or {}
+    print(txt, "->", out.get('status'), (out.get('response') or '')[:120].replace("\n"," "))
+for t in ["/digest_status","/digest_time 09:30","/digest_on","/digest_status"]:
+    mk(t)
+PY
+
+echo "=== Digest feature added. Enable with /digest_on and set time with /digest_time HH:MM (UTC). ==="

@@ -1,0 +1,76 @@
+{
+  "release_id": "tg-stable-2025-08-18T19-07-30Z",
+  "feature": "Daily Heartbeat Digest Implementation",
+  "timestamp": "2025-08-18T19:07:30Z",
+  "status": "COMPLETE",
+  "summary": "Implemented comprehensive Daily Heartbeat Digest system for automated status reports",
+  "changes": [
+    {
+      "file": "app.py",
+      "description": "Added complete Daily Digest functionality with helper functions, admin commands, and background scheduler thread",
+      "additions": [
+        "Added datetime import for UTC time handling",
+        "Extended ALL_COMMANDS list with 5 new digest commands: /digest_status, /digest_on, /digest_off, /digest_time, /digest_test",
+        "Enhanced _ALERT_CFG default structure with digest configuration",
+        "Implemented _digest_target_chat() for smart chat selection (digest chat → alert chat → admin env)",
+        "_digest_compose() generates comprehensive status summaries with AutoSell status, alert settings, and helpful tips",
+        "_digest_send() handles message delivery with fallback options",
+        "_parse_hhmm() validates and parses HH:MM time format (24-hour)",
+        "_secs_until_next() calculates seconds until next scheduled time with date rollover",
+        "_ensure_digest_thread() manages background scheduler with intelligent config monitoring",
+        "Background digest worker thread with 30-second config refresh and automatic delivery",
+        "5 new admin commands with full persistence via alert_chat.json"
+      ]
+    },
+    {
+      "file": "replit.md",
+      "description": "Updated Alert Routing System documentation to reflect expanded 18-command suite",
+      "changes": [
+        "Updated command count from 13 to 18 commands",
+        "Added 5 new digest commands to comprehensive list",
+        "Documented Daily Heartbeat Digest functionality with automated UTC scheduling"
+      ]
+    }
+  ],
+  "new_commands": {
+    "digest_status": "Show current digest configuration and target chat",
+    "digest_on": "Enable daily digest delivery",
+    "digest_off": "Disable daily digest delivery", 
+    "digest_time": "Set digest delivery time (HH:MM UTC format)",
+    "digest_test": "Send manual digest with optional note"
+  },
+  "technical_features": [
+    "UTC-based scheduling with intelligent date rollover handling",
+    "Smart chat selection hierarchy: digest_chat → alert_chat → admin_env",
+    "Background thread with 30-second configuration monitoring",
+    "Comprehensive status reporting including AutoSell state, alert settings, helpful tips",
+    "Graceful error handling with never-die background worker",
+    "Persistent configuration via alert_chat.json with atomic file operations",
+    "Thread-safe global state management with proper initialization"
+  ],
+  "integration": {
+    "alert_routing": "Seamlessly integrated with existing 13-command Alert Routing System",
+    "autosell": "Pulls real-time AutoSell status including enabled state, rules count, heartbeat age",
+    "persistence": "Uses same alert_chat.json persistence as Discord and alert routing",
+    "messaging": "Leverages existing tg_send() infrastructure for reliable delivery"
+  },
+  "configuration_structure": {
+    "digest": {
+      "enabled": "boolean - controls digest delivery",
+      "time": "string - HH:MM UTC format for daily delivery time",
+      "chat_id": "optional integer - specific chat for digests, falls back to alert chat"
+    }
+  },
+  "testing": {
+    "test_script": "digest_test.py created and executed successfully",
+    "functions_tested": [
+      "_digest_compose() - generates proper status summary",
+      "_digest_target_chat() - returns correct admin chat ID",
+      "_parse_hhmm() - validates time formats correctly", 
+      "_secs_until_next() - calculates scheduling intervals"
+    ],
+    "results": "All digest functionality tests passed"
+  },
+  "deployment_ready": true,
+  "backward_compatible": true
+}
