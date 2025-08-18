@@ -24,6 +24,7 @@ logging.basicConfig(
         logging.FileHandler('live_bot.log')
     ]
 )
+print("[BOOT] production_polling_bot.py pid=", os.getpid())
 logger = logging.getLogger(__name__)
 
 class ProductionPollingBot:
