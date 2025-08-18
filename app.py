@@ -30,7 +30,8 @@ ALL_COMMANDS = [
     "/watch", "/unwatch", "/watchlist", "/watch_sens",
     "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
-    "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv"
+    "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
+    "/paper_auto_on", "/paper_auto_off", "/paper_auto_status"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -963,6 +964,32 @@ def process_telegram_command(update: dict):
             csv = autosell.ledger_mark_to_market_csv()
             # keep it simple: send as text block (fits Telegram limits for small ledgers)
             return _reply("```\n" + csv + "\n```")
+
+        elif cmd == "/paper_auto_on":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            q = None
+            if args:
+                try: q = float(args.strip())
+                except: pass
+            autosell.paper_auto_enable(q)
+            st = autosell.paper_auto_status()
+            return _reply(f"🤖 paper-auto ENABLED qty={st['qty']}")
+
+        elif cmd == "/paper_auto_off":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.paper_auto_disable()
+            return _reply("🤖 paper-auto DISABLED")
+
+        elif cmd == "/paper_auto_status":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            st = autosell.paper_auto_status()
+            return _reply(f"🤖 paper-auto status: enabled={st['enabled']} qty={st['qty']}")
 
         # Wallet Commands
         elif cmd == "/wallet":

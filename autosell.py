@@ -25,6 +25,12 @@ _BACKUP_FILE = os.environ.get("FETCH_BACKUP_FILE", "autosell_backup.json")
 _LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
 _PRICE_OVERRIDES = {}  # mint -> float
 
+# --- Paper-auto state ---
+_PAPER_AUTO = {"enabled": False, "qty": 0.1}
+_PA_THREAD = None
+_PA_STOP = False
+_PA_CURSOR = 0  # index into event stream we've processed
+
 def status():
     with _LOCK:
         return {
@@ -262,6 +268,72 @@ def _log_event(s: str):
     _EVENTS.append(line)
     logger.info("[autosell] %s", s)
 
+def _pos_qty(mint: str) -> float:
+    p = _LEDGER["positions"].get(mint)
+    return float(p["qty"]) if p else 0.0
+
+def _paper_auto_maybe(mint: str, price: float, direction: str):
+    """direction: 'up' or 'down'."""
+    if not _PAPER_AUTO["enabled"]:
+        return False
+    qty = float(_PAPER_AUTO.get("qty", 0.1))
+    qty = max(0.000001, qty)  # guard
+    try:
+        if direction == "up":
+            # take-profit only if we actually hold some
+            if _pos_qty(mint) > 0:
+                ledger_sell(mint, qty, price)
+                _log_event(f"[AUTO] paper SELL {mint} qty={qty} px={price:.6f}")
+                return True
+            return False
+        else:  # 'down' -> buy (average down demo)
+            ledger_buy(mint, qty, price)
+            _log_event(f"[AUTO] paper BUY {mint} qty={qty} px={price:.6f}")
+            return True
+    except Exception as e:
+        _log_event(f"[AUTO] error {mint} dir={direction} err={e}")
+        return False
+
+def _parse_alert_event(e: str):
+    """
+    Parse an '[ALERT]' multi-line entry produced by the worker.
+    Expected shape (examples seen in logs):
+      '... [ALERT]\\n<mint> +2.62%\\nprice=0.735307 src=sim\\nref=...'
+    Returns (mint, price, direction) or None.
+    """
+    import re
+    if "[ALERT]" not in e:
+        return None
+    m_mint = re.search(r"\[ALERT\]\s*\n([^\s]+)\s+([+\-]?\d+(?:\.\d+)?)%", e)
+    m_px   = re.search(r"price=([0-9]+(?:\.[0-9]+)?)", e)
+    if not m_mint or not m_px:
+        return None
+    mint = m_mint.group(1)
+    delta = float(m_mint.group(2))
+    price = float(m_px.group(1))
+    direction = "up" if delta > 0 else "down"
+    return mint, price, direction
+
+def _paper_auto_loop():
+    global _PA_CURSOR
+    logger.info("[PAPER-AUTO] watcher started (qty=%s)", _PAPER_AUTO.get("qty"))
+    # start from the tail
+    _PA_CURSOR = len(_EVENTS)
+    while not _PA_STOP and _PAPER_AUTO["enabled"]:
+        try:
+            # sweep new events
+            while _PA_CURSOR < len(_EVENTS):
+                e = _EVENTS[_PA_CURSOR]
+                _PA_CURSOR += 1
+                parsed = _parse_alert_event(e)
+                if parsed:
+                    mint, price, direction = parsed
+                    _paper_auto_maybe(mint, price, direction)
+        except Exception as ex:
+            logger.warning("[PAPER-AUTO] loop error: %s", ex)
+        time.sleep(0.5)
+    logger.info("[PAPER-AUTO] watcher stopped")
+
 # ------- price sources -------
 def _get_price(mint:str):
     """Return (price, source) or (None, None). Uses short cache + Dexscreener; falls back to sim in caller."""
@@ -366,6 +438,34 @@ def ledger_mark_to_market_csv():
     lines.append(f"unrealized,{snap['unreal']},,,,")
     lines.append(f"total,{snap['total']},,,,")
     return "\n".join(lines)
+
+def paper_auto_enable(qty: float | None = None):
+    """Enable paper-auto watcher with optional qty per auto trade."""
+    global _PA_THREAD, _PA_STOP
+    if qty is not None:
+        try:
+            q = float(qty)
+            if q > 0:
+                _PAPER_AUTO["qty"] = q
+        except Exception:
+            pass
+    _PAPER_AUTO["enabled"] = True
+    _PA_STOP = False
+    if _PA_THREAD is None or not _PA_THREAD.is_alive():
+        _PA_THREAD = threading.Thread(target=_paper_auto_loop, daemon=True)
+        _PA_THREAD.start()
+    _log_event(f"[AUTO] paper-auto ENABLED qty={_PAPER_AUTO['qty']}")
+    return True
+
+def paper_auto_disable():
+    global _PA_STOP
+    _PAPER_AUTO["enabled"] = False
+    _PA_STOP = True
+    _log_event("[AUTO] paper-auto DISABLED")
+    return True
+
+def paper_auto_status():
+    return {"enabled": _PAPER_AUTO["enabled"], "qty": _PAPER_AUTO["qty"]}
 
 def ledger_mark_to_market():
     """Return detailed P&L snapshot using live (or override/sim) prices."""
