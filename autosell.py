@@ -1,169 +1,82 @@
-# autosell.py
-import threading, time, json, os
-from typing import Dict, Optional, Tuple
+import threading, time, logging, os, json
+logger = logging.getLogger("autosell")
 
-_LOCK = threading.RLock()
-_PATH = "autosell_state.json"
-_state = {
+_STATE = {
     "enabled": False,
-    "interval_sec": 10,
-    # per-mint configs:
-    # mint -> {"tp_pct": 30.0, "sl_pct": 15.0, "trail_pct": None, "size_pct": 100.0}
-    "rules": {},
+    "interval": 10,           # seconds
+    "rules": [],              # placeholder for future rules
+    "thread_alive": False,
+    "ticks": 0,
+    "last_heartbeat_ts": 0,
+    "dry_run": True,          # ALWAYS TRUE for safety
 }
+_LOCK = threading.RLock()
+_THREAD = {"t": None, "stop": False}
 
-_thread = None
-_stop = False
+def status():
+    with _LOCK:
+        return dict(_STATE)
 
-def _load():
-    if os.path.exists(_PATH):
-        try:
-            with open(_PATH) as f:
-                _state.update(json.load(f))
-        except Exception:
-            pass
-
-def _save():
-    try:
-        with open(_PATH, "w") as f:
-            json.dump(_state, f)
-    except Exception:
-        pass
+def set_interval(seconds: int):
+    with _LOCK:
+        _STATE["interval"] = max(3, int(seconds))
+    return status()
 
 def enable():
-    global _thread, _stop
     with _LOCK:
-        _load()
-        _state["enabled"] = True
-        _save()
-        if _thread is None or not _thread.is_alive():
-            _stop = False
-            _thread = threading.Thread(target=_loop, daemon=True)
-            _thread.start()
+        _STATE["enabled"] = True
+    _ensure_thread()
+    return status()
 
 def disable():
-    global _stop
     with _LOCK:
-        _state["enabled"] = False
-        _save()
-        _stop = True
+        _STATE["enabled"] = False
+    _stop_thread()
+    return status()
 
-def set_interval(sec: int):
-    with _LOCK:
-        _state["interval_sec"] = max(5, int(sec)); _save()
+def _ensure_thread():
+    # start background worker if not running
+    if _THREAD["t"] and _THREAD["t"].is_alive():
+        return
+    _THREAD["stop"] = False
+    t = threading.Thread(target=_run_loop, name="autosell-loop", daemon=True)
+    _THREAD["t"] = t
+    t.start()
+    logger.info("[autosell] thread started")
 
-def set_rule(mint: str, tp_pct: float|None, sl_pct: float|None,
-             trail_pct: float|None, size_pct: float|None):
-    with _LOCK:
-        r = _state["rules"].get(mint, {})
-        if tp_pct is not None:    r["tp_pct"] = float(tp_pct)
-        if sl_pct is not None:    r["sl_pct"] = float(sl_pct)
-        if trail_pct is not None: r["trail_pct"] = float(trail_pct)
-        if size_pct is not None:  r["size_pct"] = float(size_pct)
-        _state["rules"][mint] = r
-        _save()
+def _stop_thread():
+    if _THREAD["t"]:
+        _THREAD["stop"] = True
+        logger.info("[autosell] stop requested")
 
-def remove_rule(mint: str) -> bool:
-    with _LOCK:
-        ok = _state["rules"].pop(mint, None) is not None
-        _save()
-        return ok
-
-def get_rules() -> Dict[str, Dict]:
-    with _LOCK:
-        return dict(_state["rules"])
-
-def status() -> Dict:
-    with _LOCK:
-        return {
-            "enabled": _state["enabled"],
-            "interval_sec": _state["interval_sec"],
-            "rules_count": len(_state["rules"]),
-            "thread_alive": (_thread is not None and _thread.is_alive()),
-        }
-
-# --- Price adapter (replace with your real quote) ---
-def _get_mark_price_SOL_per_token(mint: str) -> Optional[float]:
-    # TODO: wire DexScreener/Jupiter price; mock for now
-    base_tokens_per_SOL = 1000.0
-    return 1.0 / base_tokens_per_SOL
-
-def _loop():
-    import trade_store, trade_engine
-    from alerts.telegram import send_alert
-
-    # trailing memory: mint -> best_px
-    trail_best: Dict[str, float] = {}
-
-    while not _stop:
+def _run_loop():
+    try:
+        while not _THREAD["stop"]:
+            with _LOCK:
+                _STATE["thread_alive"] = True
+                iv = _STATE["interval"]
+                enabled = _STATE["enabled"]
+                _STATE["last_heartbeat_ts"] = int(time.time())
+            # Heartbeat
+            logger.info("[autosell] hb enabled=%s interval=%ss ticks=%s",
+                        enabled, iv, _STATE["ticks"])
+            if enabled:
+                # DRY-RUN work placeholder
+                try:
+                    _dry_run_tick()
+                except Exception as e:
+                    logger.error("[autosell] tick error: %s", e)
+            time.sleep(max(1, iv))
+            with _LOCK:
+                _STATE["ticks"] += 1
+    except Exception as e:
+        logger.exception("[autosell] fatal thread error: %s", e)
+    finally:
         with _LOCK:
-            enabled   = _state["enabled"]
-            interval  = int(_state["interval_sec"])
-            rules     = dict(_state["rules"])
+            _STATE["thread_alive"] = False
+        logger.info("[autosell] thread stopped")
 
-        if enabled:
-            try:
-                positions = trade_store.positions()
-                st = trade_store.get_state()
-                slip = int(st.get("slippage_bps", 100))
-                live = bool(st.get("enabled_live", False))
-
-                for mint, pos in positions.items():
-                    qty = float(pos.get("qty", 0.0))
-                    if qty <= 0: 
-                        trail_best.pop(mint, None)
-                        continue
-                    rule = rules.get(mint)
-                    if not rule: 
-                        continue
-
-                    symbol = pos.get("symbol", "TKN")
-                    avg_px = float(pos.get("avg_price", 0.0))  # SOL per token
-                    px = _get_mark_price_SOL_per_token(mint)
-                    if px is None or px <= 0 or avg_px <= 0:
-                        continue
-
-                    # update trailing best (for trail stop on gains)
-                    best = trail_best.get(mint, px)
-                    if px > best:
-                        best = px
-                    trail_best[mint] = best
-
-                    up_pct   = (px/avg_px - 1.0) * 100.0
-                    down_pct = (1.0 - px/avg_px) * 100.0
-
-                    trigger = None
-                    if rule.get("tp_pct") is not None and up_pct >= float(rule["tp_pct"]):
-                        trigger = f"TP {up_pct:.1f}%≥{rule['tp_pct']}"
-                    if trigger is None and rule.get("trail_pct") is not None:
-                        # trail: sell if pulled back > trail_pct from best
-                        drawdown = (best/px - 1.0) * 100.0
-                        if drawdown >= float(rule["trail_pct"]) and up_pct > 0:
-                            trigger = f"TRAIL {drawdown:.1f}%≥{rule['trail_pct']}"
-                    if trigger is None and rule.get("sl_pct") is not None and down_pct >= float(rule["sl_pct"]):
-                        trigger = f"SL {down_pct:.1f}%≥{rule['sl_pct']}"
-
-                    if trigger:
-                        size_pct = float(rule.get("size_pct", 100.0))
-                        sell_qty = max(0.0, min(qty, qty * size_pct/100.0))
-                        if sell_qty <= 0: 
-                            continue
-                        if live:
-                            sol_out, fill_px = trade_engine.execute_sell(mint, symbol, sell_qty, slip)
-                            mode = "LIVE"
-                        else:
-                            sol_out, fill_px = trade_engine.preview_sell(mint, symbol, sell_qty, slip)
-                            mode = "DRY-RUN"
-                        trade_store.record_fill("SELL", mint, symbol, sell_qty, fill_px, sol_out)
-                        send_alert(
-                            f"🧠 AutoSell {mode} — {trigger}\n"
-                            f"{symbol} {mint[:8]}…  Qty: {sell_qty:.4f}\n"
-                            f"Px: {fill_px:.8f}  SOL out: {sol_out:.6f}"
-                        )
-                        # reset trailing after a sale
-                        trail_best.pop(mint, None)
-
-            except Exception as e:
-                send_alert(f"⚠️ AutoSell error: {e}")
-
-        time.sleep(max(5, interval))
+def _dry_run_tick():
+    # This is intentionally a no-op placeholder that simulates "work"
+    # Expand later with safe, read-only scanner checks / rule evals
+    pass
