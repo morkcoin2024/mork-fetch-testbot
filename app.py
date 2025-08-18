@@ -13,6 +13,7 @@ from flask import Flask, request, jsonify, Response, stream_with_context, render
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
+APP_START_TS = int(time.time())
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
@@ -23,7 +24,8 @@ ALL_COMMANDS = [
     "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
-    "/autosell_save", "/autosell_load", "/autosell_reset"
+    "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
+    "/uptime", "/health"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -53,6 +55,55 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# --- Ops: watchdog + uptime ---
+def _admin_chat_id():
+    try: 
+        return int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0")) or None
+    except: 
+        return None
+
+def _send_admin(msg: str):
+    try:
+        chat = _admin_chat_id()
+        if chat:
+            tg_send(chat, msg, preview=True)
+    except Exception as e:
+        print(f"[watchdog] admin send failed: {e}")
+
+_WD = {"last_alert": 0, "alert_open": False}
+
+def _watchdog_loop():
+    import autosell
+    while True:
+        try:
+            st = autosell.status()
+            enabled = bool(st.get("enabled"))
+            alive = bool(st.get("thread_alive"))
+            iv = int(st.get("interval") or 10)
+            last_hb = int(st.get("last_heartbeat_ts") or 0)
+            age = int(time.time()) - last_hb if last_hb else 1_000_000
+            bad = enabled and (not alive or age > max(30, iv*3))
+            
+            if bad and not _WD["alert_open"]:
+                _send_admin(f"⚠️ AutoSell watchdog: thread not healthy\nenabled={enabled} alive={alive} hb_age={age}s interval={iv}s")
+                _WD["alert_open"] = True
+                _WD["last_alert"] = int(time.time())
+            elif not bad and _WD["alert_open"]:
+                _send_admin("✅ AutoSell watchdog: recovered")
+                _WD["alert_open"] = False
+        except Exception as e:
+            print(f"[watchdog] loop error: {e}")
+        time.sleep(30)
+
+# Start watchdog if enabled
+if os.environ.get("FETCH_WATCHDOG", "1") == "1":
+    try:
+        t = threading.Thread(target=_watchdog_loop, name="watchdog", daemon=True)
+        t.start()
+        print("[watchdog] started")
+    except Exception as e:
+        print(f"[watchdog] failed to start: {e}")
 
 # --- Shared Telegram send with MarkdownV2 fallback (used by webhook & poller) ---
 def _escape_mdv2(text: str) -> str:
@@ -609,6 +660,42 @@ def process_telegram_command(update: dict):
             import autosell
             autosell.reset()
             return _reply("♻️ AutoSell state cleared (disabled, rules wiped).")
+
+        elif cmd == "/autosell_backup":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            ok = autosell.force_save()
+            return _reply("💾 Backup written." if ok else "❌ Backup failed.")
+
+        # test-only to trigger watchdog alert (admin)
+        elif cmd == "/autosell_break":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.test_break()
+            return _reply("🧨 AutoSell thread break requested (watchdog should alert if enabled).")
+
+        elif cmd == "/uptime":
+            up = int(time.time()) - APP_START_TS
+            hrs = up//3600; mins=(up%3600)//60; secs=up%60
+            return _reply(f"⏳ Uptime: {hrs}h {mins}m {secs}s")
+
+        elif cmd == "/health":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            st = autosell.status()
+            up = int(time.time()) - APP_START_TS
+            hb_age = int(time.time()) - int(st.get("last_heartbeat_ts") or 0)
+            lines = [
+                "🩺 Health",
+                f"Uptime: {up}s",
+                f"AutoSell: enabled={st.get('enabled')} alive={st.get('thread_alive')} interval={st.get('interval')}s",
+                f"HB age: {hb_age}s  ticks={st.get('ticks')}",
+                f"Rules: {len(st.get('rules', []))}",
+            ]
+            return _reply("\n".join(lines))
 
         # Wallet Commands
         elif cmd == "/wallet":

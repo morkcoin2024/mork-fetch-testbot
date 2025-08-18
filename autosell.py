@@ -120,7 +120,7 @@ def remove_rule(mint: str):
 
 # --------- persistence API (DRY-RUN) ----------
 def force_save():
-    """Save current state to autosell_state.json"""
+    """Save current state to autosell_state.json with backup"""
     try:
         with _LOCK:
             state_data = {
@@ -129,9 +129,22 @@ def force_save():
                 "rules": _RULES[:],  # copy
                 "dry_run": _STATE["dry_run"]
             }
-        with open("autosell_state.json", "w") as f:
+        # Save primary file
+        tmp = "autosell_state.json.tmp"
+        with open(tmp, "w") as f:
             json.dump(state_data, f, indent=2)
-        logger.info("[autosell] saved to autosell_state.json")
+        os.replace(tmp, "autosell_state.json")
+        
+        # Best-effort backup copy
+        try:
+            backup_tmp = "autosell_state.backup.json.tmp"
+            with open(backup_tmp, "w") as f:
+                json.dump(state_data, f, indent=2)
+            os.replace(backup_tmp, "autosell_state.backup.json")
+        except Exception:
+            pass
+            
+        logger.info("[autosell] saved autosell_state.json (rules=%s)", len(state_data["rules"]))
         return True
     except Exception as e:
         logger.error("[autosell] save failed: %s", e)
@@ -167,3 +180,8 @@ def reset():
     _stop_thread()
     logger.info("[autosell] reset to defaults")
     return status()
+
+# test-only: break the thread without disabling (to trigger watchdog)
+def test_break():
+    _THREAD["stop"] = True
+    logger.warning("[autosell] test_break(): stop flag set without disable()")

@@ -1,0 +1,144 @@
+# A) autosell.py — add a simple backup on save, and a test "break" hook (admin-only usage)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-PERSIST_PATH = os.environ.get("FETCH_AUTOSAVE_PATH","data/autosell.json")
++PERSIST_PATH = os.environ.get("FETCH_AUTOSAVE_PATH","data/autosell.json")
++BACKUP_PATH  = os.environ.get("FETCH_AUTOSAVE_BACKUP","data/autosell.backup.json")
+@@
+ def _save():
+     try:
+         _ensure_dir()
+         with _LOCK:
+             data = {
+                 "enabled": _STATE["enabled"],
+                 "interval": _STATE["interval"],
+                 "rules": list(_RULES),
+             }
+         tmp = PERSIST_PATH + ".tmp"
+         with open(tmp, "w") as f: json.dump(data, f, indent=2)
+         os.replace(tmp, PERSIST_PATH)
++        # Best-effort single backup copy
++        try:
++            tmpb = BACKUP_PATH + ".tmp"
++            with open(tmpb, "w") as f: json.dump(data, f, indent=2)
++            os.replace(tmpb, BACKUP_PATH)
++        except Exception:
++            pass
+         logger.info("[autosell] saved %s (rules=%s)", PERSIST_PATH, len(data["rules"]))
+         return True
+@@
+ def reset():
+     with _LOCK:
+         _RULES.clear()
+         _STATE["enabled"] = False
+     _save()
+     return status()
++
++# test-only: break the thread without disabling (to trigger watchdog)
++def test_break():
++    _THREAD["stop"] = True
++    logger.warning("[autosell] test_break(): stop flag set without disable()")
+*** End Patch
+PATCH
+
+# B) app.py — watchdog thread + new commands (/uptime, /health, /autosell_backup, /autosell_break)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
++# --- Ops: watchdog + uptime ---
++import os, time, threading
++APP_START_TS = int(time.time())
++
++def _admin_chat_id():
++    try: return int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID","0")) or None
++    except: return None
++
++def _send_admin(msg: str):
++    try:
++        chat = _admin_chat_id()
++        if chat:
++            tg_send(chat, msg, preview=True)
++    except Exception as e:
++        print("[watchdog] admin send failed:", e)
++
++_WD = {"last_alert": 0, "alert_open": False}
++def _watchdog_loop():
++    import autosell
++    while True:
++        try:
++            st = autosell.status()
++            enabled = bool(st.get("enabled"))
++            alive   = bool(st.get("thread_alive"))
++            iv      = int(st.get("interval") or 10)
++            last_hb = int(st.get("last_heartbeat_ts") or 0)
++            age     = int(time.time()) - last_hb if last_hb else 1_000_000
++            bad = enabled and (not alive or age > max(30, iv*3))
++            if bad and not _WD["alert_open"]:
++                _send_admin(f"⚠️ AutoSell watchdog: thread not healthy\nenabled={enabled} alive={alive} hb_age={age}s interval={iv}s")
++                _WD["alert_open"] = True
++                _WD["last_alert"] = int(time.time())
++            elif not bad and _WD["alert_open"]:
++                _send_admin("✅ AutoSell watchdog: recovered")
++                _WD["alert_open"] = False
++        except Exception as e:
++            print("[watchdog] loop error:", e)
++        time.sleep(30)
++
++if os.environ.get("FETCH_WATCHDOG","1") == "1":
++    try:
++        t = threading.Thread(target=_watchdog_loop, name="watchdog", daemon=True)
++        t.start()
++        print("[watchdog] started")
++    except Exception as e:
++        print("[watchdog] failed to start:", e)
+@@
+         elif cmd == "/autosell_remove":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             mint = (args or "").strip()
+             if not mint:
+                 return _reply("Usage: /autosell_remove <mint>")
+             n = autosell.remove_rule(mint)
+             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
++
++        elif cmd == "/autosell_backup":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            ok = autosell.force_save()
++            return _reply("💾 Backup written." if ok else "❌ Backup failed.")
++
++        # test-only to trigger watchdog alert (admin)
++        elif cmd == "/autosell_break":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            autosell.test_break()
++            return _reply("🧨 AutoSell thread break requested (watchdog should alert if enabled).")
++
++        elif cmd == "/uptime":
++            up = int(time.time()) - APP_START_TS
++            hrs = up//3600; mins=(up%3600)//60; secs=up%60
++            return _reply(f"⏳ Uptime: {hrs}h {mins}m {secs}s")
++
++        elif cmd == "/health":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            st = autosell.status()
++            up = int(time.time()) - APP_START_TS
++            hb_age = int(time.time()) - int(st.get("last_heartbeat_ts") or 0)
++            lines = [
++                "🩺 Health",
++                f"Uptime: {up}s",
++                f"AutoSell: enabled={st.get('enabled')} alive={st.get('thread_alive')} interval={st.get('interval')}s",
++                f"HB age: {hb_age}s  ticks={st.get('ticks')}",
++                f"Rules: {len(st.get('rules', []))}",
++            ]
++            return _reply("\n".join(lines))
+*** End Patch
+PATCH
