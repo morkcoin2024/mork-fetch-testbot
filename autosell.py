@@ -1,4 +1,4 @@
-import threading, time, logging, os, json, math, hashlib, collections
+import threading, time, logging, os, json, math, hashlib, collections, requests
 logger = logging.getLogger("autosell")
 
 _STATE = {
@@ -14,6 +14,8 @@ _LOCK = threading.RLock()
 _THREAD = {"t": None, "stop": False}
 _RULES = []  # in-memory, dry-run only  [{mint,tp,sl,trail,size}]
 _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
+_PX_CACHE = {}  # mint -> (ts, price)
+_PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
 
 def status():
     with _LOCK:
@@ -239,9 +241,41 @@ def _log_event(s: str):
 
 # ------- price sources -------
 def _get_price(mint:str):
-    """Return (price, source) or (None, None). Hook up real scanners later."""
-    # TODO: integrate dexscreener/birdeye read-only; for now return None to use sim
+    """Return (price, source) or (None, None). Uses short cache + Dexscreener; falls back to sim in caller."""
+    now = time.time()
+    m = (mint or "").strip()
+    if not m:
+        return None, None
+    # cache
+    ent = _PX_CACHE.get(m.lower())
+    if ent and (now - ent[0]) <= _PX_TTL:
+        return ent[1], "dex(cache)"
+    # fetch fresh
+    p = _dex_price(m)
+    if p is not None:
+        _PX_CACHE[m.lower()] = (now, float(p))
+        return float(p), "dex"
     return None, None
+
+def _dex_price(mint:str):
+    """Dexscreener public API – best-effort USD price."""
+    url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+    try:
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            return None
+        j = r.json() or {}
+        pairs = j.get("pairs") or []
+        if not pairs:
+            return None
+        # choose the pair with highest liquidityUsd, else first with priceUsd
+        pairs = [p for p in pairs if p.get("priceUsd")]
+        if not pairs:
+            return None
+        best = max(pairs, key=lambda p: float(p.get("liquidity", {}).get("usd") or 0.0))
+        return float(best["priceUsd"])
+    except Exception:
+        return None
 
 def _sim_price(mint:str):
     """Deterministic-ish pseudo price for safe DRY-RUN testing."""

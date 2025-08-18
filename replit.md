@@ -27,7 +27,7 @@ The application uses Flask with a polling-based architecture for Telegram integr
 - **Mock Trading Engine:** `trade_engine.py` module providing realistic buy/sell operations with slippage simulation, preview/execution functions, and integration with `trade_store`.
 - **Complete Mock Trading System:** Comprehensive trading functionality with preview/confirmation flow, position tracking, PnL tracking, and integrated safety systems.
 - **Autobuy Functionality:** Enhanced scanner state with autobuy configuration for automated token purchases based on scanner alerts, featuring per-token configuration and safety caps.
-- **AutoSell System:** Fully operational sophisticated automated selling engine with take-profit, stop-loss, and trailing stop functionality. Includes simulated price evaluation, rule state management, rolling event logging, and enterprise-grade watchdog monitoring with admin alerts. Features a comprehensive 18-command Telegram suite for rule management, persistence, and control.
+- **AutoSell System:** Fully operational sophisticated automated selling engine with take-profit, stop-loss, and trailing stop functionality. Enhanced with real Dexscreener API integration (5-second intelligent caching), simulated price fallback, rule state management, rolling event logging, and enterprise-grade watchdog monitoring with admin alerts. Features a comprehensive 18-command Telegram suite for rule management, persistence, and control, plus public `/price <mint>` command for real-time price lookups.
 - **Enhanced Wallet System:** Secure two-step wallet reset, QR deposit system, comprehensive diagnostics, and a full 12-command wallet suite.
 - **Real-time SOL Price Integration:** Live CoinGecko API integration with intelligent caching and multi-level fallback protection.
 - **Elegant Bridge Pattern Messaging System:** Centralized `send_message()` bridge function for unified Telegram API control.
@@ -49,4 +49,4 @@ The application uses Flask with a polling-based architecture for Telegram integr
 - **Birdeye API/WebSocket**: For real-time token data and discovery.
 - **token.jup.ag API**: For fetching Jupiter token lists.
 - **Solscan API**: For blockchain data and new token discovery.
-- **DexScreener API**: For Solana pairs monitoring and token data.
+- **DexScreener API**: For Solana pairs monitoring, token data, and real-time price feeds with intelligent caching.

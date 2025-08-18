@@ -17,7 +17,7 @@ APP_START_TS = int(time.time())
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd",
+    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -435,7 +435,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -555,6 +555,22 @@ def process_telegram_command(update: dict):
                 f"cmd: {repr(cmd_debug)}\n"
                 f"args: {repr(args_debug)}"
             )
+
+        elif cmd == "/price":
+            # public: /price <mint>
+            a = (args or "").strip()
+            if not a:
+                return _reply("Usage: /price <mint>")
+            try:
+                import autosell
+                px, src = autosell._get_price(a)
+                if px is None:
+                    # show simulated so users get *some* answer
+                    spx = autosell._sim_price(a)
+                    return _reply(f"📈 {a}\nprice: ~${spx:.6f} (sim)\nsource: none (fallback to simulator)")
+                return _reply(f"📈 {a}\nprice: ${px:.6f}\nsource: {src}")
+            except Exception as e:
+                return _reply(f"⚠️ Price lookup failed: {e}")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
