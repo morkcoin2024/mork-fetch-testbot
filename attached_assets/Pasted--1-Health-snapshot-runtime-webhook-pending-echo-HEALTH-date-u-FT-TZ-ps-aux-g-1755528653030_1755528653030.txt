@@ -1,0 +1,91 @@
+# 1) Health snapshot (runtime, webhook, pending)
+echo "=== HEALTH $(date -u +%FT%TZ) ==="
+ps aux | grep -E "telegram_polling|gunicorn" | grep -v grep || echo "NO APP"
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 - <<'PY'
+import sys,json; r=json.load(sys.stdin).get('result',{})
+print("webhook_url=", r.get('url') or "<empty>", "pending=", r.get('pending_update_count'))
+PY
+tail -n 80 live_bot.log 2>/dev/null || echo "no live_bot.log"
+
+# 2) Prove rotating logs + unified sender present
+python3 - <<'PY'
+import logging, inspect, json
+from logging.handlers import RotatingFileHandler
+import app, telegram_polling
+print("has tg_send:", hasattr(app,"tg_send"))
+print("router_hash:", hash(inspect.getsource(app.process_telegram_command)))
+lh = [type(h).__name__ for h in logging.getLogger("telegram_polling").handlers]
+print("poller_handlers:", lh, "has_RFH=", any(isinstance(h,RotatingFileHandler) for h in logging.getLogger("telegram_polling").handlers))
+PY
+
+# 3) Prove single-instance lock engaged + show PID
+python3 - <<'PY'
+import os
+p="/tmp/mork_polling.lock"
+print("lock_exists:", os.path.exists(p))
+try:
+    print("lock_pid:", open(p).read().strip())
+except Exception as e:
+    print("lock_read_err:", e)
+PY
+
+# 4) Router smoke (should be ok + nonzero len for each)
+python3 - <<'PY'
+from app import process_telegram_command
+CMDS=["/ping","/help","/status","/wallet","/wallet_balance","/wallet_addr","/autosell_status","/autosell_on","/autosell_off","/fetch","/solscanstats"]
+def mk(t, uid=1653046781):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':uid,'type':'private'},
+                    'from':{'id':uid,'is_bot':False,'username':'posthard'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(f"{t:18} -> {out.get('status'):8} len={len(out.get('response') or ''):4}")
+for c in CMDS: mk(c)
+PY
+
+# 5) Sender path probe (uses tg_send directly; expect ok=True)
+python3 - <<'PY'
+import os
+from app import process_telegram_command, tg_send
+chat_id=int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+for t in ["/wallet","/autosell_status"]:
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':chat_id,'type':'private'},
+                    'from':{'id':chat_id,'is_bot':False,'username':'posthard'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    res=tg_send(chat_id, out.get("response") or "", preview=True)
+    print(t, "-> ok=", res.get("ok"), "desc=", (res.get("description") or "")[:80])
+PY
+
+# 6) Create a hardened release stamp + archive exact files
+TS=$(date -u +"%Y-%m-%dT%H-%M-%SZ"); REL="tg-stable-hardened-${TS}"
+mkdir -p releases release_logs
+python3 - <<'PY'
+import os, json, hashlib, inspect, time, app
+def sha(p): 
+    try: return hashlib.sha256(open(p,"rb").read()).hexdigest()
+    except: return "missing"
+info={
+ "release_ts_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+ "label": "hardened",
+ "mode": "Polling (integrated)",
+ "has_tg_send": hasattr(app,"tg_send"),
+ "router_hash": hash(inspect.getsource(app.process_telegram_command)),
+ "files": {p: sha(p) for p in ["app.py","telegram_polling.py"]},
+}
+open("build-info.json","w").write(json.dumps(info, indent=2))
+print(json.dumps(info, indent=2))
+PY
+tar -czf "releases/${REL}.tar.gz" app.py telegram_polling.py build-info.json || true
+
+# 7) Snapshot logs + heartbeat evidence
+{
+  echo "=== ${REL} snapshot ==="
+  echo -n "Proc: " && ps aux | grep -E "telegram_polling|gunicorn" | grep -v grep || true
+  echo -n "Webhook URL: " && curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+   | python3 - <<'PY'
+import sys,json; print(json.load(sys.stdin).get('result',{}).get('url'))
+PY
+  echo "--- recent logs ---"
+  tail -n 120 live_bot.log 2>/dev/null || echo "no live_bot.log"
+} > "release_logs/${REL}.log" 2>&1
+
+echo "Release stamped as: ${REL}"
