@@ -1,16 +1,16 @@
 {
-  "release_ts_utc": "2025-08-18T13:04:11Z",
+  "release_ts_utc": "2025-08-18T14:11:24Z",
   "mode": "Polling (integrated)",
   "has_tg_send": true,
-  "router_hash": 8470446800714473959,
+  "router_hash": 5959029236838715545,
   "files": {
-    "app.py": "821feb78bf30bae5d3d04551e0401386e3a0003d8041ef321cc22d0527b8a754",
+    "app.py": "938677f32ff6ccc746952c212cac4abb4071f5496bb810424e3d91718cd12716",
     "telegram_polling.py": "a79fc0832332a1bd03a5f595e857ff115b40e5935d8710ea1bab6cd4838a1190",
-    "working_polling_bot.py": "5dd91d2893c39a30f8de85160d0389d107cc47b106a98a81170a033d3c2774f3",
-    "production_polling_bot.py": "4e80c254eec774744a218eacee91b8748c92b3e8ba72b508e1ca2b381a433e2e"
+    "production_polling_bot.py": "4e80c254eec774744a218eacee91b8748c92b3e8ba72b508e1ca2b381a433e2e",
+    "working_polling_bot.py": "5dd91d2893c39a30f8de85160d0389d107cc47b106a98a81170a033d3c2774f3"
   },
   "env_summary": {
     "TELEGRAM_BOT_TOKEN_len": 46,
-    "ASSISTANT_ADMIN_TELEGRAM_ID": "1653046781"
+    "ASSISTANT_ADMIN_TELEGRAM_ID_set": true
   }
 }
