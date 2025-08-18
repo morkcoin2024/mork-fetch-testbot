@@ -28,7 +28,7 @@ ALL_COMMANDS = [
     "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
     "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
     "/watch", "/unwatch", "/watchlist", "/watch_sens",
-    "/autosell_restore", "/alerts_on", "/alerts_off",
+    "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
@@ -715,8 +715,8 @@ def process_telegram_command(update: dict):
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            ok = autosell.force_save()
-            return _reply("💾 Backup written." if ok else "❌ Backup failed.")
+            ok = autosell.backup_state()
+            return _reply("💾 Backup " + ("written." if ok else "failed."))
 
         # test-only to trigger watchdog alert (admin)
         elif cmd == "/autosell_break":
@@ -847,6 +847,20 @@ def process_telegram_command(update: dict):
             import autosell
             ok = autosell.restore_state()
             return _reply("💾 Restore " + ("OK" if ok else "failed (no state)"))
+
+        elif cmd == "/autosell_restore_backup":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            ok = autosell.restore_backup()
+            return _reply("💾 Restore (backup) " + ("OK" if ok else "failed (no backup)"))
+
+        elif cmd == "/autosell_save":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            ok = autosell._save_state()
+            return _reply("📝 Save " + ("OK" if ok else "failed"))
 
         elif cmd == "/alerts_on":
             deny = _require_admin(user)

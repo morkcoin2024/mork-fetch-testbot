@@ -1,1 +1,6 @@
-{"rules": [], "watch": {}, "watch_sens": 1.0, "interval": 10, "alerts": true, "ledger": {"positions": {}, "realized": 0.0}}
+{
+  "enabled": false,
+  "interval": 10,
+  "rules": [],
+  "dry_run": true
+}

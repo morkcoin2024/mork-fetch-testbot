@@ -1,0 +1,109 @@
+# === Snapshot/Restore quality-of-life ===
+cd /home/runner/workspace
+
+# 1) autosell.py — add backup helpers
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+ _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
++_BACKUP_FILE = os.environ.get("FETCH_BACKUP_FILE", "autosell_backup.json")
+@@
+ def _save_state():
+@@
+     except Exception:
+         return False
++
++def backup_state():
++    """Write a point-in-time backup (separate file)."""
++    try:
++        with _LOCK:
++            data = {
++                "rules": list(_RULES),
++                "watch": {k: {"last": v.get("last")} for k,v in _WATCH.items()},
++                "watch_sens": _WATCH_SENS,
++                "interval": _STATE["interval"],
++                "alerts": _ALERTS_ENABLED,
++                "ledger": _LEDGER,
++            }
++        tmp = _BACKUP_FILE + ".tmp"
++        with open(tmp, "w") as f:
++            json.dump(data, f)
++        os.replace(tmp, _BACKUP_FILE)
++        _event("[BACKUP] snapshot written")
++        return True
++    except Exception:
++        return False
++
++def restore_backup():
++    """Load from the backup file (does NOT auto-enable worker)."""
++    try:
++        if not os.path.exists(_BACKUP_FILE):
++            return False
++        with open(_BACKUP_FILE, "r") as f:
++            data = json.load(f) or {}
++        # Reuse restore_state internal logic by assigning fields then saving
++        rules = data.get("rules") or []
++        watch = data.get("watch") or {}
++        sens = float(data.get("watch_sens", _WATCH_SENS))
++        interval = int(data.get("interval", _STATE["interval"]))
++        alerts = bool(data.get("alerts", True))
++        ledger = data.get("ledger") or {"positions": {}, "realized": 0.0}
++        with _LOCK:
++            _RULES[:] = rules
++            _WATCH.clear()
++            for k,v in watch.items():
++                _WATCH[k] = {"last": (v or {}).get("last")}
++            _STATE["interval"] = max(3, interval)
++            _STATE["ticks"] = 0
++            _STATE["alive"] = bool(_STATE.get("thr") and _STATE["thr"].is_alive())
++            global _WATCH_SENS, _ALERTS_ENABLED
++            _WATCH_SENS = max(0.1, min(sens, 100.0))
++            _ALERTS_ENABLED = alerts
++            # ledger
++            pos = (ledger or {}).get("positions") or {}
++            _LEDGER["positions"] = {k: {"qty": float(v.get("qty",0.0)), "avg": float(v.get("avg",0.0))} for k,v in pos.items()}
++            _LEDGER["realized"] = float((ledger or {}).get("realized", 0.0))
++        _event("[RESTORE] backup loaded")
++        return True
++    except Exception:
++        return False
+*** End Patch
+PATCH
+
+# 2) app.py — wire commands
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+         elif cmd == "/autosell_backup":
+             deny = _require_admin(user)
+             if deny: return deny
+-            open("autosell_backup.json","w").write("backup")  # old stub replaced below
+-            return _reply("💾 Backup written.")
++            import autosell
++            ok = autosell.backup_state()
++            return _reply("💾 Backup " + ("written." if ok else "failed."))
+@@
+         elif cmd == "/autosell_restore":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             ok = autosell.restore_state()
+             return _reply("💾 Restore " + ("OK" if ok else "failed (no state)"))
++
++        elif cmd == "/autosell_restore_backup":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            ok = autosell.restore_backup()
++            return _reply("💾 Restore (backup) " + ("OK" if ok else "failed (no backup)"))
++
++        elif cmd == "/autosell_save":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            ok = autosell._save_state()
++            return _reply("📝 Save " + ("OK" if ok else "failed"))
+*** End Patch
+PATCH

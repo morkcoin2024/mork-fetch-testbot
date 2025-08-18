@@ -21,6 +21,7 @@ _WATCH = {}   # mint -> {"last": float|None}
 _WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
 _ALERTS_ENABLED = True
 _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
+_BACKUP_FILE = os.environ.get("FETCH_BACKUP_FILE", "autosell_backup.json")
 _LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
 
 def status():
@@ -404,6 +405,61 @@ def _save_state():
         with open(tmp, "w") as f:
             json.dump(data, f)
         os.replace(tmp, _STATE_FILE)
+        return True
+    except Exception:
+        return False
+
+def backup_state():
+    """Write a point-in-time backup (separate file)."""
+    try:
+        with _LOCK:
+            data = {
+                "rules": list(_RULES),
+                "watch": {k: {"last": v.get("last")} for k,v in _WATCH.items()},
+                "watch_sens": _WATCH_SENS,
+                "interval": _STATE["interval"],
+                "alerts": _ALERTS_ENABLED,
+                "ledger": _LEDGER,
+            }
+        tmp = _BACKUP_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, _BACKUP_FILE)
+        _log_event("[BACKUP] snapshot written")
+        return True
+    except Exception:
+        return False
+
+def restore_backup():
+    """Load from the backup file (does NOT auto-enable worker)."""
+    global _WATCH_SENS, _ALERTS_ENABLED
+    try:
+        if not os.path.exists(_BACKUP_FILE):
+            return False
+        with open(_BACKUP_FILE, "r") as f:
+            data = json.load(f) or {}
+        # Reuse restore_state internal logic by assigning fields then saving
+        rules = data.get("rules") or []
+        watch = data.get("watch") or {}
+        sens = float(data.get("watch_sens", _WATCH_SENS))
+        interval = int(data.get("interval", _STATE["interval"]))
+        alerts = bool(data.get("alerts", True))
+        ledger = data.get("ledger") or {"positions": {}, "realized": 0.0}
+        with _LOCK:
+            _RULES[:] = rules
+            _WATCH.clear()
+            for k,v in watch.items():
+                _WATCH[k] = {"last": (v or {}).get("last")}
+            _STATE["interval"] = max(3, interval)
+            _STATE["ticks"] = 0
+            _STATE["alive"] = bool(_STATE.get("thread_alive"))
+            _WATCH_SENS = max(0.1, min(sens, 100.0))
+            _ALERTS_ENABLED = alerts
+            # ledger
+            pos = (ledger or {}).get("positions") or {}
+            _LEDGER["positions"] = {k: {"qty": float(v.get("qty",0.0)), "avg": float(v.get("avg",0.0))} for k,v in pos.items()}
+            _LEDGER["realized"] = float((ledger or {}).get("realized", 0.0))
+        _log_event("[RESTORE] backup loaded")
         return True
     except Exception:
         return False

@@ -1,0 +1,1 @@
+{"rules": [], "watch": {"WSOL": {"last": null}}, "watch_sens": 1.5, "interval": 10, "alerts": true, "ledger": {"positions": {"So11111111111111111111111111111111111111112": {"qty": 2.0, "avg": 180.0}}, "realized": 0.0}}
