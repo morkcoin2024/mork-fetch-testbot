@@ -1,0 +1,55 @@
+# A) Patch the active poller to use app.tg_send (MarkdownV2 → escaped → plain) and log results
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: telegram_polling.py
+@@
+-import requests, logging, os, time
+-from app import process_telegram_command
++import requests, logging, os, time, json
++from app import process_telegram_command, tg_send
+ logger = logging.getLogger("telegram_polling")
+@@
+-    def send_message(self, chat_id, text):
+-        payload = {
+-            "chat_id": chat_id,
+-            "text": text,
+-            "parse_mode": "MarkdownV2",
+-            "disable_web_page_preview": True,
+-        }
+-        r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=15)
+-        ok = (r.status_code == 200 and r.json().get("ok") is True)
+-        if not ok:
+-            logger.error(f"Failed to send message: {r.status_code} - {r.text}")
+-        else:
+-            logger.info("✅ Sent message to chat %s", chat_id)
+-        return ok
++    def send_message(self, chat_id, text):
++        ln = len(text or "")
++        preview = (text or "")[:120].replace("\n"," ")
++        logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
++        res = tg_send(chat_id, text, preview=True)
++        ok = bool(res.get("ok"))
++        logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
++        return ok
+*** End Patch
+PATCH
+
+# B) Restart the running app so the patched poller loads
+pkill -f telegram_polling\.py || true
+pkill -f production_polling_bot\.py || true
+pkill -f working_polling_bot\.py || true
+rm -f /tmp/mork_polling.lock || true
+
+# If you’re on Deploy, click Redeploy now so it starts the app that imports telegram_polling.py.
+# Otherwise, start the app the usual way (whatever command you’re currently using).
+
+# C) 60s observation window (optional foreground run)
+# LOG_LEVEL=INFO PYTHONUNBUFFERED=1 timeout 60s python3 -u app.py
+
+# D) Turk will now send in Telegram (2–3s apart):
+#    /wallet
+#    /wallet_balance
+#    /autosell_status
+
+# E) Collect focused logs showing the new sender output
+tail -n 80 live_bot.log 2>/dev/null || true

@@ -14,6 +14,12 @@ from typing import Optional
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Import unified sender from app
+try:
+    from app import tg_send
+except ImportError:
+    tg_send = None
+
 class TelegramPollingService:
     def __init__(self, bot_token: str, message_handler=None):
         self.bot_token = bot_token
@@ -24,33 +30,30 @@ class TelegramPollingService:
         self.offset = 0
         
     def send_message(self, chat_id: int, text: str, parse_mode: Optional[str] = None) -> bool:
-        """Send message to Telegram with fallback error handling"""
-        try:
-            url = f"{self.api_url}/sendMessage"
-            data = {"chat_id": chat_id, "text": text}
-            
-            if parse_mode:
-                data["parse_mode"] = parse_mode
-            
-            response = requests.post(url, json=data, timeout=10)
-            
-            if response.ok:
-                result = response.json().get('result', {})
-                message_id = result.get('message_id')
-                logger.info(f"✅ Sent message {message_id} to chat {chat_id}")
-                return True
-            else:
-                logger.error(f"❌ Send failed: {response.status_code} - {response.text}")
-                # Fallback to plain text
+        """Send message using unified tg_send with enhanced logging"""
+        ln = len(text or "")
+        preview = (text or "")[:120].replace("\n"," ")
+        logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
+        
+        if tg_send:
+            res = tg_send(chat_id, text, preview=True)
+            ok = bool(res.get("ok"))
+            logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
+            return ok
+        else:
+            # Fallback to direct API call
+            try:
+                url = f"{self.api_url}/sendMessage"
+                data = {"chat_id": chat_id, "text": text}
                 if parse_mode:
-                    data = {"chat_id": chat_id, "text": text}
-                    response = requests.post(url, json=data, timeout=10)
-                    return response.ok
+                    data["parse_mode"] = parse_mode
+                response = requests.post(url, json=data, timeout=10)
+                ok = response.ok
+                logger.info("[SEND] result=%s fallback", ok)
+                return ok
+            except Exception as e:
+                logger.error(f"❌ Send error: {e}")
                 return False
-                
-        except Exception as e:
-            logger.error(f"❌ Send error: {e}")
-            return False
     
     def process_update(self, update: dict):
         """Process a single Telegram update"""
