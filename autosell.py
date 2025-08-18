@@ -17,10 +17,16 @@ _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
 _PX_CACHE = {}  # mint -> (ts, price)
 _PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
 _PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
+_WATCH = {}   # mint -> {"last": float|None}
+_WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
 
 def status():
     with _LOCK:
-        return dict(_STATE)
+        return {
+            **dict(_STATE),
+            "watch": sorted(list(_WATCH.keys())),
+            "watch_sens_pct": _WATCH_SENS,
+        }
 
 def set_interval(seconds: int):
     with _LOCK:
@@ -116,6 +122,8 @@ def _dry_run_tick():
         _merge_rule_runtime(mint, ref=r["ref"], peak=r["peak"])
     if changed:
         force_save()
+    # Evaluate watchlist alerts
+    _watch_tick()
 
 # --------- simple rule API (DRY-RUN) ----------
 def list_rules():
@@ -313,6 +321,56 @@ def set_price_source(enable_dex:bool):
 def clear_price_cache():
     _PX_CACHE.clear()
     return 0
+
+# ---------- Watchlist ----------
+def watch_add(mint:str):
+    m = (mint or "").strip()
+    if not m: return 0
+    with _LOCK:
+        _WATCH.setdefault(m, {"last": None})
+    return 1
+
+def watch_remove(mint:str):
+    m = (mint or "").strip()
+    if not m: return 0
+    with _LOCK:
+        return 1 if _WATCH.pop(m, None) is not None else 0
+
+def watch_list():
+    with _LOCK:
+        return {k: dict(v) for k,v in _WATCH.items()}
+
+def watch_set_sens(pct:float):
+    global _WATCH_SENS
+    try:
+        pct = float(pct)
+        pct = max(0.1, min(pct, 100.0))
+    except Exception:
+        pass
+    _WATCH_SENS = pct
+    return _WATCH_SENS
+
+def _watch_tick():
+    """Emit alerts when price changes exceed threshold."""
+    global _WATCH_SENS
+    sens = _WATCH_SENS
+    with _LOCK:
+        items = list(_WATCH.items())
+    for mint, ent in items:
+        px, src = _get_price(mint)
+        if px is None:
+            px, src = _sim_price(mint), "sim"
+        last = ent.get("last")
+        if last is None:
+            # initialize baseline quietly
+            with _LOCK:
+                _WATCH[mint]["last"] = px
+            continue
+        change = 0.0 if last == 0 else (px - last) / last * 100.0
+        if abs(change) >= sens:
+            _log_event(f"[ALERT] {mint} {change:+.2f}% price={px:.6f} src={src}")
+            with _LOCK:
+                _WATCH[mint]["last"] = px
 
 # --------- public helpers for bot ---------
 def events(n=10):

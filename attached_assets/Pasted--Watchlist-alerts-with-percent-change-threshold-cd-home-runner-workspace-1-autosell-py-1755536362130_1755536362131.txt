@@ -1,0 +1,196 @@
+# === Watchlist alerts with percent-change threshold ===
+cd /home/runner/workspace
+
+# 1) autosell.py — add watchlist state & tick evaluation
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-import threading, time, logging, os, json, math, hashlib, collections, requests
++import threading, time, logging, os, json, math, hashlib, collections, requests
+@@
+ _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
+ _PX_CACHE = {}  # mint -> (ts, price)
+ _PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
+ _PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
++_WATCH = {}   # mint -> {"last": float|None}
++_WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
+@@
+ def status():
+     with _LOCK:
+         return {
+             "enabled": _STATE["enabled"],
+             "interval": _STATE["interval"],
+             "ticks": _STATE["ticks"],
+             "alive": _STATE["alive"],
++            "watch": sorted(list(_WATCH.keys())),
++            "watch_sens_pct": _WATCH_SENS,
+         }
+@@
+ def _tick():
+     """One dry-run evaluation tick."""
+     with _LOCK:
+         _STATE["ticks"] += 1
+     # Evaluate rules
+     for mint, rule in list_rules().items():
+         px, src = _get_price(mint)
+         if px is None:
+             px, src = _sim_price(mint), "sim"
+         decision, detail = _eval_rule(mint, rule, px, src)
+         _event(f"[DRY] {decision} {mint} price={px:.6f} src={src} {detail}")
++    # Evaluate watchlist alerts
++    _watch_tick()
+@@
+ def _event(msg:str):
+     ts = time.strftime("%H:%M:%S", time.gmtime())
+     _EVENTS.append(f"{ts} {msg}")
+@@
+ def events(n:int=10):
+     with _LOCK:
+         return list(_EVENTS)[-n:]
++
++# ---------- Watchlist ----------
++def watch_add(mint:str):
++    m = (mint or "").strip()
++    if not m: return 0
++    with _LOCK:
++        _WATCH.setdefault(m, {"last": None})
++    return 1
++
++def watch_remove(mint:str):
++    m = (mint or "").strip()
++    if not m: return 0
++    with _LOCK:
++        return 1 if _WATCH.pop(m, None) is not None else 0
++
++def watch_list():
++    with _LOCK:
++        return {k: dict(v) for k,v in _WATCH.items()}
++
++def watch_set_sens(pct:float):
++    global _WATCH_SENS
++    try:
++        pct = float(pct)
++        pct = max(0.1, min(pct, 100.0))
++    except Exception:
++        pass
++    _WATCH_SENS = pct
++    return _WATCH_SENS
++
++def _watch_tick():
++    """Emit alerts when price changes exceed threshold."""
++    global _WATCH_SENS
++    sens = _WATCH_SENS
++    with _LOCK:
++        items = list(_WATCH.items())
++    for mint, ent in items:
++        px, src = _get_price(mint)
++        if px is None:
++            px, src = _sim_price(mint), "sim"
++        last = ent.get("last")
++        if last is None:
++            # initialize baseline quietly
++            with _LOCK:
++                _WATCH[mint]["last"] = px
++            continue
++        change = 0.0 if last == 0 else (px - last) / last * 100.0
++        if abs(change) >= sens:
++            _event(f"[ALERT] {mint} {change:+.2f}% price={px:.6f} src={src}")
++            with _LOCK:
++                _WATCH[mint]["last"] = px
+*** End Patch
+PATCH
+
+# 2) app.py — add /watch, /unwatch, /watchlist, /watch_sens
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        # Check if this is a recognized command
++        # Check if this is a recognized command
+         all_commands = public_commands + [
+@@
+-            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
++            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+             "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
+             "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
++            "/watch", "/unwatch", "/watchlist", "/watch_sens"
+         ]
+@@
+         elif cmd == "/autosell_ruleinfo":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             m = (args or "").strip()
+             if not m: return _reply("Usage: /autosell_ruleinfo <mint>")
+             rules = [r for r in autosell.list_rules() if r.get("mint","").lower()==m.lower()]
+             if not rules: return _reply("No such rule.")
+             r = rules[0]
+             bits = [f"{k}={r[k]}" for k in ("tp","sl","trail","size","ref","peak") if k in r]
+             return _reply("🔎 Rule info: " + r["mint"] + (" " + " ".join(bits) if bits else ""))
++
++        # -------- Watchlist commands (admin) --------
++        elif cmd == "/watch":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            m = (args or "").strip()
++            if not m: return _reply("Usage: /watch <mint>")
++            autosell.watch_add(m)
++            return _reply(f"👁️ Watching {m}")
++
++        elif cmd == "/unwatch":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            m = (args or "").strip()
++            if not m: return _reply("Usage: /unwatch <mint>")
++            n = autosell.watch_remove(m)
++            return _reply("✅ Unwatched" if n else "Not found.")
++
++        elif cmd == "/watchlist":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            wl = autosell.watch_list()
++            if not wl: return _reply("👁️ Watchlist empty.")
++            lines = [f"- {k}" for k in sorted(wl.keys())]
++            return _reply("👁️ Watchlist:\n" + "\n".join(lines))
++
++        elif cmd == "/watch_sens":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            a = (args or "").strip()
++            if not a: 
++                s = autosell.status().get("watch_sens_pct")
++                return _reply(f"👁️ Watch sensitivity: {s:.2f}%")
++            try:
++                val = autosell.watch_set_sens(float(a))
++                return _reply(f"👁️ Watch sensitivity set to {val:.2f}%")
++            except Exception:
++                return _reply("Usage: /watch_sens <percent>")
+*** End Patch
+PATCH
+
+# 3) Quick smoke (local)
+python3 - <<'PY'
+from app import process_telegram_command
+def run(txt):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},'from':{'id':1,'is_bot':False,'username':'x'},'text':txt}}
+    out=process_telegram_command(upd) or {}
+    print(txt, "->", out.get("status"), (out.get("response") or "")[:80].replace("\n"," "))
+for t in ["/watch ABC","/watchlist","/watch_sens 0.5","/unwatch ABC","/watchlist"]:
+    run(t)
+PY
+
+# 4) Hot-reload
+touch autosell.py app.py
+sleep 2
+
+# 5) Telegram (admin DM)
+#   /watch <REAL_MINT>
+#   /watchlist
+#   /watch_sens 0.5      (optional; default 1.0%)
+#   wait ~1–2 minutes (alerts get logged as price moves)
+#   /autosell_logs 10    (see [ALERT] … lines)

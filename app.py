@@ -26,7 +26,8 @@ ALL_COMMANDS = [
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
     "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
-    "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear"
+    "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
+    "/watch", "/unwatch", "/watchlist", "/watch_sens"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -795,6 +796,48 @@ def process_telegram_command(update: dict):
             import autosell
             autosell.clear_price_cache()
             return _reply("🧹 Price cache cleared")
+
+        # -------- Watchlist commands (admin) --------
+        elif cmd == "/watch":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            m = (args or "").strip()
+            if not m: return _reply("Usage: /watch <mint>")
+            autosell.watch_add(m)
+            return _reply(f"👁️ Watching {m}")
+
+        elif cmd == "/unwatch":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            m = (args or "").strip()
+            if not m: return _reply("Usage: /unwatch <mint>")
+            n = autosell.watch_remove(m)
+            return _reply("✅ Unwatched" if n else "Not found.")
+
+        elif cmd == "/watchlist":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            wl = autosell.watch_list()
+            if not wl: return _reply("👁️ Watchlist empty.")
+            lines = [f"- {k}" for k in sorted(wl.keys())]
+            return _reply("👁️ Watchlist:\n" + "\n".join(lines))
+
+        elif cmd == "/watch_sens":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            a = (args or "").strip()
+            if not a: 
+                s = autosell.status().get("watch_sens_pct")
+                return _reply(f"👁️ Watch sensitivity: {s:.2f}%")
+            try:
+                val = autosell.watch_set_sens(float(a))
+                return _reply(f"👁️ Watch sensitivity set to {val:.2f}%")
+            except Exception:
+                return _reply("Usage: /watch_sens <percent>")
 
         # Wallet Commands
         elif cmd == "/wallet":
