@@ -26,7 +26,7 @@ ALL_COMMANDS = [
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
     "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
-    "/uptime", "/health"
+    "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -767,6 +767,34 @@ def process_telegram_command(update: dict):
             lines = ["🧪 AutoSell DRY-RUN evaluation:"]
             lines.extend(results)
             return _reply("\n".join(lines))
+
+        # --- Admin: price system controls ---
+        elif cmd == "/pricesrc":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            cfg = autosell.price_config()
+            return _reply("🛠 Price config\n"
+                          f"source.dex: {cfg['dex_enabled']}\n"
+                          f"ttl: {cfg['ttl']}s\n"
+                          f"cache_size: {cfg['cache_size']}")
+
+        elif cmd == "/price_ttl":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            a = (args or "").strip()
+            if not (a.isdigit()):
+                return _reply("Usage: /price_ttl <seconds>")
+            val = autosell.set_price_ttl(int(a))
+            return _reply(f"⏱ Price TTL set to {val}s")
+
+        elif cmd == "/price_cache_clear":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.clear_price_cache()
+            return _reply("🧹 Price cache cleared")
 
         # Wallet Commands
         elif cmd == "/wallet":

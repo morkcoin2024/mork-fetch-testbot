@@ -1,0 +1,176 @@
+# === Add Dexscreener price lookup with cache + /price + admin controls ===
+cd /home/runner/workspace
+
+# 1) autosell.py — Dexscreener price, 5s cache, helpers to tune/inspect
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-import threading, time, logging, os, json, math, hashlib, collections
++import threading, time, logging, os, json, math, hashlib, collections, requests
+@@
+ _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
++_PX_CACHE = {}  # mint -> (ts, price)
++_PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
++_PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
+@@
+ def _get_price(mint:str):
+-    """Return (price, source) or (None, None). Hook up real scanners later."""
+-    # TODO: integrate dexscreener/birdeye read-only; for now return None to use sim
+-    return None, None
++    """Return (price, source) or (None, None).
++    Uses short cache + Dexscreener; caller falls back to _sim_price if None."""
++    now = time.time()
++    m = (mint or "").strip()
++    if not m:
++        return None, None
++    # cache
++    ent = _PX_CACHE.get(m.lower())
++    if ent and (now - ent[0]) <= _PX_TTL:
++        return ent[1], ("dex(cache)" if _PX_ENABLE_DEX else "sim(cache)")
++    # fresh from Dexscreener if enabled
++    if _PX_ENABLE_DEX:
++        p = _dex_price(m)
++        if p is not None:
++            _PX_CACHE[m.lower()] = (now, float(p))
++            return float(p), "dex"
++    return None, None
+@@
+ def _sim_price(mint:str):
+@@
+     return round(base * wiggle, 6)
++
++# ----- Dexscreener public API -----
++def _dex_price(mint:str):
++    """Best-effort USD price from Dexscreener. Returns float or None."""
++    url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
++    try:
++        r = requests.get(url, timeout=8)
++        if r.status_code != 200:
++            return None
++        j = r.json() or {}
++        pairs = j.get("pairs") or []
++        pairs = [p for p in pairs if p.get("priceUsd")]
++        if not pairs:
++            return None
++        best = max(pairs, key=lambda p: float(p.get("liquidity", {}).get("usd") or 0.0))
++        return float(best["priceUsd"])
++    except Exception:
++        return None
++
++# ----- admin helpers for price system -----
++def price_config():
++    return {
++        "ttl": _PX_TTL,
++        "dex_enabled": _PX_ENABLE_DEX,
++        "cache_size": len(_PX_CACHE),
++    }
++def set_price_ttl(sec:int):
++    global _PX_TTL
++    try:
++        sec = int(sec)
++        _PX_TTL = max(1, min(sec, 3600))
++        return _PX_TTL
++    except Exception:
++        return _PX_TTL
++def set_price_source(enable_dex:bool):
++    global _PX_ENABLE_DEX
++    _PX_ENABLE_DEX = bool(enable_dex)
++    return _PX_ENABLE_DEX
++def clear_price_cache():
++    _PX_CACHE.clear()
++    return 0
+*** End Patch
+PATCH
+
+# 2) app.py — add public /price and admin controls: /pricesrc, /price_ttl, /price_cache_clear
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/uptime", "/version"]
++        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/uptime", "/version", "/price"]
+@@
+         elif cmd == "/wallet_export":
+             deny = _require_admin(user)
+             if deny: return deny
+             return _reply("🔒 Export private key [Admin Only]")
++
++        elif cmd == "/price":
++            # public: /price <mint>
++            a = (args or "").strip()
++            if not a:
++                return _reply("Usage: /price <mint>")
++            try:
++                import autosell
++                px, src = autosell._get_price(a)
++                if px is None:
++                    spx = autosell._sim_price(a)
++                    return _reply(f"📈 {a}\nprice: ~${spx:.6f} (sim)\nsource: none (fallback to simulator)")
++                return _reply(f"📈 {a}\nprice: ${px:.6f}\nsource: {src}")
++            except Exception as e:
++                return _reply(f"⚠️ Price lookup failed: {e}")
+@@
+         elif cmd == "/autosell_remove":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+             mint = (args or "").strip()
+             if not mint:
+                 return _reply("Usage: /autosell_remove <mint>")
+             n = autosell.remove_rule(mint)
+             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
++
++        # --- Admin: price system controls ---
++        elif cmd == "/pricesrc":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            cfg = autosell.price_config()
++            return _reply("🛠 Price config\n"
++                          f"source.dex: {cfg['dex_enabled']}\n"
++                          f"ttl: {cfg['ttl']}s\n"
++                          f"cache_size: {cfg['cache_size']}")
++
++        elif cmd == "/price_ttl":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            a = (args or "").strip()
++            if not (a.isdigit()):
++                return _reply("Usage: /price_ttl <seconds>")
++            val = autosell.set_price_ttl(int(a))
++            return _reply(f"⏱ Price TTL set to {val}s")
++
++        elif cmd == "/price_cache_clear":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            autosell.clear_price_cache()
++            return _reply("🧹 Price cache cleared")
+*** End Patch
+PATCH
+
+# 3) Router smoke (local)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},'from':{'id':1,'is_bot':False,'username':'x'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(f"{t:22} -> {out.get('status'):8} {(out.get('response') or '')[:90].replace('\n',' ')}")
+for t in ["/price ABC", "/pricesrc", "/price_ttl 10", "/price_cache_clear"]:
+    print(mk(t))
+PY
+
+# 4) Hot-reload
+touch app.py autosell.py
+sleep 2
+
+# 5) Telegram tests (DM)
+# Public:
+#   /price <REAL_MINT_ADDRESS>
+#   /price <RANDOMSTRING>   (should show sim fallback)
+# Admin:
+#   /pricesrc
+#   /price_ttl 15
+#   /price_cache_clear

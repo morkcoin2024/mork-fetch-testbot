@@ -16,6 +16,7 @@ _RULES = []  # in-memory, dry-run only  [{mint,tp,sl,trail,size}]
 _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
 _PX_CACHE = {}  # mint -> (ts, price)
 _PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
+_PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
 
 def status():
     with _LOCK:
@@ -249,12 +250,13 @@ def _get_price(mint:str):
     # cache
     ent = _PX_CACHE.get(m.lower())
     if ent and (now - ent[0]) <= _PX_TTL:
-        return ent[1], "dex(cache)"
-    # fetch fresh
-    p = _dex_price(m)
-    if p is not None:
-        _PX_CACHE[m.lower()] = (now, float(p))
-        return float(p), "dex"
+        return ent[1], ("dex(cache)" if _PX_ENABLE_DEX else "sim(cache)")
+    # fresh from Dexscreener if enabled
+    if _PX_ENABLE_DEX:
+        p = _dex_price(m)
+        if p is not None:
+            _PX_CACHE[m.lower()] = (now, float(p))
+            return float(p), "dex"
     return None, None
 
 def _dex_price(mint:str):
@@ -285,6 +287,32 @@ def _sim_price(mint:str):
     t = time.time() / 12.0                     # 12s cycle
     wiggle = 1.0 + 0.03 * math.sin(2*math.pi*t + (h % 360))
     return round(base * wiggle, 6)
+
+# ----- admin helpers for price system -----
+def price_config():
+    return {
+        "ttl": _PX_TTL,
+        "dex_enabled": _PX_ENABLE_DEX,
+        "cache_size": len(_PX_CACHE),
+    }
+
+def set_price_ttl(sec:int):
+    global _PX_TTL
+    try:
+        sec = int(sec)
+        _PX_TTL = max(1, min(sec, 3600))
+        return _PX_TTL
+    except Exception:
+        return _PX_TTL
+
+def set_price_source(enable_dex:bool):
+    global _PX_ENABLE_DEX
+    _PX_ENABLE_DEX = bool(enable_dex)
+    return _PX_ENABLE_DEX
+
+def clear_price_cache():
+    _PX_CACHE.clear()
+    return 0
 
 # --------- public helpers for bot ---------
 def events(n=10):
