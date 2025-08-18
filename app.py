@@ -53,6 +53,53 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- Shared Telegram send with MarkdownV2 fallback (used by webhook & poller) ---
+def _escape_mdv2(text: str) -> str:
+    if text is None: return ""
+    text = text.replace("\\", "\\\\")
+    for ch in "_*[]()~`>#+-=|{}.!":
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+def tg_send(chat_id: int, text: str, preview: bool = True):
+    """Send a Telegram message with 3-tier fallback."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token: 
+        logger.error("[SEND] Missing TELEGRAM_BOT_TOKEN")
+        return {"ok": False, "error": "no_token"}
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    # Attempt 1: as-is, MarkdownV2
+    p = {"chat_id": chat_id, "text": text, "parse_mode": "MarkdownV2", "disable_web_page_preview": not preview}
+    r1 = requests.post(url, json=p, timeout=15)
+    try:
+        j1 = r1.json() if r1.headers.get("content-type","").startswith("application/json") else {"ok":False}
+    except Exception:
+        j1 = {"ok": False}
+    if r1.status_code == 200 and j1.get("ok"):
+        logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
+        return j1
+    desc = (j1.get("description") or "").lower()
+    md_err = ("can't parse entities" in desc) or ("wrong entity" in desc)
+    # Attempt 2: escaped MarkdownV2
+    if md_err:
+        p["text"] = _escape_mdv2(text)
+        r2 = requests.post(url, json=p, timeout=15)
+        j2 = r2.json() if r2.status_code == 200 else {"ok": False}
+        if r2.status_code == 200 and j2.get("ok"):
+            logger.info("[SEND] ok=mdv2_escaped chat_id=%s", chat_id)
+            return j2
+        logger.error("[SEND] mdv2 escaped failed: %s", j2)
+    # Attempt 3: plain text
+    p.pop("parse_mode", None)
+    p["text"] = text
+    r3 = requests.post(url, json=p, timeout=15)
+    j3 = r3.json() if r3.status_code == 200 else {"ok": False}
+    if r3.status_code == 200 and j3.get("ok"):
+        logger.info("[SEND] ok=plain chat_id=%s", chat_id)
+        return j3
+    logger.error("[SEND] all attempts failed r1=%s r3=%s", r1.status_code, r3.status_code)
+    return j3
+
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
 from birdeye_ws import get_ws
