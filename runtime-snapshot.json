@@ -1,0 +1,23 @@
+{
+  "ts_utc": "2025-08-18T18:43:26Z",
+  "alerts_cfg": {
+    "chat_id": null
+  },
+  "autosell": {
+    "status": {
+      "enabled": false,
+      "interval": 10,
+      "rules": [],
+      "thread_alive": false,
+      "ticks": 0,
+      "last_heartbeat_ts": 0,
+      "dry_run": true,
+      "watch": [],
+      "watch_sens_pct": 1.0,
+      "alerts": true,
+      "ledger_positions": 0,
+      "ledger_realized": 0.0
+    },
+    "rules": []
+  }
+}

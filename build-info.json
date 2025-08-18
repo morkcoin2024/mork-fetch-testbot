@@ -1,11 +1,11 @@
 {
-  "release_ts_utc": "2025-08-18T14:51:47Z",
-  "label": "hardened",
+  "release_ts_utc": "2025-08-18T18:43:26Z",
+  "label": "stable",
   "mode": "Polling (integrated)",
-  "has_tg_send": true,
-  "router_hash": -5837064704985494228,
+  "router_hash": 8315620859661394571,
   "files": {
-    "app.py": "938677f32ff6ccc746952c212cac4abb4071f5496bb810424e3d91718cd12716",
-    "telegram_polling.py": "074cc270d83f28ec3c3542b14009ff6c25c1fc519486735a8440fd07b1cea07d"
+    "app.py": "9ec98853894afb80e211d7ae30333685f8d6abde08ec15a4a47252af6b4d396b",
+    "telegram_polling.py": "074cc270d83f28ec3c3542b14009ff6c25c1fc519486735a8440fd07b1cea07d",
+    "autosell.py": "5c0c1720818b5a7e5192e5b9fbc656cb2f419d62259f902b5aa5155b16ed06ad"
   }
 }
