@@ -11,6 +11,7 @@ except Exception:  # windows safety; replit is linux so fine
     fcntl = None
 
 logger = logging.getLogger("telegram_polling")
+_LAST_409_ALERT_TS = 0
 
 # --- Rotating logs + console mirror (idempotent) ---
 def _ensure_logging():
@@ -97,14 +98,17 @@ class TelegramPollingService:
                 timeout=(10, timeout+5)  # (connect, read)
             )
             if response.status_code == 409:
+                global _LAST_409_ALERT_TS
+                now = time.time()
                 # Webhook/poller conflict — alert admin and exit for supervisor to restart
                 desc = ""
                 try: desc = response.json().get("description","")
                 except Exception: desc = response.text[:200]
                 logger.error("[poll] 409 Conflict from Telegram API: %s", desc)
-                if self.admin_chat_id:
+                if self.admin_chat_id and now - _LAST_409_ALERT_TS > 120:  # alert at most once per 2 minutes
                     try:
                         tg_send(self.admin_chat_id, "⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.", preview=True)
+                        _LAST_409_ALERT_TS = now
                     except Exception: pass
                 # exit main loop by raising
                 raise RuntimeError("409 conflict")

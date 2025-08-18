@@ -1,0 +1,50 @@
+{
+  "issue": "409 Telegram API Conflict Resolution",
+  "timestamp": "2025-08-18T21:44:00Z",
+  "status": "RESOLVED",
+  "actions_taken": [
+    {
+      "step": 1,
+      "action": "Kill standalone pollers",
+      "command": "pkill -f 'production_polling_bot\\.py|working_polling_bot\\.py|simple_polling_bot\\.py'",
+      "result": "Success - No standalone processes remaining"
+    },
+    {
+      "step": 2, 
+      "action": "Clear Telegram webhook",
+      "command": "curl -X POST deleteWebhook",
+      "result": "Success - deleteWebhook ok=True"
+    },
+    {
+      "step": 3,
+      "action": "Verify webhook cleared",
+      "command": "curl getWebhookInfo", 
+      "result": "Success - url= (empty), pending=0"
+    },
+    {
+      "step": 4,
+      "action": "Restart gunicorn",
+      "command": "pkill -f gunicorn && restart workflow",
+      "result": "Success - Single worker PID 825 running"
+    },
+    {
+      "step": 5,
+      "action": "Apply 409 throttling patch",
+      "file": "telegram_polling.py",
+      "changes": [
+        "Added _LAST_409_ALERT_TS = 0 global variable",
+        "Modified 409 handling to only send alerts once per 2 minutes",
+        "Prevents alert spam while maintaining error logging"
+      ],
+      "result": "Success - Throttling applied"
+    }
+  ],
+  "current_state": {
+    "processes": "Only gunicorn master (701) and worker (825) running",
+    "webhook": "Cleared (empty URL)",
+    "polling": "Single integrated poller within Flask worker",
+    "conflict_handling": "409 alerts throttled to max once per 2 minutes"
+  },
+  "resolution": "Telegram API conflicts resolved by ensuring single poller instance with proper throttling",
+  "daily_digest_status": "Fully operational - 18-command Alert Routing System with Daily Heartbeat Digest ready for production use"
+}
