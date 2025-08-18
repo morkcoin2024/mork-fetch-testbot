@@ -32,7 +32,7 @@ ALL_COMMANDS = [
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
     "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
     "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
-    "/alerts_chat_set", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test"
+    "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -1053,6 +1053,28 @@ def process_telegram_command(update: dict):
                 return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
             ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
             return _reply(f"🧪 Test sent: {ok}")
+
+        elif cmd == "/alerts_chat_set_here":
+            # Admin-only; set the current chat as the alerts target
+            deny = _require_admin(user)
+            if deny: return deny
+            msg = update.get("message", {}) if isinstance(update, dict) else {}
+            chat = msg.get("chat", {})
+            chat_id = chat.get("id")
+            if not chat_id:
+                return _reply("⚠️ Could not detect chat id. Try again from the group/channel.")
+            _ALERT_CFG["chat_id"] = int(chat_id)
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f:
+                    json.dump(_ALERT_CFG, f)
+            except Exception:
+                pass
+            try:
+                import autosell
+                autosell.set_notifier(lambda t: tg_send(int(chat_id), t, preview=True))
+            except Exception:
+                pass
+            return _reply(f"📡 Alerts will be routed **here** (chat_id={chat_id}).")
 
         # Wallet Commands
         elif cmd == "/wallet":

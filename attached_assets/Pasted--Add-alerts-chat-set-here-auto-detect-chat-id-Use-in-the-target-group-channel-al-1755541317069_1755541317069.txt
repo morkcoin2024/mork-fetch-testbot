@@ -1,0 +1,58 @@
+# === Add /alerts_chat_set_here (auto-detect chat_id) ===
+# Use in the target group/channel:
+#   /alerts_chat_set_here@MorkSniperBot
+#
+# Effect:
+#   Saves this chat's ID to alert_chat.json and routes [ALERT]/[AUTO] lines here.
+
+cd /home/runner/workspace
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-            "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
++            "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
+             "/paper_auto_on", "/paper_auto_off", "/paper_auto_status"
+         ]
+@@
+         elif cmd == "/alerts_chat_set":
+             deny = _require_admin(user)
+             if deny: return deny
+@@
+             return _reply(f"🧪 Test sent: {ok}")
++
++        elif cmd == "/alerts_chat_set_here":
++            # Admin-only; set the current chat as the alerts target
++            deny = _require_admin(user)
++            if deny: return deny
++            msg = update.get("message", {}) if isinstance(update, dict) else {}
++            chat = msg.get("chat", {})
++            chat_id = chat.get("id")
++            if not chat_id:
++                return _reply("⚠️ Could not detect chat id. Try again from the group/channel.")
++            _ALERT_CFG["chat_id"] = int(chat_id)
++            try:
++                with open(_ALERT_CFG_PATH, "w") as f:
++                    json.dump(_ALERT_CFG, f)
++            except Exception:
++                pass
++            try:
++                import autosell
++                autosell.set_notifier(lambda t: tg_send(int(chat_id), t, preview=True))
++            except Exception:
++                pass
++            return _reply(f"📡 Alerts will be routed **here** (chat_id={chat_id}).")
+*** End Patch
+PATCH
+
+# Quick router smoke (simulated group chat)
+python3 - <<'PY'
+from app import process_telegram_command
+upd = {"message":{"message_id":1,"date":0,
+        "chat":{"id":-1004242424242,"type":"supergroup","title":"Demo"},
+        "from":{"id":1653046781,"is_bot":False,"username":"admin"},
+        "text":"/alerts_chat_set_here"}}
+out = process_telegram_command(upd) or {}
+print("/alerts_chat_set_here ->", out.get("status"), (out.get("response") or "")[:120])
+PY
