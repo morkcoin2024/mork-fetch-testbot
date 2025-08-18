@@ -1,0 +1,81 @@
+# =========================
+# FINAL ERROR SWEEP (READ-ONLY)
+# =========================
+set -euo pipefail
+echo "=== START SWEEP $(date -u +%FT%TZ) ==="
+
+# 1) Runtime health: processes, webhook, pending updates
+echo "[H1] Runtime"
+ps aux | grep -E "telegram_polling|gunicorn" | grep -v grep || echo "NO APP"
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 - <<'PY'
+import sys,json; d=json.load(sys.stdin); r=d.get('result',{})
+print("webhook_url=",r.get('url') or "<empty>"," pending=",r.get('pending_update_count'))
+PY
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" \
+| python3 - <<'PY'
+import sys,json; d=json.load(sys.stdin); print("getUpdates.pending=",len(d.get('result',[])))
+PY
+
+# 2) Env sanity (secrets present)
+echo "[H2] Secrets"
+python3 - <<'PY'
+import os
+print("TELEGRAM_BOT_TOKEN_len=", len(os.getenv("TELEGRAM_BOT_TOKEN","")))
+print("ASSISTANT_ADMIN_TELEGRAM_ID_set=", bool(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID")))
+PY
+
+# 3) Sender reliability: look for real Telegram errors / 409 conflicts / parse errors
+echo "[H3] Sender errors in last 200 lines"
+tail -n 200 live_bot.log 2>/dev/null | grep -Ei "409|parse|can't parse|Bad Request|FAILED|[[]SEND[]].*result=False|ERROR|Traceback" || echo "NO ERRORS FOUND"
+
+# 4) Router truth: direct command smoke (does the app return content for key commands?)
+echo "[H4] Router smoke"
+python3 - <<'PY'
+from app import process_telegram_command
+CMDS=["/ping","/help","/status","/wallet","/wallet_balance","/wallet_addr","/autosell_status","/autosell_on","/autosell_off","/fetch","/solscanstats"]
+def mk(t, uid=1653046781):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':uid,'type':'private'},
+                    'from':{'id':uid,'is_bot':False,'username':'sweep'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    resp=out.get('response') or ''
+    print(f"{t:18} -> {out.get('status'):12} len={len(resp):4}")
+for c in CMDS: mk(c)
+PY
+
+# 5) Unified sender check (markdown fallback path truly active)
+echo "[H5] tg_send diagnostic (MarkdownV2 → escaped → plain)"
+python3 - <<'PY'
+import os
+from app import process_telegram_command, tg_send
+chat_id=int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+for t in ["/wallet","/autosell_status"]:
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':chat_id,'type':'private'},
+                    'from':{'id':chat_id,'is_bot':False,'username':'diag'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    res=tg_send(chat_id, out.get("response") or "", preview=True)
+    print(t, "tg_send.ok=", res.get("ok"), "desc=", (res.get("description") or "")[:80])
+PY
+
+# 6) Autosell & scanners snapshot (heads-up only, not enforcing)
+echo "[H6] Feature snapshots"
+python3 - <<'PY'
+import importlib
+try:
+    autosell=importlib.import_module("autosell")
+    st=autosell.status()
+    print("AutoSell:", st)
+except Exception as e:
+    print("AutoSell: not available:", e)
+try:
+    solscan=importlib.import_module("solscan")
+    print("Solscan module OK")
+except Exception as e:
+    print("Solscan: not available:", e)
+PY
+
+# 7) Log rotator presence (advisory)
+echo "[H7] Log size"
+ls -lh live_bot.log 2>/dev/null || echo "live_bot.log not found (ok)"
+
+echo "=== END SWEEP $(date -u +%FT%TZ) ==="
