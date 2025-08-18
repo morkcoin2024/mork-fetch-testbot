@@ -1,0 +1,67 @@
+# A) Patch the ACTIVE poller to use app.tg_send and log real Telegram JSON (not a generic “sent” line)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: telegram_polling.py
+@@
+-import requests, logging, os, time
+-from app import process_telegram_command
++import requests, logging, os, time, json
++from app import process_telegram_command, tg_send
+ logger = logging.getLogger("telegram_polling")
+@@
+-    def send_message(self, chat_id, text):
+-        payload = {
+-            "chat_id": chat_id,
+-            "text": text,
+-            "parse_mode": "MarkdownV2",
+-            "disable_web_page_preview": True,
+-        }
+-        r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=15)
+-        ok = (r.status_code == 200 and r.json().get("ok") is True)
+-        if not ok:
+-            logger.error(f"Failed to send message: {r.status_code} - {r.text}")
+-        else:
+-            logger.info("✅ Sent message to chat %s", chat_id)
+-        return ok
++    def send_message(self, chat_id, text):
++        ln = len(text or "")
++        preview = (text or "")[:120].replace("\\n"," ")
++        logger.info("[SEND] chat=%s len=%s preview=%r", chat_id, ln, preview)
++        res = tg_send(chat_id, text, preview=True)
++        ok = bool(res.get("ok"))
++        logger.info("[SEND] result=%s json=%s", ok, json.dumps(res)[:300])
++        return ok
+*** End Patch
+PATCH
+
+# B) Hard-restart the poller so the patched module is the one running
+pkill -f telegram_polling\.py || true
+pkill -f production_polling_bot\.py || true
+pkill -f working_polling_bot\.py || true
+rm -f /tmp/mork_polling.lock || true
+# If using Replit Deploy, click Redeploy now; otherwise start as you normally do.
+sleep 3
+
+# C) Direct tg_send diagnostic (bypasses poller) — proves Telegram acceptance of the /wallet text
+python3 - <<'PY'
+import os
+from app import process_telegram_command, tg_send
+chat_id = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+def mk(text):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':chat_id,'type':'private'},
+                    'from':{'id':chat_id,'is_bot':False,'username':'diag'},'text':text}}
+    out = process_telegram_command(mk.update if False else upd) or {}
+    resp = out.get('response') or ''
+    print(f"ROUTER {text:18} -> status={out.get('status')} len={len(resp)}")
+    j = tg_send(chat_id, resp, preview=True)
+    print("TG_SEND -> ok=", j.get('ok'), "desc=", (j.get('description') or '')[:120])
+for t in ["/wallet", "/wallet_balance", "/autosell_status"]:
+    mk(t)
+PY
+
+# D) 60s foreground to watch unified sender on real traffic
+LOG_LEVEL=INFO PYTHONUNBUFFERED=1 timeout 60s python3 -u app.py
+# (Turk will now send in Telegram: /wallet, /wallet_balance, /autosell_status)
+
+# E) Capture focused logs (look for [SEND] result=True with JSON)
+tail -n 120 live_bot.log 2>/dev/null || true

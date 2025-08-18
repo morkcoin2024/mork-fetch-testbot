@@ -14,11 +14,12 @@ from typing import Optional
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Import unified sender from app
+# Import unified sender and command processor from app
 try:
-    from app import tg_send
+    from app import tg_send, process_telegram_command
 except ImportError:
     tg_send = None
+    process_telegram_command = None
 
 class TelegramPollingService:
     def __init__(self, bot_token: str, message_handler=None):
@@ -77,38 +78,36 @@ class TelegramPollingService:
             ADMIN_ID = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '1653046781'))
             is_admin = user_id == ADMIN_ID
             
-            # Basic command processing
-            if text.startswith('/ping'):
-                response = "🤖 **Mork F.E.T.C.H Bot**\n✅ Integrated polling active\n🔥 Bot responding from Flask app!"
-                self.send_message(chat_id, response, "Markdown")
-                
-            elif text.startswith('/status'):
-                uptime = time.strftime('%H:%M:%S UTC', time.gmtime())
-                response = f"✅ **Bot Status: OPERATIONAL**\n⚡ Mode: Integrated Polling\n🕐 Time: {uptime}\n\n{'🔐 Admin access' if is_admin else '👤 User access'}"
-                self.send_message(chat_id, response, "Markdown")
-                
-            elif text.startswith('/help'):
-                response = "🐕 **Mork F.E.T.C.H Bot Help**\n\n📋 **Available Commands:**\n• `/ping` - Test connection\n• `/status` - System status\n• `/help` - Show help\n\n🔥 Ready for trading!"
-                self.send_message(chat_id, response, "Markdown")
-                
-            elif text.startswith('/test') and is_admin:
-                response = "🧪 **Test Mode**\nIntegrated polling working!\nFlask app managing Telegram polling."
-                self.send_message(chat_id, response)
-                
-            elif text.startswith('/'):
-                # Use custom handler if available
-                if self.message_handler:
+            # Use comprehensive process_telegram_command router
+            if text.startswith('/'):
+                if process_telegram_command:
                     try:
-                        result = self.message_handler(update)
-                        if result and isinstance(result, str):
-                            self.send_message(chat_id, result)
+                        result = process_telegram_command(update)
+                        if result and isinstance(result, dict):
+                            response = result.get('response', '')
+                            if response:
+                                self.send_message(chat_id, response)
+                            else:
+                                logger.warning(f"Empty response from router for: {text}")
+                        else:
+                            logger.error(f"Invalid router result: {result}")
+                            cmd = text.split()[0]
+                            self.send_message(chat_id, f"Command `{cmd}` processing error.")
                     except Exception as e:
-                        logger.error(f"Message handler error: {e}")
+                        logger.error(f"Router error for {text}: {e}")
                         cmd = text.split()[0]
                         self.send_message(chat_id, f"Command `{cmd}` encountered an error.")
                 else:
-                    cmd = text.split()[0]
-                    self.send_message(chat_id, f"Command `{cmd}` not recognized. Use /help for available commands.")
+                    # Fallback for basic commands when router not available
+                    if text.startswith('/ping'):
+                        response = "🤖 **Mork F.E.T.C.H Bot**\n✅ Integrated polling active\n🔥 Bot responding from Flask app!"
+                        self.send_message(chat_id, response)
+                    elif text.startswith('/help'):
+                        response = "🐕 **Mork F.E.T.C.H Bot Help**\n\n📋 **Available Commands:**\n• `/ping` - Test connection\n• `/help` - Show help\n\n🔥 Router temporarily unavailable!"
+                        self.send_message(chat_id, response)
+                    else:
+                        cmd = text.split()[0]
+                        self.send_message(chat_id, f"Command `{cmd}` not available - router loading.")
                     
         except Exception as e:
             logger.error(f"Error processing update: {e}")
