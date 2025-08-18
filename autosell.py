@@ -23,6 +23,7 @@ _ALERTS_ENABLED = True
 _STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
 _BACKUP_FILE = os.environ.get("FETCH_BACKUP_FILE", "autosell_backup.json")
 _LEDGER = {"positions": {}, "realized": 0.0}  # mint -> {qty, avg}; realized P&L total
+_PRICE_OVERRIDES = {}  # mint -> float
 
 def status():
     with _LOCK:
@@ -264,6 +265,9 @@ def _log_event(s: str):
 # ------- price sources -------
 def _get_price(mint:str):
     """Return (price, source) or (None, None). Uses short cache + Dexscreener; falls back to sim in caller."""
+    # manual override for testing
+    if mint in _PRICE_OVERRIDES:
+        return float(_PRICE_OVERRIDES[mint]), "override"
     now = time.time()
     m = (mint or "").strip()
     if not m:
@@ -334,6 +338,46 @@ def set_price_source(enable_dex:bool):
 def clear_price_cache():
     _PX_CACHE.clear()
     return 0
+
+def set_price_override(mint:str, price:float):
+    try:
+        p = float(price)
+        if p <= 0: 
+            return False
+        with _LOCK:
+            _PRICE_OVERRIDES[mint] = p
+        _log_event(f"[PRICE] override {mint}={p}")
+        return True
+    except Exception:
+        return False
+
+def clear_price_override(mint:str):
+    with _LOCK:
+        _PRICE_OVERRIDES.pop(mint, None)
+    _log_event(f"[PRICE] override cleared {mint}")
+    return True
+
+def ledger_mark_to_market():
+    """Return detailed P&L snapshot using live (or override/sim) prices."""
+    lines = []
+    unreal = 0.0
+    with _LOCK:
+        pos = {k: {"qty": v["qty"], "avg": v["avg"]} for k,v in _LEDGER["positions"].items()}
+        realized = float(_LEDGER["realized"])
+    for mint, p in pos.items():
+        if p["qty"] <= 0:
+            continue
+        px, src = _get_price(mint)
+        if px is None:
+            px = _sim_price(mint); src = "sim"
+        u = (px - p["avg"]) * p["qty"]
+        unreal += u
+        lines.append({
+            "mint": mint, "qty": round(p["qty"],6), "avg": round(p["avg"],6),
+            "px": round(px,6), "src": src, "unreal": round(u,6)
+        })
+    total = realized + unreal
+    return {"lines": lines, "unreal": round(unreal,6), "realized": round(realized,6), "total": round(total,6)}
 
 # ---------- Watchlist ----------
 def watch_add(mint:str):

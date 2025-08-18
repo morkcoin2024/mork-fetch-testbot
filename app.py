@@ -29,7 +29,8 @@ ALL_COMMANDS = [
     "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
     "/watch", "/unwatch", "/watchlist", "/watch_sens",
     "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
-    "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset"
+    "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
+    "/ledger_pnl", "/paper_setprice"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -924,6 +925,27 @@ def process_telegram_command(update: dict):
             import autosell
             autosell.ledger_reset()
             return _reply("🧹 Ledger reset")
+
+        elif cmd == "/ledger_pnl":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            snap = autosell.ledger_mark_to_market()
+            if not snap["lines"]:
+                return _reply(f"📊 P&L: positions=0\nrealized={snap['realized']:.6f}\nunrealized=0.000000\ntotal={snap['realized']:.6f}")
+            rows = [f"- {l['mint']} qty={l['qty']:.6f} avg={l['avg']:.6f} px={l['px']:.6f} ({l['src']}) uPnL={l['unreal']:.6f}" for l in snap["lines"]]
+            return _reply("📊 P&L:\n" + "\n".join(rows) + f"\nrealized={snap['realized']:.6f}\nunrealized={snap['unreal']:.6f}\n**total={snap['total']:.6f}**")
+
+        elif cmd == "/paper_setprice":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            parts = (args or "").split()
+            if len(parts) < 2:
+                return _reply("Usage: /paper_setprice <mint> <price>")
+            mint, price = parts[0], parts[1]
+            ok = autosell.set_price_override(mint, price)
+            return _reply("🧪 Price override " + ("set." if ok else "failed."))
 
         # Wallet Commands
         elif cmd == "/wallet":

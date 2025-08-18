@@ -1,6 +1,1 @@
-{
-  "enabled": false,
-  "interval": 10,
-  "rules": [],
-  "dry_run": true
-}
+{"rules": [], "watch": {}, "watch_sens": 1.0, "interval": 10, "alerts": true, "ledger": {"positions": {"So11111111111111111111111111111111111111112": {"qty": 0.5, "avg": 100.0}, "TEST456": {"qty": 2.5, "avg": 50.0}}, "realized": 2.5}}
