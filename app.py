@@ -33,7 +33,7 @@ ALL_COMMANDS = [
     "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
     "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
     "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test",
-    "/alerts_min_move", "/alerts_rate", "/alerts_settings"
+    "/alerts_min_move", "/alerts_rate", "/alerts_settings", "/alerts_mute", "/alerts_unmute"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -44,7 +44,7 @@ try:
     with open(_ALERT_CFG_PATH, "r") as f:
         _ALERT_CFG = json.load(f)
 except Exception:
-    _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60}
+    _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60, "muted_until": 0}
 
 # --- notifier state for rate-limiting (sliding window) ---
 _ALERT_SENT_TS = []  # unix seconds of recent sends
@@ -1119,16 +1119,60 @@ def process_telegram_command(update: dict):
                 pass
             return _reply(f"✅ rate_per_min set to {n}")
 
+        elif cmd == "/alerts_mute":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args:
+                return _reply("Usage: /alerts_mute <duration>\nExamples: 15m, 1h, 2h30m, 45")
+            import re, time
+            s = args.strip().lower()
+            # parse "2h30m", "90m", "45" (minutes)
+            total_sec = 0
+            m = re.fullmatch(r'(?:\s*(\d+)\s*h)?\s*(?:\s*(\d+)\s*m)?\s*', s)
+            if 'h' in s or 'm' in s:
+                if m:
+                    h = int(m.group(1) or 0); mins = int(m.group(2) or 0)
+                    total_sec = h*3600 + mins*60
+            else:
+                try:
+                    total_sec = int(float(s)) * 60
+                except:
+                    return _reply("⚠️ Invalid duration. Try 15m or 1h30m.")
+            total_sec = max(60, min(total_sec, 24*3600))  # 1 min .. 24h
+            _ALERT_CFG["muted_until"] = time.time() + total_sec
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            return _reply(f"🔕 Alerts muted for {total_sec//60} min")
+
+        elif cmd == "/alerts_unmute":
+            deny = _require_admin(user)
+            if deny: return deny
+            _ALERT_CFG["muted_until"] = 0
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            return _reply("🔔 Alerts unmuted")
+
         elif cmd == "/alerts_settings":
             deny = _require_admin(user)
             if deny: return deny
             cid = _ALERT_CFG.get("chat_id")
+            import time
+            mu = float(_ALERT_CFG.get("muted_until", 0) or 0)
+            remaining = max(0, int(mu - time.time()))
             return _reply(
                 "📟 Alert flood control settings:\n"
                 f"chat: {cid if cid else 'not set'}\n"
                 f"min_move_pct: {_ALERT_CFG.get('min_move_pct', 0.0)}%\n"
                 f"rate_per_min: {_ALERT_CFG.get('rate_per_min', 60)}\n"
-                f"sent_last_min: {len(_ALERT_SENT_TS)}"
+                f"sent_last_min: {len(_ALERT_SENT_TS)}\n"
+                f"muted: {'yes' if remaining>0 else 'no'}"
+                + (f" ({remaining}s left)" if remaining>0 else "")
             )
 
         # Wallet Commands
@@ -1277,8 +1321,11 @@ try:
         def _notify_line(txt: str):
             cid = _ALERT_CFG.get("chat_id")
             if cid:
+                # mute check
+                import time, re
+                if float(_ALERT_CFG.get("muted_until", 0) or 0) > time.time():
+                    return
                 # threshold filter — look for ±X.XX%
-                import re, time
                 m = re.search(r'([+-]?\d+(?:\.\d+)?)%', txt)
                 if m:
                     try:
