@@ -27,7 +27,8 @@ ALL_COMMANDS = [
     "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
     "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
     "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
-    "/watch", "/unwatch", "/watchlist", "/watch_sens"
+    "/watch", "/unwatch", "/watchlist", "/watch_sens",
+    "/autosell_restore", "/alerts_on", "/alerts_off"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -838,6 +839,27 @@ def process_telegram_command(update: dict):
                 return _reply(f"👁️ Watch sensitivity set to {val:.2f}%")
             except Exception:
                 return _reply("Usage: /watch_sens <percent>")
+
+        elif cmd == "/autosell_restore":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            ok = autosell.restore_state()
+            return _reply("💾 Restore " + ("OK" if ok else "failed (no state)"))
+
+        elif cmd == "/alerts_on":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.alerts_set(True)
+            return _reply("🔔 Alerts enabled")
+
+        elif cmd == "/alerts_off":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.alerts_set(False)
+            return _reply("🔕 Alerts muted")
 
         # Wallet Commands
         elif cmd == "/wallet":

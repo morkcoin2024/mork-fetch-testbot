@@ -1,0 +1,215 @@
+# === Persistence + Alert Toggle ===
+cd /home/runner/workspace
+
+# 1) autosell.py — save/restore state, autosave on changes, alert mute flag
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-import threading, time, logging, os, json, math, hashlib, collections, requests
++import threading, time, logging, os, json, math, hashlib, collections, requests
+@@
+ _EVENTS = collections.deque(maxlen=100)  # rolling log of dry-run decisions
+ _PX_CACHE = {}  # mint -> (ts, price)
+ _PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
+ _PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
+ _WATCH = {}   # mint -> {"last": float|None}
+ _WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
++_ALERTS_ENABLED = True
++_STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
+@@
+ def status():
+     with _LOCK:
+         return {
+             "enabled": _STATE["enabled"],
+             "interval": _STATE["interval"],
+             "ticks": _STATE["ticks"],
+             "alive": _STATE["alive"],
+             "watch": sorted(list(_WATCH.keys())),
+             "watch_sens_pct": _WATCH_SENS,
++            "alerts": _ALERTS_ENABLED,
+         }
+@@
+ def _event(msg:str):
+     ts = time.strftime("%H:%M:%S", time.gmtime())
+     _EVENTS.append(f"{ts} {msg}")
+@@
+ def events(n:int=10):
+     with _LOCK:
+         return list(_EVENTS)[-n:]
++
++# ---------- Persistence ----------
++def _save_state():
++    try:
++        with _LOCK:
++            data = {
++                "rules": list(_RULES),
++                "watch": {k: {"last": v.get("last")} for k,v in _WATCH.items()},
++                "watch_sens": _WATCH_SENS,
++                "interval": _STATE["interval"],
++                "alerts": _ALERTS_ENABLED,
++            }
++        tmp = _STATE_FILE + ".tmp"
++        with open(tmp, "w") as f:
++            json.dump(data, f)
++        os.replace(tmp, _STATE_FILE)
++        return True
++    except Exception:
++        return False
++
++def restore_state():
++    """Load persisted state (does not auto-enable the worker)."""
++    try:
++        if not os.path.exists(_STATE_FILE):
++            return False
++        with open(_STATE_FILE, "r") as f:
++            data = json.load(f) or {}
++        rules = data.get("rules") or []
++        watch = data.get("watch") or {}
++        sens = float(data.get("watch_sens", _WATCH_SENS))
++        interval = int(data.get("interval", _STATE["interval"]))
++        alerts = bool(data.get("alerts", True))
++        with _LOCK:
++            _RULES[:] = rules
++            _WATCH.clear()
++            for k,v in (watch.items()):
++                _WATCH[k] = {"last": (v or {}).get("last")}
++            _STATE["interval"] = max(3, interval)
++            _STATE["ticks"] = 0
++            _STATE["alive"] = bool(_STATE.get("thr") and _STATE["thr"].is_alive())
++            global _WATCH_SENS, _ALERTS_ENABLED
++            _WATCH_SENS = max(0.1, min(sens, 100.0))
++            _ALERTS_ENABLED = alerts
++        _event("[RESTORE] state loaded")
++        return True
++    except Exception:
++        return False
+@@
+ def set_interval(sec:int):
+     with _LOCK:
+-        _STATE["interval"] = max(3, int(sec))
++        _STATE["interval"] = max(3, int(sec))
++    _save_state()
+     return _STATE["interval"]
+@@
+ def set_rule(mint:str, tp:int=None, sl:int=None, trail:int=None, size:int=None):
+@@
+-    _RULES.append(rule)
++    _RULES.append(rule)
++    _save_state()
+     return dict(rule)
+@@
+ def remove_rule(mint:str):
+@@
+-    _RULES[:] = [r for r in _RULES if (r.get("mint","").lower()!=m.lower())]
++    _RULES[:] = [r for r in _RULES if (r.get("mint","").lower()!=m.lower())]
++    _save_state()
+     return before - len(_RULES)
+@@
+ def enable():
+     with _LOCK:
+         if _STATE["enabled"]:
+             return True
+@@
+     thr.daemon = True
+     thr.start()
+     with _LOCK:
+         _STATE["thr"] = thr
+         _STATE["enabled"] = True
+         _STATE["alive"] = True
++    _save_state()
+     return True
+@@
+ def disable():
+     with _LOCK:
+         _STATE["enabled"] = False
+         _STATE["alive"] = False
+     _event("[STATE] autosell disabled")
++    _save_state()
+     return True
+@@
+ def watch_add(mint:str):
+@@
+-    with _LOCK:
+-        _WATCH.setdefault(m, {"last": None})
++    with _LOCK:
++        _WATCH.setdefault(m, {"last": None})
++    _save_state()
+     return 1
+@@
+ def watch_remove(mint:str):
+@@
+-    with _LOCK:
+-        return 1 if _WATCH.pop(m, None) is not None else 0
++    with _LOCK:
++        ok = 1 if _WATCH.pop(m, None) is not None else 0
++    if ok: _save_state()
++    return ok
+@@
+ def watch_set_sens(pct:float):
+@@
+-    _WATCH_SENS = pct
++    _WATCH_SENS = pct
++    _save_state()
+     return _WATCH_SENS
+@@
+ def _watch_tick():
+@@
+-        if abs(change) >= sens:
++        if _ALERTS_ENABLED and abs(change) >= sens:
+             _event(f"[ALERT] {mint} {change:+.2f}% price={px:.6f} src={src}")
+             with _LOCK:
+                 _WATCH[mint]["last"] = px
++
++# Alert toggle
++def alerts_set(enabled:bool):
++    global _ALERTS_ENABLED
++    _ALERTS_ENABLED = bool(enabled)
++    _save_state()
++    return _ALERTS_ENABLED
+*** End Patch
+PATCH
+
+# 2) app.py — add /autosell_restore, /alerts_on, /alerts_off
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
+ 
++        elif cmd == "/autosell_restore":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            ok = autosell.restore_state()
++            return _reply("💾 Restore " + ("OK" if ok else "failed (no state)"))
++
++        elif cmd == "/alerts_on":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            autosell.alerts_set(True)
++            return _reply("🔔 Alerts enabled")
++
++        elif cmd == "/alerts_off":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            autosell.alerts_set(False)
++            return _reply("🔕 Alerts muted")
+*** End Patch
+PATCH
+
+# 3) Hot-reload and seed a save
+python3 - <<'PY'
+import autosell
+autosell.restore_state()  # load if present
+autosell._save_state()    # create file if missing
+print("state_file:", autosell._STATE_FILE)
+PY
+
+# 4) Telegram quick checks (admin)
+# /autosell_backup              (still works; manual snapshot)
+# /autosell_restore             (loads last saved state)
+# /alerts_off   /alerts_on      (mute/unmute alerts)
+# /watchlist                    (survives restart)

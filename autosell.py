@@ -19,6 +19,8 @@ _PX_TTL   = int(os.environ.get("FETCH_PRICE_TTL_SEC", "5"))
 _PX_ENABLE_DEX = True  # toggleable at runtime via admin commands
 _WATCH = {}   # mint -> {"last": float|None}
 _WATCH_SENS = float(os.environ.get("FETCH_WATCH_SENS_PCT", "1.0"))  # % change to alert
+_ALERTS_ENABLED = True
+_STATE_FILE = os.environ.get("FETCH_STATE_FILE", "autosell_state.json")
 
 def status():
     with _LOCK:
@@ -26,23 +28,27 @@ def status():
             **dict(_STATE),
             "watch": sorted(list(_WATCH.keys())),
             "watch_sens_pct": _WATCH_SENS,
+            "alerts": _ALERTS_ENABLED,
         }
 
 def set_interval(seconds: int):
     with _LOCK:
         _STATE["interval"] = max(3, int(seconds))
+    _save_state()
     return status()
 
 def enable():
     with _LOCK:
         _STATE["enabled"] = True
     _ensure_thread()
+    _save_state()
     return status()
 
 def disable():
     with _LOCK:
         _STATE["enabled"] = False
     _stop_thread()
+    _save_state()
     return status()
 
 def _ensure_thread():
@@ -151,6 +157,7 @@ def set_rule(mint: str, **kw):
                 break
         else:
             _RULES.append(rule)
+    _save_state()
     return rule
 
 def remove_rule(mint: str):
@@ -159,7 +166,9 @@ def remove_rule(mint: str):
     with _LOCK:
         n0 = len(_RULES)
         _RULES[:] = [r for r in _RULES if r["mint"].lower()!=mint.lower()]
-        return n0 - len(_RULES)
+        removed = n0 - len(_RULES)
+    if removed > 0: _save_state()
+    return removed
 
 # --------- persistence API (DRY-RUN) ----------
 def force_save():
@@ -328,13 +337,16 @@ def watch_add(mint:str):
     if not m: return 0
     with _LOCK:
         _WATCH.setdefault(m, {"last": None})
+    _save_state()
     return 1
 
 def watch_remove(mint:str):
     m = (mint or "").strip()
     if not m: return 0
     with _LOCK:
-        return 1 if _WATCH.pop(m, None) is not None else 0
+        ok = 1 if _WATCH.pop(m, None) is not None else 0
+    if ok: _save_state()
+    return ok
 
 def watch_list():
     with _LOCK:
@@ -348,6 +360,7 @@ def watch_set_sens(pct:float):
     except Exception:
         pass
     _WATCH_SENS = pct
+    _save_state()
     return _WATCH_SENS
 
 def _watch_tick():
@@ -367,10 +380,64 @@ def _watch_tick():
                 _WATCH[mint]["last"] = px
             continue
         change = 0.0 if last == 0 else (px - last) / last * 100.0
-        if abs(change) >= sens:
+        if _ALERTS_ENABLED and abs(change) >= sens:
             _log_event(f"[ALERT] {mint} {change:+.2f}% price={px:.6f} src={src}")
             with _LOCK:
                 _WATCH[mint]["last"] = px
+
+# ---------- Persistence ----------
+def _save_state():
+    try:
+        with _LOCK:
+            data = {
+                "rules": list(_RULES),
+                "watch": {k: {"last": v.get("last")} for k,v in _WATCH.items()},
+                "watch_sens": _WATCH_SENS,
+                "interval": _STATE["interval"],
+                "alerts": _ALERTS_ENABLED,
+            }
+        tmp = _STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, _STATE_FILE)
+        return True
+    except Exception:
+        return False
+
+def restore_state():
+    """Load persisted state (does not auto-enable the worker)."""
+    global _WATCH_SENS, _ALERTS_ENABLED
+    try:
+        if not os.path.exists(_STATE_FILE):
+            return False
+        with open(_STATE_FILE, "r") as f:
+            data = json.load(f) or {}
+        rules = data.get("rules") or []
+        watch = data.get("watch") or {}
+        sens = float(data.get("watch_sens", _WATCH_SENS))
+        interval = int(data.get("interval", _STATE["interval"]))
+        alerts = bool(data.get("alerts", True))
+        with _LOCK:
+            _RULES[:] = rules
+            _WATCH.clear()
+            for k,v in (watch.items()):
+                _WATCH[k] = {"last": (v or {}).get("last")}
+            _STATE["interval"] = max(3, interval)
+            _STATE["ticks"] = 0
+            _STATE["alive"] = bool(_STATE.get("thread_alive"))
+            _WATCH_SENS = max(0.1, min(sens, 100.0))
+            _ALERTS_ENABLED = alerts
+        _log_event("[RESTORE] state loaded")
+        return True
+    except Exception:
+        return False
+
+# Alert toggle
+def alerts_set(enabled:bool):
+    global _ALERTS_ENABLED
+    _ALERTS_ENABLED = bool(enabled)
+    _save_state()
+    return _ALERTS_ENABLED
 
 # --------- public helpers for bot ---------
 def events(n=10):
