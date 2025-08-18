@@ -382,8 +382,22 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd"]
         
+        # Lightweight /status for all users (place BEFORE unknown fallback)
+        if cmd == "/status":
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+            mode = "Integrated Polling"
+            # keep this simple to avoid Markdown pitfalls; tg_send will escape anyway
+            lines = [
+                "✅ Bot Status: OPERATIONAL",
+                f"⚡ Mode: {mode}",
+                f"⏱ Time: {now}",
+                "🔒 Admin access"
+            ]
+            return _reply("\n".join(lines))
+
         # Router fallback (and only one in repo) 
         if cmd not in ALL_COMMANDS:
             clean = (text or "").replace("\n", " ")
