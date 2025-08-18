@@ -1,0 +1,126 @@
+# === Alert flood control: threshold + rate limit ===
+# Adds:
+#   /alerts_min_move <percent>
+#   /alerts_rate <N_per_min>
+#   /alerts_settings
+# Stored in alert_chat.json with: {"chat_id":..., "min_move_pct": 0.0, "rate_per_min": 60}
+
+cd /home/runner/workspace
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        try:
+-            with open(_ALERT_CFG_PATH, "r") as f:
+-                _ALERT_CFG = json.load(f)
+-        except Exception:
+-            _ALERT_CFG = {"chat_id": None}
+-        # wire notifier into autosell
++        try:
++            with open(_ALERT_CFG_PATH, "r") as f:
++                _ALERT_CFG = json.load(f)
++        except Exception:
++            _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60}
++
++        # --- notifier state for rate-limiting (sliding window) ---
++        _ALERT_SENT_TS = []  # unix seconds of recent sends
++
++        # wire notifier into autosell
+         try:
+             import autosell
+             def _notify_line(txt: str):
+-                cid = _ALERT_CFG.get("chat_id")
++                cid = _ALERT_CFG.get("chat_id")
+                 if cid:
+-                    tg_send(int(cid), txt, preview=True)
++                    # threshold filter — look for ±X.XX%
++                    import re, time
++                    m = re.search(r'([+-]?\d+(?:\.\d+)?)%', txt)
++                    if m:
++                        try:
++                            move = abs(float(m.group(1)))
++                            if move < float(_ALERT_CFG.get("min_move_pct", 0.0)):
++                                return  # below threshold
++                        except Exception:
++                            pass
++                    # rate limit N per minute
++                    now = time.time()
++                    # prune older than 60s
++                    while _ALERT_SENT_TS and now - _ALERT_SENT_TS[0] > 60:
++                        _ALERT_SENT_TS.pop(0)
++                    max_per_min = int(_ALERT_CFG.get("rate_per_min", 60) or 60)
++                    if len(_ALERT_SENT_TS) >= max_per_min:
++                        return  # drop quietly
++                    res = tg_send(int(cid), txt, preview=True)
++                    if res.get("ok"):
++                        _ALERT_SENT_TS.append(now)
+             autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
+         except Exception:
+             pass
+@@
+         elif cmd == "/alerts_chat_status":
+             deny = _require_admin(user)
+             if deny: return deny
+-            cid = _ALERT_CFG.get("chat_id")
+-            return _reply(f"📟 Alerts chat: {cid if cid else 'not set'}")
++            cid = _ALERT_CFG.get("chat_id")
++            return _reply(
++                "📟 Alerts settings:\n"
++                f"chat: {cid if cid else 'not set'}\n"
++                f"min_move_pct: { _ALERT_CFG.get('min_move_pct', 0.0) }%\n"
++                f"rate_per_min: { _ALERT_CFG.get('rate_per_min', 60) }"
++            )
+@@
+         elif cmd == "/alerts_test":
+             deny = _require_admin(user)
+             if deny: return deny
+             cid = _ALERT_CFG.get("chat_id")
+             if not cid:
+                 return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
+             ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
+             return _reply(f"🧪 Test sent: {ok}")
+ 
++        elif cmd == "/alerts_min_move":
++            deny = _require_admin(user)
++            if deny: return deny
++            if not args:
++                return _reply("Usage: /alerts_min_move <percent>\nExample: /alerts_min_move 0.5")
++            try:
++                pct = max(0.0, float(args.strip()))
++            except Exception:
++                return _reply("⚠️ Invalid percent. Use a number like 0.5")
++            _ALERT_CFG["min_move_pct"] = pct
++            try:
++                with open(_ALERT_CFG_PATH, "w") as f: json.dump(_ALERT_CFG, f)
++            except Exception: pass
++            return _reply(f"✅ min_move_pct set to {pct}%")
++
++        elif cmd == "/alerts_rate":
++            deny = _require_admin(user)
++            if deny: return deny
++            if not args:
++                return _reply("Usage: /alerts_rate <N_per_min>\nExample: /alerts_rate 20")
++            try:
++                n = max(1, int(float(args.strip())))
++            except Exception:
++                return _reply("⚠️ Invalid rate. Use a positive number.")
++            _ALERT_CFG["rate_per_min"] = n
++            try:
++                with open(_ALERT_CFG_PATH, "w") as f: json.dump(_ALERT_CFG, f)
++            except Exception: pass
++            return _reply(f"✅ rate_per_min set to {n}")
+*** End Patch
+PATCH
+
+# quick router smoke (admin)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'admin'},'text':t}}
+    out=process_telegram_command(upd) or {}
+    print(t, "->", out.get("status"), (out.get("response") or "")[:80].replace("\n"," "))
+for t in ["/alerts_settings","/alerts_min_move 0.5","/alerts_rate 15","/alerts_settings"]:
+    mk(t)
+PY

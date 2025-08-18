@@ -32,7 +32,8 @@ ALL_COMMANDS = [
     "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
     "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
     "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
-    "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test"
+    "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test",
+    "/alerts_min_move", "/alerts_rate", "/alerts_settings"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -43,7 +44,10 @@ try:
     with open(_ALERT_CFG_PATH, "r") as f:
         _ALERT_CFG = json.load(f)
 except Exception:
-    _ALERT_CFG = {"chat_id": None}
+    _ALERT_CFG = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 60}
+
+# --- notifier state for rate-limiting (sliding window) ---
+_ALERT_SENT_TS = []  # unix seconds of recent sends
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -1043,7 +1047,12 @@ def process_telegram_command(update: dict):
             deny = _require_admin(user)
             if deny: return deny
             cid = _ALERT_CFG.get("chat_id")
-            return _reply(f"📟 Alerts chat: {cid if cid else 'not set'}")
+            return _reply(
+                "📟 Alerts settings:\n"
+                f"chat: {cid if cid else 'not set'}\n"
+                f"min_move_pct: {_ALERT_CFG.get('min_move_pct', 0.0)}%\n"
+                f"rate_per_min: {_ALERT_CFG.get('rate_per_min', 60)}"
+            )
 
         elif cmd == "/alerts_test":
             deny = _require_admin(user)
@@ -1075,6 +1084,52 @@ def process_telegram_command(update: dict):
             except Exception:
                 pass
             return _reply(f"📡 Alerts will be routed **here** (chat_id={chat_id}).")
+
+        elif cmd == "/alerts_min_move":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args:
+                return _reply("Usage: /alerts_min_move <percent>\nExample: /alerts_min_move 0.5")
+            try:
+                pct = max(0.0, float(args.strip()))
+            except Exception:
+                return _reply("⚠️ Invalid percent. Use a number like 0.5")
+            _ALERT_CFG["min_move_pct"] = pct
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            return _reply(f"✅ min_move_pct set to {pct}%")
+
+        elif cmd == "/alerts_rate":
+            deny = _require_admin(user)
+            if deny: return deny
+            if not args:
+                return _reply("Usage: /alerts_rate <N_per_min>\nExample: /alerts_rate 20")
+            try:
+                n = max(1, int(float(args.strip())))
+            except Exception:
+                return _reply("⚠️ Invalid rate. Use a positive number.")
+            _ALERT_CFG["rate_per_min"] = n
+            try:
+                with open(_ALERT_CFG_PATH, "w") as f: 
+                    json.dump(_ALERT_CFG, f)
+            except Exception: 
+                pass
+            return _reply(f"✅ rate_per_min set to {n}")
+
+        elif cmd == "/alerts_settings":
+            deny = _require_admin(user)
+            if deny: return deny
+            cid = _ALERT_CFG.get("chat_id")
+            return _reply(
+                "📟 Alert flood control settings:\n"
+                f"chat: {cid if cid else 'not set'}\n"
+                f"min_move_pct: {_ALERT_CFG.get('min_move_pct', 0.0)}%\n"
+                f"rate_per_min: {_ALERT_CFG.get('rate_per_min', 60)}\n"
+                f"sent_last_min: {len(_ALERT_SENT_TS)}"
+            )
 
         # Wallet Commands
         elif cmd == "/wallet":
@@ -1222,7 +1277,27 @@ try:
         def _notify_line(txt: str):
             cid = _ALERT_CFG.get("chat_id")
             if cid:
-                tg_send(int(cid), txt, preview=True)
+                # threshold filter — look for ±X.XX%
+                import re, time
+                m = re.search(r'([+-]?\d+(?:\.\d+)?)%', txt)
+                if m:
+                    try:
+                        move = abs(float(m.group(1)))
+                        if move < float(_ALERT_CFG.get("min_move_pct", 0.0)):
+                            return  # below threshold
+                    except Exception:
+                        pass
+                # rate limit N per minute
+                now = time.time()
+                # prune older than 60s
+                while _ALERT_SENT_TS and now - _ALERT_SENT_TS[0] > 60:
+                    _ALERT_SENT_TS.pop(0)
+                max_per_min = int(_ALERT_CFG.get("rate_per_min", 60) or 60)
+                if len(_ALERT_SENT_TS) >= max_per_min:
+                    return  # drop quietly
+                res = tg_send(int(cid), txt, preview=True)
+                if res.get("ok"):
+                    _ALERT_SENT_TS.append(now)
         autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
     except Exception as e:
         logger.warning(f"Failed to setup notifier: {e}")
