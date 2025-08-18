@@ -1,0 +1,60 @@
+# === STOP 409 FLOOD & RESTORE SINGLE-POLLER MODE ===
+cd /home/runner/workspace || exit 1
+
+echo "[1/6] Kill any standalone pollers (leave gunicorn worker to restart clean)…"
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+
+echo "[2/6] Clear any Telegram webhook (polling-only mode)…"
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" \
+| python3 -c "import sys,json;print('deleteWebhook ok=',json.load(sys.stdin).get('ok'))"
+
+echo "[3/6] Verify webhook is empty (should be blank URL)…"
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 -c "import sys,json;d=json.load(sys.stdin);print('url=',d.get('result',{}).get('url'));print('pending=',d.get('result',{}).get('pending_update_count'))"
+
+echo "[4/6] Kill gunicorn so workflow restarts a single integrated worker (with embedded poller)…"
+pkill -f gunicorn || true
+sleep 3
+
+echo "[5/6] Sanity: show processes (expect ONLY gunicorn master/worker after a few seconds; no standalone pollers)…"
+ps aux | grep -E 'gunicorn|production_polling_bot|working_polling_bot|simple_polling_bot' | grep -v grep || true
+
+echo "[6/6] OPTIONAL: throttle 409 alert spam (only 1 alert per 2min) — safe/no-op if already patched"
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: telegram_polling.py
+@@
+-logger = logging.getLogger("telegram_polling")
++logger = logging.getLogger("telegram_polling")
++_LAST_409_ALERT_TS = 0
+@@
+-            if r.status_code == 409:
+-                logger.warning("⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.")
+-                try:
+-                    from app import tg_send, _get_admin_chat_id  # best effort
+-                    cid = _get_admin_chat_id() if '_get_admin_chat_id' in globals() else int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","0") or 0)
+-                    if cid:
+-                        tg_send(cid, "⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.")
+-                except Exception:
+-                    pass
+-                time.sleep(1)
+-                return False  # triggers supervisor restart
++            if r.status_code == 409:
++                global _LAST_409_ALERT_TS
++                now = time.time()
++                if now - _LAST_409_ALERT_TS > 120:  # alert at most once per 2 minutes
++                    logger.warning("⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.")
++                    try:
++                        from app import tg_send, _get_admin_chat_id
++                        cid = _get_admin_chat_id() if '_get_admin_chat_id' in globals() else int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","0") or 0)
++                        if cid:
++                            tg_send(cid, "⚠️ 409 Conflict: another consumer is using this bot token.\nPoller will exit so supervisor can restart.")
++                    except Exception:
++                        pass
++                    _LAST_409_ALERT_TS = now
++                time.sleep(1)
++                return False  # triggers supervisor restart
+*** End Patch
+PATCH
+
+echo "Done. After the worker restarts (~5–10s), send /ping in Telegram."
