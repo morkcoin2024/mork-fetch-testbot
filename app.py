@@ -22,7 +22,8 @@ ALL_COMMANDS = [
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
     "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
-    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
+    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
+    "/autosell_save", "/autosell_load", "/autosell_reset"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -586,6 +587,28 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /autosell_remove <mint>")
             n = autosell.remove_rule(mint)
             return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
+
+        elif cmd == "/autosell_save":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            ok = autosell.force_save()
+            return _reply("💾 Saved." if ok else "❌ Save failed.")
+
+        elif cmd == "/autosell_load":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            st = autosell.reload()
+            return _reply("📥 Loaded. Rules: %s Enabled: %s Interval: %ss" %
+                          (len(autosell.list_rules()), st.get("enabled"), st.get("interval")))
+
+        elif cmd == "/autosell_reset":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell
+            autosell.reset()
+            return _reply("♻️ AutoSell state cleared (disabled, rules wiped).")
 
         # Wallet Commands
         elif cmd == "/wallet":

@@ -117,3 +117,53 @@ def remove_rule(mint: str):
         n0 = len(_RULES)
         _RULES[:] = [r for r in _RULES if r["mint"].lower()!=mint.lower()]
         return n0 - len(_RULES)
+
+# --------- persistence API (DRY-RUN) ----------
+def force_save():
+    """Save current state to autosell_state.json"""
+    try:
+        with _LOCK:
+            state_data = {
+                "enabled": _STATE["enabled"],
+                "interval": _STATE["interval"],
+                "rules": _RULES[:],  # copy
+                "dry_run": _STATE["dry_run"]
+            }
+        with open("autosell_state.json", "w") as f:
+            json.dump(state_data, f, indent=2)
+        logger.info("[autosell] saved to autosell_state.json")
+        return True
+    except Exception as e:
+        logger.error("[autosell] save failed: %s", e)
+        return False
+
+def reload():
+    """Load state from autosell_state.json"""
+    try:
+        with open("autosell_state.json", "r") as f:
+            state_data = json.load(f)
+        with _LOCK:
+            _STATE["enabled"] = state_data.get("enabled", False)
+            _STATE["interval"] = max(3, int(state_data.get("interval", 10)))
+            _STATE["dry_run"] = state_data.get("dry_run", True)
+            _RULES[:] = state_data.get("rules", [])
+        logger.info("[autosell] loaded from autosell_state.json")
+        return status()
+    except FileNotFoundError:
+        logger.info("[autosell] no autosell_state.json found")
+        return status()
+    except Exception as e:
+        logger.error("[autosell] load failed: %s", e)
+        return status()
+
+def reset():
+    """Reset to default state and stop thread"""
+    with _LOCK:
+        _STATE["enabled"] = False
+        _STATE["interval"] = 10
+        _STATE["ticks"] = 0
+        _STATE["dry_run"] = True
+        _RULES.clear()
+    _stop_thread()
+    logger.info("[autosell] reset to defaults")
+    return status()

@@ -1,1 +1,12 @@
-{"enabled": false, "interval_sec": 10, "rules": {}}
+{
+  "enabled": false,
+  "interval": 10,
+  "rules": [
+    {
+      "mint": "TESTCOIN",
+      "tp": 25,
+      "sl": 10
+    }
+  ],
+  "dry_run": true
+}
