@@ -1,0 +1,190 @@
+# 1) Extend autosell.py with minimal rule storage & helpers
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+ _STATE = {
+@@
+ }
+ _LOCK = threading.RLock()
+ _THREAD = {"t": None, "stop": False}
++_RULES = []  # in-memory, dry-run only  [{mint,tp,sl,trail,size}]
+ 
+ def status():
+     with _LOCK:
+         return dict(_STATE)
+ 
+ def set_interval(seconds: int):
+     with _LOCK:
+         _STATE["interval"] = max(3, int(seconds))
+     return status()
+ 
+@@
+ def _dry_run_tick():
+     # This is intentionally a no-op placeholder that simulates “work”
+     # Expand later with safe, read-only scanner checks / rule evals
+     pass
++
++# --------- simple rule API (DRY-RUN) ----------
++def list_rules():
++    with _LOCK:
++        return [dict(r) for r in _RULES]
++
++get_rules = list_rules  # alias used by help/handlers
++
++def set_rule(mint: str, **kw):
++    """Create/update rule for a mint. kw can include tp, sl, trail, size (ints)."""
++    mint = (mint or "").strip()
++    if not mint:
++        raise ValueError("mint required")
++    rule = {"mint": mint}
++    for k in ("tp","sl","trail","size"):
++        v = kw.get(k)
++        if v is not None:
++            try: rule[k] = int(v)
++            except: raise ValueError(f"{k} must be int")
++    with _LOCK:
++        # upsert
++        for r in _RULES:
++            if r["mint"].lower() == mint.lower():
++                r.update(rule)
++                break
++        else:
++            _RULES.append(rule)
++    return rule
++
++def remove_rule(mint: str):
++    mint = (mint or "").strip()
++    if not mint: return 0
++    with _LOCK:
++        n0 = len(_RULES)
++        _RULES[:] = [r for r in _RULES if r["mint"].lower()!=mint.lower()]
++        return n0 - len(_RULES)
+*** End Patch
+PATCH
+ 
+# 2) Update app.py handlers to match autosell API + parse args
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        elif cmd == "/autosell_status":
++        elif cmd == "/autosell_status":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+-            st = autosell.status()
+-            lines = [
++            st = autosell.status()
++            lines = [
+                 "🤖 AutoSell Status",
+                 f"Enabled: {st.get('enabled')}",
+-                f"Interval: {st.get('interval')}s",
++                f"Interval: {st.get('interval')}s",
+                 f"Rules: {len(st.get('rules', []))}",
+                 f"Thread alive: {st.get('thread_alive')}",
+                 f"Ticks: {st.get('ticks')}",
+                 f"Dry-run: {st.get('dry_run')}",
+-            ]
+-            return _reply("\n".join(lines))
++            ]
++            return _reply("\n".join(lines))
+@@
+-        elif cmd == "/autosell_on":
++        elif cmd == "/autosell_on":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+-            autosell.enable()
+-            return _reply("🟢 AutoSell enabled (DRY-RUN).")
++            autosell.enable()
++            return _reply("🟢 AutoSell enabled (DRY-RUN).")
+@@
+-        elif cmd == "/autosell_off":
++        elif cmd == "/autosell_off":
+             deny = _require_admin(user)
+             if deny: return deny
+             import autosell
+-            autosell.disable()
+-            return _reply("🔴 AutoSell disabled.")
++            autosell.disable()
++            return _reply("🔴 AutoSell disabled.")
++
++        elif cmd == "/autosell_interval":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            arg = (args or "").strip()
++            if not arg.isdigit():
++                return _reply("Usage: /autosell_interval <seconds>")
++            st = autosell.set_interval(int(arg))
++            return _reply(f"⏱ Interval set to {st.get('interval')}s.")
++
++        elif cmd == "/autosell_list":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            rules = autosell.list_rules()
++            if not rules:
++                return _reply("📄 No AutoSell rules yet.")
++            lines = ["📄 AutoSell rules:"]
++            for r in rules:
++                bits = [f"mint={r['mint']}"]
++                for k in ("tp","sl","trail","size"):
++                    if k in r: bits.append(f"{k}={r[k]}")
++                lines.append(" - " + " ".join(bits))
++            return _reply("\n".join(lines))
++
++        elif cmd == "/autosell_set":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell, re
++            if not args:
++                return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
++            parts = args.split()
++            mint = parts[0]
++            kv = {}
++            for tok in parts[1:]:
++                m = re.match(r"(?i)^(tp|sl|trail|size)=(\d+)$", tok.strip())
++                if m: kv[m.group(1).lower()] = int(m.group(2))
++            try:
++                rule = autosell.set_rule(mint, **kv)
++            except Exception as e:
++                return _reply(f"❌ {e}")
++            bits = [f"{k}={v}" for k,v in rule.items() if k!="mint"]
++            return _reply("✅ Rule saved: " + rule["mint"] + (" " + " ".join(bits) if bits else ""))
++
++        elif cmd == "/autosell_remove":
++            deny = _require_admin(user)
++            if deny: return deny
++            import autosell
++            mint = (args or "").strip()
++            if not mint:
++                return _reply("Usage: /autosell_remove <mint>")
++            n = autosell.remove_rule(mint)
++            return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
+*** End Patch
+PATCH
+ 
+# 3) Quick local smoke (no Telegram needed)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(text):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':999,'type':'private'},
+                    'from':{'id':999,'is_bot':False,'username':'smoke'},'text':text}}
+    out = process_telegram_command(upd) or {}
+    print(f"{text:28} -> {out.get('status'):8} / {len(out.get('response') or '')} chars")
+for t in [
+    "/autosell_status",
+    "/autosell_interval 8",
+    "/autosell_on",
+    "/autosell_status",
+    "/autosell_set HUNTER123 tp=30 sl=15 trail=10 size=100",
+    "/autosell_list",
+    "/autosell_remove HUNTER123",
+    "/autosell_list",
+    "/autosell_off",
+    "/autosell_status",
+]:
+    mk(t)
+PY

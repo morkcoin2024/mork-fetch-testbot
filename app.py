@@ -522,74 +522,70 @@ def process_telegram_command(update: dict):
             if deny: return deny
             import autosell
             st = autosell.status()
-            return _reply(
-                "🤖 AutoSell Status\n"
-                f"Enabled: {st['enabled']}\n"
-                f"Interval: {st['interval_sec']}s\n"
-                f"Rules: {st['rules_count']}\n"
-                f"Thread alive: {st['thread_alive']}"
-            )
+            lines = [
+                "🤖 AutoSell Status",
+                f"Enabled: {st.get('enabled')}",
+                f"Interval: {st.get('interval')}s",
+                f"Rules: {len(st.get('rules', []))}",
+                f"Thread alive: {st.get('thread_alive')}",
+                f"Ticks: {st.get('ticks')}",
+                f"Dry-run: {st.get('dry_run')}",
+            ]
+            return _reply("\n".join(lines))
 
         elif cmd == "/autosell_interval":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            try:
-                seconds = int((args or "").split()[0])
-            except Exception:
+            arg = (args or "").strip()
+            if not arg.isdigit():
                 return _reply("Usage: /autosell_interval <seconds>")
-            autosell.set_interval(seconds)
-            st = autosell.status()
-            return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
+            st = autosell.set_interval(int(arg))
+            return _reply(f"⏱ Interval set to {st.get('interval')}s.")
 
-        # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
         elif cmd == "/autosell_set":
             deny = _require_admin(user)
             if deny: return deny
-            import autosell
-            parts = (args or "").split()
-            if not parts:
+            import autosell, re
+            if not args:
                 return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
+            parts = args.split()
             mint = parts[0]
-            kv = {"tp": None, "sl": None, "trail": None, "size": None}
-            for p in parts[1:]:
-                if "=" in p:
-                    k, v = p.split("=", 1)
-                    try: 
-                        if k.lower() in ["tp", "sl", "trail", "size"]:
-                            kv[k.lower()] = float(v)
-                    except: 
-                        pass
-            autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
-            return _reply(
-                f"✅ AutoSell set for {mint[:8]}…  "
-                f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
-            )
+            kv = {}
+            for tok in parts[1:]:
+                m = re.match(r"(?i)^(tp|sl|trail|size)=(\d+)$", tok.strip())
+                if m: kv[m.group(1).lower()] = int(m.group(2))
+            try:
+                rule = autosell.set_rule(mint, **kv)
+            except Exception as e:
+                return _reply(f"❌ {e}")
+            bits = [f"{k}={v}" for k,v in rule.items() if k!="mint"]
+            return _reply("✅ Rule saved: " + rule["mint"] + (" " + " ".join(bits) if bits else ""))
 
         elif cmd == "/autosell_list":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            rules = autosell.get_rules()
+            rules = autosell.list_rules()
             if not rules:
-                return _reply("🤖 AutoSell rules: (none)")
-            lines = ["🤖 AutoSell rules:"]
-            for m, r in rules.items():
-                lines.append(
-                    f"{m[:8]}…  tp={r.get('tp_pct')}  sl={r.get('sl_pct')}  "
-                    f"trail={r.get('trail_pct')}  size={r.get('size_pct', 100)}%"
-                )
+                return _reply("📄 No AutoSell rules yet.")
+            lines = ["📄 AutoSell rules:"]
+            for r in rules:
+                bits = [f"mint={r['mint']}"]
+                for k in ("tp","sl","trail","size"):
+                    if k in r: bits.append(f"{k}={r[k]}")
+                lines.append(" - " + " ".join(bits))
             return _reply("\n".join(lines))
 
         elif cmd == "/autosell_remove":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            target = (args or "").split()[0] if args else ""
-            if not target:
-                return _reply("Usage: /autosell_remove <MINT>")
-            ok = autosell.remove_rule(target)
-            return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+            mint = (args or "").strip()
+            if not mint:
+                return _reply("Usage: /autosell_remove <mint>")
+            n = autosell.remove_rule(mint)
+            return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
 
         # Wallet Commands
         elif cmd == "/wallet":
