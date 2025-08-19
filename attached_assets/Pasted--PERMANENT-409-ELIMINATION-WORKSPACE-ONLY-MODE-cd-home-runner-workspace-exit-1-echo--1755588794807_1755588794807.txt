@@ -1,0 +1,99 @@
+# === PERMANENT 409 ELIMINATION — WORKSPACE-ONLY MODE ===
+cd /home/runner/workspace || exit 1
+
+echo "=== A) Telegram-side probe: is another poller attached right now? ==="
+# 1) Webhook state (should be empty for polling)
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+| python3 - <<'PY'
+import sys,json; d=json.load(sys.stdin).get('result',{})
+print("webhook_url=", d.get('url') or "(empty)")
+print("pending=", d.get('pending_update_count'))
+PY
+
+# 2) Two fast snapshots: if another consumer is polling, your pending count will twitch oddly
+P1=$(curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0" | python3 - <<'PY'
+import sys,json; print(len((json.load(sys.stdin) or {}).get('result',[])))
+PY
+)
+sleep 2
+P2=$(curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0" | python3 - <<'PY'
+import sys,json; print(len((json.load(sys.stdin) or {}).get('result',[])))
+PY
+)
+echo "pending_samples: first=$P1 second=$P2"
+
+echo
+echo "=== B) Hard stop EVERY local poller except the integrated one ==="
+# Kill any standalone/background pollers started historically
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+
+echo
+echo "=== C) Code audit: any hidden pollers / PTB run loops still in repo? ==="
+grep -RInE 'getUpdates|run_polling|Updater\(|Application\.builder\(|simple_polling_bot|working_polling_bot|production_polling_bot' . || echo "OK: no obvious extra pollers found"
+
+echo
+echo "=== D) Force Workspace-only single poller ==="
+# 1) Workspace runner that starts ONE gunicorn worker with integrated poller
+cat > run_workspace.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONUNBUFFERED=1
+export LOG_LEVEL=${LOG_LEVEL:-INFO}
+export POLLING_ENABLED=1     # <== only Workspace Run is allowed to poll
+# Make sure nothing else is around
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+pkill -f gunicorn || true
+# Ensure polling mode (no webhook)
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+fi
+exec gunicorn app:app --workers=1 --bind 0.0.0.0:5000
+SH
+chmod +x run_workspace.sh
+
+# 2) Make the green Run button use our single-run script
+cat > .replit <<'INI'
+run = "bash run_workspace.sh"
+INI
+
+# 3) Gate integrated poller in code so Deploy (or any other process) can’t poll unless explicitly enabled
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-    try:
+-        enable_telegram_polling()
+-        app.logger.info("Telegram polling service started successfully")
+-    except Exception as e:
+-        app.logger.error(f"Failed to start polling service: {e}")
++    if os.getenv("POLLING_ENABLED","0") == "1":
++        try:
++            enable_telegram_polling()
++            app.logger.info("Telegram polling service started successfully")
++        except Exception as e:
++            app.logger.error(f"Failed to start polling service: {e}")
++    else:
++        app.logger.info("[INIT] Polling disabled by env (POLLING_ENABLED!=1)")
+*** End Patch
+PATCH
+
+echo
+echo "=== E) Kill & relaunch clean (for Workspace Run) ==="
+pkill -f gunicorn || true
+sleep 2
+echo "→ Now click the green Run button in Workspace."
+echo "   (Do NOT use Deploy while iterating.)"
+
+echo
+echo "=== F) Post-run verification (run these after clicking Run) ==="
+echo "ps aux | grep gunicorn | grep -v grep"
+echo "curl -s \"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo\" | python3 - <<'PY'"
+echo "import sys,json; print('webhook_url=', json.load(sys.stdin)['result'].get('url','(empty)'))"
+echo "PY"
+echo "→ Send /ping in TG; it should reply. Watch logs: no 409s."
+
+echo
+echo "=== G) If 409 STILL appears after all of the above ==="
+echo "1) Check Deploy tab: ensure the Deploy app is Stopped (or has POLLING_ENABLED=0)."
+echo "2) Rotate token via @BotFather /revoke, then update TELEGRAM_BOT_TOKEN in Secrets."
+echo "3) Rerun sections A, D, E. This is a guaranteed clean slate."

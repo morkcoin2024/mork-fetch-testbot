@@ -352,8 +352,8 @@ def _ensure_scanners():
         
         logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
         
-        # Start integrated Telegram polling (enabled by default in workspace)
-        if os.getenv("POLLING_ENABLED", "1") == "1":
+        # Start integrated Telegram polling only when explicitly enabled
+        if os.getenv("POLLING_ENABLED", "0") == "1":
             try:
                 from telegram_polling import start_polling_service
                 if start_polling_service():
