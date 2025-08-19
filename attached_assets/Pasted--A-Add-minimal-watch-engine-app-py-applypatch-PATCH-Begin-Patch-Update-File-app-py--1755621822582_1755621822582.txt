@@ -1,0 +1,178 @@
+# A) Add minimal watch engine (app.py)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+ # existing imports...
++import threading, time, json, math
+ 
+@@
+ # === Globals / persistence ===
++WATCH_CFG_PATH = "watchlist.json"
++WATCH_STATE_PATH = "watch_state.json"
++WATCH_RUN = {"enabled": True, "thread": None, "tick_secs": 15}
++
++def _watch_load():
++    try:
++        return json.load(open(WATCH_CFG_PATH, "r"))
++    except Exception:
++        return {"mints": []}
++
++def _watch_save(cfg):
++    try:
++        json.dump(cfg, open(WATCH_CFG_PATH, "w"))
++    except Exception:
++        pass
++
++def _watch_state_load():
++    try:
++        return json.load(open(WATCH_STATE_PATH, "r"))
++    except Exception:
++        return {"baseline": {}, "last": {}}
++
++def _watch_state_save(st):
++    try:
++        json.dump(st, open(WATCH_STATE_PATH, "w"))
++    except Exception:
++        pass
++
++def _pct(a, b):
++    try:
++        return (a - b) / b * 100.0
++    except Exception:
++        return 0.0
++
++def _watch_alert(mint, price, src, pct_move, cfg_alerts):
++    # honor mute & rate control via alerts_send()
++    msg = (
++        f"📈 *Watch Alert:* `{mint[:10]}..`\n"
++        f"*Move:* {pct_move:+.2f}%\n"
++        f"*Price:* ${price:.6f}\n"
++        f"*Source:* {src}"
++    )
++    try:
++        alerts_send(msg, cfg_alerts)
++    except Exception:
++        pass
++
++def _watch_tick_once():
++    cfg = _watch_load()
++    st  = _watch_state_load()
++    if not cfg.get("mints"):
++        return
++    alerts_cfg = alerts_config_load()
++    min_move = float(alerts_cfg.get("min_move_pct", 0.0))
++    for mint in list(cfg.get("mints", [])):
++        try:
++            pr = get_price(mint)  # uses selected /source with fallbacks
++            if not pr.get("ok"):
++                continue
++            price = float(pr["price"])
++            src   = pr.get("source","?")
++            base  = st["baseline"].get(mint)
++            last  = st["last"].get(mint)
++            st["last"][mint] = price
++            if base is None:
++                st["baseline"][mint] = price
++                continue
++            move = _pct(price, base)
++            if abs(move) >= min_move:
++                _watch_alert(mint, price, src, move, alerts_cfg)
++                # reset baseline after alert so we don't spam
++                st["baseline"][mint] = price
++        finally:
++            _watch_state_save(st)
++
++def _watch_loop():
++    while WATCH_RUN.get("enabled", True):
++        try:
++            _watch_tick_once()
++        except Exception:
++            pass
++        time.sleep(WATCH_RUN.get("tick_secs", 15))
++
++def watch_start():
++    if WATCH_RUN.get("thread"):
++        return
++    t = threading.Thread(target=_watch_loop, daemon=True)
++    WATCH_RUN["thread"] = t
++    t.start()
+ 
+@@
+ def process_telegram_command(update: dict):
+     # existing router…
++    # --- Watchlist commands (lightweight v1) ---
++    if cmd == "/watch" and arg:
++        cfg = _watch_load()
++        if arg not in cfg["mints"]:
++            cfg["mints"].append(arg)
++            _watch_save(cfg)
++            # set initial baseline immediately
++            st = _watch_state_load()
++            p = get_price(arg)
++            if p.get("ok"):
++                st["baseline"][arg] = float(p["price"])
++                st["last"][arg] = float(p["price"])
++                _watch_state_save(st)
++        return ok(f"👁️ Watching\n`{arg}`")
++
++    if cmd == "/unwatch" and arg:
++        cfg = _watch_load()
++        if arg in cfg["mints"]:
++            cfg["mints"].remove(arg)
++            _watch_save(cfg)
++        st = _watch_state_load()
++        st["baseline"].pop(arg, None); st["last"].pop(arg, None)
++        _watch_state_save(st)
++        return ok("👁️ Unwatched")
++
++    if cmd == "/watchlist":
++        cfg = _watch_load()
++        if not cfg.get("mints"):
++            return ok("📄 Watchlist empty.")
++        st = _watch_state_load()
++        lines = []
++        for m in cfg["mints"]:
++            last = st["last"].get(m)
++            base = st["baseline"].get(m)
++            move = _pct(last, base) if (last is not None and base is not None) else 0.0
++            lines.append(f"- `{m[:10]}..` last=${(last or 0):.6f} Δ={move:+.2f}%")
++        return ok("📄 *Watchlist:*\n" + "\n".join(lines))
++
++    # admin helpers
++    if cmd == "/watch_tick":
++        if not is_admin:
++            return unknown()
++        _watch_tick_once()
++        return ok("🔧 Watch tick executed.")
++    if cmd == "/watch_off":
++        if not is_admin:
++            return unknown()
++        WATCH_RUN["enabled"] = False
++        return ok("⏸️ Watcher paused.")
++    if cmd == "/watch_on":
++        if not is_admin:
++            return unknown()
++        WATCH_RUN["enabled"] = True
++        if not WATCH_RUN.get("thread") or not WATCH_RUN["thread"].is_alive():
++            watch_start()
++        return ok("▶️ Watcher running.")
+ 
+*** End Patch
+PATCH
+ 
+# B) Start the watcher when the app boots (once)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: main.py
+@@
+-from app import app
++from app import app, watch_start
++
++# fire up background watcher in app process
++try:
++    watch_start()
++except Exception:
++    pass
+*** End Patch
+PATCH

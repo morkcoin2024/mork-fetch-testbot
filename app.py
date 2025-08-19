@@ -13,6 +13,7 @@ import inspect
 import json
 import textwrap
 import re
+import math
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
@@ -375,6 +376,97 @@ DATA_DIR = "./data"
 os.makedirs(DATA_DIR, exist_ok=True)
 PRICE_SOURCE_FILE = os.path.join(DATA_DIR, "price_source.txt")
 PRICE_VALID = {"sim", "dex", "birdeye"}
+
+# === Watchlist Engine ===
+WATCH_CFG_PATH = "watchlist.json"
+WATCH_STATE_PATH = "watch_state.json"
+WATCH_RUN = {"enabled": True, "thread": None, "tick_secs": 15}
+
+def _watch_load():
+    try:
+        return json.load(open(WATCH_CFG_PATH, "r"))
+    except Exception:
+        return {"mints": []}
+
+def _watch_save(cfg):
+    try:
+        json.dump(cfg, open(WATCH_CFG_PATH, "w"))
+    except Exception:
+        pass
+
+def _watch_state_load():
+    try:
+        return json.load(open(WATCH_STATE_PATH, "r"))
+    except Exception:
+        return {"baseline": {}, "last": {}}
+
+def _watch_state_save(st):
+    try:
+        json.dump(st, open(WATCH_STATE_PATH, "w"))
+    except Exception:
+        pass
+
+def _pct(a, b):
+    try:
+        return (a - b) / b * 100.0
+    except Exception:
+        return 0.0
+
+def _watch_alert(mint, price, src, pct_move, cfg_alerts):
+    # honor mute & rate control via alerts_send()
+    msg = (
+        f"📈 *Watch Alert:* `{mint[:10]}..`\n"
+        f"*Move:* {pct_move:+.2f}%\n"
+        f"*Price:* ${price:.6f}\n"
+        f"*Source:* {src}"
+    )
+    try:
+        alerts_send(msg, cfg_alerts)
+    except Exception:
+        pass
+
+def _watch_tick_once():
+    cfg = _watch_load()
+    st  = _watch_state_load()
+    if not cfg.get("mints"):
+        return
+    alerts_cfg = _alerts_load_cfg()
+    min_move = float(alerts_cfg.get("min_move_pct", 0.0))
+    for mint in list(cfg.get("mints", [])):
+        try:
+            pr = get_price(mint)  # uses selected /source with fallbacks
+            if not pr.get("ok"):
+                continue
+            price = float(pr["price"])
+            src   = pr.get("source","?")
+            base  = st["baseline"].get(mint)
+            last  = st["last"].get(mint)
+            st["last"][mint] = price
+            if base is None:
+                st["baseline"][mint] = price
+                continue
+            move = _pct(price, base)
+            if abs(move) >= min_move:
+                _watch_alert(mint, price, src, move, alerts_cfg)
+                # reset baseline after alert so we don't spam
+                st["baseline"][mint] = price
+        finally:
+            _watch_state_save(st)
+
+def _watch_loop():
+    while WATCH_RUN.get("enabled", True):
+        try:
+            _watch_tick_once()
+        except Exception:
+            pass
+        time.sleep(WATCH_RUN.get("tick_secs", 15))
+
+def watch_start():
+    if WATCH_RUN.get("thread"):
+        return
+    t = threading.Thread(target=_watch_loop, daemon=True)
+    WATCH_RUN["thread"] = t
+    t.start()
 
 # simple 15s cache: key=(source,mint) -> {price,ts}
 _PRICE_CACHE = {}
@@ -1206,6 +1298,63 @@ def process_telegram_command(update: dict):
             lines.append("")
             lines.append("Tips: `/source sim|dex|birdeye`, `/price <mint> --src=birdeye`")
             return _reply("\n".join(lines))
+        
+        # --- Watchlist commands (lightweight v1) ---
+        elif cmd == "/watch" and args:
+            cfg = _watch_load()
+            if args not in cfg["mints"]:
+                cfg["mints"].append(args)
+                _watch_save(cfg)
+                # set initial baseline immediately
+                st = _watch_state_load()
+                p = get_price(args)
+                if p.get("ok"):
+                    st["baseline"][args] = float(p["price"])
+                    st["last"][args] = float(p["price"])
+                    _watch_state_save(st)
+            return _reply(f"👁️ Watching\n`{args}`")
+
+        elif cmd == "/unwatch" and args:
+            cfg = _watch_load()
+            if args in cfg["mints"]:
+                cfg["mints"].remove(args)
+                _watch_save(cfg)
+            st = _watch_state_load()
+            st["baseline"].pop(args, None); st["last"].pop(args, None)
+            _watch_state_save(st)
+            return _reply("👁️ Unwatched")
+
+        elif cmd == "/watchlist":
+            cfg = _watch_load()
+            if not cfg.get("mints"):
+                return _reply("📄 Watchlist empty.")
+            st = _watch_state_load()
+            lines = []
+            for m in cfg["mints"]:
+                last = st["last"].get(m)
+                base = st["baseline"].get(m)
+                move = _pct(last, base) if (last is not None and base is not None) else 0.0
+                lines.append(f"- `{m[:10]}..` last=${(last or 0):.6f} Δ={move:+.2f}%")
+            return _reply("📄 *Watchlist:*\n" + "\n".join(lines))
+
+        # admin helpers
+        elif cmd == "/watch_tick":
+            if not is_admin:
+                return _reply("❌ Admin only")
+            _watch_tick_once()
+            return _reply("🔧 Watch tick executed.")
+        elif cmd == "/watch_off":
+            if not is_admin:
+                return _reply("❌ Admin only")
+            WATCH_RUN["enabled"] = False
+            return _reply("⏸️ Watcher paused.")
+        elif cmd == "/watch_on":
+            if not is_admin:
+                return _reply("❌ Admin only")
+            WATCH_RUN["enabled"] = True
+            if not WATCH_RUN.get("thread") or not WATCH_RUN["thread"].is_alive():
+                watch_start()
+            return _reply("▶️ Watcher running.")
         
         # --------- Alerts routing admin ---------
         elif cmd == "/alerts_settings" and is_admin:
