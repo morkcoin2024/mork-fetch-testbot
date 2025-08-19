@@ -1,0 +1,129 @@
+# === DAILY DIGEST: tolerant UTC scheduler + status "next run" ===
+# Goal: make the digest fire reliably even if the tick doesn't land exactly on :00
+#       and show "Next run: YYYY-mm-dd HH:MM UTC" in /digest_status.
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-# existing imports...
++from datetime import datetime, timedelta, time as dtime
+@@
+-# [existing] DIGEST config (structure may already exist)
+-# DIGEST_CFG = {"enabled": False, "hh": 9, "mm": 30, "last_sent_date": None}
++# DIGEST config (persisted) — keep keys stable for upgrades
++try:
++    DIGEST_CFG
++except NameError:
++    DIGEST_CFG = {"enabled": False, "hh": 9, "mm": 30, "last_sent_date": None}
++
++def _utc_now():
++    return datetime.utcnow()
++
++def _next_run_utc(now=None):
++    now = now or _utc_now()
++    hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
++    today = now.date()
++    candidate = datetime.combine(today, dtime(hh, mm))
++    # If time today already passed, the next run is tomorrow
++    return candidate if now <= candidate else candidate + timedelta(days=1)
++
++def _should_fire_digest(now=None, tolerance_sec=90):
++    """
++    Fire when: enabled AND (now >= today@HH:MM) AND not already sent today.
++    Tolerance lets us trigger even if the scheduler tick isn't exactly on the minute.
++    """
++    if not DIGEST_CFG.get("enabled"):
++        return False
++    now = now or _utc_now()
++    hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
++    today = now.date()
++    last = DIGEST_CFG.get("last_sent_date")
++    # compute today's trigger point
++    trigger = datetime.combine(today, dtime(hh, mm))
++    # if last sent today, don't duplicate
++    if last == str(today):
++        return False
++    # fire if we're past trigger OR within tolerance window
++    return (now >= trigger) or (0 <= (trigger - now).total_seconds() <= tolerance_sec)
+@@
+-def cmd_digest_status():
+-    # old: printed enabled + time only
+-    ...
++def cmd_digest_status():
++    now = _utc_now()
++    nxt = _next_run_utc(now)
++    enabled = bool(DIGEST_CFG.get("enabled"))
++    hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
++    return (
++        "📰 *Daily Digest*\n"
++        f"*Enabled:* {'yes' if enabled else 'no'}\n"
++        f"*Time:* {hh:02d}:{mm:02d} UTC\n"
++        f"*Next run:* {nxt.strftime('%Y-%m-%d %H:%M UTC')}\n"
++    )
+@@
+-def cmd_digest_time(args):
+-    # parse HH:MM and store
+-    ...
++def cmd_digest_time(args):
++    # parse HH:MM and store UTC schedule; reset last_sent_date for clarity
++    import re
++    m = re.match(r'^\s*(\d{1,2}):(\d{2})\s*$', args or '')
++    if not m:
++        return "Usage: `/digest_time HH:MM` (UTC)"
++    hh, mm = int(m.group(1)), int(m.group(2))
++    if not (0 <= hh <= 23 and 0 <= mm <= 59):
++        return "Usage: `/digest_time HH:MM` (UTC)"
++    DIGEST_CFG.update({"hh": hh, "mm": mm, "last_sent_date": None})
++    return f"🕰️ Digest time set to {hh:02d}:{mm:02d} UTC"
+@@
+-def cmd_digest_on():
+-    DIGEST_CFG["enabled"] = True
+-    return "✅ Daily digest enabled"
++def cmd_digest_on():
++    DIGEST_CFG["enabled"] = True
++    return "✅ Daily digest enabled"
+@@
+-# scheduler loop (runs in polling worker)
+-while True:
+-    if DIGEST_CFG["enabled"] and exact_minute_match():
+-        send_digest()
+-        DIGEST_CFG["last_sent_date"] = today_str
+-    sleep(60)
++# scheduler loop (runs in polling worker thread)
++def _digest_scheduler():
++    import time as _time
++    while True:
++        try:
++            now = _utc_now()
++            if _should_fire_digest(now):
++                # send digest once per day (UTC)
++                try:
++                    send_digest()  # existing function that compiles & sends the message
++                finally:
++                    DIGEST_CFG["last_sent_date"] = str(now.date())
++            # optional heartbeat log
++            # logger.info("[digest] next_run=%s now=%s last=%s",
++            #            _next_run_utc(now), now, DIGEST_CFG.get("last_sent_date"))
++        except Exception as e:
++            logger.exception("digest scheduler error: %s", e)
++        _time.sleep(20)  # tick every 20s for tighter tolerance
+*** End Patch
+PATCH
+
+# Restart worker cleanly
+pkill -f gunicorn || true
+sleep 2
+
+# Verify single worker + polling enabled
+echo "POLLING_ENABLED=${POLLING_ENABLED:-<unset>}"
+ps aux | grep -E 'gunicorn|telegram_polling' | grep -v grep || true
+
+# Arm a near-future run (now + 2 min), then enable
+python3 - <<'PY'
+from datetime import datetime, timedelta
+hhmm = (datetime.utcnow() + timedelta(minutes=2)).strftime('%H:%M')
+print("Setting digest_time to", hhmm)
+print(">> Send in Telegram: /digest_time", hhmm)
+print(">> Then: /digest_on and wait ~2 mins")
+PY

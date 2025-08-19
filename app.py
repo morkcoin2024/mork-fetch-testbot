@@ -7,6 +7,7 @@ import os
 import logging
 import threading
 import time
+from datetime import datetime, timedelta, time as dtime
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
 # Disable scanners by default for the poller process.
@@ -34,6 +35,71 @@ from events import BUS
 def publish(topic: str, payload: dict):
     """Publish events to the new EventBus system."""
     return BUS.publish(topic, payload)
+
+# DIGEST config (persisted) — keep keys stable for upgrades
+try:
+    DIGEST_CFG
+except NameError:
+    DIGEST_CFG = {"enabled": False, "hh": 9, "mm": 30, "last_sent_date": None}
+
+def _utc_now():
+    return datetime.utcnow()
+
+def _next_run_utc(now=None):
+    now = now or _utc_now()
+    hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
+    today = now.date()
+    candidate = datetime.combine(today, dtime(hh, mm))
+    # If time today already passed, the next run is tomorrow
+    return candidate if now <= candidate else candidate + timedelta(days=1)
+
+def _should_fire_digest(now=None, tolerance_sec=90):
+    """
+    Fire when: enabled AND (now >= today@HH:MM) AND not already sent today.
+    Tolerance lets us trigger even if the scheduler tick isn't exactly on the minute.
+    """
+    if not DIGEST_CFG.get("enabled"):
+        return False
+    now = now or _utc_now()
+    hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
+    today = now.date()
+    last = DIGEST_CFG.get("last_sent_date")
+    # compute today's trigger point
+    trigger = datetime.combine(today, dtime(hh, mm))
+    # if last sent today, don't duplicate
+    if last == str(today):
+        return False
+    # fire if we're past trigger OR within tolerance window
+    return (now >= trigger) or (0 <= (trigger - now).total_seconds() <= tolerance_sec)
+
+def _digest_scheduler():
+    """Digest scheduler thread that runs in the background"""
+    import time as _time
+    while True:
+        try:
+            now = _utc_now()
+            if _should_fire_digest(now):
+                # send digest once per day (UTC)
+                try:
+                    # Basic digest content for now - can be enhanced later
+                    note = "Scheduled digest"
+                    body = ("📰 *Daily Digest — {}*\n"
+                            "AutoSell: enabled=False alive=None interval=?s\n"
+                            "Rules: []\n"
+                            "Note: {}").format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
+                    
+                    if send_admin_md(body):
+                        logger.info(f"[DIGEST] Sent scheduled digest at {now}")
+                    else:
+                        logger.warning("[DIGEST] Failed to send scheduled digest")
+                finally:
+                    DIGEST_CFG["last_sent_date"] = str(now.date())
+            # optional heartbeat log
+            # logger.info("[digest] next_run=%s now=%s last=%s",
+            #            _next_run_utc(now), now, DIGEST_CFG.get("last_sent_date"))
+        except Exception as e:
+            logger.exception("digest scheduler error: %s", e)
+        _time.sleep(20)  # tick every 20s for tighter tolerance
 import json
 import time
 import queue
@@ -275,6 +341,11 @@ def _ensure_scanners():
                 from telegram_polling import start_polling_service
                 if start_polling_service():
                     logger.info("Telegram polling service started successfully")
+                    
+                    # Start digest scheduler thread
+                    digest_thread = threading.Thread(target=_digest_scheduler, daemon=True)
+                    digest_thread.start()
+                    logger.info("Digest scheduler thread started")
                 else:
                     logger.warning("Failed to start telegram polling service")
             except Exception as e:
@@ -364,58 +435,60 @@ def process_telegram_command(update: dict):
 
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
-    # (Added by hotfix; idempotent)
+    # Enhanced digest commands with tolerant UTC scheduler
     if cmd in {"/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"}:
-        import re, time, os
-        d_flag = "/tmp/digest_on"
-        d_time = "/tmp/digest_time"
-
-        def _rd(p, default=""):
-            try:
-                return open(p,"r").read().strip()
-            except:
-                return default
-
-        def _wr(p, v):
-            try:
-                with open(p,"w") as f: f.write(v)
-            except Exception as e:
-                return {"status":"error","response": f"Persist error: {e}"}
-
-        if cmd == "/digest_status":
-            on   = _rd(d_flag, "0") or "0"
-            tstr = _rd(d_time, "09:30")
-            text = ("🗞 *Daily Digest*\n"
-                    f"*Enabled:* {'yes' if on=='1' else 'no'}\n"
-                    f"*Time:* {tstr} UTC")
-            return {"status":"ok","response": text}
-
-        if cmd == "/digest_on":
-            _wr(d_flag, "1")
-            return {"status":"ok","response":"✅ Daily digest enabled"}
-
-        if cmd == "/digest_off":
-            _wr(d_flag, "0")
-            return {"status":"ok","response":"⛔ Daily digest disabled"}
-
-        if cmd == "/digest_time":
-            t = (args or "").strip()
-            if not re.match(r"^\d{2}:\d{2}$", t):
-                return {"status":"ok","response":"Usage: `/digest_time HH:MM` (UTC)"}
-            hh, mm = map(int, t.split(":"))
+        import re
+        
+        def cmd_digest_status():
+            now = _utc_now()
+            nxt = _next_run_utc(now)
+            enabled = bool(DIGEST_CFG.get("enabled"))
+            hh, mm = int(DIGEST_CFG.get("hh", 9)), int(DIGEST_CFG.get("mm", 30))
+            return (
+                "📰 *Daily Digest*\n"
+                f"*Enabled:* {'yes' if enabled else 'no'}\n"
+                f"*Time:* {hh:02d}:{mm:02d} UTC\n"
+                f"*Next run:* {nxt.strftime('%Y-%m-%d %H:%M UTC')}\n"
+            )
+        
+        def cmd_digest_time(args):
+            # parse HH:MM and store UTC schedule; reset last_sent_date for clarity
+            m = re.match(r'^\s*(\d{1,2}):(\d{2})\s*$', args or '')
+            if not m:
+                return "Usage: `/digest_time HH:MM` (UTC)"
+            hh, mm = int(m.group(1)), int(m.group(2))
             if not (0 <= hh <= 23 and 0 <= mm <= 59):
-                return {"status":"ok","response":"Time must be 00:00–23:59 (UTC)"}
-            _wr(d_time, f"{hh:02d}:{mm:02d}")
-            return {"status":"ok","response": f"🕘 Digest time set to *{t}* UTC"}
-
-        if cmd == "/digest_test":
+                return "Usage: `/digest_time HH:MM` (UTC)"
+            DIGEST_CFG.update({"hh": hh, "mm": mm, "last_sent_date": None})
+            return f"🕰️ Digest time set to {hh:02d}:{mm:02d} UTC"
+        
+        def cmd_digest_on():
+            DIGEST_CFG["enabled"] = True
+            return "✅ Daily digest enabled"
+        
+        def cmd_digest_off():
+            DIGEST_CFG["enabled"] = False
+            return "⛔ Daily digest disabled"
+        
+        def cmd_digest_test(args):
             note = (args or "").strip() or "hello"
-            now  = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            now = _utc_now()
             body = ("📰 *Daily Digest — {}*\n"
                     "AutoSell: enabled=False alive=None interval=?s\n"
                     "Rules: []\n"
-                    "Note: {}").format(now, note)
-            return {"status":"ok","response": body}
+                    "Note: {}").format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
+            return body
+
+        if cmd == "/digest_status":
+            return {"status":"ok","response": cmd_digest_status()}
+        elif cmd == "/digest_on":
+            return {"status":"ok","response": cmd_digest_on()}
+        elif cmd == "/digest_off":
+            return {"status":"ok","response": cmd_digest_off()}
+        elif cmd == "/digest_time":
+            return {"status":"ok","response": cmd_digest_time(args)}
+        elif cmd == "/digest_test":
+            return {"status":"ok","response": cmd_digest_test(args)}
 
     if cmd == "/autosell_status":
         try:
