@@ -444,13 +444,13 @@ def _save_watchlist(items):
 def _load_alerts_cfg():
     try:
         import json
-        with open("alerts_config.json","r") as f:
+        with open("alerts_config.json", "r") as f:
             return json.load(f) or {}
     except Exception:
-        return {"min_move_pct": 0.0, "muted": False}
+        return {"min_move_pct": 0.0, "rate_per_min": 60, "muted": False}
 
 def watch_tick_once(send_alerts=True):
-    """Run one watch pass. Uses get_price() and alerts_send() if present."""
+    """Run one watch pass; alert if |Δ| >= min_move_pct. Persists last price."""
     wl = _load_watchlist()
     if not wl:
         return 0, 0, ["(watchlist empty)"]
@@ -460,14 +460,15 @@ def watch_tick_once(send_alerts=True):
     muted = bool(cfg.get("muted", False))
 
     checked = fired = 0
-    lines, changed = [], False
+    lines = []
+    changed = False
 
     for item in wl:
         mint = item.get("mint") if isinstance(item, dict) else (item if isinstance(item, str) else None)
         if not mint:
             continue
 
-        pr = get_price(mint, None)  # use active source/fallback chain
+        pr = get_price(mint, None)  # use active source w/ fallback chain
         if not pr or not pr.get("ok"):
             lines.append(f"- {mint[:10]}… price: (n/a)")
             continue
@@ -476,18 +477,19 @@ def watch_tick_once(send_alerts=True):
         last = float(item.get("last", price)) if isinstance(item, dict) else price
         pct = 0.0 if last == 0 else (price - last) / last * 100.0
 
+        # persist latest "last"
         if isinstance(item, dict) and abs(price - last) > 1e-12:
             item["last"] = price
             changed = True
 
-        if send_alerts and not muted and abs(pct) >= min_move:
+        if send_alerts and (not muted) and abs(pct) >= min_move:
             fired += 1
             try:
                 alerts_send(f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
             except Exception:
                 pass
 
-        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}%")
+        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}% src={pr.get('source','?')}")
         checked += 1
 
     if changed:
