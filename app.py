@@ -20,7 +20,7 @@ APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price",
+    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -108,8 +108,26 @@ def _digest_scheduler():
 # Live Price Sources (Birdeye → DexScreener → Sim)
 # ──────────────────────────────────────────────────────────────────────────────
 
-PRICE_SOURCE_FILE = "/tmp/mork_price_source"
+DATA_DIR = "./data"
+os.makedirs(DATA_DIR, exist_ok=True)
+PRICE_SOURCE_FILE = os.path.join(DATA_DIR, "price_source.txt")
 PRICE_VALID = {"sim", "dex", "birdeye"}
+
+# simple 15s cache: key=(source,mint) -> {price,ts}
+_PRICE_CACHE = {}
+_PRICE_TTL_S = 15
+
+def _cache_get(src, mint):
+    k = (src, mint)
+    v = _PRICE_CACHE.get(k)
+    if not v: return None
+    if time.time() - v["ts"] > _PRICE_TTL_S:
+        _PRICE_CACHE.pop(k, None)
+        return None
+    return v["price"]
+
+def _cache_put(src, mint, price):
+    _PRICE_CACHE[(src, mint)] = {"price": price, "ts": time.time()}
 
 def _read_price_source():
     try:
@@ -202,8 +220,14 @@ def get_price(mint, preferred=None):
 
     last_err = None
     for fn in chain:
+        # cache check per function identity name (source tag)
+        tag = fn.__name__.replace("price_","")
+        cached = _cache_get(tag, mint)
+        if cached is not None:
+            return {"ok": True, "price": cached, "source": tag, "cached": True}
         res = fn(mint)
         if res.get("ok"):
+            _cache_put(res["source"], mint, res["price"])
             return res
         last_err = res.get("err")
     return {"ok": False, "err": last_err or "all providers failed"}
@@ -645,7 +669,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -786,19 +810,26 @@ def process_telegram_command(update: dict):
             _write_price_source(args)
             return _reply(f"✅ Price source set: {args}")
         
-        elif cmd == "/price":
+        elif cmd == "/price" or cmd == "/quote":
             parts = text.split()
             if len(parts) < 2:
                 return _reply("Usage: `/price <mint>`")
             mint = parts[1].strip()
+            # optional override flag: --src=sim|dex|birdeye
+            override = None
+            if len(parts) >= 3 and parts[2].startswith("--src="):
+                override = parts[2].split("=",1)[1].lower()
+                if override not in PRICE_VALID:
+                    return _reply("Usage: `/price <mint> --src=sim|dex|birdeye`")
             if not mint or len(mint) < 10:
                 return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
-            res = get_price(mint)
+            res = get_price(mint, preferred=override)
             if not res.get("ok"):
                 return _reply(f"❌ Price lookup failed\nsource: auto\nerror: {res.get('err')}")
             p = _fmt_usd(res["price"])
             src = res["source"]
-            return _reply(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}\n*Source:* {src}")
+            note = " (cached)" if res.get("cached") else ""
+            return _reply(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)

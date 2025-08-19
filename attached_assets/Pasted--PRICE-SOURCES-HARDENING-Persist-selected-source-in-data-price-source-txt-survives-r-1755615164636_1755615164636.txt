@@ -1,0 +1,106 @@
+# === PRICE SOURCES HARDENING ===
+# - Persist selected source in ./data/price_source.txt (survives restarts)
+# - Add 15s in-process cache (per source+mint)
+# - Allow per-call override: /price <mint> --src=sim|dex|birdeye
+# - Add /quote alias of /price
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os, json, time, hashlib, inspect
++import os, json, time, hashlib, inspect
++from datetime import datetime
+ 
+@@
+-PRICE_SOURCE_FILE = "/tmp/mork_price_source"
++DATA_DIR = "./data"
++os.makedirs(DATA_DIR, exist_ok=True)
++PRICE_SOURCE_FILE = os.path.join(DATA_DIR, "price_source.txt")
+ PRICE_VALID = {"sim", "dex", "birdeye"}
+ 
++# simple 15s cache: key=(source,mint) -> {price,ts}
++_PRICE_CACHE = {}
++_PRICE_TTL_S = 15
++
++def _cache_get(src, mint):
++    k = (src, mint)
++    v = _PRICE_CACHE.get(k)
++    if not v: return None
++    if time.time() - v["ts"] > _PRICE_TTL_S:
++        _PRICE_CACHE.pop(k, None)
++        return None
++    return v["price"]
++
++def _cache_put(src, mint, price):
++    _PRICE_CACHE[(src, mint)] = {"price": price, "ts": time.time()}
++
+ def _read_price_source():
+@@
+ def get_price(mint, preferred=None):
+     """
+     Resolve price using preferred source with graceful fallback.
+     Order: preferred → (birdeye → dex → sim)
+     """
+-    preferred = (preferred or _read_price_source()).lower()
++    preferred = (preferred or _read_price_source()).lower()
+     chain = []
+     if preferred == "birdeye":
+         chain = [price_birdeye, price_dex, price_sim]
+     elif preferred == "dex":
+         chain = [price_dex, price_birdeye, price_sim]
+     else:
+         chain = [price_sim, price_birdeye, price_dex]
+ 
+     last_err = None
+     for fn in chain:
++        # cache check per function identity name (source tag)
++        tag = fn.__name__.replace("price_","")
++        cached = _cache_get(tag, mint)
++        if cached is not None:
++            return {"ok": True, "price": cached, "source": tag, "cached": True}
+         res = fn(mint)
+         if res.get("ok"):
++            _cache_put(res["source"], mint, res["price"])
+             return res
+         last_err = res.get("err")
+     return {"ok": False, "err": last_err or "all providers failed"}
+@@
+-    public_commands = [
++    public_commands = [
+         "/help", "/ping", "/info", "/test123", "/commands",
+-        "/source", "/price",
++        "/source", "/price", "/quote",
+     ]
+@@
+-    elif cmd == "/price":
++    elif cmd == "/price" or cmd == "/quote":
+         parts = text.split()
+         if len(parts) < 2:
+             return ok("Usage: `/price <mint>`")
+-        mint = parts[1].strip()
++        mint = parts[1].strip()
++        # optional override flag: --src=sim|dex|birdeye
++        override = None
++        if len(parts) >= 3 and parts[2].startswith("--src="):
++            override = parts[2].split("=",1)[1].lower()
++            if override not in PRICE_VALID:
++                return ok("Usage: `/price <mint> --src=sim|dex|birdeye`")
+         if not mint or len(mint) < 10:
+             return ok("❌ Invalid mint address. Please provide a valid Solana token mint address.")
+-        res = get_price(mint)
++        res = get_price(mint, preferred=override)
+         if not res.get("ok"):
+             return ok(f"❌ Price lookup failed\nsource: auto\nerror: {res.get('err')}")
+         p = _fmt_usd(res["price"])
+         src = res["source"]
+-        return ok(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}\n*Source:* {src}")
++        note = " (cached)" if res.get("cached") else ""
++        return ok(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
+*** End Patch
+PATCH
+ 
+# Restart worker (single-poller mode stays intact)
+pkill -f gunicorn || true
+sleep 2
+echo "Hardened price sources loaded."
