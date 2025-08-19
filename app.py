@@ -1446,16 +1446,15 @@ def process_telegram_command(update: dict):
             return _reply("👁️ Unwatched")
 
         elif cmd == "/watchlist":
-            cfg = _watch_load()
-            if not cfg.get("mints"):
+            wl = _load_watchlist()
+            if not wl:
                 return _reply("📄 Watchlist empty.")
-            st = _watch_state_load()
             lines = []
-            for m in cfg["mints"]:
-                last = st["last"].get(m)
-                base = st["baseline"].get(m)
-                move = _pct(last, base) if (last is not None and base is not None) else 0.0
-                lines.append(f"- `{m[:10]}..` last=${(last or 0):.6f} Δ={move:+.2f}%")
+            for item in wl:
+                mint = item.get("mint") if isinstance(item, dict) else (item if isinstance(item, str) else "")
+                if not mint: continue
+                price = item.get("last", 0.0) if isinstance(item, dict) else 0.0
+                lines.append(f"- `{mint[:10]}..` last=${price:.6f}")
             return _reply("📄 *Watchlist:*\n" + "\n".join(lines))
 
         # public watch controls
