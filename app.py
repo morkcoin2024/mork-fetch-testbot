@@ -961,6 +961,78 @@ def _normalize_token(token_data, source=None):
     
     return normalized
 
+# --- watch helpers (drop this above process_telegram_command) ---
+def _load_watchlist():
+    import json
+    try:
+        with open("watchlist.json","r") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+def _save_watchlist(items):
+    import json
+    try:
+        with open("watchlist.json","w") as f:
+            json.dump(items, f, indent=2)
+    except Exception:
+        pass
+
+def _load_alerts_cfg():
+    import json
+    try:
+        with open("alerts_config.json","r") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {"min_move_pct":0.0, "rate_per_min":60, "muted": False}
+
+def watch_tick_once(send_alerts=True):
+    wl = _load_watchlist()
+    if not wl:
+        return 0, 0, ["(watchlist empty)"]
+
+    cfg = _load_alerts_cfg()
+    min_move = float(cfg.get("min_move_pct", 0.0))
+    muted = bool(cfg.get("muted", False))
+
+    checked = fired = 0
+    lines = []
+    changed = False
+
+    for item in wl:
+        mint = item.get("mint") if isinstance(item, dict) else (item if isinstance(item, str) else None)
+        if not mint:
+            continue
+
+        pr = get_price(mint, None)  # use active source with fallback
+        if not pr or not pr.get("ok"):
+            lines.append(f"- {mint[:10]}… price: (n/a)")
+            continue
+
+        price = float(pr["price"])
+        last = float(item.get("last", price)) if isinstance(item, dict) else price
+        pct = 0.0 if last == 0 else (price - last) / last * 100.0
+
+        if isinstance(item, dict) and abs(price - last) > 1e-12:
+            item["last"] = price
+            changed = True
+
+        if send_alerts and (not muted) and abs(pct) >= min_move:
+            fired += 1
+            try:
+                alerts_send(f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
+            except Exception:
+                pass
+
+        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}% src={pr.get('source','?')}")
+        checked += 1
+
+    if changed:
+        _save_watchlist(wl)
+
+    return checked, fired, lines
+# --- end helpers ---
+
 def process_telegram_command(update: dict):
 
     """Enhanced command processing with unified response architecture"""
