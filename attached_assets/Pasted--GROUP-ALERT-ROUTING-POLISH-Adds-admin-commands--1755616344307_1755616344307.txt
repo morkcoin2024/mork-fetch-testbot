@@ -1,0 +1,234 @@
+# === GROUP ALERT ROUTING POLISH ============================================
+# Adds admin commands:
+#   /alerts_settings              -> show routing + throttles
+#   /alerts_to_here               -> set current chat as alert target
+#   /alerts_setchat <chat_id>     -> set alert target by id
+#   /alerts_rate <n>              -> limit to n alerts/min (default 60)
+#   /alerts_minmove <pct>         -> min move % for an alert (display only; hook later)
+#   /alerts_mute <dur>            -> mute for 120s | 2m | 1h (etc)
+#   /alerts_unmute                -> unmute
+#   /alerts_on /alerts_off        -> aliases for unmute/mute 10m
+#   /alerts_test [text]           -> send a test alert to the routed chat
+#
+# Persists settings to alerts_config.json and provides alerts_send() helper
+# to use everywhere (rate limit + mute respected). Safe to re-run.
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+ import json, os, time, logging, textwrap, re
+ from datetime import datetime, timezone, timedelta
+@@
+ LOGGER = logging.getLogger("app")
+@@
++# ---------- Alerts routing (group) ----------
++ALERTS_CFG_FILE = "alerts_config.json"
++_ALERTS_RATE_STATE = {"window_start": 0, "count": 0}  # in-memory per-process
++
++def _utc_now():
++    return datetime.now(timezone.utc)
++
++def _alerts_defaults():
++    return {
++        "chat_id": None,          # int telegram chat id for alerts
++        "rate_per_min": 60,       # max alerts per minute
++        "min_move_pct": 0.0,      # informational threshold (hook scanners later)
++        "muted_until": None,      # ISO8601 string or None
++    }
++
++def _alerts_load():
++    try:
++        with open(ALERTS_CFG_FILE, "r") as f:
++            data = json.load(f)
++            return {**_alerts_defaults(), **data}
++    except Exception:
++        return _alerts_defaults()
++
++def _alerts_save(cfg):
++    tmp = {**_alerts_defaults(), **(cfg or {})}
++    with open(ALERTS_CFG_FILE, "w") as f:
++        json.dump(tmp, f, indent=2)
++    return tmp
++
++def _alerts_is_muted(cfg):
++    mu = cfg.get("muted_until")
++    if not mu:
++        return False
++    try:
++        return _utc_now() < datetime.fromisoformat(mu)
++    except Exception:
++        return False
++
++def _alerts_mute_for(cfg, seconds):
++    until = _utc_now() + timedelta(seconds=max(0, int(seconds)))
++    cfg["muted_until"] = until.isoformat()
++    return _alerts_save(cfg)
++
++def _alerts_unmute(cfg):
++    cfg["muted_until"] = None
++    return _alerts_save(cfg)
++
++def _parse_duration(s):
++    # accepts "120s", "2m", "1h", "90" (seconds)
++    try:
++        s = str(s).strip().lower()
++        if s.endswith("ms"):
++            return max(0, int(float(s[:-2]) / 1000.0))
++        if s.endswith("s"):
++            return max(0, int(float(s[:-1])))
++        if s.endswith("m"):
++            return max(0, int(float(s[:-1]) * 60))
++        if s.endswith("h"):
++            return max(0, int(float(s[:-1]) * 3600))
++        return max(0, int(float(s)))
++    except Exception:
++        return 0
++
++def _alerts_settings_text():
++    cfg = _alerts_load()
++    muted = _alerts_is_muted(cfg)
++    mu_txt = "no"
++    if muted:
++        try:
++            t = datetime.fromisoformat(cfg["muted_until"]).strftime("%H:%M:%S UTC")
++            mu_txt = f"yes (until {t})"
++        except Exception:
++            mu_txt = "yes"
++    return (
++        "🧰 *Alert flood control settings:*\n"
++        f"chat: {cfg.get('chat_id') or 'not set'}\n"
++        f"min_move_pct: {cfg.get('min_move_pct', 0.0):.1f}%\n"
++        f"rate_per_min: {cfg.get('rate_per_min', 60)}\n"
++        f"muted: {mu_txt}"
++    )
++
++def alerts_send(text, force=False):
++    """
++    Unified alert sender with mute + per-minute throttling.
++    Returns dict like tg_send; {'ok':False,'description':'...'} if blocked.
++    """
++    cfg = _alerts_load()
++    chat_id = cfg.get("chat_id")
++    if not chat_id:
++        return {"ok": False, "description": "alerts chat not set"}
++
++    if not force and _alerts_is_muted(cfg):
++        return {"ok": False, "description": "alerts muted"}
++
++    # rate limit per minute (in-memory window)
++    now = int(time.time())
++    window = now // 60
++    if _ALERTS_RATE_STATE.get("window_start") != window:
++        _ALERTS_RATE_STATE["window_start"] = window
++        _ALERTS_RATE_STATE["count"] = 0
++    if not force and _ALERTS_RATE_STATE["count"] >= int(cfg.get("rate_per_min", 60)):
++        return {"ok": False, "description": "rate limited"}
++    _ALERTS_RATE_STATE["count"] += 1
++
++    return tg_send(int(chat_id), text, preview=True)
+@@
+-    public_commands = [
++    public_commands = [
+         "/help", "/ping", "/info", "/test123", "/commands",
+         "/source", "/price", "/quote",
+-        "/fetch", "/fetch_now",
++        "/fetch", "/fetch_now",
+     ]
+@@
+-    admin_commands = {
++    admin_commands = {
+         "/status", "/version",
+         "/wallet_export",
++        # Alerts routing admin
++        "/alerts_settings", "/alerts_to_here", "/alerts_setchat",
++        "/alerts_rate", "/alerts_minmove",
++        "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off",
++        "/alerts_test",
+     }
+@@
+     elif cmd == "/commands":
+         return ok(_help_text())
+@@
++    # --------- Alerts routing admin ---------
++    elif cmd == "/alerts_settings" and is_admin:
++        return ok(_alerts_settings_text())
++
++    elif cmd == "/alerts_to_here" and is_admin:
++        cfg = _alerts_load()
++        # Prefer supergroup/channel id if present
++        target_id = (message.get("chat") or {}).get("id")
++        if not target_id:
++            return ok("❌ Can't detect current chat id.")
++        cfg["chat_id"] = int(target_id)
++        _alerts_save(cfg)
++        return ok(f"✅ Alerts chat set to: `{cfg['chat_id']}`")
++
++    elif cmd == "/alerts_setchat" and is_admin:
++        parts = text.split(maxsplit=1)
++        if len(parts) < 2:
++            return ok("Usage: `/alerts_setchat <chat_id>`")
++        try:
++            chat_id = int(parts[1])
++        except Exception:
++            return ok("❌ Invalid chat id.")
++        cfg = _alerts_load()
++        cfg["chat_id"] = chat_id
++        _alerts_save(cfg)
++        return ok(f"✅ Alerts chat set to: `{chat_id}`")
++
++    elif cmd == "/alerts_rate" and is_admin:
++        parts = text.split(maxsplit=1)
++        if len(parts) < 2:
++            return ok("Usage: `/alerts_rate <n>`")
++        try:
++            n = max(0, int(float(parts[1])))
++        except Exception:
++            return ok("❌ Invalid number.")
++        cfg = _alerts_load()
++        cfg["rate_per_min"] = n
++        _alerts_save(cfg)
++        return ok(f"🧮 Alerts rate limit: {n}/min")
++
++    elif cmd == "/alerts_minmove" and is_admin:
++        parts = text.split(maxsplit=1)
++        if len(parts) < 2:
++            return ok("Usage: `/alerts_minmove <pct>`")
++        try:
++            pct = max(0.0, float(parts[1]))
++        except Exception:
++            return ok("❌ Invalid percent.")
++        cfg = _alerts_load()
++        cfg["min_move_pct"] = pct
++        _alerts_save(cfg)
++        return ok(f"👀 Watch sensitivity set to {pct:.2f}%")
++
++    elif cmd in ("/alerts_mute", "/alerts_off") and is_admin:
++        parts = text.split(maxsplit=1)
++        dur = "10m" if cmd == "/alerts_off" and len(parts) == 1 else (parts[1] if len(parts) > 1 else "10m")
++        seconds = _parse_duration(dur)
++        if seconds <= 0:
++            return ok("Usage: `/alerts_mute <duration e.g. 120s | 2m | 1h>`")
++        cfg = _alerts_load()
++        _alerts_mute_for(cfg, seconds)
++        return ok(f"🔕 Alerts muted for {dur}")
++
++    elif cmd in ("/alerts_unmute", "/alerts_on") and is_admin:
++        cfg = _alerts_load()
++        _alerts_unmute(cfg)
++        return ok("🔔 Alerts unmuted")
++
++    elif cmd == "/alerts_test" and is_admin:
++        parts = text.split(maxsplit=1)
++        msg = parts[1] if len(parts) > 1 else "Test alert"
++        res = alerts_send(f"🚨 *Alert:*\n{msg}", force=True)
++        if res.get("ok"):
++            return ok("✅ Test alert sent.")
++        else:
++            return ok(f"⚠️ Could not send: {res.get('description')}")
+*** End Patch
+PATCH
+# Restart single-poller worker (RUN instance)
+pkill -f gunicorn || true
+sleep 2
+echo "Group alert routing updated."

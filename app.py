@@ -10,13 +10,137 @@ import time
 import requests
 import hashlib
 import inspect
-from datetime import datetime, timedelta, time as dtime
+import json
+import textwrap
+import re
+from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+# ---------- Alerts routing (group) ----------
+ALERTS_CFG_FILE = "alerts_config.json"
+_ALERTS_RATE_STATE = {"window_start": 0, "count": 0}  # in-memory per-process
+
+def _alerts_defaults():
+    return {
+        "chat_id": None,          # int telegram chat id for alerts
+        "rate_per_min": 60,       # max alerts per minute
+        "min_move_pct": 0.0,      # informational threshold (hook scanners later)
+        "muted_until": None,      # ISO8601 string or None
+    }
+
+def _alerts_load():
+    try:
+        with open(ALERTS_CFG_FILE, "r") as f:
+            data = json.load(f)
+            return {**_alerts_defaults(), **data}
+    except Exception:
+        return _alerts_defaults()
+
+def _alerts_save(cfg):
+    tmp = {**_alerts_defaults(), **(cfg or {})}
+    with open(ALERTS_CFG_FILE, "w") as f:
+        json.dump(tmp, f, indent=2)
+    return tmp
+
+def _alerts_is_muted(cfg):
+    mu = cfg.get("muted_until")
+    if not mu:
+        return False
+    try:
+        return datetime.now(timezone.utc) < datetime.fromisoformat(mu)
+    except Exception:
+        return False
+
+def _alerts_mute_for(cfg, seconds):
+    until = datetime.now(timezone.utc) + timedelta(seconds=max(0, int(seconds)))
+    cfg["muted_until"] = until.isoformat()
+    return _alerts_save(cfg)
+
+def _alerts_unmute(cfg):
+    cfg["muted_until"] = None
+    return _alerts_save(cfg)
+
+def _parse_duration(s):
+    # accepts "120s", "2m", "1h", "90" (seconds)
+    try:
+        s = str(s).strip().lower()
+        if s.endswith("ms"):
+            return max(0, int(float(s[:-2]) / 1000.0))
+        if s.endswith("s"):
+            return max(0, int(float(s[:-1])))
+        if s.endswith("m"):
+            return max(0, int(float(s[:-1]) * 60))
+        if s.endswith("h"):
+            return max(0, int(float(s[:-1]) * 3600))
+        return max(0, int(float(s)))
+    except Exception:
+        return 0
+
+def _alerts_settings_text():
+    cfg = _alerts_load()
+    muted = _alerts_is_muted(cfg)
+    mu_txt = "no"
+    if muted:
+        try:
+            t = datetime.fromisoformat(cfg["muted_until"]).strftime("%H:%M:%S UTC")
+            mu_txt = f"yes (until {t})"
+        except Exception:
+            mu_txt = "yes"
+    return (
+        "🧰 *Alert flood control settings:*\n"
+        f"chat: {cfg.get('chat_id') or 'not set'}\n"
+        f"min_move_pct: {cfg.get('min_move_pct', 0.0):.1f}%\n"
+        f"rate_per_min: {cfg.get('rate_per_min', 60)}\n"
+        f"muted: {mu_txt}"
+    )
+
+def alerts_send(text, force=False):
+    """
+    Unified alert sender with mute + per-minute throttling.
+    Returns dict like tg_send; {'ok':False,'description':'...'} if blocked.
+    """
+    cfg = _alerts_load()
+    chat_id = cfg.get("chat_id")
+    if not chat_id:
+        return {"ok": False, "description": "alerts chat not set"}
+
+    if not force and _alerts_is_muted(cfg):
+        return {"ok": False, "description": "alerts muted"}
+
+    # rate limit per minute (in-memory window)
+    now = int(time.time())
+    window = now // 60
+    if _ALERTS_RATE_STATE.get("window_start") != window:
+        _ALERTS_RATE_STATE["window_start"] = window
+        _ALERTS_RATE_STATE["count"] = 0
+    if not force and _ALERTS_RATE_STATE["count"] >= int(cfg.get("rate_per_min", 60)):
+        return {"ok": False, "description": "rate limited"}
+    _ALERTS_RATE_STATE["count"] += 1
+
+    # Use the existing telegram messaging system
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return {"ok": False, "description": "no bot token"}
+    
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": int(chat_id),
+        "text": text,
+        "parse_mode": "MarkdownV2",
+        "disable_web_page_preview": True
+    }
+    
+    try:
+        import requests
+        response = requests.post(url, json=payload, timeout=10)
+        return response.json() if response.status_code == 200 else {"ok": False, "description": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"ok": False, "description": str(e)}
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
@@ -28,8 +152,9 @@ ALL_COMMANDS = [
     "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
-    "/alerts_status", "/alerts_mute", "/alerts_unmute", "/digest_status", "/digest_time", 
-    "/digest_on", "/digest_off", "/digest_test"
+    "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
+    "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test",
+    "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -896,6 +1021,84 @@ def process_telegram_command(update: dict):
             lines.append("")
             lines.append("Tips: `/source sim|dex|birdeye`, `/price <mint> --src=birdeye`")
             return _reply("\n".join(lines))
+        
+        # --------- Alerts routing admin ---------
+        elif cmd == "/alerts_settings" and is_admin:
+            return _reply(_alerts_settings_text())
+
+        elif cmd == "/alerts_to_here" and is_admin:
+            cfg = _alerts_load()
+            # Get chat id from the current message
+            chat = update.get("message", {}).get("chat", {})
+            target_id = chat.get("id")
+            if not target_id:
+                return _reply("❌ Can't detect current chat id.")
+            cfg["chat_id"] = int(target_id)
+            _alerts_save(cfg)
+            return _reply(f"✅ Alerts chat set to: `{cfg['chat_id']}`")
+
+        elif cmd == "/alerts_setchat" and is_admin:
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                return _reply("Usage: `/alerts_setchat <chat_id>`")
+            try:
+                chat_id = int(parts[1])
+            except Exception:
+                return _reply("❌ Invalid chat id.")
+            cfg = _alerts_load()
+            cfg["chat_id"] = chat_id
+            _alerts_save(cfg)
+            return _reply(f"✅ Alerts chat set to: `{chat_id}`")
+
+        elif cmd == "/alerts_rate" and is_admin:
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                return _reply("Usage: `/alerts_rate <n>`")
+            try:
+                n = max(0, int(float(parts[1])))
+            except Exception:
+                return _reply("❌ Invalid number.")
+            cfg = _alerts_load()
+            cfg["rate_per_min"] = n
+            _alerts_save(cfg)
+            return _reply(f"🧮 Alerts rate limit: {n}/min")
+
+        elif cmd == "/alerts_minmove" and is_admin:
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                return _reply("Usage: `/alerts_minmove <pct>`")
+            try:
+                pct = max(0.0, float(parts[1]))
+            except Exception:
+                return _reply("❌ Invalid percent.")
+            cfg = _alerts_load()
+            cfg["min_move_pct"] = pct
+            _alerts_save(cfg)
+            return _reply(f"👀 Watch sensitivity set to {pct:.2f}%")
+
+        elif cmd in ("/alerts_mute", "/alerts_off") and is_admin:
+            parts = text.split(maxsplit=1)
+            dur = "10m" if cmd == "/alerts_off" and len(parts) == 1 else (parts[1] if len(parts) > 1 else "10m")
+            seconds = _parse_duration(dur)
+            if seconds <= 0:
+                return _reply("Usage: `/alerts_mute <duration e.g. 120s | 2m | 1h>`")
+            cfg = _alerts_load()
+            _alerts_mute_for(cfg, seconds)
+            return _reply(f"🔕 Alerts muted for {dur}")
+
+        elif cmd in ("/alerts_unmute", "/alerts_on") and is_admin:
+            cfg = _alerts_load()
+            _alerts_unmute(cfg)
+            return _reply("🔔 Alerts unmuted")
+
+        elif cmd == "/alerts_test" and is_admin:
+            parts = text.split(maxsplit=1)
+            msg = parts[1] if len(parts) > 1 else "Test alert"
+            res = alerts_send(f"🚨 *Alert:*\n{msg}", force=True)
+            if res.get("ok"):
+                return _reply("✅ Test alert sent.")
+            else:
+                return _reply(f"⚠️ Could not send: {res.get('description')}")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
