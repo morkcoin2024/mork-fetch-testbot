@@ -21,6 +21,23 @@ FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
+# --- Price source persistence helpers ---
+PRICE_SOURCE_FILE = "./data/price_source.txt"
+
+def _read_price_source():
+    try:
+        s = open(PRICE_SOURCE_FILE, "r").read().strip().lower()
+        return s if s in ("sim", "dex", "birdeye") else "sim"
+    except Exception:
+        return "sim"
+
+def _write_price_source(s: str):
+    try:
+        os.makedirs(os.path.dirname(PRICE_SOURCE_FILE), exist_ok=True)
+        open(PRICE_SOURCE_FILE, "w").write(s.strip().lower())
+    except Exception:
+        pass
+
 # ---------- Alerts routing (group) ----------
 ALERTS_CFG_FILE = "alerts_config.json"
 _ALERTS_RATE_STATE = {"window_start": 0, "count": 0}  # in-memory per-process
@@ -921,19 +938,21 @@ def process_telegram_command(update: dict):
             return _reply(version_text)
         
         elif cmd == "/source":
-            args = (text.split(" ", 1)[1].strip() if " " in text else "").lower()
-            if not args:
-                active = _read_price_source()
-                return _reply(f"📊 *Price Sources Status*\n\n"
-                              f"*Active:* {active.title()} Mode\n"
-                              f"*Primary:* {'Built-in price simulator' if active=='sim' else active}\n"
-                              f"*Fallback:* API sources available\n"
-                              f"*Status:* ✅ Operational\n\n"
-                              f"Use `/source sim|dex|birdeye`")
-            if args not in PRICE_VALID:
-                return _reply("Usage: `/source sim|dex|birdeye`")
-            _write_price_source(args)
-            return _reply(f"✅ Price source set: {args}")
+            parts = text.split()
+            arg = parts[1].strip().lower() if len(parts) > 1 else ""
+            if arg in ("sim", "dex", "birdeye"):
+                _write_price_source(arg)
+                return _reply(f"✅ Price source set: {arg}")
+            cur = _read_price_source()
+            body = (
+                "📊 **Price Sources Status**\n\n"
+                f"**Active:** {cur.capitalize()} Mode\n"
+                f"**Primary:** {cur}\n"
+                "**Fallback:** API sources available\n"
+                "**Status:** ✅ Operational\n\n"
+                "Use `/source sim|dex|birdeye`"
+            )
+            return _reply(body)
         
         elif cmd == "/price" or cmd == "/quote":
             parts = text.split()
@@ -944,17 +963,34 @@ def process_telegram_command(update: dict):
             override = None
             if len(parts) >= 3 and parts[2].startswith("--src="):
                 override = parts[2].split("=",1)[1].lower()
-                if override not in PRICE_VALID:
+                if override not in ("sim", "dex", "birdeye"):
                     return _reply("Usage: `/price <mint> --src=sim|dex|birdeye`")
             if not mint or len(mint) < 10:
                 return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
-            res = get_price(mint, preferred=override)
+            
+            # Enhanced price lookup with explicit fallback labeling
+            src = override or _read_price_source()
+            res = get_price(mint, preferred=src)
             if not res.get("ok"):
                 return _reply(f"❌ Price lookup failed\nsource: auto\nerror: {res.get('err')}")
-            p = _fmt_usd(res["price"])
-            src = res["source"]
-            note = " (cached)" if res.get("cached") else ""
-            return _reply(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
+            
+            price = res["price"]
+            used = res["source"]
+            cached_note = " (cached)" if res.get("cached") else ""
+            
+            # Labeling (show fallback path when used != src)
+            if used == src:
+                src_line = f"**Source:** {used}{cached_note}"
+            else:
+                src_line = f"**Source:** {used} (fallback from {src}){cached_note}"
+            
+            p = _fmt_usd(price)
+            body = (
+                f"💰 **Price Lookup:** `{mint[:12]}..`\n\n"
+                f"**Current Price:** {p}\n"
+                f"{src_line}\n"
+            )
+            return _reply(body)
         
         # --- Multi-source snapshot (/fetch, /fetch_now) ---
         elif cmd in ("/fetch", "/fetch_now"):
