@@ -7,6 +7,9 @@ import os
 import logging
 import threading
 import time
+import requests
+import hashlib
+import inspect
 from datetime import datetime, timedelta, time as dtime
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
@@ -100,6 +103,111 @@ def _digest_scheduler():
         except Exception as e:
             logger.exception("digest scheduler error: %s", e)
         _time.sleep(20)  # tick every 20s for tighter tolerance
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Live Price Sources (Birdeye → DexScreener → Sim)
+# ──────────────────────────────────────────────────────────────────────────────
+
+PRICE_SOURCE_FILE = "/tmp/mork_price_source"
+PRICE_VALID = {"sim", "dex", "birdeye"}
+
+def _read_price_source():
+    try:
+        if os.path.exists(PRICE_SOURCE_FILE):
+            s = open(PRICE_SOURCE_FILE).read().strip().lower()
+            if s in PRICE_VALID:
+                return s
+    except Exception:
+        pass
+    return "sim"
+
+def _write_price_source(s):
+    try:
+        if s in PRICE_VALID:
+            with open(PRICE_SOURCE_FILE, "w") as f:
+                f.write(s)
+    except Exception:
+        logger.exception("persist price source failed")
+
+def _fmt_usd(x):
+    try:
+        return f"${x:,.6f}" if x < 1 else f"${x:,.6f}".rstrip("0").rstrip(".")
+    except Exception:
+        return str(x)
+
+# ── Price provider: Simulator (deterministic)
+def price_sim(mint):
+    # Simple, deterministic pseudo-price per mint for testing
+    h = int(hashlib.sha256(mint.encode()).hexdigest(), 16)
+    cents = 100 + (h % 900)  # 1.00–9.99 dollars
+    return {"ok": True, "price": cents / 10000.0, "source": "sim"}
+
+# ── Price provider: DexScreener
+def price_dex(mint, timeout=6):
+    try:
+        # token search endpoint
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+        r = requests.get(url, timeout=timeout)
+        if r.status_code != 200:
+            return {"ok": False, "err": f"dex http {r.status_code}"}
+        j = r.json()
+        pairs = (j or {}).get("pairs") or []
+        if not pairs:
+            return {"ok": False, "err": "dex no pairs"}
+        # prefer highest liquidity
+        pairs.sort(key=lambda p: p.get("liquidity", {}).get("usd", 0), reverse=True)
+        price = float(pairs[0].get("priceUsd") or 0)
+        if price <= 0:
+            return {"ok": False, "err": "dex invalid price"}
+        return {"ok": True, "price": price, "source": "dex"}
+    except Exception as e:
+        return {"ok": False, "err": f"dex error: {e}"}
+
+# ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
+def price_birdeye(mint, timeout=6):
+    key = os.getenv("BIRDEYE_API_KEY") or os.getenv("BIRDEYE_KEY")
+    if not key:
+        return {"ok": False, "err": "birdeye key missing"}
+    try:
+        url = f"https://public-api.birdeye.so/defi/price?address={mint}"
+        headers = {
+            "accept": "application/json",
+            "x-api-key": key,
+        }
+        r = requests.get(url, headers=headers, timeout=timeout)
+        if r.status_code != 200:
+            return {"ok": False, "err": f"birdeye http {r.status_code}"}
+        j = r.json() or {}
+        data = j.get("data") or {}
+        price = float(data.get("value") or 0)
+        if price <= 0:
+            return {"ok": False, "err": "birdeye invalid price"}
+        return {"ok": True, "price": price, "source": "birdeye"}
+    except Exception as e:
+        return {"ok": False, "err": f"birdeye error: {e}"}
+
+def get_price(mint, preferred=None):
+    """
+    Resolve price using preferred source with graceful fallback.
+    Order: preferred → (birdeye → dex → sim)
+    """
+    preferred = (preferred or _read_price_source()).lower()
+    chain = []
+    if preferred == "birdeye":
+        chain = [price_birdeye, price_dex, price_sim]
+    elif preferred == "dex":
+        chain = [price_dex, price_birdeye, price_sim]
+    else:
+        chain = [price_sim, price_birdeye, price_dex]
+
+    last_err = None
+    for fn in chain:
+        res = fn(mint)
+        if res.get("ok"):
+            return res
+        last_err = res.get("err")
+    return {"ok": False, "err": last_err or "all providers failed"}
+
 import json
 import time
 import queue
@@ -664,32 +772,33 @@ def process_telegram_command(update: dict):
             return _reply(version_text)
         
         elif cmd == "/source":
-            # Basic price source status - enhanced version can be added later
-            return _reply("""📊 **Price Sources Status**
-
-**Active:** Simulation Mode
-**Primary:** Built-in price simulator
-**Fallback:** API sources available
-**Status:** ✅ Operational
-
-Use `/price <mint>` to check token prices""")
+            args = (text.split(" ", 1)[1].strip() if " " in text else "").lower()
+            if not args:
+                active = _read_price_source()
+                return _reply(f"📊 *Price Sources Status*\n\n"
+                              f"*Active:* {active.title()} Mode\n"
+                              f"*Primary:* {'Built-in price simulator' if active=='sim' else active}\n"
+                              f"*Fallback:* API sources available\n"
+                              f"*Status:* ✅ Operational\n\n"
+                              f"Use `/source sim|dex|birdeye`")
+            if args not in PRICE_VALID:
+                return _reply("Usage: `/source sim|dex|birdeye`")
+            _write_price_source(args)
+            return _reply(f"✅ Price source set: {args}")
         
         elif cmd == "/price":
-            if not args:
-                return _reply("**Usage:** `/price <mint_address>`\n\nExample: `/price So11111111111111111111111111111111111111112`")
-            
-            mint = args.strip()
-            if len(mint) < 32:
+            parts = text.split()
+            if len(parts) < 2:
+                return _reply("Usage: `/price <mint>`")
+            mint = parts[1].strip()
+            if not mint or len(mint) < 10:
                 return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
-            
-            # Basic price lookup - can be enhanced with real API integration
-            return _reply(f"""💰 **Price Lookup: {mint[:8]}...**
-
-**Current Price:** $0.00123 (simulated)
-**Source:** Demo mode
-**Status:** Mock data for testing
-
-*Real price integration coming soon*""")
+            res = get_price(mint)
+            if not res.get("ok"):
+                return _reply(f"❌ Price lookup failed\nsource: auto\nerror: {res.get('err')}")
+            p = _fmt_usd(res["price"])
+            src = res["source"]
+            return _reply(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}\n*Source:* {src}")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
