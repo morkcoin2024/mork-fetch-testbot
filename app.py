@@ -23,7 +23,7 @@ APP_START_TS = int(time.time())
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price",
+    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price", "/source",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -58,7 +58,8 @@ except Exception:
         "rate_per_min": 60,
         "muted_until": 0,
         "discord_webhook": None,
-        "digest": {"enabled": False, "time": "09:00", "chat_id": None}
+        "digest": {"enabled": False, "time": "09:00", "chat_id": None},
+        "price_source": "sim"
     }
 
 # --- notifier state for rate-limiting (sliding window) ---
@@ -590,20 +591,25 @@ def process_telegram_command(update: dict):
             )
 
         elif cmd == "/price":
-            # public: /price <mint>
-            a = (args or "").strip()
-            if not a:
+            deny = _require_admin(user)
+            if deny: return deny
+            m = (args or "").strip()
+            if not m:
                 return _reply("Usage: /price <mint>")
-            try:
-                import autosell
-                px, src = autosell._get_price(a)
-                if px is None:
-                    # show simulated so users get *some* answer
-                    spx = autosell._sim_price(a)
-                    return _reply(f"📈 {a}\nprice: ~${spx:.6f} (sim)\nsource: none (fallback to simulator)")
-                return _reply(f"📈 {a}\nprice: ${px:.6f}\nsource: {src}")
-            except Exception as e:
-                return _reply(f"⚠️ Price lookup failed: {e}")
+            px, tag = _price_lookup(m)
+            if px is None:
+                return _reply(f"⚠️ Could not fetch price for {m}")
+            return _reply(f"📈 {m}\nprice: {px:.6f}\nsource: {tag}")
+
+        elif cmd == "/source":
+            if args:
+                deny = _require_admin(user)
+                if deny: return deny
+                choice = args.strip().lower()
+                if not _set_price_source(choice):
+                    return _reply("Usage: /source sim|dex|birdeye")
+                return _reply(f"✅ Price source set: {choice}")
+            return _reply(f"🔧 Price source: {_get_price_source()}")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
@@ -1279,6 +1285,8 @@ def process_telegram_command(update: dict):
                 + "\n"
                 + f"digest: {'on' if (_ALERT_CFG.get('digest',{}).get('enabled')) else 'off'} @ "
                 + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
+                + "\n"
+                + f"price_source: { _ALERT_CFG.get('price_source','sim') }"
             )
 
         # Wallet Commands
@@ -1432,6 +1440,71 @@ try:
             return {"ok": r.status_code in (200, 204), "status": r.status_code}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # ---------------- Price sources (for /price, step 1) ----------------
+    def _get_price_source():
+        return (_ALERT_CFG.get("price_source") or "sim").lower()
+
+    def _set_price_source(src: str):
+        src = (src or "").lower().strip()
+        if src not in ("sim","dex","birdeye"):
+            return False
+        _ALERT_CFG["price_source"] = src
+        try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
+        except Exception: pass
+        return True
+
+    _SIM_STATE = {}
+    def _sim_price(mint: str):
+        st = _SIM_STATE.setdefault(mint, {"p": 1.0})
+        st["p"] = max(0.000001, st["p"] * (1.0 + (0.001 if int(time.time())%2==0 else -0.001)))
+        return st["p"], "sim"
+
+    def _dex_price(mint: str):
+        if not requests: return None, "dex"
+        try:
+            url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+            r = requests.get(url, timeout=(6,8))
+            if r.status_code != 200: return None, "dex"
+            js = r.json() or {}
+            pairs = js.get("pairs") or []
+            if not pairs: return None, "dex"
+            best = max(pairs, key=lambda p: float(((p.get("liquidity") or {}).get("usd") or 0.0)))
+            px = best.get("priceUsd")
+            if px is None: return None, "dex"
+            return float(px), "dex"
+        except Exception:
+            return None, "dex"
+
+    def _birdeye_price(mint: str):
+        if not requests: return None, "birdeye"
+        key = os.getenv("BIRDEYE_API_KEY","").strip()
+        if not key: return None, "birdeye"
+        try:
+            url = f"https://public-api.birdeye.so/public/price?address={mint}"
+            r = requests.get(url, headers={"X-API-KEY": key, "accept": "application/json"}, timeout=(6,8))
+            if r.status_code != 200: return None, "birdeye"
+            js = r.json() or {}
+            px = ((js.get("data") or {}).get("value"))
+            if px is None: return None, "birdeye"
+            return float(px), "birdeye"
+        except Exception:
+            return None, "birdeye"
+
+    def _price_lookup(mint: str):
+        src = _get_price_source()
+        if src == "birdeye":
+            px, tag = _birdeye_price(mint)
+            if px is not None: return px, tag
+            px, tag = _dex_price(mint)
+            if px is not None: return px, tag
+            return _sim_price(mint)
+        elif src == "dex":
+            px, tag = _dex_price(mint)
+            if px is not None: return px, tag
+            return _sim_price(mint)
+        else:
+            return _sim_price(mint)
 
     # --- Daily Digest (heartbeat) helper functions ---
     global _DIGEST_THREAD_STARTED

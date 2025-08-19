@@ -1,0 +1,155 @@
+# === Live Price Sources v1 (for /price) ===
+# Providers: sim (default), dex (Dexscreener), birdeye (needs BIRDEYE_API_KEY)
+# Commands: /source, /source sim|dex|birdeye, /price <mint> (uses selection)
+
+cd /home/runner/workspace
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import json, re, time, traceback, os, threading, datetime as _dt
++import json, re, time, traceback, os, threading, datetime as _dt
++try:
++    import requests
++except Exception:
++    requests = None
+@@
+-            _ALERT_CFG = {
++            _ALERT_CFG = {
+                 "chat_id": None,
+                 "min_move_pct": 0.0,
+                 "rate_per_min": 60,
+                 "muted_until": 0,
+                 "discord_webhook": None,
+-                "digest": {"enabled": False, "time": "09:00", "chat_id": None}
++                "digest": {"enabled": False, "time": "09:00", "chat_id": None},
++                "price_source": "sim"
+             }
+@@
+-            return _reply(
++            return _reply(
+                 "📟 Alerts settings:\n"
+                 f"chat: {cid if cid else 'not set'}\n"
+                 f"min_move_pct: { _ALERT_CFG.get('min_move_pct', 0.0) }%\n"
+                 f"rate_per_min: { _ALERT_CFG.get('rate_per_min', 60) }\n"
+                 f"muted: {'yes' if remaining>0 else 'no'}"
+                 + (f" ({remaining}s left)" if remaining>0 else "")
+                 + "\n"
+                 + f"discord: {'set' if (_ALERT_CFG.get('discord_webhook') or os.getenv('DISCORD_WEBHOOK_URL')) else 'not set'}"
+                 + "\n"
+                 + f"digest: {'on' if (_ALERT_CFG.get('digest',{}).get('enabled')) else 'off'} @ "
+-                + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
++                + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
++                + "\n"
++                + f"price_source: { _ALERT_CFG.get('price_source','sim') }"
+             )
+@@
+         def _discord_send(text: str):
+             url = (_ALERT_CFG.get("discord_webhook") or os.getenv("DISCORD_WEBHOOK_URL"))
+             if not url or not requests:
+                 return {"ok": False, "reason": "inactive"}
+             try:
+                 r = requests.post(url, json={"content": text}, timeout=8)
+                 return {"ok": (r.status_code in (200, 204)), "status": r.status_code}
+             except Exception as e:
+                 return {"ok": False, "error": str(e)}
++
++        # ---------------- Price sources (for /price, step 1) ----------------
++        def _get_price_source():
++            return (_ALERT_CFG.get("price_source") or "sim").lower()
++
++        def _set_price_source(src: str):
++            src = (src or "").lower().strip()
++            if src not in ("sim","dex","birdeye"):
++                return False
++            _ALERT_CFG["price_source"] = src
++            try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
++            except Exception: pass
++            return True
++
++        _SIM_STATE = {}
++        def _sim_price(mint: str):
++            st = _SIM_STATE.setdefault(mint, {"p": 1.0})
++            st["p"] = max(0.000001, st["p"] * (1.0 + (0.001 if int(time.time())%2==0 else -0.001)))
++            return st["p"], "sim"
++
++        def _dex_price(mint: str):
++            if not requests: return None, "dex"
++            try:
++                url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
++                r = requests.get(url, timeout=(6,8))
++                if r.status_code != 200: return None, "dex"
++                js = r.json() or {}
++                pairs = js.get("pairs") or []
++                if not pairs: return None, "dex"
++                best = max(pairs, key=lambda p: float(((p.get("liquidity") or {}).get("usd") or 0.0)))
++                px = best.get("priceUsd")
++                if px is None: return None, "dex"
++                return float(px), "dex"
++            except Exception:
++                return None, "dex"
++
++        def _birdeye_price(mint: str):
++            if not requests: return None, "birdeye"
++            key = os.getenv("BIRDEYE_API_KEY","").strip()
++            if not key: return None, "birdeye"
++            try:
++                url = f"https://public-api.birdeye.so/public/price?address={mint}"
++                r = requests.get(url, headers={"X-API-KEY": key, "accept": "application/json"}, timeout=(6,8))
++                if r.status_code != 200: return None, "birdeye"
++                js = r.json() or {}
++                px = ((js.get("data") or {}).get("value"))
++                if px is None: return None, "birdeye"
++                return float(px), "birdeye"
++            except Exception:
++                return None, "birdeye"
++
++        def _price_lookup(mint: str):
++            src = _get_price_source()
++            if src == "birdeye":
++                px, tag = _birdeye_price(mint)
++                if px is not None: return px, tag
++                px, tag = _dex_price(mint)
++                if px is not None: return px, tag
++                return _sim_price(mint)
++            elif src == "dex":
++                px, tag = _dex_price(mint)
++                if px is not None: return px, tag
++                return _sim_price(mint)
++            else:
++                return _sim_price(mint)
+@@
+-        elif cmd == "/price":
++        elif cmd == "/price":
+             deny = _require_admin(user)
+             if deny: return deny
+-            m = (args or "").strip()
+-            if not m:
+-                return _reply("Usage: /price <mint>")
+-            # existing basic implementation (may already use dex)
+-            try:
+-                import dexscreener as _dex  # if you had something; ignore errors
+-            except Exception:
+-                _dex = None
+-            # Replace with new unified lookup
+-            return _reply(f"📈 {m}\nprice: (implement)\nsource: dex")
++            m = (args or "").strip()
++            if not m:
++                return _reply("Usage: /price <mint>")
++            px, tag = _price_lookup(m)
++            if px is None:
++                return _reply(f"⚠️ Could not fetch price for {m}")
++            return _reply(f"📈 {m}\nprice: {px:.6f}\nsource: {tag}")
++
++        elif cmd == "/source":
++            if args:
++                deny = _require_admin(user)
++                if deny: return deny
++                choice = args.strip().lower()
++                if not _set_price_source(choice):
++                    return _reply("Usage: /source sim|dex|birdeye")
++                return _reply(f"✅ Price source set: {choice}")
++            return _reply(f"🔧 Price source: {_get_price_source()}")
+*** End Patch
+PATCH
