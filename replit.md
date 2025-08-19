@@ -41,6 +41,7 @@ The application uses Flask with a polling-based architecture for Telegram integr
 - **Unified Handler Architecture:** Single-point update processing with enhanced idempotency for message and edited_message updates, and a rolling memory system to prevent duplicate message processing.
 - **Webhook Conflict Resolution:** Automatic webhook deletion when polling starts.
 - **Live Price Sources V2 System:** Multi-provider price discovery with file-based persistence supporting sim (deterministic), dex (DexScreener API), and birdeye (Birdeye API) sources. Features intelligent fallback chains, 8-second API timeouts, and public `/source` and `/price` commands for transparent price management. Enables seamless switching between simulation and live market data with enterprise-grade reliability.
+- **Unified Application Architecture:** Implemented unified main.py shim that exports the same Flask app object as app.py, eliminating main:app vs app:app configuration conflicts. This architectural decision ensures consistent behavior regardless of workflow configuration while maintaining deployment flexibility. Enhanced `/version` command now displays live runtime router hash (RouterSHA20) for transparent debugging and verification of active code deployment.
 
 ## External Dependencies
 - **Telegram Bot API**: For all message handling and user interactions.

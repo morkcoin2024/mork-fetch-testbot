@@ -1,0 +1,82 @@
+# === 0) Enter project ===
+cd /home/runner/workspace
+
+# === 1) Make main.py a shim to the real app so main:app == app:app ===
+applypatch <<'PATCH'
+*** Begin Patch
+*** Add File: main.py
++# Single source of truth: export the same Flask app object
++from app import app  # noqa: F401
+*** End Patch
+PATCH
+
+# === 2) Enhance /version to print the LIVE router hash (runtime) ===
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-def _build_version_message():
+-    return f"📜 Release: stable 2025-08-18T18:43:26Z\nMode: Polling (integrated)\nRouter: 8315620859661394571"
++def _build_version_message(extra_line: str = ""):
++    base = ("📜 Release: stable 2025-08-18T18:43:26Z\n"
++            "Mode: Polling (integrated)\n"
++            "Router: 8315620859661394571")
++    if extra_line:
++        base += f"\n{extra_line}"
++    return base
+@@
+-    if cmd == "/version":
+-        return _reply(_build_version_message(), status="ok")
++    if cmd == "/version":
++        try:
++            import inspect, hashlib
++            src = inspect.getsource(process_telegram_command)
++            sha20 = hashlib.sha256(src.encode()).hexdigest()[:20]
++            extra = f"RouterSHA20: {sha20}"
++        except Exception:
++            extra = "RouterSHA20: n/a"
++        return _reply(_build_version_message(extra_line=extra), status="ok")
+*** End Patch
+PATCH
+
+# === 3) Polling: RUN yes, Deploy no (to avoid 409) ===
+# Turn off polling in the Deploy environment (do this in Deploy panel later): POLLING_ENABLED=0
+# Force polling in RUN for now:
+export POLLING_ENABLED=1
+
+# Always clear webhook so polling has no conflicts
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null || true
+
+# Kill any stray pollers/servers and lock
+pkill -f 'production_polling_bot\.py'   || true
+pkill -f 'working_polling_bot\.py'      || true
+pkill -f 'simple_polling_bot\.py'       || true
+pkill -f gunicorn                       || true
+rm -f /tmp/mork_polling.lock || true
+sleep 2
+
+# === 4) Start the correct server (serving the unified app) ===
+# Either main:app or app:app now points to the same object. Use app:app explicitly:
+gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload &
+sleep 2
+
+echo "=== processes ==="
+ps aux | grep -E 'gunicorn|polling_bot|telegram_polling' | grep -v grep || true
+
+# === 5) Sanity: verify /source branch is actually in the running code ===
+python3 - <<'PY'
+import app,inspect,hashlib
+src=inspect.getsource(app.process_telegram_command)
+print("[sanity] /source present? ", 'elif cmd == "/source"' in src)
+print("[sanity] RouterSHA20: ", hashlib.sha256(src.encode()).hexdigest()[:20])
+PY
+
+# === 6) Telegram quick probe to admin DM ===
+python3 - <<'PY'
+import os,requests
+token=os.environ.get("TELEGRAM_BOT_TOKEN")
+chat=os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID")
+for t in ["/version","/source","/source sim","/price So1111111111111111111111111111111111111112"]:
+    requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id":chat,"text":t})
+print("Sent /version, /source, /source sim, /price probes")
+PY
