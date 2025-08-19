@@ -472,33 +472,53 @@ def _load_alerts_cfg():
         with open("alerts_config.json","r") as f: return json.load(f) or {}
     except Exception: return {"min_move_pct":0.0,"rate_per_min":60,"muted":False}
 
-def watch_tick_once(send_alerts=True):
+def watch_tick_once(send_alerts=False):
+    """
+    Returns (checked, fired, lines)
+    Updates each item's last/src/delta_pct safely.
+    """
     wl = _load_watchlist()
-    if not wl: return 0,0,["(watchlist empty)"]
-    cfg = _load_alerts_cfg()
-    min_move = float(cfg.get("min_move_pct",0.0))
-    muted = bool(cfg.get("muted",False))
-    checked=fired=0; lines=[]; changed=False
-    for i, item in enumerate(wl):
-        norm_item = _normalize_watch_item(item)
-        mint = norm_item.get("mint")
-        if not mint: continue
-        pr = get_price(mint, None)  # use active source w/ fallback
-        if not pr or not pr.get("ok"):
-            lines.append(f"- {mint[:10]}… price: (n/a)"); continue
-        price = float(pr["price"])
-        last = norm_item.get("last") or price
-        pct = 0.0 if last==0 else (price-last)/last*100.0
-        if abs(price-last) > 1e-12:
-            wl[i] = {**norm_item, "last": price, "src": pr.get('source','?')}; changed=True
-        if send_alerts and (not muted) and abs(pct) >= min_move:
-            fired += 1
-            try:
-                alerts_send(f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
-            except Exception: pass
-        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}% src={pr.get('source','?')}")
+    checked = 0
+    fired = 0
+    lines = []
+    cfg = _load_alerts_cfg() if '_load_alerts_cfg' in globals() else {"min_move_pct": 0.0}
+    min_move = float(cfg.get("min_move_pct", 0.0))
+
+    new_wl = []
+    for raw in wl:
+        it = _normalize_watch_item(raw)
+        mint = it["mint"]
+        if not mint:
+            new_wl.append(it)
+            continue
+
+        # get price using your existing get_price wrapper
+        res = get_price(mint) if 'get_price' in globals() else {"ok": False}
+        if not res or not res.get("ok"):
+            new_wl.append(it)
+            continue
+
+        price = res["price"]
+        source = res.get("source", "n/a")
         checked += 1
-    if changed: _save_watchlist(wl)
+
+        last = it.get("last")
+        delta = ( (price - last) / last * 100 ) if isinstance(last,(int,float)) and last else 0.0
+        it["last"] = price
+        it["delta_pct"] = round(delta, 2)
+        it["src"] = source
+        new_wl.append(it)
+
+        lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={source}")
+
+        if abs(delta) >= min_move and send_alerts and 'alerts_send' in globals():
+            try:
+                alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={source}")
+                fired += 1
+            except Exception:
+                pass
+
+    _save_watchlist(new_wl)
     return checked, fired, lines
 
 def _watch_tick_once():
