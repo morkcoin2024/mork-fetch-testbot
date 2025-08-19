@@ -426,7 +426,6 @@ def _watch_alert(mint, price, src, pct_move, cfg_alerts):
         pass
 
 def _load_watchlist():
-    """Enhanced watchlist loader - returns list of items with structured data"""
     try:
         with open("watchlist.json", "r") as f:
             return json.load(f) or []
@@ -434,31 +433,32 @@ def _load_watchlist():
         return []
 
 def _save_watchlist(items):
-    """Enhanced watchlist saver - handles structured list format"""
     try:
         with open("watchlist.json", "w") as f:
             json.dump(items, f, indent=2)
     except Exception:
         pass
 
+def _load_alerts_cfg():
+    # minimal loader that won't crash if file missing
+    try:
+        with open("alerts_config.json","r") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {"min_move_pct": 0.0, "muted": False}
+
 def watch_tick_once(send_alerts=True):
     """
-    Enhanced watch tick with return values and better error handling.
-    Force a single evaluation of the watchlist.
-    - Fetches current price for each watched mint using current source
-    - Updates 'last' price in watchlist store
-    - Sends alerts via alerts_send() when movement >= min_move_pct and not muted
-    Returns: (checked_count, fired_alerts, summary_lines)
+    Force a single evaluation of the watchlist and (optionally) send alerts.
+    Uses existing get_price() and alerts_send() if available.
     """
     wl = _load_watchlist()
     if not wl:
         return 0, 0, ["(watchlist empty)"]
 
-    # load alert config (min_move, rate limit, muted, group id)
-    cfg = _alerts_load_cfg()
+    cfg = _load_alerts_cfg()
     min_move = float(cfg.get("min_move_pct", 0.0))
-    muted_until = int(cfg.get("muted_until", 0) or 0)
-    muted = time.time() < muted_until
+    muted = bool(cfg.get("muted", False))
 
     checked = 0
     fired = 0
@@ -466,43 +466,32 @@ def watch_tick_once(send_alerts=True):
     changed = False
 
     for item in wl:
-        if isinstance(item, str):
-            mint = item
-        elif isinstance(item, dict):
-            mint = item.get("mint")
-        else:
-            continue
-        
+        mint = item.get("mint") if isinstance(item, dict) else (item if isinstance(item, str) else None)
         if not mint:
             continue
 
-        pr = get_price(mint)  # existing function; returns {"ok":bool,"price":float,"source":str}
+        # get current price using your existing function
+        pr = get_price(mint, None)  # None lets your logic choose active source/fallback
         if not pr or not pr.get("ok"):
             lines.append(f"- {mint[:10]}… price: (n/a)")
             continue
 
         price = float(pr["price"])
-        
-        # Handle both string and dict formats
-        if isinstance(item, str):
-            last = price  # No previous price stored for string format
-            pct = 0.0  # Can't calculate percentage change for string format
-        else:  # dict format
-            last = float(item.get("last", price))
-            pct = 0.0 if last == 0 else ((price - last) / last) * 100.0
-            
-            # update state for dict format
+        last = float(item.get("last", price)) if isinstance(item, dict) else price
+        pct = 0.0 if last == 0 else ((price - last) / last) * 100.0
+
+        # update cached last price
+        if isinstance(item, dict):
             if abs(price - last) > 1e-12:
                 item["last"] = price
                 changed = True
 
-        # alert (respects mute + min_move)
+        # optional alert
         if send_alerts and not muted and abs(pct) >= min_move:
             fired += 1
             try:
-                alerts_send(f"⚠️ {mint[:10]}.. Δ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
+                alerts_send(f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
             except Exception:
-                # never crash the command
                 pass
 
         lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}%")
