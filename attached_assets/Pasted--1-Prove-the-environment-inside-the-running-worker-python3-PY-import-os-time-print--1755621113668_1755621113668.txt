@@ -1,0 +1,52 @@
+# === 1) Prove the environment inside the running worker ===
+python3 - <<'PY'
+import os, time
+print("UTC now:", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+print("BIRDEYE_API_KEY length:", len(os.getenv("BIRDEYE_API_KEY","")))
+print("Preferred source file exists?:", __import__("os").path.exists("/tmp/mork_price_source"))
+if __import__("os").path.exists("/tmp/mork_price_source"):
+    print("Preferred source value:", open("/tmp/mork_price_source").read().strip())
+PY
+
+# === 2) Call Birdeye directly for SOL and show EXACT HTTP + JSON ===
+M=So11111111111111111111111111111111111111112
+BE="https://public-api.birdeye.so/defi/price?address=$M&chain=solana"
+
+echo "== birdeye raw =="
+curl -sS -D /tmp/be.hdr -o /tmp/be.json \
+  -H "X-API-KEY: $BIRDEYE_API_KEY" -H "accept: application/json" "$BE" \
+  || true
+echo "--- headers ---"; sed -n '1,80p' /tmp/be.hdr
+echo "--- body ---"; head -c 400 /tmp/be.json; echo
+echo "== birdeye parsed =="
+python3 - <<'PY'
+import json,sys
+try:
+    j=json.load(open("/tmp/be.json"))
+    print("top keys:", list(j.keys()))
+    d=j.get("data") or {}
+    print("data keys:", list(d.keys()))
+    print("data.value:", d.get("value"))
+    print("data.price:", d.get("price"))
+except Exception as e:
+    print("parse_error:", e)
+PY
+
+# === 3) Compare with Dexscreener (control) ===
+echo "== dexscreener control =="
+curl -sS "https://api.dexscreener.com/latest/dex/tokens/$M" | head -c 300; echo
+
+# === 4) Show what the app logged when you did /source birdeye + /price just now ===
+echo "== recent app logs (birdeye/fallback) =="
+grep -iE 'birdeye|fallback' /tmp/guni.out | tail -n 120 || echo "no birdeye mentions"
+
+# === 5) Confirm single poller (no 409 risk) ===
+echo "== processes =="
+ps aux | egrep 'gunicorn|production_polling_bot|working_polling_bot|simple_polling_bot' | grep -v grep
+
+# === 6) Show the active code path for birdeye fetcher ===
+echo "== birdeye fetcher source (context) =="
+grep -n "_price_from_birdeye" -n app.py || true
+# If a line number appears (e.g., 812), print ~50 lines around it:
+L=$(grep -n "_price_from_birdeye" app.py | head -n1 | cut -d: -f1); \
+[ -n "$L" ] && sed -n "$((L-25)),$((L+60))p" app.py | sed -n '1,200p'
