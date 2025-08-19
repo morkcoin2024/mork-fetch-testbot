@@ -7,6 +7,14 @@ _last_sent_ts = 0.0
 _sent_this_min = 0
 _sent_min_bucket = 0
 
+def _as_float(x, default=0.0):
+    try:
+        if isinstance(x, str):
+            x = x.strip().rstrip('%').strip()
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
 def _load_cfg() -> Dict:
     try:
         with open(_CFG_PATH,"r") as f:
@@ -44,8 +52,8 @@ def try_send_alert(text: str, preview: bool=False) -> bool:
 def emit_price_move(mint:str, symbol:str, price:float, move_pct:float, src:str, reason:str="")->bool:
     """Caller ensures move_pct is absolute threshold-eligible; we re-check settings here just in case."""
     cfg = _load_cfg()
-    thresh = float(cfg.get("min_move_pct", 1.0) or 1.0)
-    if abs(float(move_pct)) < thresh:
+    thresh = _as_float(cfg.get("min_move_pct", 1.0) or 1.0, 1.0)
+    if abs(_as_float(move_pct, 0.0)) < thresh:
         return False
     msg = format_price_alert(symbol, mint, price, move_pct, src, reason)
     return try_send_alert(msg, preview=True)

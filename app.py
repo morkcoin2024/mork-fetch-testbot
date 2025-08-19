@@ -113,7 +113,7 @@ def _maybe_alert_from_price(mint, price, source):
             return False
         move_pct = (float(price) - prev_px) / prev_px * 100.0
         cfg = _alerts_load_cfg()
-        thresh = float(cfg.get("min_move_pct", 0) or 0.0)
+        thresh = _as_float(cfg.get("min_move_pct", 0) or 0.0, 0.0)
         if abs(move_pct) < thresh:
             return False
         emoji = "🔺" if move_pct >= 0 else "🔻"
@@ -412,6 +412,14 @@ def _pct(a, b):
     except Exception:
         return 0.0
 
+def _as_float(x, default=0.0):
+    try:
+        if isinstance(x, str):
+            x = x.strip().rstrip('%').strip()
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
 def _watch_alert(mint, price, src, pct_move, cfg_alerts):
     # honor mute & rate control via alerts_send()
     msg = (
@@ -482,7 +490,7 @@ def watch_tick_once(send_alerts=False):
     fired = 0
     lines = []
     cfg = _load_alerts_cfg() if '_load_alerts_cfg' in globals() else {"min_move_pct": 0.0}
-    min_move = float(cfg.get("min_move_pct", 0.0))
+    min_move = _as_float(cfg.get("min_move_pct", 0.0), 0.0)
 
     new_wl = []
     for raw in wl:
@@ -498,12 +506,12 @@ def watch_tick_once(send_alerts=False):
             new_wl.append(it)
             continue
 
-        price = res["price"]
+        price = _as_float(res["price"], 0.0)
         source = res.get("source", "n/a")
         checked += 1
 
-        last = it.get("last")
-        delta = ( (price - last) / last * 100 ) if isinstance(last,(int,float)) and last else 0.0
+        last = _as_float(it.get("last"), 0.0)
+        delta = ( (price - last) / last * 100 ) if last > 0 else 0.0
         it["last"] = price
         it["delta_pct"] = round(delta, 2)
         it["src"] = source
@@ -528,13 +536,13 @@ def _watch_tick_once():
     if not cfg.get("mints"):
         return
     alerts_cfg = _alerts_load_cfg()
-    min_move = float(alerts_cfg.get("min_move_pct", 0.0))
+    min_move = _as_float(alerts_cfg.get("min_move_pct", 0.0), 0.0)
     for mint in list(cfg.get("mints", [])):
         try:
             pr = get_price(mint)  # uses selected /source with fallbacks
             if not pr.get("ok"):
                 continue
-            price = float(pr["price"])
+            price = _as_float(pr["price"], 0.0)
             src   = pr.get("source","?")
             base  = st["baseline"].get(mint)
             last  = st["last"].get(mint)
@@ -1042,7 +1050,7 @@ def watch_tick_once(send_alerts=True):
         return 0, 0, ["(watchlist empty)"]
 
     cfg = _load_alerts_cfg()
-    min_move = float(cfg.get("min_move_pct", 0.0))
+    min_move = _as_float(cfg.get("min_move_pct", 0.0), 0.0)
     muted = bool(cfg.get("muted", False))
 
     checked = fired = 0
@@ -1059,8 +1067,8 @@ def watch_tick_once(send_alerts=True):
             lines.append(f"- {mint[:10]}… price: (n/a)")
             continue
 
-        price = float(pr["price"])
-        last = float(item.get("last", price)) if isinstance(item, dict) else price
+        price = _as_float(pr["price"], 0.0)
+        last = _as_float(item.get("last", price), price) if isinstance(item, dict) else price
         pct = 0.0 if last == 0 else (price - last) / last * 100.0
 
         if isinstance(item, dict) and abs(price - last) > 1e-12:
@@ -1590,7 +1598,7 @@ def process_telegram_command(update: dict):
             if len(parts) < 2:
                 return _reply("Usage: `/alerts_minmove <pct>`")
             try:
-                pct = max(0.0, float(parts[1]))
+                pct = max(0.0, _as_float(parts[1], 0.0))
             except Exception:
                 return _reply("❌ Invalid percent.")
             cfg = _alerts_load()

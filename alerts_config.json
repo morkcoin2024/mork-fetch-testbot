@@ -1,6 +1,1 @@
-{
-  "chat_id": -1001234567890,
-  "rate_per_min": 15,
-  "min_move_pct": 2.0,
-  "muted_until": null
-}
+{"min_move_pct": "5%", "rate_per_min": "10"}
