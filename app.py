@@ -1229,6 +1229,8 @@ def process_telegram_command(update: dict):
                        "/threshold <score> - Set score threshold\n" + \
                        "/watch <mint> / /unwatch <mint> - Manage watchlist\n" + \
                        "/watchlist - Show watchlist\n" + \
+                       "/watch_tick - Force immediate watchlist check\n" + \
+                       "/watch_off <mint> - Alias of /unwatch <mint>\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
@@ -1260,7 +1262,7 @@ def process_telegram_command(update: dict):
             commands_text = "📋 **Available Commands**\n\n" + \
                           "**Basic:** /help /info /ping /test123 /debug_cmd\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /fetch /fetch_now\n" + \
+                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /fetch /fetch_now\n" + \
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
