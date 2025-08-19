@@ -3,20 +3,93 @@ Flask Web Application for Mork F.E.T.C.H Bot
 Handles Telegram webhooks and provides web interface
 """
 
-import os
-import logging
+import os, time, logging, json, re, random
 import threading
-import time
-import json, re, traceback
 import datetime as _dt
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
-try:
-    import requests
-except Exception:  # very defensive
-    requests = None
+import requests
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
+
+# -------------------------------
+# Price source selection (persisted)
+# -------------------------------
+_PRICE_SOURCE_FILE = "/tmp/mork_price_source"
+_PRICE_SOURCE = os.getenv("PRICE_SOURCE_DEFAULT", "sim")
+try:
+    if os.path.exists(_PRICE_SOURCE_FILE):
+        _PRICE_SOURCE = (open(_PRICE_SOURCE_FILE).read().strip() or _PRICE_SOURCE)
+except Exception:
+    pass
+
+def _set_price_source(src: str) -> bool:
+    """Set and persist price source: sim | dex | birdeye"""
+    global _PRICE_SOURCE
+    s = (src or "").strip().lower()
+    if s not in ("sim", "dex", "birdeye"):
+        return False
+    _PRICE_SOURCE = s
+    try:
+        with open(_PRICE_SOURCE_FILE, "w") as f:
+            f.write(s)
+    except Exception:
+        pass
+    return True
+
+def _price_lookup(mint: str, source: str = None):
+    """
+    Returns (price_float, used_source)
+    Tries selected source first, then falls back: dex->birdeye->sim or birdeye->dex->sim
+    """
+    mint = (mint or "").strip()
+    src = (source or _PRICE_SOURCE or "sim").lower()
+    order = {
+        "sim":      ["sim"],
+        "dex":      ["dex", "birdeye", "sim"],
+        "birdeye":  ["birdeye", "dex", "sim"],
+    }.get(src, ["sim"])
+
+    # Dexscreener
+    def _dex():
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=8)
+        j = r.json()
+        pairs = j.get("pairs") or []
+        if pairs:
+            p = pairs[0].get("priceUsd") or pairs[0].get("price")
+            return float(p), "dex"
+        raise RuntimeError("no dex pair")
+
+    # Birdeye
+    def _birdeye():
+        key = os.getenv("BIRDEYE_API_KEY","")
+        if not key:
+            raise RuntimeError("no birdeye key")
+        r = requests.get(
+            "https://public-api.birdeye.so/defi/price",
+            headers={"X-API-KEY": key, "accept":"application/json"},
+            params={"address": mint},
+            timeout=8
+        )
+        j = r.json()
+        if j.get("success") and j.get("data") and j["data"].get("value") is not None:
+            return float(j["data"]["value"]), "birdeye"
+        raise RuntimeError("birdeye no value")
+
+    for step in order:
+        try:
+            if step == "dex":
+                return _dex()
+            if step == "birdeye":
+                return _birdeye()
+            if step == "sim":
+                raise Exception("force_sim")
+        except Exception:
+            continue
+
+    # final sim fallback (deterministic-ish)
+    price = round(0.5 + (hash(mint) % 5000)/10000.0, 6)
+    return price, "sim"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 APP_START_TS = int(time.time())
@@ -469,7 +542,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/source"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -591,25 +664,20 @@ def process_telegram_command(update: dict):
             )
 
         elif cmd == "/price":
-            deny = _require_admin(user)
-            if deny: return deny
-            m = (args or "").strip()
-            if not m:
-                return _reply("Usage: /price <mint>")
-            px, tag = _price_lookup(m)
-            if px is None:
-                return _reply(f"⚠️ Could not fetch price for {m}")
-            return _reply(f"📈 {m}\nprice: {px:.6f}\nsource: {tag}")
+            mint = (args or "").strip()
+            if not mint:
+                return _reply("Usage: /price <MINT>")
+            price, used = _price_lookup(mint)
+            prefix = "price: " + (f"${price:.6f}" if used != "sim" else f"~${price} (sim)")
+            return _reply(f"📈 {mint}\n{prefix}\nsource: {used}")
 
         elif cmd == "/source":
-            if args:
-                deny = _require_admin(user)
-                if deny: return deny
-                choice = args.strip().lower()
-                if not _set_price_source(choice):
-                    return _reply("Usage: /source sim|dex|birdeye")
-                return _reply(f"✅ Price source set: {choice}")
-            return _reply(f"🔧 Price source: {_get_price_source()}")
+            choice = (args or "").strip().lower()
+            if not choice:
+                return _reply(f"🔧 Price source: **{_PRICE_SOURCE}**\nUse `/source sim|dex|birdeye`", md=True)
+            if _set_price_source(choice):
+                return _reply(f"✅ Price source set: **{_PRICE_SOURCE}**", md=True)
+            return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
@@ -1442,69 +1510,7 @@ try:
             return {"ok": False, "error": str(e)}
 
     # ---------------- Price sources (for /price, step 1) ----------------
-    def _get_price_source():
-        return (_ALERT_CFG.get("price_source") or "sim").lower()
 
-    def _set_price_source(src: str):
-        src = (src or "").lower().strip()
-        if src not in ("sim","dex","birdeye"):
-            return False
-        _ALERT_CFG["price_source"] = src
-        try: open(_ALERT_CFG_PATH,"w").write(json.dumps(_ALERT_CFG))
-        except Exception: pass
-        return True
-
-    _SIM_STATE = {}
-    def _sim_price(mint: str):
-        st = _SIM_STATE.setdefault(mint, {"p": 1.0})
-        st["p"] = max(0.000001, st["p"] * (1.0 + (0.001 if int(time.time())%2==0 else -0.001)))
-        return st["p"], "sim"
-
-    def _dex_price(mint: str):
-        if not requests: return None, "dex"
-        try:
-            url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
-            r = requests.get(url, timeout=(6,8))
-            if r.status_code != 200: return None, "dex"
-            js = r.json() or {}
-            pairs = js.get("pairs") or []
-            if not pairs: return None, "dex"
-            best = max(pairs, key=lambda p: float(((p.get("liquidity") or {}).get("usd") or 0.0)))
-            px = best.get("priceUsd")
-            if px is None: return None, "dex"
-            return float(px), "dex"
-        except Exception:
-            return None, "dex"
-
-    def _birdeye_price(mint: str):
-        if not requests: return None, "birdeye"
-        key = os.getenv("BIRDEYE_API_KEY","").strip()
-        if not key: return None, "birdeye"
-        try:
-            url = f"https://public-api.birdeye.so/public/price?address={mint}"
-            r = requests.get(url, headers={"X-API-KEY": key, "accept": "application/json"}, timeout=(6,8))
-            if r.status_code != 200: return None, "birdeye"
-            js = r.json() or {}
-            px = ((js.get("data") or {}).get("value"))
-            if px is None: return None, "birdeye"
-            return float(px), "birdeye"
-        except Exception:
-            return None, "birdeye"
-
-    def _price_lookup(mint: str):
-        src = _get_price_source()
-        if src == "birdeye":
-            px, tag = _birdeye_price(mint)
-            if px is not None: return px, tag
-            px, tag = _dex_price(mint)
-            if px is not None: return px, tag
-            return _sim_price(mint)
-        elif src == "dex":
-            px, tag = _dex_price(mint)
-            if px is not None: return px, tag
-            return _sim_price(mint)
-        else:
-            return _sim_price(mint)
 
     # --- Daily Digest (heartbeat) helper functions ---
     global _DIGEST_THREAD_STARTED

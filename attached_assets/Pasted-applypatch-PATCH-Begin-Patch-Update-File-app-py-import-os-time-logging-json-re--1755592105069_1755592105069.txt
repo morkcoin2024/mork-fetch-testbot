@@ -1,0 +1,116 @@
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os, time, logging, json, re, random
++import os, time, logging, json, re, random
++import requests
+@@
++# -------------------------------
++# Price source selection (persisted)
++# -------------------------------
++_PRICE_SOURCE_FILE = "/tmp/mork_price_source"
++_PRICE_SOURCE = os.getenv("PRICE_SOURCE_DEFAULT", "sim")
++try:
++    if os.path.exists(_PRICE_SOURCE_FILE):
++        _PRICE_SOURCE = (open(_PRICE_SOURCE_FILE).read().strip() or _PRICE_SOURCE)
++except Exception:
++    pass
++
++def _set_price_source(src: str) -> bool:
++    """Set and persist price source: sim | dex | birdeye"""
++    global _PRICE_SOURCE
++    s = (src or "").strip().lower()
++    if s not in ("sim", "dex", "birdeye"):
++        return False
++    _PRICE_SOURCE = s
++    try:
++        with open(_PRICE_SOURCE_FILE, "w") as f:
++            f.write(s)
++    except Exception:
++        pass
++    return True
++
++def _price_lookup(mint: str, source: str = None):
++    """
++    Returns (price_float, used_source)
++    Tries selected source first, then falls back: dex->birdeye->sim or birdeye->dex->sim
++    """
++    mint = (mint or "").strip()
++    src = (source or _PRICE_SOURCE or "sim").lower()
++    order = {
++        "sim":      ["sim"],
++        "dex":      ["dex", "birdeye", "sim"],
++        "birdeye":  ["birdeye", "dex", "sim"],
++    }.get(src, ["sim"])
++
++    # Dexscreener
++    def _dex():
++        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=8)
++        j = r.json()
++        pairs = j.get("pairs") or []
++        if pairs:
++            p = pairs[0].get("priceUsd") or pairs[0].get("price")
++            return float(p), "dex"
++        raise RuntimeError("no dex pair")
++
++    # Birdeye
++    def _birdeye():
++        key = os.getenv("BIRDEYE_API_KEY","")
++        if not key:
++            raise RuntimeError("no birdeye key")
++        r = requests.get(
++            "https://public-api.birdeye.so/defi/price",
++            headers={"X-API-KEY": key, "accept":"application/json"},
++            params={"address": mint},
++            timeout=8
++        )
++        j = r.json()
++        if j.get("success") and j.get("data") and j["data"].get("value") is not None:
++            return float(j["data"]["value"]), "birdeye"
++        raise RuntimeError("birdeye no value")
++
++    for step in order:
++        try:
++            if step == "dex":
++                return _dex()
++            if step == "birdeye":
++                return _birdeye()
++            if step == "sim":
++                raise Exception("force_sim")
++        except Exception:
++            continue
++
++    # final sim fallback (deterministic-ish)
++    price = round(0.5 + (hash(mint) % 5000)/10000.0, 6)
++    return price, "sim"
+@@
+-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd"]
++        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/source"]
+@@
+-        elif cmd == "/price":
+-            # existing simple simulator response
+-            mint = (args or "").strip() or "<MINT>"
+-            price = round(0.6 + random.random()*0.1, 6)
+-            return _reply(f"📈 {mint}\nprice: ~${price} (sim)\nsource: none (fallback to simulator)")
++        elif cmd == "/price":
++            mint = (args or "").strip()
++            if not mint:
++                return _reply("Usage: /price <MINT>")
++            price, used = _price_lookup(mint)
++            prefix = "price: " + (f"${price:.6f}" if used != "sim" else f"~${price} (sim)")
++            return _reply(f"📈 {mint}\n{prefix}\nsource: {used}")
++
++        elif cmd == "/source":
++            choice = (args or "").strip().lower()
++            if not choice:
++                return _reply(f"🔧 Price source: **{_PRICE_SOURCE}**\nUse `/source sim|dex|birdeye`", md=True)
++            if _set_price_source(choice):
++                return _reply(f"✅ Price source set: **{_PRICE_SOURCE}**", md=True)
++            return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
+@@
+-            return _reply("❓ Command not recognized: {clean}\nUse /help for available commands.",
++            return _reply("❓ Command not recognized: {clean}\nUse /help for available commands.",
+                           status="unknown_command")
+*** End Patch
+PATCH
