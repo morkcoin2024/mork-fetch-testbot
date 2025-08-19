@@ -6,11 +6,20 @@ Handles Telegram webhooks and provides web interface
 import os, time, logging, json, re, random
 import threading
 import datetime as _dt
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 import requests
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
+
+# --- globals / config ---
+LOADED_AT_UTC = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def _router_sha20():
+    """Hash of the currently-loaded router implementation (runtime, not build)."""
+    import inspect, hashlib
+    return hashlib.sha256(inspect.getsource(process_telegram_command).encode()).hexdigest()[:20]
 
 # -------------------------------
 # Price source selection (persisted)
@@ -636,27 +645,34 @@ def process_telegram_command(update: dict):
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
         
-        # /version — show build stamp with current router hash
         elif cmd == "/version":
-            import json, os, inspect, hashlib
-            stamp = []
+            # New behavior: prefer runtime stamp + runtime router hash; fall back to build-info if present
+            runtime_ts = LOADED_AT_UTC
+            runtime_router = _router_sha20()
+            mode = "Polling (integrated)"
+            label, ts = "runtime", runtime_ts
             try:
-                info = json.load(open("build-info.json"))
-                stamp.append(f"🏷 Release: {info.get('label','stable')} {info.get('release_ts_utc','')}")
-                stamp.append(f"Mode: {info.get('mode','?')}")
-                stamp.append(f"Router: {info.get('router_hash','?')}")
+                info = json.load(open("build-info.json","r"))
+                # keep build tag for reference, but *display* runtime load time first
+                label = info.get("label", "runtime")
+                # show both lines so we can see build vs runtime at a glance
+                build_ts = info.get("release_ts_utc", "(none)")
+                return _reply(
+                    "📜 Release: {label} (build {build_ts})\n"
+                    "⏱ Runtime: {runtime_ts}\n"
+                    "Mode: {mode}\n"
+                    "RouterSHA20: {router}".format(
+                        label=label, build_ts=build_ts, runtime_ts=runtime_ts, mode=mode, router=runtime_router
+                    )
+                )
             except Exception:
-                stamp.append("🏷 No build-info.json found")
-            
-            # Add current runtime router hash
-            try:
-                router_src = inspect.getsource(process_telegram_command)
-                sha20 = hashlib.sha256(router_src.encode()).hexdigest()[:20]
-                stamp.append(f"RouterSHA20: {sha20}")
-            except Exception:
-                stamp.append("RouterSHA20: n/a")
-                
-            return _reply("\n".join(stamp))
+                return _reply(
+                    "📜 Release: runtime {runtime_ts}\n"
+                    "Mode: {mode}\n"
+                    "RouterSHA20: {router}".format(
+                        runtime_ts=runtime_ts, mode=mode, router=runtime_router
+                    )
+                )
         elif cmd == "/debug_cmd":
             # Debug command to introspect what the router sees
             raw = update.get("message", {}).get("text") or ""
