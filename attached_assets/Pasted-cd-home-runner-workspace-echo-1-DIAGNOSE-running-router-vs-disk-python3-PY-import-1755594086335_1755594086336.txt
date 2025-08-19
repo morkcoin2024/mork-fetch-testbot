@@ -1,0 +1,94 @@
+cd /home/runner/workspace
+
+echo "=== 1) DIAGNOSE running router vs disk ==="
+python3 - <<'PY'
+import sys, inspect, hashlib, json, os
+import app
+disk = open("app.py","rb").read()
+run_src = inspect.getsource(app.process_telegram_command)
+print("app.__file__        =", app.__file__)
+print("disk_sha20          =", hashlib.sha256(disk).hexdigest()[:20])
+print("running_router_sha20=", hashlib.sha256(run_src.encode()).hexdigest()[:20])
+
+has_source_branch = 'elif cmd == "/source"' in run_src
+print("has /source branch? ", has_source_branch)
+
+def mk(text):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'probe'},'text':text}}
+    out = app.process_telegram_command(upd) or {}
+    print(f"{text:14} -> {out.get('status'):>15} | {(out.get('response') or '')[:80].replace('\\n',' ')}")
+try:
+    mk("/source")
+    mk("/source sim")
+    mk("/price So1111111111111111111111111111111111111112")
+except Exception as e:
+    print("probe_error:", e)
+
+p = "/tmp/mork_price_source"
+print("persisted_source    :", open(p).read().strip() if os.path.exists(p) else "none")
+PY
+
+echo "=== 2) PATCH (only if /source missing in file) ==="
+NEED_PATCH=0
+grep -q 'elif cmd == "/source"' app.py || NEED_PATCH=1
+if [ $NEED_PATCH -eq 1 ]; then
+  applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status"]
++        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/source"]
+@@
++        elif cmd == "/source":
++            choice = (args or "").strip().lower()
++            valid = {"sim","dex","birdeye"}
++            # show current if no arg
++            try:
++                curr = _PRICE_SOURCE
++            except NameError:
++                curr = "sim"
++            if not choice:
++                return _reply(f"🔧 Price source: **{curr}**\nUse `/source sim|dex|birdeye`", md=True)
++            if choice in valid:
++                try:
++                    ok = _set_price_source(choice)
++                except NameError:
++                    ok, curr = True, choice
++                if ok:
++                    return _reply(f"✅ Price source set: **{choice}**", md=True)
++            return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
+*** End Patch
+PATCH
+  echo "[PATCH] /source route added to app.py"
+else
+  echo "[PATCH] Not needed; /source already present in file"
+fi
+
+echo "=== 3) RELOAD single integrated worker (avoid duplicate pollers) ==="
+# Ensure webhook polling mode & no extra pollers
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+pkill -f production_polling_bot\.py   || true
+pkill -f working_polling_bot\.py      || true
+pkill -f simple_polling_bot\.py       || true
+pkill -f gunicorn || true
+sleep 2
+ps aux | grep gunicorn | grep -v grep || true
+
+echo "=== 4) VERIFY in-process ==="
+python3 - <<'PY'
+import inspect, app, hashlib
+print("running_router_sha20(after)=", hashlib.sha256(inspect.getsource(app.process_telegram_command).encode()).hexdigest()[:20])
+def mk(text):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'verify'},'text':text}}
+    out = app.process_telegram_command(upd) or {}
+    print(f"{text:14} -> {out.get('status'):>15} | {(out.get('response') or '')[:80].replace('\\n',' ')}")
+for t in ["/source","/source sim","/source dex","/price So1111111111111111111111111111111111111112"]:
+    mk(t)
+PY
+
+echo "=== 5) NEXT in Telegram (DM) ==="
+echo "• Send: /source        → should show current source"
+echo "• Send: /source sim    → then /price <MINT> shows 'source: sim'"
+echo "• If BIRDEYE_API_KEY is set: /source birdeye → /price <MINT> shows 'source: birdeye'"
