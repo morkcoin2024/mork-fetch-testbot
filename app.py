@@ -475,10 +475,23 @@ def _watch_contains(wl, mint):
     return False
 
 def _load_alerts_cfg():
-    import json
+    import json, os, time
+    path = "alerts_config.json"
+    base = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+    if not os.path.exists(path):
+        return base
     try:
-        with open("alerts_config.json","r") as f: return json.load(f) or {}
-    except Exception: return {"min_move_pct":0.0,"rate_per_min":60,"muted":False}
+        cfg = json.load(open(path, "r"))
+        if not isinstance(cfg, dict):
+            return base
+        # normalize known keys
+        cfg["min_move_pct"] = _as_float(cfg.get("min_move_pct"), 0.0)
+        cfg["rate_per_min"] = int(_as_float(cfg.get("rate_per_min"), 5))
+        cfg["muted_until"]  = int(_as_float(cfg.get("muted_until"), 0))
+        cfg["muted"]        = bool(cfg.get("muted", False))
+        return {**base, **cfg}
+    except Exception:
+        return base
 
 def watch_tick_once(send_alerts=False):
     """
@@ -1037,12 +1050,23 @@ def _save_watchlist(items):
         pass
 
 def _load_alerts_cfg():
-    import json
+    import json, os, time
+    path = "alerts_config.json"
+    base = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+    if not os.path.exists(path):
+        return base
     try:
-        with open("alerts_config.json","r") as f:
-            return json.load(f) or {}
+        cfg = json.load(open(path, "r"))
+        if not isinstance(cfg, dict):
+            return base
+        # normalize known keys
+        cfg["min_move_pct"] = _as_float(cfg.get("min_move_pct"), 0.0)
+        cfg["rate_per_min"] = int(_as_float(cfg.get("rate_per_min"), 5))
+        cfg["muted_until"]  = int(_as_float(cfg.get("muted_until"), 0))
+        cfg["muted"]        = bool(cfg.get("muted", False))
+        return {**base, **cfg}
     except Exception:
-        return {"min_move_pct":0.0, "rate_per_min":60, "muted": False}
+        return base
 
 def watch_tick_once(send_alerts=True):
     wl = _load_watchlist()
