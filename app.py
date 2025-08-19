@@ -351,6 +351,77 @@ def process_telegram_command(update: dict):
     clean = (text or "").strip() 
     cmd, args = _parse_cmd(clean)
 
+    # --- HOTFIX_EXT_ROUTES_BEGIN ---
+    # Early intercept: digest routes + hardened autosell_status
+    # (Added by hotfix; idempotent)
+    if cmd in {"/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"}:
+        import re, time, os
+        d_flag = "/tmp/digest_on"
+        d_time = "/tmp/digest_time"
+
+        def _rd(p, default=""):
+            try:
+                return open(p,"r").read().strip()
+            except:
+                return default
+
+        def _wr(p, v):
+            try:
+                with open(p,"w") as f: f.write(v)
+            except Exception as e:
+                return {"status":"error","response": f"Persist error: {e}"}
+
+        if cmd == "/digest_status":
+            on   = _rd(d_flag, "0") or "0"
+            tstr = _rd(d_time, "09:30")
+            text = ("🗞 *Daily Digest*\n"
+                    f"*Enabled:* {'yes' if on=='1' else 'no'}\n"
+                    f"*Time:* {tstr} UTC")
+            return {"status":"ok","response": text}
+
+        if cmd == "/digest_on":
+            _wr(d_flag, "1")
+            return {"status":"ok","response":"✅ Daily digest enabled"}
+
+        if cmd == "/digest_off":
+            _wr(d_flag, "0")
+            return {"status":"ok","response":"⛔ Daily digest disabled"}
+
+        if cmd == "/digest_time":
+            t = (args or "").strip()
+            if not re.match(r"^\d{2}:\d{2}$", t):
+                return {"status":"ok","response":"Usage: `/digest_time HH:MM` (UTC)"}
+            hh, mm = map(int, t.split(":"))
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                return {"status":"ok","response":"Time must be 00:00–23:59 (UTC)"}
+            _wr(d_time, f"{hh:02d}:{mm:02d}")
+            return {"status":"ok","response": f"🕘 Digest time set to *{t}* UTC"}
+
+        if cmd == "/digest_test":
+            note = (args or "").strip() or "hello"
+            now  = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            body = ("📰 *Daily Digest — {}*\n"
+                    "AutoSell: enabled=False alive=None interval=?s\n"
+                    "Rules: []\n"
+                    "Note: {}").format(now, note)
+            return {"status":"ok","response": body}
+
+    if cmd == "/autosell_status":
+        try:
+            import autosell
+            st = autosell.status()
+        except Exception as e:
+            return {"status":"error","response": f"AutoSell status unavailable: {e}"}
+        interval = st.get("interval_sec") or st.get("interval") or "n/a"
+        alive    = st.get("alive", "n/a")
+        rules    = st.get("rules") or []
+        text = (f"🤖 AutoSell Status\n"
+                f"Enabled: {st.get('enabled')}\n"
+                f"Interval: {interval}s\n"
+                f"Rules: {len(rules)}\n"
+                f"Thread alive: {alive}")
+        return {"status":"ok","response": text}
+    # --- HOTFIX_EXT_ROUTES_END ---
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
@@ -382,7 +453,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -550,18 +621,7 @@ Use `/price <mint>` to check token prices""")
             autosell.disable()
             return _reply("🔴 AutoSell disabled.")
 
-        elif cmd == "/autosell_status":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            st = autosell.status()
-            return _reply(
-                "🤖 AutoSell Status\n"
-                f"Enabled: {st['enabled']}\n"
-                f"Interval: {st['interval_sec']}s\n"
-                f"Rules: {st['rules_count']}\n"
-                f"Thread alive: {st['thread_alive']}"
-            )
+
 
         elif cmd == "/autosell_interval":
             deny = _require_admin(user)

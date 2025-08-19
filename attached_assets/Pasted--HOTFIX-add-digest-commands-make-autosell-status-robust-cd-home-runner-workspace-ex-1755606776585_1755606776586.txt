@@ -1,0 +1,149 @@
+# === HOTFIX: add digest commands + make /autosell_status robust ===
+cd /home/runner/workspace || exit 1
+
+python3 - <<'PY'
+import re, time, os, io, sys, hashlib, inspect
+import app
+
+path = "app.py"
+src  = open(path,"r",encoding="utf-8").read()
+
+def has(s): return s in src
+
+print("RouterSHA20(before):", hashlib.sha256(inspect.getsource(app.process_telegram_command).encode()).hexdigest()[:20])
+print("Has /digest_status?  :", has('cmd == "/digest_status"'))
+print("Has /digest_time?    :", has('cmd == "/digest_time"'))
+print("Has /digest_on?      :", has('cmd == "/digest_on"'))
+print("Has /digest_off?     :", has('cmd == "/digest_off"'))
+print("Has /autosell_status?:", has('cmd == "/autosell_status"'))
+
+# 1) Insert an early hotfix block (once). We hook right after cmd/args extraction.
+begin_mark = "# --- HOTFIX_EXT_ROUTES_BEGIN ---"
+end_mark   = "# --- HOTFIX_EXT_ROUTES_END ---"
+
+if begin_mark not in src:
+    # find the first occurrence of 'cmd =' (after it has been parsed from the update)
+    m_cmd = re.search(r"\n\s*cmd\s*=\s*.+\n", src)
+    if not m_cmd:
+        print("!! Could not find 'cmd =' line in app.py; aborting hotfix")
+        sys.exit(0)
+
+    insert_at = m_cmd.end()
+
+    hotfix = f"""
+{begin_mark}
+    # Early intercept: digest routes + hardened autosell_status
+    # (Added by hotfix; idempotent)
+    if cmd in {{"/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"}}:
+        import re, time, os
+        d_flag = "/tmp/digest_on"
+        d_time = "/tmp/digest_time"
+
+        def _rd(p, default=""):
+            try:
+                return open(p,"r").read().strip()
+            except:
+                return default
+
+        def _wr(p, v):
+            try:
+                with open(p,"w") as f: f.write(v)
+            except Exception as e:
+                return {{"status":"error","response": f"Persist error: {{e}}"}}
+
+        if cmd == "/digest_status":
+            on   = _rd(d_flag, "0") or "0"
+            tstr = _rd(d_time, "09:30")
+            text = ("🗞 *Daily Digest*\n"
+                    f"*Enabled:* {{'yes' if on=='1' else 'no'}}\\n"
+                    f"*Time:* {{tstr}} UTC")
+            return {{"status":"ok","response": text}}
+
+        if cmd == "/digest_on":
+            _wr(d_flag, "1")
+            return {{"status":"ok","response":"✅ Daily digest enabled"}}
+
+        if cmd == "/digest_off":
+            _wr(d_flag, "0")
+            return {{"status":"ok","response":"⛔ Daily digest disabled"}}
+
+        if cmd == "/digest_time":
+            t = (args or "").strip()
+            if not re.match(r"^\\d{2}:\\d{2}$", t):
+                return {{"status":"ok","response":"Usage: `/digest_time HH:MM` (UTC)"}}
+            hh, mm = map(int, t.split(":"))
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                return {{"status":"ok","response":"Time must be 00:00–23:59 (UTC)"}}
+            _wr(d_time, f"{'{:02d}'.format(hh)}:{'{:02d}'.format(mm)}")
+            return {{"status":"ok","response": f"🕘 Digest time set to *{t}* UTC"}}
+
+        if cmd == "/digest_test":
+            note = (args or "").strip() or "hello"
+            now  = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            body = ("📰 *Daily Digest — {{}}*\\n"
+                    "AutoSell: enabled=False alive=None interval=?s\\n"
+                    "Rules: []\\n"
+                    "Note: {{}}").format(now, note)
+            return {{"status":"ok","response": body}}
+
+    if cmd == "/autosell_status":
+        try:
+            st = autosell.status()
+        except Exception as e:
+            return {{"status":"error","response": f"AutoSell status unavailable: {{e}}"}}
+        interval = st.get("interval_sec") or st.get("interval") or "n/a"
+        alive    = st.get("alive", "n/a")
+        rules    = st.get("rules") or []
+        text = (f"🤖 AutoSell Status\\n"
+                f"Enabled: {{st.get('enabled')}}\\n"
+                f"Interval: {{interval}}s\\n"
+                f"Rules: {{len(rules)}}\\n"
+                f"Thread alive: {{alive}}")
+        return {{"status":"ok","response": text}}
+{end_mark}
+"""
+    src = src[:insert_at] + hotfix + src[insert_at:]
+    open(path,"w",encoding="utf-8").write(src)
+    print("[HOTFIX] Inserted early route block for digest + hardened autosell_status")
+else:
+    print("[HOTFIX] Early route block already present; no changes")
+
+# 2) Ensure the five digest commands are in public_commands (best effort)
+s = src
+m = re.search(r"public_commands\s*=\s*\[([^\]]*)\]", s)
+if m:
+    body = m.group(1)
+    have = {x.strip().strip("'\"") for x in body.split(",") if x.strip()}
+    need = {{"/digest_status","/digest_time","/digest_on","/digest_off","/digest_test"}}
+    if not need.issubset(have):
+        new = ", ".join(sorted(have|need))
+        s2  = re.sub(r"public_commands\s*=\s*\[[^\]]*\]", f"public_commands=[{new}]", s)
+        open(path,"w",encoding="utf-8").write(s2)
+        print("[public_commands] augmented with digest commands")
+    else:
+        print("[public_commands] already includes digest commands")
+else:
+    print("[public_commands] list not found; skipping augmentation")
+
+print("Done.")
+PY
+
+# === Single-worker restart with polling enabled ===
+export POLLING_ENABLED=1
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+pkill -f gunicorn || true
+sleep 2
+nohup /home/runner/workspace/.pythonlibs/bin/gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload > /tmp/guni.out 2>&1 & disown
+sleep 2
+tail -n 60 /tmp/guni.out || true
+
+# === Send a live probe set to your admin DM ===
+python3 - <<'PY'
+import os,requests
+tid=int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+tok=os.environ["TELEGRAM_BOT_TOKEN"]
+def send(t): requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", json={"chat_id":tid,"text":t})
+for t in ["/ping","/version","/digest_status","/digest_on","/digest_time 09:30","/digest_test hello","/autosell_status"]:
+    send(t)
+print("Probes sent.")
+PY
