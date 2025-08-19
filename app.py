@@ -1420,17 +1420,12 @@ def process_telegram_command(update: dict):
             if len(parts) < 2:
                 return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
             mint = parts[1].strip()
-
             wl = _load_watchlist()
             before = len(wl)
-            def _mint_of(x): return x.get("mint") if isinstance(x, dict) else (x if isinstance(x, str) else "")
-            wl = [x for x in wl if _mint_of(x) != mint]
+            def _m(x): return x.get("mint") if isinstance(x, dict) else (x if isinstance(x, str) else "")
+            wl = [x for x in wl if _m(x) != mint]
             _save_watchlist(wl)
-
-            if len(wl) < before:
-                return {"status":"ok","response":"✅ Unwatched"}
-            else:
-                return {"status":"ok","response":"(mint not in watchlist)"}
+            return {"status":"ok","response":"✅ Unwatched" if len(wl) < before else "(mint not in watchlist)"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")
