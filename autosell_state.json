@@ -1,1 +1,1 @@
-{"rules": [], "watch": {"DitHyRMQiSDhn5cnKMJV2CDDt6sVct96YrECiM49pump": {"last": null}}, "watch_sens": 0.1, "interval": 10, "alerts": true, "ledger": {"positions": {}, "realized": 0.0}}
+{"rules": [], "watch": {}, "watch_sens": 1.0, "interval": 10, "alerts": true, "ledger": {"positions": {}, "realized": 0.0}}
