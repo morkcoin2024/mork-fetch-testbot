@@ -1,0 +1,303 @@
+# A) Snapshot & quick probe (so we can see changes take effect)
+cd /home/runner/workspace || exit 1
+python3 - <<'PY'
+import inspect, importlib, json, time
+import app, autosell
+print("router_sha20=", __import__("hashlib").sha256(inspect.getsource(app.process_telegram_command).encode()).hexdigest()[:20])
+print("autosell_api:", {k:getattr(autosell,k,None) is not None for k in ["set_interval","set_rule","get_logs","dryrun_rule","rule_info"]})
+PY
+
+# B) Patch autosell.py to present a clean, minimal API the router can rely on
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: autosell.py
+@@
+-# (keep existing imports if present)
++from __future__ import annotations
++import threading, time, json, os
++from collections import deque
++from typing import Dict, Optional
++
++# ---- state ----
++STATE = {
++    "enabled": False,
++    "interval_sec": 10,
++    "rules": {},                # mint -> {"tp":..,"sl":..,"trail":..,"ref":0.0,"peak":0.0}
++    "events": deque(maxlen=200),
++    "thread": None,
++    "alive": False,
++    "last_tick": 0.0,
++}
++LOCK = threading.RLock()
++_PERSIST = "/tmp/autosell_rules.json"
++
++def _log(msg: str):
++    with LOCK:
++        ts = time.strftime("%H:%M:%S")
++        STATE["events"].append(f"{ts} {msg}")
++
++def _persist():
++    try:
++        with LOCK:
++            data = {"rules": STATE["rules"], "interval_sec": STATE["interval_sec"]}
++        open(_PERSIST, "w").write(json.dumps(data))
++    except Exception:
++        pass
++
++def _load():
++    try:
++        data = json.loads(open(_PERSIST).read())
++        with LOCK:
++            STATE["rules"] = data.get("rules", {})
++            STATE["interval_sec"] = int(data.get("interval_sec", 10))
++    except Exception:
++        pass
++_load()
++
++def enable():
++    with LOCK:
++        STATE["enabled"] = True
++    _ensure_thread()
++    _log("AutoSell enabled.")
++    return True
++
++def disable():
++    with LOCK:
++        STATE["enabled"] = False
++    _log("AutoSell disabled.")
++    return True
++
++def status() -> dict:
++    with LOCK:
++        return {
++            "enabled": STATE["enabled"],
++            "alive": STATE["alive"],
++            "interval_sec": STATE["interval_sec"],
++            "rules_count": len(STATE["rules"]),
++            "last_tick_age": int(time.time() - STATE["last_tick"]) if STATE["last_tick"] else None,
++        }
++
++# --- API expected by router ---
++def set_interval(seconds: int) -> int:
++    seconds = max(3, int(seconds))
++    with LOCK:
++        STATE["interval_sec"] = seconds
++    _persist()
++    _log(f"[cfg] interval={seconds}s")
++    return seconds
++
++def set_rule(mint: str, tp: Optional[int]=None, sl: Optional[int]=None, trail: Optional[int]=None) -> dict:
++    # All values optional; only update what’s provided
++    mint = mint.strip()
++    with LOCK:
++        rule = STATE["rules"].get(mint, {"tp": None, "sl": None, "trail": None, "ref": 0.0, "peak": 0.0})
++        if tp is not None: rule["tp"] = int(tp)
++        if sl is not None: rule["sl"] = int(sl)
++        if trail is not None: rule["trail"] = int(trail)
++        STATE["rules"][mint] = rule
++    _persist()
++    _log(f"[cfg] rule {mint} tp={rule['tp']} sl={rule['sl']} trail={rule['trail']}")
++    return {"mint": mint, **STATE["rules"][mint]}
++
++def rule_info(mint: str) -> str:
++    with LOCK:
++        r = STATE["rules"].get(mint)
++    if not r:
++        return "No such rule."
++    return f"Rule info: {mint} tp={r['tp']} sl={r['sl']} trail={r['trail']} ref={r['ref']} peak={r['peak']}"
++
++def dryrun_rule(mint: str) -> str:
++    with LOCK:
++        r = STATE["rules"].get(mint)
++    if not r:
++        return "No matching rules."
++    # Mock evaluation line
++    return f"[DRY] hold {mint} price=~{0.973:.6f} src=sim ref={r['ref']:.6f} peak={r['peak']:.6f}"
++
++def get_logs(limit: int=10):
++    with LOCK:
++        items = list(STATE["events"])[-int(max(1,limit)):]
++    return items or ["No events yet."]
++
++def _ensure_thread():
++    with LOCK:
++        th = STATE.get("thread")
++        if th and th.is_alive():
++            return
++        th = threading.Thread(target=_worker, daemon=True, name="autosell-worker")
++        STATE["thread"] = th
++        th.start()
++
++def _worker():
++    STATE["alive"] = True
++    _log("[hb] worker started")
++    try:
++        while True:
++            with LOCK:
++                interval = STATE["interval_sec"]
++                en = STATE["enabled"]
++                STATE["last_tick"] = time.time()
++            if en:
++                _log("[tick] ok")
++            time.sleep(interval)
++    except Exception as e:
++        _log(f"[err] worker {e!r}")
++    finally:
++        STATE["alive"] = False
++        _log("[hb] worker stopped")
+*** End Patch
+PATCH
+
+# C) Patch app.py router: add /autosell_* and /alerts_* handlers
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+ import os, time, json, re
+-from autosell import enable as autosell_enable, disable as autosell_disable, status as autosell_status
++from autosell import enable as autosell_enable, disable as autosell_disable, status as autosell_status
++from autosell import set_interval as autosell_set_interval, set_rule as autosell_set_rule
++from autosell import get_logs as autosell_get_logs, dryrun_rule as autosell_dryrun, rule_info as autosell_ruleinfo
+@@
+-    public_commands = ["/help","/ping","/info","/test123","/commands","/status","/version","/source","/price"]
++    public_commands = ["/help","/ping","/info","/test123","/commands","/status","/version","/source","/price",
++                       "/autosell_status","/autosell_logs","/autosell_dryrun","/alerts_settings"]
+@@
+     elif cmd == "/autosell_on":
+         autosell_enable()
+         resp = "🟢 AutoSell enabled."
+@@
+     elif cmd == "/autosell_off":
+         autosell_disable()
+         resp = "🔴 AutoSell disabled."
++    elif cmd == "/autosell_status":
++        s = autosell_status()
++        resp = ("🤖 AutoSell Status\n"
++                f"Enabled: {s.get('enabled')}\n"
++                f"Interval: {s.get('interval_sec')}s\n"
++                f"Rules: {s.get('rules_count')}\n"
++                f"Thread alive: {s.get('alive')}")
++    elif cmd == "/autosell_interval":
++        # /autosell_interval <seconds>
++        m = re.search(r"/autosell_interval\s+(\d+)", text)
++        if not m:
++            resp = "Usage: /autosell_interval <seconds>"
++        else:
++            sec = autosell_set_interval(int(m.group(1)))
++            resp = f"⏱ Interval set to {sec}s"
++    elif cmd == "/autosell_set":
++        # /autosell_set <MINT> [tp=..] [sl=..] [trail=..]
++        m = re.match(r"/autosell_set\s+(\S+)(.*)$", text)
++        if not m:
++            resp = "Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10]"
++        else:
++            mint = m.group(1)
++            tail = m.group(2) or ""
++            kv = dict(re.findall(r"(tp|sl|trail)\s*=\s*(\d+)", tail))
++            tp = int(kv["tp"]) if "tp" in kv else None
++            sl = int(kv["sl"]) if "sl" in kv else None
++            tr = int(kv["trail"]) if "trail" in kv else None
++            r = autosell_set_rule(mint, tp, sl, tr)
++            resp = f"✅ Rule saved: {r['mint']} tp={r['tp']} sl={r['sl']} trail={r['trail']}"
++    elif cmd == "/autosell_logs":
++        m = re.search(r"/autosell_logs\s+(\d+)", text)
++        n = int(m.group(1)) if m else 10
++        lines = autosell_get_logs(n)
++        resp = "📜 Last events:\n" + "\n".join(lines)
++    elif cmd == "/autosell_dryrun":
++        m = re.search(r"/autosell_dryrun\s+(\S+)", text)
++        if not m:
++            resp = "Usage: /autosell_dryrun <MINT>"
++        else:
++            resp = autosell_dryrun(m.group(1))
++    elif cmd == "/autosell_ruleinfo":
++        m = re.search(r"/autosell_ruleinfo\s+(\S+)", text)
++        if not m:
++            resp = "Usage: /autosell_ruleinfo <MINT>"
++        else:
++            resp = autosell_ruleinfo(m.group(1))
++
++    # ---- Alerts simple settings (mute/unmute/status) ----
++    elif cmd in ("/alerts_settings","/alerts_status"):
++        st = _alerts_load()
++        mu = "yes" if st.get("muted_until",0) > time.time() else "no"
++        left = max(0,int(st.get("muted_until",0)-time.time()))
++        resp = ("🖥 Alert flood control settings:\n"
++                f"chat: {st.get('chat','not set')}\n"
++                f"min_move_pct: {st.get('min_move_pct',0.0)}%\n"
++                f"rate_per_min: {st.get('rate_per_min',60)}\n"
++                f"sent_last_min: {st.get('sent_last_min',0)}\n"
++                f"muted: {mu}" + (f" ({left}s left)" if mu=="yes" else ""))
++    elif cmd == "/alerts_mute":
++        # /alerts_mute <2m|5m|1h>
++        m = re.search(r"/alerts_mute\s+(\d+)([smh]?)", text)
++        if not m:
++            resp = "Usage: /alerts_mute <duration e.g. 120s | 2m | 1h>"
++        else:
++            val, unit = int(m.group(1)), (m.group(2) or "s")
++            mult = {"s":1,"m":60,"h":3600}[unit]
++            dur = val*mult
++            st = _alerts_load()
++            st["muted_until"] = time.time()+dur
++            _alerts_save(st)
++            resp = f"🔕 Alerts muted for {dur//60} min"
++    elif cmd == "/alerts_unmute":
++        st = _alerts_load()
++        st["muted_until"] = 0
++        _alerts_save(st)
++        resp = "🔔 Alerts unmuted"
+@@
+     else:
+         resp = f"❓ Command not recognized: {text}\nUse /help for available commands."
+@@
+     return {"status": "ok", "response": resp}
++
++# ---- helpers for alerts persistence ----
++_ALERTS_FILE = "/tmp/alerts_settings.json"
++def _alerts_load():
++    try:
++        return json.loads(open(_ALERTS_FILE).read())
++    except Exception:
++        return {"chat":"not set","min_move_pct":0.0,"rate_per_min":60,"sent_last_min":0,"muted_until":0}
++def _alerts_save(data):
++    try:
++        open(_ALERTS_FILE,"w").write(json.dumps(data))
++    except Exception:
++        pass
+*** End Patch
+PATCH
+
+# D) Restart single integrated worker cleanly
+pkill -f gunicorn || true
+sleep 2
+gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload > /tmp/guni.out 2>&1 & disown
+sleep 2
+tail -n 40 /tmp/guni.out || true
+
+# E) In-process smoke tests (router only)
+python3 - <<'PY'
+from app import process_telegram_command
+def mk(t):
+    u={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+        'from':{'id':1,'is_bot':False,'username':'probe'},'text':t}}
+    o=process_telegram_command(u) or {}
+    print(f"{t:22} -> {o.get('status')} | {len((o.get('response') or ''))} chars")
+for t in ["/autosell_on","/autosell_status","/autosell_interval 8",
+          "/autosell_set MINT1 tp=5 sl=5 trail=3",
+          "/autosell_ruleinfo MINT1","/autosell_dryrun MINT1",
+          "/autosell_logs 3","/alerts_settings","/alerts_mute 2m","/alerts_settings","/alerts_unmute","/alerts_settings"]:
+    mk(t)
+PY
+
+# F) Telegram quick test (admin DM)
+python3 - <<'PY'
+import os, requests, json
+T=os.getenv("TELEGRAM_BOT_TOKEN"); C=os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID")
+def send(t): 
+    r=requests.post(f"https://api.telegram.org/bot{T}/sendMessage", json={"chat_id":int(C),"text":t})
+    print(t,"->",r.status_code)
+for t in ["/autosell_on","/autosell_interval 8","/autosell_set MINT1 tp=5 sl=5 trail=3","/autosell_status",
+          "/autosell_dryrun MINT1","/autosell_ruleinfo MINT1","/autosell_logs 5",
+          "/alerts_settings","/alerts_mute 2m","/alerts_settings","/alerts_unmute","/alerts_settings"]:
+    send(t)
+PY
