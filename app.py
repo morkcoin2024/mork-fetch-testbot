@@ -542,7 +542,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/source"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price", "/source"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -674,9 +674,9 @@ def process_telegram_command(update: dict):
         elif cmd == "/source":
             choice = (args or "").strip().lower()
             if not choice:
-                return _reply(f"🔧 Price source: **{_PRICE_SOURCE}**\nUse `/source sim|dex|birdeye`", md=True)
+                return _reply(f"🔧 Price source: {_PRICE_SOURCE}\nUse `/source sim|dex|birdeye`")
             if _set_price_source(choice):
-                return _reply(f"✅ Price source set: **{_PRICE_SOURCE}**", md=True)
+                return _reply(f"✅ Price source set: {_PRICE_SOURCE}")
             return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
         
         elif cmd == "/autosell_on":
