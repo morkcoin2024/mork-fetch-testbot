@@ -1429,13 +1429,26 @@ def process_telegram_command(update: dict):
         # public watch controls
         elif cmd == "/watch_tick":
             checked, fired, lines = watch_tick_once(send_alerts=True)
-            summary = f"🔧 Watch tick executed.\nChecked: {checked} tokens\nAlerts: {fired} fired"
-            if lines:
-                summary += "\n\n" + "\n".join(lines[:5])  # Show first 5 results
-            return _reply(summary)
+            body = "\n".join(lines) if lines else "(no items)"
+            return {"status": "ok",
+                    "response": f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}"}
+
         elif cmd == "/watch_off":
-            WATCH_RUN["enabled"] = False
-            return _reply("⏸️ Watcher paused.")
+            parts = text.split()
+            if len(parts) < 2:
+                return {"status": "ok", "response": "Usage: `/watch_off <mint>`", "parse_mode":"MarkdownV2"}
+            mint = parts[1].strip()
+            # Use existing unwatch functionality
+            try:
+                cfg = _watch_load()
+                if mint in cfg.get("mints", []):
+                    cfg["mints"].remove(mint)
+                    _watch_save(cfg)
+                    return {"status": "ok", "response": "✅ Unwatched"}
+                else:
+                    return {"status": "ok", "response": "⚠️ Token not in watchlist"}
+            except Exception:
+                return {"status": "ok", "response": "⚠️ Could not unwatch (already removed?)"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")
