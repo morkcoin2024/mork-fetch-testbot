@@ -1507,11 +1507,15 @@ def process_telegram_command(update: dict):
             if len(parts) < 2:
                 return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
             mint = parts[1].strip()
-            wl = _load_watchlist()
-            before = len(wl)
-            wl = [x for x in wl if _normalize_watch_item(x).get("mint") != mint]
-            _save_watchlist(wl)
-            return {"status":"ok","response":"✅ Unwatched" if len(wl)<before else "(mint not in watchlist)"}
+            try:
+                wl = _load_watchlist()
+                before = len(wl)
+                wl = [x for x in wl if _normalize_watch_item(x).get("mint") != mint]
+                _save_watchlist(wl)
+                changed = (len(wl) < before)
+                return {"status":"ok","response":"✅ Unwatched" if changed else "(mint not in watchlist)"}
+            except Exception as e:
+                return {"status":"ok","response":f"Internal error: {e}"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")

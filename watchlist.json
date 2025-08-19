@@ -1,20 +1,5 @@
 [
   {
-    "mint": "So11111111111111111111111111111111111111112",
-    "last": 150.42,
-    "delta_pct": 2.35,
-    "src": "dex"
-  },
-  {
-    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "last": 1.0001,
-    "delta_pct": -0.01,
-    "src": "birdeye"
-  },
-  {
-    "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
-    "last": null,
-    "delta_pct": null,
-    "src": null
+    "token": "DUSTawucrTsGU8hcqRdHDCbuYhCPADMLM2VcCb8VnFnQ"
   }
 ]
