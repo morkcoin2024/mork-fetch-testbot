@@ -1419,25 +1419,26 @@ def process_telegram_command(update: dict):
         elif cmd == "/watch_tick":
             checked, fired, lines = watch_tick_once(send_alerts=True)
             body = "\n".join(lines) if lines else "(no items)"
-            return {"status": "ok",
-                    "response": f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}"}
+            return {"status":"ok",
+                    "response": f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}",
+                    "parse_mode":"Markdown"}
 
         elif cmd == "/watch_off":
-            parts = text.split()
+            parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return {"status": "ok", "response": "Usage: `/watch_off <mint>`", "parse_mode":"MarkdownV2"}
+                return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
             mint = parts[1].strip()
-            # Use existing unwatch functionality
-            try:
-                cfg = _watch_load()
-                if mint in cfg.get("mints", []):
-                    cfg["mints"].remove(mint)
-                    _watch_save(cfg)
-                    return {"status": "ok", "response": "✅ Unwatched"}
-                else:
-                    return {"status": "ok", "response": "⚠️ Token not in watchlist"}
-            except Exception:
-                return {"status": "ok", "response": "⚠️ Could not unwatch (already removed?)"}
+
+            wl = _load_watchlist()
+            before = len(wl)
+            def _mint_of(x): return x.get("mint") if isinstance(x, dict) else (x if isinstance(x, str) else "")
+            wl = [x for x in wl if _mint_of(x) != mint]
+            _save_watchlist(wl)
+
+            if len(wl) < before:
+                return {"status":"ok","response":"✅ Unwatched"}
+            else:
+                return {"status":"ok","response":"(mint not in watchlist)"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")
