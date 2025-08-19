@@ -446,26 +446,44 @@ def price_dex(mint, timeout=6):
 
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
 def price_birdeye(mint, timeout=6):
+    """
+    Robust Birdeye fetcher:
+      - Sends required X-API-KEY header
+      - Adds chain hint
+      - Tries two endpoints
+      - Emits short debug logs on failure
+    Returns {"ok": bool, "price": float, "source": str} or {"ok": False, "err": str}.
+    """
     key = os.getenv("BIRDEYE_API_KEY") or os.getenv("BIRDEYE_KEY")
     if not key:
+        logging.info("birdeye: no API key present; skip")
         return {"ok": False, "err": "birdeye key missing"}
-    try:
-        url = f"https://public-api.birdeye.so/defi/price?address={mint}"
-        headers = {
-            "accept": "application/json",
-            "x-api-key": key,
-        }
-        r = requests.get(url, headers=headers, timeout=timeout)
-        if r.status_code != 200:
-            return {"ok": False, "err": f"birdeye http {r.status_code}"}
-        j = r.json() or {}
-        data = j.get("data") or {}
-        price = float(data.get("value") or 0)
-        if price <= 0:
-            return {"ok": False, "err": "birdeye invalid price"}
-        return {"ok": True, "price": price, "source": "birdeye"}
-    except Exception as e:
-        return {"ok": False, "err": f"birdeye error: {e}"}
+    
+    headers = {
+        "X-API-KEY": key,
+        "accept": "application/json",
+    }
+    urls = [
+        f"https://public-api.birdeye.so/defi/price?address={mint}&chain=solana",
+        f"https://public-api.birdeye.so/public/price?address={mint}",
+    ]
+    
+    for url in urls:
+        try:
+            r = requests.get(url, headers=headers, timeout=(5, 10))
+            if r.status_code != 200:
+                logging.warning("birdeye: %s -> %s", r.status_code, url)
+                continue
+            j = r.json()
+            data = j.get("data") or {}
+            price = data.get("price") or data.get("value")
+            if price:
+                return {"ok": True, "price": float(price), "source": "birdeye"}
+            logging.warning("birdeye: no price field in response for %s", mint)
+        except Exception as e:
+            logging.warning("birdeye exception for %s: %s", mint, e)
+    
+    return {"ok": False, "err": "birdeye all endpoints failed"}
 
 def get_price(mint, preferred=None):
     """
