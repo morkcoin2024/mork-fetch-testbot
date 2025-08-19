@@ -306,8 +306,16 @@ def _parse_cmd(text: str):
     m = _CMD_RE.match(s)
     if not m:
         head = s.split()[0]
-        return head.lower(), s[len(head):].strip()
-    return f"/{m.group(1).lower()}", (m.group(2) or "").strip()
+        cmd = head.lower()
+        # accept dashed variants like /alerts-settings -> /alerts_settings
+        if cmd.startswith("/"):
+            cmd = "/" + cmd[1:].replace("-", "_")
+        return cmd, s[len(head):].strip()
+    cmd = f"/{m.group(1).lower()}"
+    # accept dashed variants like /alerts-settings -> /alerts_settings
+    if cmd.startswith("/"):
+        cmd = "/" + cmd[1:].replace("-", "_")
+    return cmd, (m.group(2) or "").strip()
 
 def _normalize_token(token_data, source=None):
     """Normalize token data for consistent formatting"""
