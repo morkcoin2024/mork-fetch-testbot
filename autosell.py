@@ -123,6 +123,7 @@ def _worker():
                 en = STATE["enabled"]
                 STATE["last_tick"] = time.time()
             if en:
+                _tick_evaluate_rules()
                 _log("[tick] ok")
             time.sleep(interval)
     except Exception as e:
@@ -130,3 +131,46 @@ def _worker():
     finally:
         STATE["alive"] = False
         _log("[hb] worker stopped")
+
+def _tick_evaluate_rules():
+    """Evaluate all rules and emit price move alerts when thresholds are met"""
+    from app import get_price
+    
+    with LOCK:
+        rules = dict(STATE["rules"])
+    
+    for mint, rule in rules.items():
+        try:
+            # Get current price using the unified price system
+            res = get_price(mint)
+            if not res.get("ok"):
+                continue
+                
+            price = res["price"]
+            src = res["source"]
+            
+            # Calculate price change from reference
+            ref_price = rule.get("ref", 0.0)
+            if ref_price > 0:
+                move_pct = ((price - ref_price) / ref_price) * 100.0
+                
+                # Try to emit alert for significant price moves
+                try:
+                    from alerts_glue import emit_price_move
+                    # Get symbol from token metadata if available
+                    symbol = mint[:8] + ".."  # fallback
+                    emit_price_move(
+                        mint=mint,
+                        symbol=symbol,
+                        price=price,
+                        move_pct=move_pct,
+                        src=src,
+                        reason="autosell_tick"
+                    )
+                except Exception:
+                    # Never crash autosell on alert failures
+                    pass
+                    
+        except Exception as e:
+            _log(f"[tick] error evaluating {mint}: {e}")
+            continue

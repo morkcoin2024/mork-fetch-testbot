@@ -1,0 +1,153 @@
+# GOAL
+# Wire price/watch events into the existing alerts system so group gets useful,
+# throttled alerts. Dry-run only (no trading). Idempotent + safe to re-run.
+
+# A) Create alerts_glue.py
+applypatch <<'PATCH'
+*** Begin Patch
+*** Add File: alerts_glue.py
++import json, os, time, threading
++from typing import Optional, Dict
++
++_CFG_PATH = "alerts_config.json"
++_lock = threading.RLock()
++_last_sent_ts = 0.0
++_sent_this_min = 0
++_sent_min_bucket = 0
++
++def _load_cfg() -> Dict:
++    try:
++        with open(_CFG_PATH,"r") as f:
++            return json.load(f)
++    except Exception:
++        return {
++            "chat_id": None,
++            "min_move_pct": 1.0,
++            "rate_per_min": 5,
++            "muted_until": 0,
++        }
++
++def _should_rate_limit(now: float, rate_per_min: int) -> bool:
++    global _sent_this_min, _sent_min_bucket
++    minute = int(now // 60)
++    if minute != _sent_min_bucket:
++        _sent_min_bucket = minute
++        _sent_this_min = 0
++    if _sent_this_min >= max(1, int(rate_per_min)):
++        return True
++    _sent_this_min += 1
++    return False
++
++def format_price_alert(symbol:str, mint:str, price:float, move_pct:float, src:str, reason:str="price_move")->str:
++    direction = "▲" if move_pct >= 0 else "▼"
++    pct = f"{move_pct:+.2f}%"
++    pstr = f"${price:,.6f}" if price < 1 else f"${price:,.4f}" if price < 10 else f"${price:,.2f}"
++    return f"[ALERT] {symbol or mint} {direction}{pct} price={pstr} src={src} {('('+reason+')' if reason else '')}".strip()
++
++def try_send_alert(text: str, preview: bool=False) -> bool:
++    from app import tg_send  # uses 3-tier fallback and MarkdownV2 escaping
++    cfg = _load_cfg()
++    chat = cfg.get("chat_id")
++    if not chat:
++        return False
++    now = time.time()
++    if now < float(cfg.get("muted_until", 0) or 0):
++        return False
++    rate = int(cfg.get("rate_per_min", 5) or 5)
++    with _lock:
++        if _should_rate_limit(now, rate):
++            return False
++    res = tg_send(chat, text, preview=preview)
++    return bool(res.get("ok"))
++
++def emit_price_move(mint:str, symbol:str, price:float, move_pct:float, src:str, reason:str="")->bool:
++    """Caller ensures move_pct is absolute threshold-eligible; we re-check settings here just in case."""
++    cfg = _load_cfg()
++    thresh = float(cfg.get("min_move_pct", 1.0) or 1.0)
++    if abs(float(move_pct)) < thresh:
++        return False
++    msg = format_price_alert(symbol, mint, price, move_pct, src, reason)
++    return try_send_alert(msg, preview=True)
++
++def emit_info(text: str)->bool:
++    return try_send_alert(text, preview=True)
+*** End Patch
+PATCH
+
+# B) Hook Dexscreener scanner tick → alerts (only when threshold hit)
+# (If your Dexscreener module name differs, adjust the path below.)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: scanners/dexscreener.py
+@@
+ from typing import Optional, Dict, Any
++from alerts_glue import emit_price_move
+ 
+@@
+-    # after you compute current price, change %, etc. (example variables: symbol, mint, price, move_pct)
+-    # previously: maybe just logging
+-    pass
++    # … existing tick processing …
++    # Example expected locals:
++    #   symbol: str (e.g., "SOL")
++    #   mint:   str (token address)
++    #   price:  float
++    #   move_pct: float (positive or negative %)
++    # Only emit if threshold and rate/mute allow; returns bool (sent or not)
++    try:
++        emit_price_move(mint=mint, symbol=symbol, price=price, move_pct=move_pct, src="dex", reason="tick")
++    except Exception:
++        # never crash the scanner on alert issues
++        pass
+*** End Patch
+PATCH
+
+# C) Optional: Hook Birdeye tick as well (safe no-op if not present)
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: scanners/birdeye.py
+@@
++from alerts_glue import emit_price_move
+@@
+-    # existing tick logic
++    # existing tick logic…
++    try:
++        emit_price_move(mint=mint, symbol=symbol, price=price, move_pct=move_pct, src="birdeye", reason="tick")
++    except Exception:
++        pass
+*** End Patch
+PATCH
+
+# D) Tiny quality-of-life: add /alerts_preview to app.py (admin-only) for a manual test
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price"]
++        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price"]
+         # admin commands continue below…
+@@
++        elif cmd == "/alerts_preview":
++            deny = _require_admin(user)
++            if deny: return deny
++            try:
++                from alerts_glue import emit_info
++                ok = emit_info("🔔 Preview: alerts glue operational")
++                return _reply("Preview sent." if ok else "Preview not sent (no chat or rate/muted).")
++            except Exception as e:
++                return _reply(f"Preview failed: {e}", status="error")
+*** End Patch
+PATCH
+
+# E) Smoke: local REPL tick injection (no real trading)
+python3 - <<'PY'
+from alerts_glue import emit_price_move, emit_info
+print("emit_info:", emit_info("🔔 Glue smoke test"))
+print("emit_move:", emit_price_move(mint="So111...", symbol="SOL", price=180.12, move_pct=+1.3, src="dex", reason="sim"))
+PY
+
+# F) Telegram test plan (group)
+# 1) In group: /alerts_to_here
+# 2) /alerts_unmute ; /alerts_rate 10 ; /alerts_minmove 0.5
+# 3) Expect alerts from real ticks when move ≥ 0.5% (subject to scanner cadence)
+# 4) If needed, run the REPL injection above again to force a sample.

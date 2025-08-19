@@ -153,7 +153,7 @@ ALL_COMMANDS = [
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
-    "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test",
+    "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
     "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
@@ -1099,6 +1099,14 @@ def process_telegram_command(update: dict):
                 return _reply("✅ Test alert sent.")
             else:
                 return _reply(f"⚠️ Could not send: {res.get('description')}")
+
+        elif cmd == "/alerts_preview" and is_admin:
+            try:
+                from alerts_glue import emit_info
+                ok = emit_info("🔔 Preview: alerts glue operational")
+                return _reply("Preview sent." if ok else "Preview not sent (no chat or rate/muted).")
+            except Exception as e:
+                return _reply(f"Preview failed: {e}", status="error")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
