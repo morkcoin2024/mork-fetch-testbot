@@ -1,7 +1,7 @@
 # Mork F.E.T.C.H Bot
 
 ## Overview
-Mork F.E.T.C.H Bot, "The Degens' Best Friend," is a production-ready Telegram-based cryptocurrency trading bot for Solana blockchain tokens, specifically those on Pump.fun. Its purpose is to enable fast execution and control over trades. Key capabilities include secure wallet management, Jupiter DEX integration, comprehensive safety checks, and MORK holder access gates. The business vision is to provide a user-friendly, automated trading solution for Solana degens, enhancing their trading efficiency and profitability.
+Mork F.E.T.C.H Bot, "The Degens' Best Friend," is a production-ready Telegram-based cryptocurrency trading bot for Solana blockchain tokens, specifically those on Pump.fun. Its purpose is to enable fast execution and control over trades, providing a user-friendly, automated trading solution for Solana degens. Key capabilities include secure wallet management, Jupiter DEX integration, comprehensive safety checks, and MORK holder access gates, enhancing trading efficiency and profitability.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,52 +9,52 @@ Brand colors: Mork Coin branding with green primary color (#7cb342) and light gr
 Branding rules: "Mork F.E.T.C.H Bot" text should be dark green (#1a2e0a) on light green backgrounds, all other text should be white unless they are headline text. The bot is positioned as "The Degens' Best Friend" with playful dog-themed messaging around "fetching" profits and "sniffing" trades. F.E.T.C.H. = Fast Execution, Trade Control Handler. Uses casual, meme-friendly language appealing to crypto degenerates while maintaining professionalism.
 
 ## System Architecture
-The application uses Flask with a robust single-poller architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. Successfully resolved from rollback snapshot with enhanced command handlers for `/version`, `/source`, and `/price` commands. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
+The application uses Flask with a robust single-poller architecture for Telegram integration, managing session states and database persistence with SQLAlchemy. A finite state machine handles multi-step user interactions. UI/UX aligns with Mork Coin branding. The system supports Simulation, Manual Live Trading (`/snipe`), and Automated VIP Trading (`/fetch`) modes.
 
 **Core Architectural Decisions & Features:**
-- **Single-Poller Architecture with Environment Gating:** Implemented POLLING_ENABLED environment variable to control Telegram polling startup. Defaults to enabled in workspace mode (POLLING_ENABLED=1), MUST be disabled for deploy mode (POLLING_ENABLED=0). Eliminates 409 conflicts through process cleanup and webhook management. Critical deployment requirement: Deploy settings must include POLLING_ENABLED=0 to prevent dual-poller conflicts while RUN remains the active Telegram poller.
-- **Robust Message Delivery:** Implemented a 3-tier fallback system for Telegram message delivery (MarkdownV2 → escaped MarkdownV2 → plain text) with resilient timeout handling and streamlined parsing for zero-width characters and robust @BotName handling.
-- **Automated Restart Mechanisms:** Both `run.sh` and `simple_polling_bot.py` include robust auto-restart mechanisms with infinite loops and exception handling for maximum uptime.
-- **Multi-Source Token Discovery & Scoring:** Integrates Birdeye, Jupiter, and Solscan Pro for comprehensive token discovery, enrichment, and scoring with real-time processing and automatic reconnection.
-- **AI Assistant System:** Flask webhook integration supporting multiple AI models with intelligent fallback and persistent storage.
-- **Live Monitoring & Diagnostics:** Secure, token-gated interfaces for real-time event streaming via Server-Sent Events (SSE) and an ultra-lightweight console, alongside a complete diagnostic system for live module reloading and endpoint monitoring.
-- **Enhanced Event Publishing System:** Advanced real-time event tracking with deduplication across all system components, featuring a thread-safe publish/subscribe architecture.
-- **Telegram Integration:** Production-ready polling mode integration with comprehensive admin command routing and unified command processing, using `simple_polling_bot.py` for direct Telegram API polling.
+- **Single-Poller Architecture:** Uses a `POLLING_ENABLED` environment variable to control Telegram polling, ensuring no 409 conflicts in deployment.
+- **Robust Message Delivery:** Implements a 3-tier fallback system for Telegram message delivery with resilient timeout handling.
+- **Automated Restart Mechanisms:** Includes auto-restart mechanisms for maximum uptime.
+- **Multi-Source Token Discovery & Scoring:** Integrates various APIs for comprehensive token discovery and scoring.
+- **AI Assistant System:** Flask webhook integration supporting multiple AI models with intelligent fallback.
+- **Live Monitoring & Diagnostics:** Secure, token-gated interfaces for real-time event streaming via SSE, a lightweight console, and a complete diagnostic system.
+- **Enhanced Event Publishing System:** Advanced real-time event tracking with deduplication using a thread-safe publish/subscribe architecture.
+- **Telegram Integration:** Production-ready polling mode with comprehensive admin command routing and unified command processing.
 - **Enhanced Logging System:** Dual-layer logging with `RotatingFileHandler` and `RingBufferHandler`.
-- **Simplified Scanner Control System:** Self-contained scanner module with JSON persistence, enabling granular controls via Telegram commands for toggling, threshold adjustment, watchlist management, and real-time configuration updates.
-- **Mock Data Testing System:** Comprehensive testing infrastructure for realistic token generation and advanced scoring, integrated with the scanner system for background alerts and instant scanning via `/fetch_now`.
-- **Trade Management System:** Self-contained `trade_store.py` module with JSON persistence for position tracking, fill recording, and pending action management.
-- **Mock Trading Engine:** `trade_engine.py` module providing realistic buy/sell operations with slippage simulation, preview/execution functions, and integration with `trade_store`.
-- **Complete Mock Trading System:** Comprehensive trading functionality with preview/confirmation flow, position tracking, PnL tracking, and integrated safety systems.
-- **Autobuy Functionality:** Enhanced scanner state with autobuy configuration for automated token purchases based on scanner alerts, featuring per-token configuration and safety caps.
-- **AutoSell System:** Fully operational sophisticated automated selling engine with take-profit, stop-loss, and trailing stop functionality. Enhanced with real Dexscreener API integration (5-second intelligent caching), simulated price fallback, rule state management, rolling event logging, and enterprise-grade watchdog monitoring with admin alerts. Features a comprehensive 18-command Telegram suite for rule management, persistence, and control, plus public `/price <mint>` command for real-time price lookups.
-- **Watchlist Alert System:** Real-time price monitoring with configurable percent-change thresholds for generating alerts when token prices move significantly. Integrated with AutoSell tick evaluation for seamless monitoring alongside trading rules. Features 7-command admin suite: `/watch`, `/unwatch`, `/watchlist`, `/watch_sens`, `/autosell_restore`, `/alerts_on`, and `/alerts_off`. Includes comprehensive state persistence with automatic save on all changes, configurable sensitivity (0.1%-100%), and toggle controls for muting/unmuting alerts while preserving watchlist data.
-- **Paper Trade Ledger System:** Complete DRY-RUN trading ledger with position tracking, average cost calculation, and comprehensive P&L management. Features 11-command admin suite: `/paper_buy`, `/paper_sell`, `/ledger`, `/ledger_reset`, `/ledger_pnl`, `/paper_setprice`, `/paper_clearprice`, `/ledger_pnl_csv`, `/paper_auto_on`, `/paper_auto_off`, and `/paper_auto_status`. Integrated with AutoSell state persistence for cross-restart durability. Supports automatic price discovery, manual price specification, and mark-to-market valuation with unrealized P&L calculations. Advanced features include real-time portfolio valuation, per-position unrealized gains/losses, manual price overrides with cleanup management, structured CSV export for analysis and reporting, and automated paper trading on alert events with configurable trade quantities and safe demo mode operation.
-- **Alert Routing System:** Real-time alert forwarding to specified Telegram groups or channels with comprehensive flood control and persistent configuration. Features advanced admin command suite: `/alerts_settings` (comprehensive status display), `/alerts_setchat <chat_id>` (set target group/channel), `/alerts_to_here` (auto-detect current chat), `/alerts_rate <n>` (per-minute rate limiting), `/alerts_minmove <pct>` (threshold percentage), `/alerts_mute <duration>` and `/alerts_off` (timed muting with 2m, 1h, etc.), `/alerts_unmute` and `/alerts_on` (immediate unmute), `/alerts_test [message]` (send test alert with force flag), `/alerts_preview` (manual test emission). Advanced flood control includes sliding-window rate limiting to prevent excessive alerts, percentage-based threshold filtering, and flexible duration parsing for timed muting. The unified `alerts_send()` API respects both mute state and rate limits, with force override capability. State persists across restarts via `alerts_config.json` with automatic fallback to defaults. JSON configuration includes chat_id, rate_per_min (default 60), min_move_pct threshold, and ISO8601 muted_until timestamps. The auto-detection feature allows easy setup directly in target groups/channels without manual chat ID lookup. **Price Watch Integration**: `alerts_glue.py` provides unified price movement alert emission with standardized formatting ([ALERT] symbol ▲/▼pct price=$ src=source). AutoSell system now emits throttled price move alerts when rule evaluation detects significant changes, respecting the same rate limiting and muting controls. Error isolation ensures alert failures never crash core trading or scanning systems.
-- **Snapshot/Restore System:** Quality-of-life backup management with point-in-time snapshots and dual-file persistence architecture. Features 4-command admin suite: `/autosell_backup`, `/autosell_restore_backup`, `/autosell_save`, and enhanced `/autosell_restore`. Enables configuration rollback scenarios, experimental state management, and comprehensive backup/restore workflows for all AutoSell, watchlist, and ledger data with atomic file operations and error handling.
-- **Enhanced Wallet System:** Secure two-step wallet reset, QR deposit system, comprehensive diagnostics, and a full 12-command wallet suite.
-- **Real-time SOL Price Integration:** Live CoinGecko API integration with intelligent caching and multi-level fallback protection.
+- **Simplified Scanner Control System:** Self-contained scanner module with JSON persistence, enabling granular controls via Telegram commands.
+- **Mock Data Testing System:** Comprehensive testing infrastructure for realistic token generation and scoring.
+- **Trade Management System:** Self-contained `trade_store.py` module with JSON persistence for position tracking.
+- **Mock Trading Engine:** Provides realistic buy/sell operations with slippage simulation.
+- **Complete Mock Trading System:** Comprehensive trading functionality with preview/confirmation flow, position tracking, and PnL tracking.
+- **Autobuy Functionality:** Enhanced scanner state with autobuy configuration for automated token purchases.
+- **AutoSell System:** Sophisticated automated selling engine with take-profit, stop-loss, and trailing stop functionality, integrated with Dexscreener API.
+- **Watchlist Alert System:** Real-time price monitoring with configurable percent-change thresholds for alerts.
+- **Paper Trade Ledger System:** Complete DRY-RUN trading ledger with position tracking and P&L management.
+- **Alert Routing System:** Real-time alert forwarding to specified Telegram groups/channels with flood control and persistent configuration.
+- **Snapshot/Restore System:** Backup management with point-in-time snapshots and dual-file persistence for configuration rollback.
+- **Enhanced Wallet System:** Secure two-step wallet reset, QR deposit system, and comprehensive diagnostics.
+- **Real-time SOL Price Integration:** Live CoinGecko API integration with intelligent caching.
 - **Elegant Bridge Pattern Messaging System:** Centralized `send_message()` bridge function for unified Telegram API control.
-- **Comprehensive Token Balance System:** Enhanced `/wallet_balance` command showing all SPL tokens with automatic discovery and metadata parsing.
-- **Streamlined Centralized Messaging:** Ultra-clean centralized messaging pattern with enhanced MarkdownV2 system and bulletproof message delivery.
-- **Smart Unknown Command Handling:** Professional error messages with text sanitization, distinguishing between commands and regular text.
-- **Unified Handler Architecture:** Single-point update processing with enhanced idempotency for message and edited_message updates, and a rolling memory system to prevent duplicate message processing.
+- **Comprehensive Token Balance System:** Enhanced `/wallet_balance` command showing all SPL tokens.
+- **Streamlined Centralized Messaging:** Ultra-clean centralized messaging pattern with enhanced MarkdownV2.
+- **Smart Unknown Command Handling:** Professional error messages distinguishing between commands and regular text.
+- **Unified Handler Architecture:** Single-point update processing with enhanced idempotency and a rolling memory system.
 - **Webhook Conflict Resolution:** Automatic webhook deletion when polling starts.
-- **Live Price Sources V2 System:** Multi-provider price discovery with hardened persistence supporting sim (deterministic), dex (DexScreener API), and birdeye (Birdeye API) sources. Features intelligent fallback chains, 6-second API timeouts, 15-second in-process caching, and public `/source`, `/price`, `/quote`, `/fetch`, and `/fetch_now` commands for transparent price management. Multi-source snapshot capabilities provide cross-provider comparison with active source prioritization, live spread analysis, and cache indicators. Includes per-call source overrides (`--src=sim|dex|birdeye`) and persistent storage in `./data/price_source.txt`. Enables seamless switching between simulation and live market data with enterprise-grade reliability and performance optimization. **Enhanced with Explicit Fallback Labeling:** `/price` command now clearly indicates when fallback sources are used with format "source (fallback from original)" and enhanced `/source` status display. **Enhanced Birdeye Integration:** Robust multi-endpoint fetcher with proper X-API-KEY headers, multiple endpoint fallback strategy, and comprehensive error logging. Successfully provides live market data (SOL ~$178, USDC ~$1.00) with seamless price watch alert integration. Fully operational with cache hit indicators, restart-persistent configuration, and transparent fallback tracking. Enhanced RouterSHA20: 096af9630da1d828afb0.
-- **Unified Application Architecture:** Implemented unified main.py shim that exports the same Flask app object as app.py, eliminating main:app vs app:app configuration conflicts. This architectural decision ensures consistent behavior regardless of workflow configuration while maintaining deployment flexibility. Enhanced `/version` command now displays live runtime router hash (RouterSHA20) for transparent debugging and verification of active code deployment.
-- **Price Watch Alert Integration:** Complete automated price movement detection system that monitors `/price` command responses and triggers alerts for significant price changes. Features real-time price baseline tracking with persistent storage, intelligent threshold filtering (configurable via `/alerts_minmove`), comprehensive rate limiting, and standardized alert formatting with emoji indicators (🔺/🔻). Integrates seamlessly with existing alert routing system for group notifications. Error isolation ensures alert failures never crash core trading systems. Includes automatic mint price history tracking in `alerts_price_baseline.json` and unified `_post_price_alert_hook` integration across all command responses. Enhanced regex pattern matching for robust price data extraction from formatted responses.
-- **Minimal Watch Engine:** Real-time watchlist monitoring system with background price tracking and automated alert generation. Features persistent configuration via `watchlist.json`, state tracking via `watch_state.json`, and 15-second polling intervals. Integrates with existing price sources (sim/dex/birdeye) and alert systems, honoring rate limits and muting controls. Includes 6-command suite: `/watch <mint>` (add to watchlist), `/unwatch <mint>` (remove from watchlist), `/watchlist` (show tracked tokens with price movements), plus admin controls `/watch_tick`, `/watch_on`, and `/watch_off`. Automatic baseline establishment on token addition, percentage-based movement detection, and seamless integration with existing alert routing infrastructure. Background thread management with daemon mode and automatic startup via `main.py`.
+- **Live Price Sources V2 System:** Multi-provider price discovery with hardened persistence supporting sim, dex, and birdeye sources, featuring intelligent fallback.
+- **Unified Application Architecture:** Implemented unified `main.py` shim for consistent Flask app object.
+- **Price Watch Alert Integration:** Automated price movement detection system that monitors `/price` command responses and triggers alerts.
+- **Minimal Watch Engine:** Real-time watchlist monitoring system with background price tracking and automated alert generation.
 
 ## External Dependencies
-- **Telegram Bot API**: For all message handling and user interactions.
-- **Solana Blockchain Integration**: Interacts with the Solana blockchain for live trading on Pump.fun.
-- **Flask Web Server**: The application's web server for webhook callbacks and web interface.
-- **SQLAlchemy**: For database abstraction (defaults to SQLite).
-- **Python HTTP Requests**: The `requests` library for all HTTP communication with external APIs.
-- **OpenAI API**: For AI assistant functionalities.
-- **Jupiter DEX**: For decentralized exchange operations on Solana.
-- **PumpPortal Lightning Transaction API**: The core trading engine for verified token delivery on Pump.fun.
-- **Birdeye API/WebSocket**: For real-time token data and discovery.
-- **token.jup.ag API**: For fetching Jupiter token lists.
-- **Solscan API**: For blockchain data and new token discovery.
-- **DexScreener API**: For Solana pairs monitoring, token data, and real-time price feeds with intelligent caching.
+- **Telegram Bot API**
+- **Solana Blockchain**
+- **Flask Web Server**
+- **SQLAlchemy**
+- **Python HTTP Requests** (`requests` library)
+- **OpenAI API**
+- **Jupiter DEX**
+- **PumpPortal Lightning Transaction API**
+- **Birdeye API/WebSocket**
+- **token.jup.ag API**
+- **Solscan API**
+- **DexScreener API**
