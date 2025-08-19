@@ -496,37 +496,43 @@ def _load_alerts_cfg():
 def watch_tick_once(send_alerts=False):
     """
     Returns (checked, fired, lines)
-    Updates each item's last/src/delta_pct safely.
+    Updates each item's last/src/delta_pct safely and sends alerts if movement >= min_move_pct.
     """
     wl = _load_watchlist()
+    cfg = _load_alerts_config()
+    min_move = _as_float(cfg.get("min_move_pct"), 0.0)
+
     checked = 0
     fired = 0
     lines = []
-    cfg = _load_alerts_cfg() if '_load_alerts_cfg' in globals() else {"min_move_pct": 0.0}
-    min_move = _as_float(cfg.get("min_move_pct", 0.0), 0.0)
-
     new_wl = []
+
     for raw in wl:
         it = _normalize_watch_item(raw)
-        mint = it["mint"]
+        mint = it.get("mint") or ""
         if not mint:
-            new_wl.append(it)
-            continue
+            new_wl.append(it); continue
 
-        # get price using your existing get_price wrapper
         res = get_price(mint) if 'get_price' in globals() else {"ok": False}
         if not res or not res.get("ok"):
-            new_wl.append(it)
-            continue
+            new_wl.append(it); continue
 
-        price = _as_float(res["price"], 0.0)
+        price = _as_float(res.get("price"), None)
         source = res.get("source", "n/a")
+        if price is None:
+            new_wl.append(it); continue
+
         checked += 1
 
-        last = _as_float(it.get("last"), 0.0)
-        delta = ( (price - last) / last * 100 ) if last > 0 else 0.0
+        last = it.get("last")
+        last_f = _as_float(last, None)
+        if last_f in (None, 0.0):
+            delta = 0.0  # first baseline set, no alert
+        else:
+            delta = round((price - last_f) / last_f * 100.0, 2)
+
         it["last"] = price
-        it["delta_pct"] = round(delta, 2)
+        it["delta_pct"] = delta
         it["src"] = source
         new_wl.append(it)
 
