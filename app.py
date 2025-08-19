@@ -425,7 +425,96 @@ def _watch_alert(mint, price, src, pct_move, cfg_alerts):
     except Exception:
         pass
 
+def _load_watchlist():
+    """Enhanced watchlist loader - returns list of items with structured data"""
+    try:
+        with open("watchlist.json", "r") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+def _save_watchlist(items):
+    """Enhanced watchlist saver - handles structured list format"""
+    try:
+        with open("watchlist.json", "w") as f:
+            json.dump(items, f, indent=2)
+    except Exception:
+        pass
+
+def watch_tick_once(send_alerts=True):
+    """
+    Enhanced watch tick with return values and better error handling.
+    Force a single evaluation of the watchlist.
+    - Fetches current price for each watched mint using current source
+    - Updates 'last' price in watchlist store
+    - Sends alerts via alerts_send() when movement >= min_move_pct and not muted
+    Returns: (checked_count, fired_alerts, summary_lines)
+    """
+    wl = _load_watchlist()
+    if not wl:
+        return 0, 0, ["(watchlist empty)"]
+
+    # load alert config (min_move, rate limit, muted, group id)
+    cfg = _alerts_load_cfg()
+    min_move = float(cfg.get("min_move_pct", 0.0))
+    muted_until = int(cfg.get("muted_until", 0) or 0)
+    muted = time.time() < muted_until
+
+    checked = 0
+    fired = 0
+    lines = []
+    changed = False
+
+    for item in wl:
+        if isinstance(item, str):
+            mint = item
+        elif isinstance(item, dict):
+            mint = item.get("mint")
+        else:
+            continue
+        
+        if not mint:
+            continue
+
+        pr = get_price(mint)  # existing function; returns {"ok":bool,"price":float,"source":str}
+        if not pr or not pr.get("ok"):
+            lines.append(f"- {mint[:10]}… price: (n/a)")
+            continue
+
+        price = float(pr["price"])
+        
+        # Handle both string and dict formats
+        if isinstance(item, str):
+            last = price  # No previous price stored for string format
+            pct = 0.0  # Can't calculate percentage change for string format
+        else:  # dict format
+            last = float(item.get("last", price))
+            pct = 0.0 if last == 0 else ((price - last) / last) * 100.0
+            
+            # update state for dict format
+            if abs(price - last) > 1e-12:
+                item["last"] = price
+                changed = True
+
+        # alert (respects mute + min_move)
+        if send_alerts and not muted and abs(pct) >= min_move:
+            fired += 1
+            try:
+                alerts_send(f"⚠️ {mint[:10]}.. Δ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
+            except Exception:
+                # never crash the command
+                pass
+
+        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}%")
+        checked += 1
+
+    if changed:
+        _save_watchlist(wl)
+
+    return checked, fired, lines
+
 def _watch_tick_once():
+    """Legacy wrapper for backwards compatibility"""
     cfg = _watch_load()
     st  = _watch_state_load()
     if not cfg.get("mints"):
@@ -1339,8 +1428,11 @@ def process_telegram_command(update: dict):
 
         # public watch controls
         elif cmd == "/watch_tick":
-            _watch_tick_once()
-            return _reply("🔧 Watch tick executed.")
+            checked, fired, lines = watch_tick_once(send_alerts=True)
+            summary = f"🔧 Watch tick executed.\nChecked: {checked} tokens\nAlerts: {fired} fired"
+            if lines:
+                summary += "\n\n" + "\n".join(lines[:5])  # Show first 5 results
+            return _reply(summary)
         elif cmd == "/watch_off":
             WATCH_RUN["enabled"] = False
             return _reply("⏸️ Watcher paused.")
