@@ -1,0 +1,65 @@
+cd /home/runner/workspace
+
+echo "=== 1) Check if /source route exists and how router behaves ==="
+grep -n '"/source"' app.py || export NEED_PATCH=1
+
+python3 - <<'PY'
+import os, inspect
+import app
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'t'},'text':t}}
+    out=app.process_telegram_command(upd) or {}
+    print(f"{t:12} -> {out.get('status')} | {(out.get('response') or '')[:100].replace('\\n',' ')}")
+print("app.__file__ =", app.__file__)
+print("router_hash  =", hash(inspect.getsource(app.process_telegram_command)))
+for t in ["/source","/source sim","/source dex"]:
+    mk(t)
+p="/tmp/mork_price_source"
+print("persisted_source =", open(p).read().strip() if os.path.exists(p) else "none")
+PY
+
+if [ "${NEED_PATCH:-0}" = "1" ]; then
+  echo "=== 2) Applying /source route patch ==="
+  applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status"]
++        public_commands = ["/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/status", "/source"]
+@@
++        elif cmd == "/source":
++            choice = (args or "").strip().lower()
++            if not choice:
++                return _reply(f"🔧 Price source: **{_PRICE_SOURCE}**\nUse `/source sim|dex|birdeye`", md=True)
++            if _set_price_source(choice):
++                return _reply(f"✅ Price source set: **{_PRICE_SOURCE}**", md=True)
++            return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
+*** End Patch
+PATCH
+fi
+
+echo "=== 3) Reload single integrated worker (no standalone pollers) ==="
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+pkill -f production_polling_bot\.py || true
+pkill -f working_polling_bot\.py   || true
+pkill -f gunicorn || true
+sleep 2
+ps aux | grep gunicorn | grep -v grep || true
+
+echo "=== 4) Quick router re-check ==="
+python3 - <<'PY'
+import app
+def mk(t):
+    upd={'message':{'message_id':1,'date':0,'chat':{'id':1,'type':'private'},
+                    'from':{'id':1,'is_bot':False,'username':'t'},'text':t}}
+    out=app.process_telegram_command(upd) or {}
+    print(f"{t:12} -> {out.get('status')} | {(out.get('response') or '')[:100].replace('\\n',' ')}")
+for t in ["/source","/source sim","/source dex"]:
+    mk(t)
+PY
+
+echo "=== 5) Telegram manual checks ==="
+echo "In DM: /source  → shows current source"
+echo "In DM: /source sim  → sets to sim, then /price <MINT> shows source: sim"
+echo "If BIRDEYE_API_KEY is set: /source birdeye, then /price <MINT> shows source: birdeye"
