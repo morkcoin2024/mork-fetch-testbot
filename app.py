@@ -636,9 +636,9 @@ def process_telegram_command(update: dict):
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
         
-        # /version — show build stamp
+        # /version — show build stamp with current router hash
         elif cmd == "/version":
-            import json, os
+            import json, os, inspect, hashlib
             stamp = []
             try:
                 info = json.load(open("build-info.json"))
@@ -647,6 +647,15 @@ def process_telegram_command(update: dict):
                 stamp.append(f"Router: {info.get('router_hash','?')}")
             except Exception:
                 stamp.append("🏷 No build-info.json found")
+            
+            # Add current runtime router hash
+            try:
+                router_src = inspect.getsource(process_telegram_command)
+                sha20 = hashlib.sha256(router_src.encode()).hexdigest()[:20]
+                stamp.append(f"RouterSHA20: {sha20}")
+            except Exception:
+                stamp.append("RouterSHA20: n/a")
+                
             return _reply("\n".join(stamp))
         elif cmd == "/debug_cmd":
             # Debug command to introspect what the router sees
