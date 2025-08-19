@@ -22,7 +22,10 @@ ALL_COMMANDS = [
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
     "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
-    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
+    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
+    "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
+    "/alerts_status", "/alerts_mute", "/alerts_unmute", "/digest_status", "/digest_time", 
+    "/digest_on", "/digest_off", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -453,7 +456,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -635,29 +638,51 @@ Use `/price <mint>` to check token prices""")
             st = autosell.status()
             return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
 
-        # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
         elif cmd == "/autosell_set":
             deny = _require_admin(user)
             if deny: return deny
-            import autosell
-            parts = (args or "").split()
-            if not parts:
-                return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-            mint = parts[0]
-            kv = {"tp": None, "sl": None, "trail": None, "size": None}
-            for p in parts[1:]:
-                if "=" in p:
-                    k, v = p.split("=", 1)
-                    try: 
-                        if k.lower() in ["tp", "sl", "trail", "size"]:
-                            kv[k.lower()] = float(v)
-                    except: 
-                        pass
-            autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
-            return _reply(
-                f"✅ AutoSell set for {mint[:8]}…  "
-                f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
-            )
+            import autosell, re
+            m = re.match(r"/autosell_set\s+(\S+)(.*)$", text)
+            if not m:
+                return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10]")
+            else:
+                mint = m.group(1)
+                tail = m.group(2) or ""
+                kv = dict(re.findall(r"(tp|sl|trail)\s*=\s*(\d+)", tail))
+                tp = int(kv["tp"]) if "tp" in kv else None
+                sl = int(kv["sl"]) if "sl" in kv else None
+                tr = int(kv["trail"]) if "trail" in kv else None
+                r = autosell.set_rule(mint, tp, sl, tr)
+                return _reply(f"✅ Rule saved: {r['mint']} tp={r['tp']} sl={r['sl']} trail={r['trail']}")
+        
+        elif cmd == "/autosell_logs":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell, re
+            m = re.search(r"/autosell_logs\s+(\d+)", text)
+            n = int(m.group(1)) if m else 10
+            lines = autosell.get_logs(n)
+            return _reply("📜 Last events:\n" + "\n".join(lines))
+        
+        elif cmd == "/autosell_dryrun":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell, re
+            m = re.search(r"/autosell_dryrun\s+(\S+)", text)
+            if not m:
+                return _reply("Usage: /autosell_dryrun <MINT>")
+            else:
+                return _reply(autosell.dryrun_rule(m.group(1)))
+        
+        elif cmd == "/autosell_ruleinfo":
+            deny = _require_admin(user)
+            if deny: return deny
+            import autosell, re
+            m = re.search(r"/autosell_ruleinfo\s+(\S+)", text)
+            if not m:
+                return _reply("Usage: /autosell_ruleinfo <MINT>")
+            else:
+                return _reply(autosell.rule_info(m.group(1)))
 
         elif cmd == "/autosell_list":
             deny = _require_admin(user)
@@ -683,6 +708,39 @@ Use `/price <mint>` to check token prices""")
                 return _reply("Usage: /autosell_remove <MINT>")
             ok = autosell.remove_rule(target)
             return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+
+        # ---- Alerts simple settings (mute/unmute/status) ----
+        elif cmd in ("/alerts_settings","/alerts_status"):
+            import time, re
+            st = _alerts_load()
+            mu = "yes" if st.get("muted_until",0) > time.time() else "no"
+            left = max(0,int(st.get("muted_until",0)-time.time()))
+            return _reply("🖥 Alert flood control settings:\n"
+                    f"chat: {st.get('chat','not set')}\n"
+                    f"min_move_pct: {st.get('min_move_pct',0.0)}%\n"
+                    f"rate_per_min: {st.get('rate_per_min',60)}\n"
+                    f"sent_last_min: {st.get('sent_last_min',0)}\n"
+                    f"muted: {mu}" + (f" ({left}s left)" if mu=="yes" else ""))
+        elif cmd == "/alerts_mute":
+            import time, re
+            # /alerts_mute <2m|5m|1h>
+            m = re.search(r"/alerts_mute\s+(\d+)([smh]?)", text)
+            if not m:
+                return _reply("Usage: /alerts_mute <duration e.g. 120s | 2m | 1h>")
+            else:
+                val, unit = int(m.group(1)), (m.group(2) or "s")
+                mult = {"s":1,"m":60,"h":3600}[unit]
+                dur = val*mult
+                st = _alerts_load()
+                st["muted_until"] = time.time()+dur
+                _alerts_save(st)
+                return _reply(f"🔕 Alerts muted for {dur//60} min")
+        elif cmd == "/alerts_unmute":
+            import time
+            st = _alerts_load()
+            st["muted_until"] = 0
+            _alerts_save(st)
+            return _reply("🔔 Alerts unmuted")
 
         # Wallet Commands
         elif cmd == "/wallet":
@@ -1494,6 +1552,19 @@ def initialize_app():
 if __name__ != '__main__':
     # Running under gunicorn or similar
     initialize_app()
+
+# ---- helpers for alerts persistence ----
+_ALERTS_FILE = "/tmp/alerts_settings.json"
+def _alerts_load():
+    try:
+        return json.loads(open(_ALERTS_FILE).read())
+    except Exception:
+        return {"chat":"not set","min_move_pct":0.0,"rate_per_min":60,"sent_last_min":0,"muted_until":0}
+def _alerts_save(data):
+    try:
+        open(_ALERTS_FILE,"w").write(json.dumps(data))
+    except Exception:
+        pass
 
 if __name__ == '__main__':
     # Development mode
