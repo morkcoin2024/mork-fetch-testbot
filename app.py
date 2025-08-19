@@ -1620,15 +1620,18 @@ def process_telegram_command(update: dict):
         elif cmd == "/alerts_minmove" and is_admin:
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return _reply("Usage: `/alerts_minmove <pct>`")
+                return _reply("Usage: `/alerts_minmove <percent>  e.g. 0.5 or 0.5%`")
+            value = _as_float(parts[1], None)
+            if value is None:
+                return _reply("❌ Invalid value. Try: `/alerts_minmove 0.5`")
+            cfg = _load_alerts_cfg()
+            cfg["min_move_pct"] = value
             try:
-                pct = max(0.0, _as_float(parts[1], 0.0))
-            except Exception:
-                return _reply("❌ Invalid percent.")
-            cfg = _alerts_load()
-            cfg["min_move_pct"] = pct
-            _alerts_save(cfg)
-            return _reply(f"👀 Watch sensitivity set to {pct:.2f}%")
+                import json
+                json.dump(cfg, open("alerts_config.json","w"), indent=2)
+            except Exception as e:
+                return _reply(f"❌ Failed to save: {e}")
+            return _reply(f"👀 Watch sensitivity set to {value:.2f}%")
 
         elif cmd in ("/alerts_mute", "/alerts_off") and is_admin:
             parts = text.split(maxsplit=1)
