@@ -1477,19 +1477,24 @@ def process_telegram_command(update: dict):
             return _reply("👁️ Unwatched")
 
         elif cmd == "/watchlist":
-            wl = _load_watchlist()
-            if not wl:
-                return _reply("📄 Watchlist empty.")
-            lines = []
-            for item in wl:
-                norm_item = _normalize_watch_item(item)
-                mint = norm_item.get("mint")
-                if not mint: continue
-                price = norm_item.get("last") or 0.0
-                delta = norm_item.get("delta_pct") or 0.0
-                src = norm_item.get("src") or "?"
-                lines.append(f"- `{mint[:10]}..` last=${price:.6f} Δ={delta:+.2f}% src={src}")
-            return _reply("📄 *Watchlist:*\n" + "\n".join(lines))
+            try:
+                wl = _load_watchlist()
+                if not wl:
+                    return {"status":"ok","response":"👁️ Watchlist empty."}
+                lines = []
+                for it in wl:
+                    it = _normalize_watch_item(it)
+                    mint = it["mint"]
+                    last = it["last"]
+                    delta = it["delta_pct"]
+                    src = it.get("src") or "n/a"
+                    last_s = f"${last:.6f}" if isinstance(last,(int,float)) else "?"
+                    delta_s = f"{delta:+.2f}%" if isinstance(delta,(int,float)) else "?"
+                    lines.append(f"- `{mint[:14]}..`  last={last_s}  Δ={delta_s}  src={src}")
+                body = "\n".join(lines)
+                return {"status":"ok","response":f"📄 *Watchlist:*\n{body}","parse_mode":"Markdown"}
+            except Exception as e:
+                return {"status":"ok","response":f"Internal error: {e}"}
 
         # public watch controls
         elif cmd == "/watch_tick":
