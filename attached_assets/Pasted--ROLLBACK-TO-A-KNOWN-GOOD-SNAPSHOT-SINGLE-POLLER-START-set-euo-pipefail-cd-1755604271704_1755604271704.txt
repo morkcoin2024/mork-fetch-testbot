@@ -1,0 +1,63 @@
+# === ROLLBACK TO A KNOWN-GOOD SNAPSHOT + SINGLE POLLER START =================
+set -euo pipefail
+cd /home/runner/workspace
+
+echo "[1] Pick the 09:00–09:59Z release from today if available; else fall back to last stable."
+REL="$(ls -1 releases/tg-stable* 2>/dev/null | grep '2025-08-19T09' | tail -1 || true)"
+if [ -z "${REL}" ]; then
+  # Fall back to yesterday’s hardened/stable snapshot that was working
+  REL="$(ls -1 releases/tg-stable* 2>/dev/null | grep -E 'hardened|stable' | tail -1 || true)"
+fi
+if [ -z "${REL}" ]; then
+  echo "No release tarballs found in ./releases. Use Replit > History to restore 09:23 GMT."
+  exit 1
+fi
+echo "Using release tarball: ${REL}"
+
+echo "[2] Stop anything that could own the Telegram token."
+pkill -f 'gunicorn .*app:app' || true
+pkill -f 'gunicorn .*main:app' || true
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+rm -f /tmp/mork_polling.lock || true
+
+echo "[3] Restore the snapshot files (app.py, telegram_polling.py, etc.)."
+tar -xzf "${REL}" -C .
+
+echo "[4] Force polling mode (clear webhook so long polling owns updates)."
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null || true
+
+echo "[5] Ensure RUN uses the integrated poller (exactly one worker)."
+cat > .replit <<'INI'
+run = "env POLLING_ENABLED=1 LOG_LEVEL=INFO PYTHONUNBUFFERED=1 gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload"
+INI
+
+echo "[6] Start the single poller worker."
+env POLLING_ENABLED=1 LOG_LEVEL=INFO PYTHONUNBUFFERED=1 \
+  nohup gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload \
+  > /tmp/guni.out 2>&1 &
+
+sleep 4
+echo; echo "=== Processes (expect ONE *app:app*) ==="
+ps aux | grep -E 'gunicorn .*app:app|gunicorn .*main:app' | grep -v grep || true
+
+echo; echo "=== Webhook (should be empty) ==="
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" \
+ | python3 - <<'PY'
+import sys,json
+d=json.load(sys.stdin).get('result',{})
+print("url =", d.get('url')); print("pending =", d.get('pending_update_count'))
+PY
+
+echo; echo "=== Send live smoke to admin (/ping, /version) ==="
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  -d "chat_id=${ASSISTANT_ADMIN_TELEGRAM_ID}" -d "text=/ping" >/dev/null
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  -d "chat_id=${ASSISTANT_ADMIN_TELEGRAM_ID}" -d "text=/version" >/dev/null
+
+sleep 3
+echo; echo "=== Tail worker log ==="
+tail -n 150 /tmp/guni.out || true
+
+echo; echo ">>> Expect in /tmp/guni.out:"
+echo "• 'Telegram bot enabled successfully' + 'Polling service started'"
+echo "• 'Processing command '/ping'' and 'Response sent: True'"

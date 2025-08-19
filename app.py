@@ -3,149 +3,29 @@ Flask Web Application for Mork F.E.T.C.H Bot
 Handles Telegram webhooks and provides web interface
 """
 
-import os, time, logging, json, re, random
+import os
+import logging
 import threading
-import datetime as _dt
-from datetime import datetime, timezone
+import time
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
-import requests
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
-# --- globals / config ---
-LOADED_AT_UTC = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def _router_sha20():
-    """Hash of the currently-loaded router implementation (runtime, not build)."""
-    import inspect, hashlib
-    return hashlib.sha256(inspect.getsource(process_telegram_command).encode()).hexdigest()[:20]
-
-# -------------------------------
-# Price source selection (persisted)
-# -------------------------------
-_PRICE_SOURCE_FILE = "/tmp/mork_price_source"
-_PRICE_SOURCE = os.getenv("PRICE_SOURCE_DEFAULT", "sim")
-try:
-    if os.path.exists(_PRICE_SOURCE_FILE):
-        _PRICE_SOURCE = (open(_PRICE_SOURCE_FILE).read().strip() or _PRICE_SOURCE)
-except Exception:
-    pass
-
-def _set_price_source(src: str) -> bool:
-    """Set and persist price source: sim | dex | birdeye"""
-    global _PRICE_SOURCE
-    s = (src or "").strip().lower()
-    if s not in ("sim", "dex", "birdeye"):
-        return False
-    _PRICE_SOURCE = s
-    try:
-        with open(_PRICE_SOURCE_FILE, "w") as f:
-            f.write(s)
-    except Exception:
-        pass
-    return True
-
-def _price_lookup(mint: str, source: str = None):
-    """
-    Returns (price_float, used_source)
-    Tries selected source first, then falls back: dex->birdeye->sim or birdeye->dex->sim
-    """
-    mint = (mint or "").strip()
-    src = (source or _PRICE_SOURCE or "sim").lower()
-    order = {
-        "sim":      ["sim"],
-        "dex":      ["dex", "birdeye", "sim"],
-        "birdeye":  ["birdeye", "dex", "sim"],
-    }.get(src, ["sim"])
-
-    # Dexscreener
-    def _dex():
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=8)
-        j = r.json()
-        pairs = j.get("pairs") or []
-        if pairs:
-            p = pairs[0].get("priceUsd") or pairs[0].get("price")
-            return float(p), "dex"
-        raise RuntimeError("no dex pair")
-
-    # Birdeye
-    def _birdeye():
-        key = os.getenv("BIRDEYE_API_KEY","")
-        if not key:
-            raise RuntimeError("no birdeye key")
-        r = requests.get(
-            "https://public-api.birdeye.so/defi/price",
-            headers={"X-API-KEY": key, "accept":"application/json"},
-            params={"address": mint},
-            timeout=8
-        )
-        j = r.json()
-        if j.get("success") and j.get("data") and j["data"].get("value") is not None:
-            return float(j["data"]["value"]), "birdeye"
-        raise RuntimeError("birdeye no value")
-
-    for step in order:
-        try:
-            if step == "dex":
-                return _dex()
-            if step == "birdeye":
-                return _birdeye()
-            if step == "sim":
-                raise Exception("force_sim")
-        except Exception:
-            continue
-
-    # final sim fallback (deterministic-ish)
-    price = round(0.5 + (hash(mint) % 5000)/10000.0, 6)
-    return price, "sim"
-
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
-APP_START_TS = int(time.time())
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price", "/source",
+    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
     "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
     "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
-    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
-    "/autosell_save", "/autosell_load", "/autosell_reset", "/autosell_backup", "/autosell_break",
-    "/autosell_events", "/autosell_eval", "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
-    "/uptime", "/health", "/pricesrc", "/price_ttl", "/price_cache_clear",
-    "/watch", "/unwatch", "/watchlist", "/watch_sens",
-    "/autosell_restore", "/autosell_restore_backup", "/autosell_save", "/alerts_on", "/alerts_off",
-    "/paper_buy", "/paper_sell", "/ledger", "/ledger_reset",
-    "/ledger_pnl", "/paper_setprice", "/paper_clearprice", "/ledger_pnl_csv",
-    "/paper_auto_on", "/paper_auto_off", "/paper_auto_status",
-    "/alerts_chat_set", "/alerts_chat_set_here", "/alerts_chat_clear", "/alerts_chat_status", "/alerts_test",
-    "/alerts_min_move", "/alerts_rate", "/alerts_settings", "/alerts_mute", "/alerts_unmute",
-    "/discord_set", "/discord_clear", "/discord_test",
-    "/digest_status", "/digest_on", "/digest_off", "/digest_time", "/digest_test"
+    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
-
-# Alert routing config (persisted)
-_ALERT_CFG_PATH = os.path.join(os.path.dirname(__file__), "alert_chat.json")
-try:
-    with open(_ALERT_CFG_PATH, "r") as f:
-        _ALERT_CFG = json.load(f)
-except Exception:
-    _ALERT_CFG = {
-        "chat_id": None,
-        "min_move_pct": 0.0,
-        "rate_per_min": 60,
-        "muted_until": 0,
-        "discord_webhook": None,
-        "digest": {"enabled": False, "time": "09:00", "chat_id": None},
-        "price_source": "sim"
-    }
-
-# --- notifier state for rate-limiting (sliding window) ---
-_ALERT_SENT_TS = []  # unix seconds of recent sends
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
@@ -172,55 +52,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# --- Ops: watchdog + uptime ---
-def _admin_chat_id():
-    try: 
-        return int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0")) or None
-    except: 
-        return None
-
-def _send_admin(msg: str):
-    try:
-        chat = _admin_chat_id()
-        if chat:
-            tg_send(chat, msg, preview=True)
-    except Exception as e:
-        print(f"[watchdog] admin send failed: {e}")
-
-_WD = {"last_alert": 0, "alert_open": False}
-
-def _watchdog_loop():
-    import autosell
-    while True:
-        try:
-            st = autosell.status()
-            enabled = bool(st.get("enabled"))
-            alive = bool(st.get("thread_alive"))
-            iv = int(st.get("interval") or 10)
-            last_hb = int(st.get("last_heartbeat_ts") or 0)
-            age = int(time.time()) - last_hb if last_hb else 1_000_000
-            bad = enabled and (not alive or age > max(30, iv*3))
-            
-            if bad and not _WD["alert_open"]:
-                _send_admin(f"⚠️ AutoSell watchdog: thread not healthy\nenabled={enabled} alive={alive} hb_age={age}s interval={iv}s")
-                _WD["alert_open"] = True
-                _WD["last_alert"] = int(time.time())
-            elif not bad and _WD["alert_open"]:
-                _send_admin("✅ AutoSell watchdog: recovered")
-                _WD["alert_open"] = False
-        except Exception as e:
-            print(f"[watchdog] loop error: {e}")
-        time.sleep(30)
-
-# Start watchdog if enabled
-if os.environ.get("FETCH_WATCHDOG", "1") == "1":
-    try:
-        t = threading.Thread(target=_watchdog_loop, name="watchdog", daemon=True)
-        t.start()
-        print("[watchdog] started")
-    except Exception as e:
-        print(f"[watchdog] failed to start: {e}")
 
 # --- Shared Telegram send with MarkdownV2 fallback (used by webhook & poller) ---
 def _escape_mdv2(text: str) -> str:
@@ -435,8 +266,8 @@ def _ensure_scanners():
         
         logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
         
-        # Start integrated Telegram polling only when explicitly enabled
-        if os.getenv("POLLING_ENABLED", "0") == "1":
+        # Start polling service for telegram commands (disabled when POLLING_MODE=ON)
+        if POLLING_MODE != 'ON':
             try:
                 from telegram_polling import start_polling_service
                 if start_polling_service():
@@ -446,7 +277,7 @@ def _ensure_scanners():
             except Exception as e:
                 logger.error("Error starting telegram polling service: %s", e)
         else:
-            logger.info("[INIT] Polling disabled by env (POLLING_ENABLED!=1)")
+            logger.info("Telegram polling service disabled (POLLING_MODE=ON - external polling bot expected)")
         
     except Exception as e:
         logger.error(f"Scanner initialization failed in worker PID={current_pid}: {e}")
@@ -551,7 +382,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/version", "/test123", "/commands", "/debug_cmd", "/price", "/source"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -644,35 +475,6 @@ def process_telegram_command(update: dict):
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
-        
-        elif cmd == "/version":
-            # New behavior: prefer runtime stamp + runtime router hash; fall back to build-info if present
-            runtime_ts = LOADED_AT_UTC
-            runtime_router = _router_sha20()
-            mode = "Polling (integrated)"
-            label, ts = "runtime", runtime_ts
-            try:
-                info = json.load(open("build-info.json","r"))
-                # keep build tag for reference, but *display* runtime load time first
-                label = info.get("label", "runtime")
-                # show both lines so we can see build vs runtime at a glance
-                build_ts = info.get("release_ts_utc", "(none)")
-                return _reply(
-                    "📜 Release: {label} (build {build_ts})\n"
-                    "⏱ Runtime: {runtime_ts}\n"
-                    "Mode: {mode}\n"
-                    "RouterSHA20: {router}".format(
-                        label=label, build_ts=build_ts, runtime_ts=runtime_ts, mode=mode, router=runtime_router
-                    )
-                )
-            except Exception:
-                return _reply(
-                    "📜 Release: runtime {runtime_ts}\n"
-                    "Mode: {mode}\n"
-                    "RouterSHA20: {router}".format(
-                        runtime_ts=runtime_ts, mode=mode, router=runtime_router
-                    )
-                )
         elif cmd == "/debug_cmd":
             # Debug command to introspect what the router sees
             raw = update.get("message", {}).get("text") or ""
@@ -687,22 +489,6 @@ def process_telegram_command(update: dict):
                 f"cmd: {repr(cmd_debug)}\n"
                 f"args: {repr(args_debug)}"
             )
-
-        elif cmd == "/price":
-            mint = (args or "").strip()
-            if not mint:
-                return _reply("Usage: /price <MINT>")
-            price, used = _price_lookup(mint)
-            prefix = "price: " + (f"${price:.6f}" if used != "sim" else f"~${price} (sim)")
-            return _reply(f"📈 {mint}\n{prefix}\nsource: {used}")
-
-        elif cmd == "/source":
-            choice = (args or "").strip().lower()
-            if not choice:
-                return _reply(f"🔧 Price source: {_PRICE_SOURCE}\nUse `/source sim|dex|birdeye`")
-            if _set_price_source(choice):
-                return _reply(f"✅ Price source set: {_PRICE_SOURCE}")
-            return _reply("⚠️ Unknown source. Use: sim | dex | birdeye")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
@@ -723,664 +509,74 @@ def process_telegram_command(update: dict):
             if deny: return deny
             import autosell
             st = autosell.status()
-            lines = [
-                "🤖 AutoSell Status",
-                f"Enabled: {st.get('enabled')}",
-                f"Interval: {st.get('interval')}s",
-                f"Rules: {len(st.get('rules', []))}",
-                f"Thread alive: {st.get('thread_alive')}",
-                f"Ticks: {st.get('ticks')}",
-                f"Dry-run: {st.get('dry_run')}",
-            ]
-            return _reply("\n".join(lines))
+            return _reply(
+                "🤖 AutoSell Status\n"
+                f"Enabled: {st['enabled']}\n"
+                f"Interval: {st['interval_sec']}s\n"
+                f"Rules: {st['rules_count']}\n"
+                f"Thread alive: {st['thread_alive']}"
+            )
 
         elif cmd == "/autosell_interval":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            arg = (args or "").strip()
-            if not arg.isdigit():
+            try:
+                seconds = int((args or "").split()[0])
+            except Exception:
                 return _reply("Usage: /autosell_interval <seconds>")
-            st = autosell.set_interval(int(arg))
-            return _reply(f"⏱ Interval set to {st.get('interval')}s.")
+            autosell.set_interval(seconds)
+            st = autosell.status()
+            return _reply(f"⏱️ AutoSell interval: {st['interval_sec']}s")
 
+        # Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]
         elif cmd == "/autosell_set":
             deny = _require_admin(user)
             if deny: return deny
-            import autosell, re
-            if not args:
+            import autosell
+            parts = (args or "").split()
+            if not parts:
                 return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10] [size=100]")
-            parts = args.split()
             mint = parts[0]
-            kv = {}
-            for tok in parts[1:]:
-                m = re.match(r"(?i)^(tp|sl|trail|size)=(\d+)$", tok.strip())
-                if m: kv[m.group(1).lower()] = int(m.group(2))
-            try:
-                rule = autosell.set_rule(mint, **kv)
-            except Exception as e:
-                return _reply(f"❌ {e}")
-            bits = [f"{k}={v}" for k,v in rule.items() if k!="mint"]
-            return _reply("✅ Rule saved: " + rule["mint"] + (" " + " ".join(bits) if bits else ""))
+            kv = {"tp": None, "sl": None, "trail": None, "size": None}
+            for p in parts[1:]:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    try: 
+                        if k.lower() in ["tp", "sl", "trail", "size"]:
+                            kv[k.lower()] = float(v)
+                    except: 
+                        pass
+            autosell.set_rule(mint, kv["tp"], kv["sl"], kv["trail"], kv["size"])
+            return _reply(
+                f"✅ AutoSell set for {mint[:8]}…  "
+                f"tp={kv['tp']} sl={kv['sl']} trail={kv['trail']} size={kv['size']}"
+            )
 
         elif cmd == "/autosell_list":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            rules = autosell.list_rules()
+            rules = autosell.get_rules()
             if not rules:
-                return _reply("📄 No AutoSell rules yet.")
-            lines = ["📄 AutoSell rules:"]
-            for r in rules:
-                bits = [f"mint={r['mint']}"]
-                for k in ("tp","sl","trail","size"):
-                    if k in r: bits.append(f"{k}={r[k]}")
-                lines.append(" - " + " ".join(bits))
+                return _reply("🤖 AutoSell rules: (none)")
+            lines = ["🤖 AutoSell rules:"]
+            for m, r in rules.items():
+                lines.append(
+                    f"{m[:8]}…  tp={r.get('tp_pct')}  sl={r.get('sl_pct')}  "
+                    f"trail={r.get('trail_pct')}  size={r.get('size_pct', 100)}%"
+                )
             return _reply("\n".join(lines))
 
         elif cmd == "/autosell_remove":
             deny = _require_admin(user)
             if deny: return deny
             import autosell
-            mint = (args or "").strip()
-            if not mint:
-                return _reply("Usage: /autosell_remove <mint>")
-            n = autosell.remove_rule(mint)
-            return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
-
-        elif cmd == "/autosell_logs":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            n = 10
-            a = (args or "").strip()
-            if a.isdigit(): n = max(1, min(int(a), 100))
-            lines = autosell.events(n)
-            return _reply("📜 Last events:\n" + "\n".join(lines) if lines else "📜 No events yet.")
-
-        elif cmd == "/autosell_dryrun":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            m = (args or "").strip() or None
-            lines = autosell.dryrun_eval(m)
-            return _reply("\n".join(lines))
-
-        elif cmd == "/autosell_ruleinfo":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            m = (args or "").strip()
-            if not m: return _reply("Usage: /autosell_ruleinfo <mint>")
-            rules = [r for r in autosell.list_rules() if r.get("mint","").lower()==m.lower()]
-            if not rules: return _reply("No such rule.")
-            r = rules[0]
-            bits = [f"{k}={r[k]}" for k in ("tp","sl","trail","size","ref","peak") if k in r]
-            return _reply("🔎 Rule info: " + r["mint"] + (" " + " ".join(bits) if bits else ""))
-
-        elif cmd == "/autosell_save":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            ok = autosell.force_save()
-            return _reply("💾 Saved." if ok else "❌ Save failed.")
-
-        elif cmd == "/autosell_load":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            st = autosell.reload()
-            return _reply("📥 Loaded. Rules: %s Enabled: %s Interval: %ss" %
-                          (len(autosell.list_rules()), st.get("enabled"), st.get("interval")))
-
-        elif cmd == "/autosell_reset":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.reset()
-            return _reply("♻️ AutoSell state cleared (disabled, rules wiped).")
-
-        elif cmd == "/autosell_backup":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            ok = autosell.backup_state()
-            return _reply("💾 Backup " + ("written." if ok else "failed."))
-
-        # test-only to trigger watchdog alert (admin)
-        elif cmd == "/autosell_break":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.test_break()
-            return _reply("🧨 AutoSell thread break requested (watchdog should alert if enabled).")
-
-        elif cmd == "/uptime":
-            up = int(time.time()) - APP_START_TS
-            hrs = up//3600; mins=(up%3600)//60; secs=up%60
-            return _reply(f"⏳ Uptime: {hrs}h {mins}m {secs}s")
-
-        elif cmd == "/health":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            st = autosell.status()
-            up = int(time.time()) - APP_START_TS
-            hb_age = int(time.time()) - int(st.get("last_heartbeat_ts") or 0)
-            lines = [
-                "🩺 Health",
-                f"Uptime: {up}s",
-                f"AutoSell: enabled={st.get('enabled')} alive={st.get('thread_alive')} interval={st.get('interval')}s",
-                f"HB age: {hb_age}s  ticks={st.get('ticks')}",
-                f"Rules: {len(st.get('rules', []))}",
-            ]
-            return _reply("\n".join(lines))
-
-        elif cmd == "/autosell_events":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            n = 10  # default
-            if args and args.isdigit():
-                n = max(1, min(int(args), 100))
-            events = autosell.events(n)
-            if not events:
-                return _reply("📜 No AutoSell events yet.")
-            lines = [f"📜 Last {len(events)} AutoSell events:"]
-            lines.extend(events)
-            return _reply("\n".join(lines))
-
-        elif cmd == "/autosell_eval":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            mint = args.strip() if args else None
-            results = autosell.dryrun_eval(mint)
-            lines = ["🧪 AutoSell DRY-RUN evaluation:"]
-            lines.extend(results)
-            return _reply("\n".join(lines))
-
-        # --- Admin: price system controls ---
-        elif cmd == "/pricesrc":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            cfg = autosell.price_config()
-            return _reply("🛠 Price config\n"
-                          f"source.dex: {cfg['dex_enabled']}\n"
-                          f"ttl: {cfg['ttl']}s\n"
-                          f"cache_size: {cfg['cache_size']}")
-
-        elif cmd == "/price_ttl":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            a = (args or "").strip()
-            if not (a.isdigit()):
-                return _reply("Usage: /price_ttl <seconds>")
-            val = autosell.set_price_ttl(int(a))
-            return _reply(f"⏱ Price TTL set to {val}s")
-
-        elif cmd == "/price_cache_clear":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.clear_price_cache()
-            return _reply("🧹 Price cache cleared")
-
-        # -------- Watchlist commands (admin) --------
-        elif cmd == "/watch":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            m = (args or "").strip()
-            if not m: return _reply("Usage: /watch <mint>")
-            autosell.watch_add(m)
-            return _reply(f"👁️ Watching {m}")
-
-        elif cmd == "/unwatch":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            m = (args or "").strip()
-            if not m: return _reply("Usage: /unwatch <mint>")
-            n = autosell.watch_remove(m)
-            return _reply("✅ Unwatched" if n else "Not found.")
-
-        elif cmd == "/watchlist":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            wl = autosell.watch_list()
-            if not wl: return _reply("👁️ Watchlist empty.")
-            lines = [f"- {k}" for k in sorted(wl.keys())]
-            return _reply("👁️ Watchlist:\n" + "\n".join(lines))
-
-        elif cmd == "/watch_sens":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            a = (args or "").strip()
-            if not a: 
-                s = autosell.status().get("watch_sens_pct")
-                return _reply(f"👁️ Watch sensitivity: {s:.2f}%")
-            try:
-                val = autosell.watch_set_sens(float(a))
-                return _reply(f"👁️ Watch sensitivity set to {val:.2f}%")
-            except Exception:
-                return _reply("Usage: /watch_sens <percent>")
-
-        elif cmd == "/autosell_restore":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            ok = autosell.restore_state()
-            return _reply("💾 Restore " + ("OK" if ok else "failed (no state)"))
-
-        elif cmd == "/autosell_restore_backup":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            ok = autosell.restore_backup()
-            return _reply("💾 Restore (backup) " + ("OK" if ok else "failed (no backup)"))
-
-        elif cmd == "/autosell_save":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            ok = autosell._save_state()
-            return _reply("📝 Save " + ("OK" if ok else "failed"))
-
-        elif cmd == "/alerts_on":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.alerts_set(True)
-            return _reply("🔔 Alerts enabled")
-
-        elif cmd == "/alerts_off":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.alerts_set(False)
-            return _reply("🔕 Alerts muted")
-
-        # -------- Paper ledger (admin) --------
-        elif cmd == "/paper_buy":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            parts = (args or "").split()
-            if len(parts) < 2: return _reply("Usage: /paper_buy <mint> <qty> [price]")
-            mint, qty = parts[0], parts[1]
-            price = float(parts[2]) if len(parts) >= 3 else None
-            try:
-                ok, res = autosell.ledger_buy(mint, float(qty), price)
-                if not ok: return _reply(f"BUY failed: {res}")
-                pos = res
-                return _reply(f"🧾 BUY {mint}\nqty={pos['qty']:.6f} avg={pos['avg']:.6f}")
-            except Exception as e:
-                return _reply(f"BUY error: {e}")
-
-        elif cmd == "/paper_sell":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            parts = (args or "").split()
-            if len(parts) < 2: return _reply("Usage: /paper_sell <mint> <qty> [price]")
-            mint, qty = parts[0], parts[1]
-            price = float(parts[2]) if len(parts) >= 3 else None
-            try:
-                ok, res = autosell.ledger_sell(mint, float(qty), price)
-                if not ok: return _reply(f"SELL failed: {res}")
-                return _reply(f"🧾 SELL {mint}\nrealized={res['pnl']:.6f}\npos_qty={res['pos']['qty']:.6f}")
-            except Exception as e:
-                return _reply(f"SELL error: {e}")
-
-        elif cmd == "/ledger":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            snap = autosell.ledger_snapshot()
-            if not snap["positions"]:
-                return _reply(f"📒 Ledger: (empty)\nrealized={snap['realized']:.6f}")
-            lines = [f"- {k} qty={v['qty']:.6f} avg={v['avg']:.6f}" for k,v in snap["positions"].items()]
-            return _reply("📒 Ledger:\n" + "\n".join(lines) + f"\nrealized={snap['realized']:.6f}")
-
-        elif cmd == "/ledger_reset":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.ledger_reset()
-            return _reply("🧹 Ledger reset")
-
-        elif cmd == "/ledger_pnl":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            snap = autosell.ledger_mark_to_market()
-            if not snap["lines"]:
-                return _reply(f"📊 P&L: positions=0\nrealized={snap['realized']:.6f}\nunrealized=0.000000\ntotal={snap['realized']:.6f}")
-            rows = [f"- {l['mint']} qty={l['qty']:.6f} avg={l['avg']:.6f} px={l['px']:.6f} ({l['src']}) uPnL={l['unreal']:.6f}" for l in snap["lines"]]
-            return _reply("📊 P&L:\n" + "\n".join(rows) + f"\nrealized={snap['realized']:.6f}\nunrealized={snap['unreal']:.6f}\n**total={snap['total']:.6f}**")
-
-        elif cmd == "/paper_setprice":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            parts = (args or "").split()
-            if len(parts) < 2:
-                return _reply("Usage: /paper_setprice <mint> <price>")
-            mint, price = parts[0], parts[1]
-            ok = autosell.set_price_override(mint, price)
-            return _reply("🧪 Price override " + ("set." if ok else "failed."))
-
-        elif cmd == "/paper_clearprice":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            if not args:
-                return _reply("Usage: /paper_clearprice <mint>")
-            autosell.clear_price_override(args.strip())
-            return _reply("🧹 Price override cleared.")
-
-        elif cmd == "/ledger_pnl_csv":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            csv = autosell.ledger_mark_to_market_csv()
-            # keep it simple: send as text block (fits Telegram limits for small ledgers)
-            return _reply("```\n" + csv + "\n```")
-
-        elif cmd == "/paper_auto_on":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            q = None
-            if args:
-                try: q = float(args.strip())
-                except: pass
-            autosell.paper_auto_enable(q)
-            st = autosell.paper_auto_status()
-            return _reply(f"🤖 paper-auto ENABLED qty={st['qty']}")
-
-        elif cmd == "/paper_auto_off":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            autosell.paper_auto_disable()
-            return _reply("🤖 paper-auto DISABLED")
-
-        elif cmd == "/paper_auto_status":
-            deny = _require_admin(user)
-            if deny: return deny
-            import autosell
-            st = autosell.paper_auto_status()
-            return _reply(f"🤖 paper-auto status: enabled={st['enabled']} qty={st['qty']}")
-
-        # ------- Alert routing admin commands -------
-        elif cmd == "/alerts_chat_set":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args:
-                return _reply("Usage: /alerts_chat_set <chat_id>")
-            try:
-                chat_id = int(args.strip())
-            except Exception:
-                return _reply("⚠️ Invalid chat_id. It must be an integer.")
-            _ALERT_CFG["chat_id"] = chat_id
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            try:
-                import autosell
-                autosell.set_notifier(lambda t: tg_send(chat_id, t, preview=True))
-            except Exception:
-                pass
-            return _reply(f"📡 Alerts will be routed to chat {chat_id}.")
-
-        elif cmd == "/alerts_chat_clear":
-            deny = _require_admin(user)
-            if deny: return deny
-            _ALERT_CFG["chat_id"] = None
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            try:
-                import autosell
-                autosell.set_notifier(None)
-            except Exception:
-                pass
-            return _reply("📴 Alert routing disabled.")
-
-        elif cmd == "/alerts_chat_status":
-            deny = _require_admin(user)
-            if deny: return deny
-            cid = _ALERT_CFG.get("chat_id")
-            return _reply(
-                "📟 Alerts settings:\n"
-                f"chat: {cid if cid else 'not set'}\n"
-                f"min_move_pct: {_ALERT_CFG.get('min_move_pct', 0.0)}%\n"
-                f"rate_per_min: {_ALERT_CFG.get('rate_per_min', 60)}"
-            )
-
-        elif cmd == "/alerts_test":
-            deny = _require_admin(user)
-            if deny: return deny
-            cid = _ALERT_CFG.get("chat_id")
-            if not cid:
-                return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
-            ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
-            return _reply(f"🧪 Test sent: {ok}")
-
-        elif cmd == "/alerts_chat_set_here":
-            # Admin-only; set the current chat as the alerts target
-            deny = _require_admin(user)
-            if deny: return deny
-            msg = update.get("message", {}) if isinstance(update, dict) else {}
-            chat = msg.get("chat", {})
-            chat_id = chat.get("id")
-            if not chat_id:
-                return _reply("⚠️ Could not detect chat id. Try again from the group/channel.")
-            _ALERT_CFG["chat_id"] = int(chat_id)
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            try:
-                import autosell
-                autosell.set_notifier(lambda t: tg_send(int(chat_id), t, preview=True))
-            except Exception:
-                pass
-            return _reply(f"📡 Alerts will be routed **here** (chat_id={chat_id}).")
-
-        elif cmd == "/alerts_min_move":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args:
-                return _reply("Usage: /alerts_min_move <percent>\nExample: /alerts_min_move 0.5")
-            try:
-                pct = max(0.0, float(args.strip()))
-            except Exception:
-                return _reply("⚠️ Invalid percent. Use a number like 0.5")
-            _ALERT_CFG["min_move_pct"] = pct
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            return _reply(f"✅ min_move_pct set to {pct}%")
-
-        elif cmd == "/alerts_rate":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args:
-                return _reply("Usage: /alerts_rate <N_per_min>\nExample: /alerts_rate 20")
-            try:
-                n = max(1, int(float(args.strip())))
-            except Exception:
-                return _reply("⚠️ Invalid rate. Use a positive number.")
-            _ALERT_CFG["rate_per_min"] = n
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            return _reply(f"✅ rate_per_min set to {n}")
-
-        elif cmd == "/alerts_mute":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args:
-                return _reply("Usage: /alerts_mute <duration>\nExamples: 15m, 1h, 2h30m, 45")
-            import re, time
-            s = args.strip().lower()
-            # parse "2h30m", "90m", "45" (minutes)
-            total_sec = 0
-            m = re.fullmatch(r'(?:\s*(\d+)\s*h)?\s*(?:\s*(\d+)\s*m)?\s*', s)
-            if 'h' in s or 'm' in s:
-                if m:
-                    h = int(m.group(1) or 0); mins = int(m.group(2) or 0)
-                    total_sec = h*3600 + mins*60
-            else:
-                try:
-                    total_sec = int(float(s)) * 60
-                except:
-                    return _reply("⚠️ Invalid duration. Try 15m or 1h30m.")
-            total_sec = max(60, min(total_sec, 24*3600))  # 1 min .. 24h
-            _ALERT_CFG["muted_until"] = time.time() + total_sec
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            return _reply(f"🔕 Alerts muted for {total_sec//60} min")
-
-        elif cmd == "/alerts_unmute":
-            deny = _require_admin(user)
-            if deny: return deny
-            _ALERT_CFG["muted_until"] = 0
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            return _reply("🔔 Alerts unmuted")
-
-        elif cmd == "/discord_set":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args:
-                return _reply("Usage: /discord_set <webhook-url> (send this in DM, not group)")
-            _ALERT_CFG["discord_webhook"] = args.strip()
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            ok = _discord_send("✅ Discord webhook set (test)")
-            return _reply(f"✅ Discord set: {bool(ok.get('ok'))}")
-
-        elif cmd == "/discord_clear":
-            deny = _require_admin(user)
-            if deny: return deny
-            _ALERT_CFG["discord_webhook"] = None
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f: 
-                    json.dump(_ALERT_CFG, f)
-            except Exception: 
-                pass
-            return _reply("🧹 Discord webhook cleared")
-
-        elif cmd == "/discord_test":
-            deny = _require_admin(user)
-            if deny: return deny
-            msg = args.strip() or "test"
-            ok = _discord_send(f"[TEST] {msg}")
-            return _reply(f"📤 Discord test sent: {bool(ok.get('ok'))}")
-
-        # ----- Daily Digest admin commands -----
-        elif cmd == "/digest_status":
-            deny = _require_admin(user)
-            if deny: return deny
-            d = _ALERT_CFG.get("digest", {})
-            return _reply(f"🗞 Digest: {'on' if d.get('enabled') else 'off'} @ {d.get('time','09:00')} UTC\n"
-                          f"chat: { _digest_target_chat() or 'not set'}")
-
-        elif cmd == "/digest_on":
-            deny = _require_admin(user)
-            if deny: return deny
-            _ALERT_CFG.setdefault("digest", {})["enabled"] = True
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            _ensure_digest_thread()
-            return _reply("✅ Daily digest enabled")
-
-        elif cmd == "/digest_off":
-            deny = _require_admin(user)
-            if deny: return deny
-            _ALERT_CFG.setdefault("digest", {})["enabled"] = False
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            return _reply("🛑 Daily digest disabled")
-
-        elif cmd == "/digest_time":
-            deny = _require_admin(user)
-            if deny: return deny
-            if not args or not _parse_hhmm(args):
-                return _reply("Usage: /digest_time HH:MM  (UTC)")
-            _ALERT_CFG.setdefault("digest", {})["time"] = args.strip()
-            try:
-                with open(_ALERT_CFG_PATH, "w") as f:
-                    json.dump(_ALERT_CFG, f)
-            except Exception:
-                pass
-            return _reply(f"⏰ Digest time set to {args.strip()} UTC")
-
-        elif cmd == "/digest_test":
-            deny = _require_admin(user)
-            if deny: return deny
-            note = args.strip() if args else "manual test"
-            _ensure_digest_thread()
-            res = _digest_send(note)
-            return _reply(f"📤 Digest sent: {bool(res.get('ok'))}")
-
-        elif cmd == "/alerts_settings":
-            deny = _require_admin(user)
-            if deny: return deny
-            cid = _ALERT_CFG.get("chat_id")
-            import time
-            mu = float(_ALERT_CFG.get("muted_until", 0) or 0)
-            remaining = max(0, int(mu - time.time()))
-            import os
-            discord_set = bool(_ALERT_CFG.get('discord_webhook') or os.getenv('DISCORD_WEBHOOK_URL'))
-            return _reply(
-                "📟 Alert flood control settings:\n"
-                f"chat: {cid if cid else 'not set'}\n"
-                f"min_move_pct: {_ALERT_CFG.get('min_move_pct', 0.0)}%\n"
-                f"rate_per_min: {_ALERT_CFG.get('rate_per_min', 60)}\n"
-                f"sent_last_min: {len(_ALERT_SENT_TS)}\n"
-                f"muted: {'yes' if remaining>0 else 'no'}"
-                + (f" ({remaining}s left)" if remaining>0 else "")
-                + "\n"
-                + f"discord: {'set' if discord_set else 'not set'}"
-                + "\n"
-                + f"digest: {'on' if (_ALERT_CFG.get('digest',{}).get('enabled')) else 'off'} @ "
-                + (_ALERT_CFG.get('digest',{}).get('time','09:00')) + " UTC"
-                + "\n"
-                + f"price_source: { _ALERT_CFG.get('price_source','sim') }"
-            )
+            target = (args or "").split()[0] if args else ""
+            if not target:
+                return _reply("Usage: /autosell_remove <MINT>")
+            ok = autosell.remove_rule(target)
+            return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
 
         # Wallet Commands
         elif cmd == "/wallet":
@@ -1521,157 +717,6 @@ try:
         'websocket': ws_client
     }
     logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
-    
-    # --- Discord helper & commands ---
-    def _discord_send(text: str):
-        url = (_ALERT_CFG.get("discord_webhook")
-               or os.getenv("DISCORD_WEBHOOK_URL"))
-        if not url or not requests:
-            return {"ok": False, "reason": "no_webhook_or_requests"}
-        try:
-            r = requests.post(url, json={"content": text}, timeout=8)
-            return {"ok": r.status_code in (200, 204), "status": r.status_code}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    # ---------------- Price sources (for /price, step 1) ----------------
-
-
-    # --- Daily Digest (heartbeat) helper functions ---
-    global _DIGEST_THREAD_STARTED
-    try:
-        _DIGEST_THREAD_STARTED
-    except NameError:
-        _DIGEST_THREAD_STARTED = False
-
-    def _digest_target_chat():
-        # prefer explicit digest chat, then alerts chat, then admin env
-        cid = (_ALERT_CFG.get("digest",{}).get("chat_id")
-               or _ALERT_CFG.get("chat_id"))
-        if not cid:
-            try:
-                cid = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","0")) or None
-            except Exception:
-                cid = None
-        return cid
-
-    def _digest_compose(note: str = ""):
-        ts = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        lines = [f"🗞 Daily Digest — {ts}"]
-        # autosell status (best-effort)
-        try:
-            import autosell
-            st = autosell.status()
-            lines.append(f"AutoSell: enabled={st.get('enabled')} alive={st.get('alive')} interval={st.get('interval_sec','?')}s")
-            lines.append(f"Rules: {st.get('rules', 0)}")
-            hb = st.get('heartbeat_age', None)
-            if hb is not None:
-                lines.append(f"HB age: {hb}s ticks={st.get('ticks',0)}")
-        except Exception:
-            lines.append("AutoSell: n/a")
-        # alert settings summary
-        try:
-            lines.append(f"Alerts: chat={'set' if _ALERT_CFG.get('chat_id') else 'not set'} "
-                         f"min_move={_ALERT_CFG.get('min_move_pct',0)}% muted_until={_ALERT_CFG.get('muted_until',0)}")
-        except Exception:
-            pass
-        if note:
-            lines.append(f"Note: {note}")
-        lines.append("—")
-        lines.append("Tips: /help  •  /autosell_status  •  /watchlist  •  /autosell_logs 10")
-        return "\n".join(lines)
-
-    def _digest_send(note: str = ""):
-        chat = _digest_target_chat()
-        if not chat:
-            return {"ok": False, "reason": "no_chat"}
-        msg = _digest_compose(note)
-        return tg_send(chat, msg, preview=True)
-
-    def _parse_hhmm(s: str):
-        m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", s.strip())
-        if not m: return None
-        return int(m.group(1)), int(m.group(2))
-
-    def _secs_until_next(hh: int, mm: int):
-        now = _dt.datetime.utcnow()
-        nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        if nxt <= now:
-            nxt = nxt + _dt.timedelta(days=1)
-        return max(1, int((nxt - now).total_seconds()))
-
-    def _ensure_digest_thread():
-        global _DIGEST_THREAD_STARTED
-        if _DIGEST_THREAD_STARTED:
-            return
-        _DIGEST_THREAD_STARTED = True
-        def _worker():
-            # tiny scheduler loop
-            while True:
-                try:
-                    dcfg = _ALERT_CFG.get("digest", {})
-                    if not dcfg.get("enabled", False):
-                        time.sleep(30)
-                        continue
-                    t = dcfg.get("time","09:00")
-                    hm = _parse_hhmm(t) or (9,0)
-                    sleep_s = _secs_until_next(*hm)
-                    # coarse sleep with ability to react to config changes
-                    while sleep_s > 0 and dcfg.get("enabled", False):
-                        step = 30 if sleep_s > 60 else sleep_s
-                        time.sleep(step)
-                        sleep_s -= step
-                        dcfg = _ALERT_CFG.get("digest", {})
-                    if dcfg.get("enabled", False):
-                        try: _digest_send()
-                        except Exception: pass
-                except Exception:
-                    # never die
-                    time.sleep(10)
-        th = threading.Thread(target=_worker, name="digest-heartbeat", daemon=True)
-        th.start()
-
-    # make sure the thread exists after the first command processing
-    _ensure_digest_thread()
-
-    # Wire notifier into autosell for alert routing
-    try:
-        import autosell
-        def _notify_line(txt: str):
-            cid = _ALERT_CFG.get("chat_id")
-            if cid:
-                # mute check
-                import time, re
-                if float(_ALERT_CFG.get("muted_until", 0) or 0) > time.time():
-                    return
-                # threshold filter — look for ±X.XX%
-                m = re.search(r'([+-]?\d+(?:\.\d+)?)%', txt)
-                if m:
-                    try:
-                        move = abs(float(m.group(1)))
-                        if move < float(_ALERT_CFG.get("min_move_pct", 0.0)):
-                            return  # below threshold
-                    except Exception:
-                        pass
-                # rate limit N per minute
-                now = time.time()
-                # prune older than 60s
-                while _ALERT_SENT_TS and now - _ALERT_SENT_TS[0] > 60:
-                    _ALERT_SENT_TS.pop(0)
-                max_per_min = int(_ALERT_CFG.get("rate_per_min", 60) or 60)
-                if len(_ALERT_SENT_TS) >= max_per_min:
-                    return  # drop quietly
-                res = tg_send(int(cid), txt, preview=True)
-                if res.get("ok"):
-                    _ALERT_SENT_TS.append(now)
-                # Discord mirror (best-effort; won't raise)
-                try:
-                    _discord_send(txt)
-                except Exception:
-                    pass
-        autosell.set_notifier(_notify_line if _ALERT_CFG.get("chat_id") else None)
-    except Exception as e:
-        logger.warning(f"Failed to setup notifier: {e}")
     
     # Polling service startup moved to single location to prevent duplicates
 except Exception as e:
