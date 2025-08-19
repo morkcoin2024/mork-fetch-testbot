@@ -1337,15 +1337,11 @@ def process_telegram_command(update: dict):
                 lines.append(f"- `{m[:10]}..` last=${(last or 0):.6f} Δ={move:+.2f}%")
             return _reply("📄 *Watchlist:*\n" + "\n".join(lines))
 
-        # admin helpers
+        # public watch controls
         elif cmd == "/watch_tick":
-            if not is_admin:
-                return _reply("❌ Admin only")
             _watch_tick_once()
             return _reply("🔧 Watch tick executed.")
         elif cmd == "/watch_off":
-            if not is_admin:
-                return _reply("❌ Admin only")
             WATCH_RUN["enabled"] = False
             return _reply("⏸️ Watcher paused.")
         elif cmd == "/watch_on":
