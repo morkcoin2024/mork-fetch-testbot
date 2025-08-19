@@ -1451,19 +1451,20 @@ def process_telegram_command(update: dict):
             return _reply("\n".join(lines))
         
         # --- Watchlist commands (lightweight v1) ---
-        elif cmd == "/watch" and args:
-            cfg = _watch_load()
-            if args not in cfg["mints"]:
-                cfg["mints"].append(args)
-                _watch_save(cfg)
-                # set initial baseline immediately
-                st = _watch_state_load()
-                p = get_price(args)
-                if p.get("ok"):
-                    st["baseline"][args] = float(p["price"])
-                    st["last"][args] = float(p["price"])
-                    _watch_state_save(st)
-            return _reply(f"👁️ Watching\n`{args}`")
+        elif cmd == "/watch":
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                return {"status":"ok","response":"Usage: /watch <mint>"}
+            mint = parts[1].strip()
+            try:
+                wl = _load_watchlist()
+                if _watch_contains(wl, mint):
+                    return {"status":"ok","response":"(already watching)"}
+                wl.append({"mint": mint, "last": None, "delta_pct": None, "src": None})
+                _save_watchlist(wl)
+                return {"status":"ok","response":f"👁️ Watching\n`{mint}`","parse_mode":"Markdown"}
+            except Exception as e:
+                return {"status":"ok","response":f"Internal error: {e}"}
 
         elif cmd == "/unwatch" and args:
             cfg = _watch_load()
