@@ -1,0 +1,97 @@
+# === MULTI-SOURCE SNAPSHOT: /fetch & /fetch_now ===
+# - Adds /fetch <mint> and /fetch_now <mint> alias
+# - Queries all price providers (birdeye, dex, sim)
+# - Shows active source (from /source), cross-checks, spread
+# - Uses existing price_* functions and 15s price cache already in app
+
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-    public_commands = [
++    public_commands = [
+         "/help", "/ping", "/info", "/test123", "/commands",
+-        "/source", "/price", "/quote",
++        "/source", "/price", "/quote",
++        "/fetch", "/fetch_now",
+     ]
+@@
+     elif cmd == "/price" or cmd == "/quote":
+         parts = text.split()
+         if len(parts) < 2:
+             return ok("Usage: `/price <mint>`")
+@@
+         note = " (cached)" if res.get("cached") else ""
+         return ok(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
++
++    # --- Multi-source snapshot (/fetch, /fetch_now) ---
++    elif cmd in ("/fetch", "/fetch_now"):
++        parts = text.split()
++        if len(parts) < 2:
++            return ok("Usage: `/fetch <mint>`")
++        mint = parts[1].strip()
++        if not mint or len(mint) < 10:
++            return ok("❌ Invalid mint address. Please provide a valid Solana token mint address.")
++
++        active = (_read_price_source() or "sim").lower()
++        rows = []
++        sources = []
++        # Preferred first, then the rest
++        order = ["birdeye", "dex", "sim"]
++        if active in order:
++            order.remove(active)
++            order.insert(0, active)
++
++        # Use existing provider wrappers; each returns {"ok", "price", "source"} or {"ok":False}
++        providers = {
++            "birdeye": price_birdeye,
++            "dex":     price_dex,
++            "sim":     price_sim,
++        }
++
++        best_price = None
++        best_src = None
++        for src in order:
++            fn = providers.get(src)
++            if not fn:
++                continue
++            # honor cache used by get_price by calling through get_price with preferred=src
++            res = get_price(mint, preferred=src)
++            if res.get("ok"):
++                price = res["price"]
++                rows.append((src, price, bool(res.get("cached"))))
++                sources.append(src)
++                if best_price is None:
++                    best_price, best_src = price, src
++
++        if not rows:
++            return ok("❌ Snapshot failed (no providers returned a price). Try `/price <mint>`.")
++
++        # Build message
++        lines = [f"🧭 *Price Snapshot:* `{mint[:10]}..`", ""]
++        lines.append(f"*Active source:* `{active}`")
++        lines.append("")
++
++        # Show each row
++        for src, price, cached in rows:
++            flag = "✅" if src == best_src else "•"
++            cache_note = " (cached)" if cached else ""
++            lines.append(f"{flag} *{src}:* {_fmt_usd(price)}{cache_note}")
++
++        # Spread if we have ≥2 sources
++        if len(rows) >= 2:
++            prices = [p for _, p, _ in rows]
++            hi, lo = max(prices), min(prices)
++            spread = 0.0 if lo == 0 else (hi - lo) / lo * 100.0
++            lines.append("")
++            lines.append(f"_Spread:_ {spread:.2f}%  (hi={_fmt_usd(hi)}, lo={_fmt_usd(lo)})")
++
++        lines.append("")
++        lines.append("Tips: `/source sim|dex|birdeye`, `/price <mint> --src=birdeye`")
++        return ok("\n".join(lines))
+*** End Patch
+PATCH
+# Restart single-poller worker
+pkill -f gunicorn || true
+sleep 2
+echo "Multi-source snapshot loaded."
