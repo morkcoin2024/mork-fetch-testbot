@@ -16,7 +16,7 @@ APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd",
+    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -382,7 +382,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -489,6 +489,52 @@ def process_telegram_command(update: dict):
                 f"cmd: {repr(cmd_debug)}\n"
                 f"args: {repr(args_debug)}"
             )
+        
+        elif cmd == "/version":
+            import hashlib
+            try:
+                with open("app.py", "rb") as f:
+                    router_hash = hashlib.sha1(f.read()).hexdigest()[:8]
+            except:
+                router_hash = "unknown"
+            
+            version_text = f"""🤖 **Mork F.E.T.C.H Bot**
+**Version:** Production v3.0 Hardened
+**Mode:** Single Poller (app:app)
+**RouterSHA20:** {router_hash}
+**Build:** {APP_BUILD_TAG}
+**Status:** ✅ Active Polling
+
+*The Degens' Best Friend* 🐕"""
+            return _reply(version_text)
+        
+        elif cmd == "/source":
+            # Basic price source status - enhanced version can be added later
+            return _reply("""📊 **Price Sources Status**
+
+**Active:** Simulation Mode
+**Primary:** Built-in price simulator
+**Fallback:** API sources available
+**Status:** ✅ Operational
+
+Use `/price <mint>` to check token prices""")
+        
+        elif cmd == "/price":
+            if not args:
+                return _reply("**Usage:** `/price <mint_address>`\n\nExample: `/price So11111111111111111111111111111111111111112`")
+            
+            mint = args.strip()
+            if len(mint) < 32:
+                return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
+            
+            # Basic price lookup - can be enhanced with real API integration
+            return _reply(f"""💰 **Price Lookup: {mint[:8]}...**
+
+**Current Price:** $0.00123 (simulated)
+**Source:** Demo mode
+**Status:** Mock data for testing
+
+*Real price integration coming soon*""")
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
