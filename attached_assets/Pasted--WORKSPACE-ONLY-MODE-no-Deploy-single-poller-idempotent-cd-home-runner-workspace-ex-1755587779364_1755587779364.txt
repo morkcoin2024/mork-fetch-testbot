@@ -1,0 +1,69 @@
+# === WORKSPACE-ONLY MODE (no Deploy), single poller, idempotent ===
+cd /home/runner/workspace || exit 1
+
+echo "[1] Ensure app only polls when POLLING_ENABLED=1…"
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os
++import os
+@@
+-# Start integrated Telegram polling
+-try:
+-    enable_telegram_polling()
+-    app.logger.info("Telegram polling service started successfully")
+-except Exception as e:
+-    app.logger.error(f"Failed to start polling service: {e}")
++# Start integrated Telegram polling only when explicitly enabled
++if os.getenv("POLLING_ENABLED", "0") == "1":
++    try:
++        enable_telegram_polling()
++        app.logger.info("Telegram polling service started successfully")
++    except Exception as e:
++        app.logger.error(f"Failed to start polling service: {e}")
++else:
++    app.logger.info("[INIT] Polling disabled by env (POLLING_ENABLED!=1)")
+*** End Patch
+PATCH
+
+echo "[2] Create a workspace runner that guarantees a single poller and clears webhook…"
+cat > run_workspace.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONUNBUFFERED=1
+export LOG_LEVEL=${LOG_LEVEL:-INFO}
+export POLLING_ENABLED=1   # WORKSPACE runs the poller
+# Safety: make sure no other pollers/gunicorn leftovers exist
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+pkill -f gunicorn || true
+# Ensure polling mode (no webhook)
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+fi
+# Start a single gunicorn worker (integrated poller lives inside the app)
+exec gunicorn app:app --workers=1 --bind 0.0.0.0:5000
+SH
+chmod +x run_workspace.sh
+
+echo "[3] Make the green Run button use the workspace runner…"
+cat > .replit <<'INI'
+run = "bash run_workspace.sh"
+INI
+
+echo "[4] Disable Deploy from polling (so it can’t collide if someone redeploys by mistake)…"
+# You cannot change Deploy UI here, but enforce via secrets policy:
+echo "→ In Deploy secrets, set POLLING_ENABLED=0"
+echo "→ (Optional) In Deploy start command, keep gunicorn app:app --workers=1; the env gate prevents polling."
+
+echo "[5] Kill anything live, then you can click Run in the Workspace…"
+pkill -f 'production_polling_bot\.py|working_polling_bot\.py|simple_polling_bot\.py' || true
+pkill -f gunicorn || true
+sleep 2
+
+echo "[6] Post-run checks (after clicking Run in Workspace):"
+echo "  - ps aux | grep gunicorn   # expect master + 1 worker only"
+echo "  - curl -s https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo | python3 - <<'PY'"
+echo "import sys,json;print(json.load(sys.stdin)['result'].get('url',''))"
+echo "PY"
+echo "  - Send /ping in Telegram — should reply immediately"

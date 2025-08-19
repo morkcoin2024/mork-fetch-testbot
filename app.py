@@ -352,8 +352,8 @@ def _ensure_scanners():
         
         logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
         
-        # Start polling service for telegram commands (disabled when POLLING_MODE=ON)
-        if POLLING_MODE != 'ON':
+        # Start integrated Telegram polling (enabled by default in workspace)
+        if os.getenv("POLLING_ENABLED", "1") == "1":
             try:
                 from telegram_polling import start_polling_service
                 if start_polling_service():
@@ -363,7 +363,7 @@ def _ensure_scanners():
             except Exception as e:
                 logger.error("Error starting telegram polling service: %s", e)
         else:
-            logger.info("Telegram polling service disabled (POLLING_MODE=ON - external polling bot expected)")
+            logger.info("[INIT] Polling disabled by env (POLLING_ENABLED!=1)")
         
     except Exception as e:
         logger.error(f"Scanner initialization failed in worker PID={current_pid}: {e}")
