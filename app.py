@@ -21,6 +21,127 @@ FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
+# --- Alerts wiring: price→group hook (lightweight & safe) --------------------
+# Persists last seen price per mint; honors your alerts_config.json thresholds.
+ALERTS_CFG_PATH = os.getenv("ALERTS_CFG_PATH", "alerts_config.json")
+ALERTS_BASE_PATH = os.getenv("ALERTS_BASE_PATH", "alerts_price_baseline.json")
+
+_PRICE_BLOCK_RE = re.compile(
+    r"\*\*Price Lookup:\*\*\s*`([A-Za-z0-9:_\-\.]+).*?\*\*Current Price:\*\*\s*\$([0-9]*\.?[0-9]+).*?\*\*Source:\*\*\s*([a-zA-Z0-9_\(\)\s]+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+def _alerts_load_cfg():
+    try:
+        with open(ALERTS_CFG_PATH, "r") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    # sane defaults
+    cfg.setdefault("chat_id", None)
+    cfg.setdefault("min_move_pct", 0.0)     # %; set with /alerts_minmove
+    cfg.setdefault("rate_per_min", 60)      # max sends / minute
+    cfg.setdefault("muted_until", 0)        # epoch seconds
+    cfg.setdefault("sent_log", [])          # timestamps of recent sends
+    return cfg
+
+def _alerts_save_cfg(cfg):
+    try:
+        with open(ALERTS_CFG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception:
+        pass
+
+def _baseline_load():
+    try:
+        with open(ALERTS_BASE_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _baseline_save(obj):
+    try:
+        with open(ALERTS_BASE_PATH, "w") as f:
+            json.dump(obj, f, indent=2)
+    except Exception:
+        pass
+
+def _alerts_allowed(cfg, now):
+    # mute?
+    if now < int(cfg.get("muted_until", 0) or 0):
+        return False
+    # rate limit?
+    window = 60
+    sent = [t for t in cfg.get("sent_log", []) if now - t < window]
+    if len(sent) >= int(cfg.get("rate_per_min", 60) or 60):
+        return False
+    cfg["sent_log"] = sent
+    return True
+
+def _alerts_record_send(cfg, now):
+    cfg.setdefault("sent_log", []).append(now)
+    _alerts_save_cfg(cfg)
+
+def _alerts_emit(text, force=False):
+    """Send to configured alerts chat (respects mute/rate unless force=True)."""
+    from app import tg_send  # reuse unified sender
+    cfg = _alerts_load_cfg()
+    chat_id = cfg.get("chat_id")
+    if not chat_id:
+        return False
+    now = int(time.time())
+    if not force and not _alerts_allowed(cfg, now):
+        return False
+    ok = bool(tg_send(chat_id, text, preview=True).get("ok"))
+    if ok:
+        _alerts_record_send(cfg, now)
+    return ok
+
+def _maybe_alert_from_price(mint, price, source):
+    """Compare to baseline & alert if move >= min_move_pct."""
+    try:
+        mint_key = str(mint)
+        base = _baseline_load()
+        prev = base.get(mint_key)
+        base[mint_key] = {"px": float(price), "ts": int(time.time())}
+        _baseline_save(base)
+        if prev is None:
+            return False  # first observation, no delta yet
+        prev_px = float(prev.get("px", 0) or 0)
+        if prev_px <= 0:
+            return False
+        move_pct = (float(price) - prev_px) / prev_px * 100.0
+        cfg = _alerts_load_cfg()
+        thresh = float(cfg.get("min_move_pct", 0) or 0.0)
+        if abs(move_pct) < thresh:
+            return False
+        emoji = "🔺" if move_pct >= 0 else "🔻"
+        msg = (
+            f"{emoji} *Price Alert*\n"
+            f"*Mint:* `{mint_key}`\n"
+            f"*Move:* {move_pct:+.2f}%\n"
+            f"*Price:* ${float(price):.6f}\n"
+            f"*Source:* {source}"
+        )
+        return _alerts_emit(msg, force=False)
+    except Exception as e:
+        logger.warning("alert hook error: %s", e)
+        return False
+
+def _post_price_alert_hook(update, out):
+    """Inspect router reply; if it's a /price block, parse & maybe alert."""
+    try:
+        # only text replies
+        text = (out or {}).get("response") or ""
+        m = _PRICE_BLOCK_RE.search(text)
+        if not m:
+            return out
+        mint, px, src = m.group(1), m.group(2), m.group(3)
+        _maybe_alert_from_price(mint, float(px), src)
+    except Exception as e:
+        logger.debug("price hook skip: %s", e)
+    return out
+
 # --- Price source persistence helpers ---
 PRICE_SOURCE_FILE = "./data/price_source.txt"
 
@@ -700,7 +821,8 @@ def process_telegram_command(update: dict):
     # Skip deduplication for test scenarios (no update_id) or direct calls
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
-        return {"status":"ok","response":"", "handled":True}  # swallow duplicate
+        result = {"status":"ok","response":"", "handled":True}  # swallow duplicate
+        return _post_price_alert_hook(update, result)
     
     user = msg.get("from") or {}
     text = msg.get("text") or ""
@@ -754,22 +876,28 @@ def process_telegram_command(update: dict):
             return body
 
         if cmd == "/digest_status":
-            return {"status":"ok","response": cmd_digest_status()}
+            result = {"status":"ok","response": cmd_digest_status()}
+            return _post_price_alert_hook(update, result)
         elif cmd == "/digest_on":
-            return {"status":"ok","response": cmd_digest_on()}
+            result = {"status":"ok","response": cmd_digest_on()}
+            return _post_price_alert_hook(update, result)
         elif cmd == "/digest_off":
-            return {"status":"ok","response": cmd_digest_off()}
+            result = {"status":"ok","response": cmd_digest_off()}
+            return _post_price_alert_hook(update, result)
         elif cmd == "/digest_time":
-            return {"status":"ok","response": cmd_digest_time(args)}
+            result = {"status":"ok","response": cmd_digest_time(args)}
+            return _post_price_alert_hook(update, result)
         elif cmd == "/digest_test":
-            return {"status":"ok","response": cmd_digest_test(args)}
+            result = {"status":"ok","response": cmd_digest_test(args)}
+            return _post_price_alert_hook(update, result)
 
     if cmd == "/autosell_status":
         try:
             import autosell
             st = autosell.status()
         except Exception as e:
-            return {"status":"error","response": f"AutoSell status unavailable: {e}"}
+            result = {"status":"error","response": f"AutoSell status unavailable: {e}"}
+            return _post_price_alert_hook(update, result)
         interval = st.get("interval_sec") or st.get("interval") or "n/a"
         alive    = st.get("alive", "n/a")
         rules    = st.get("rules") or []
@@ -778,12 +906,15 @@ def process_telegram_command(update: dict):
                 f"Interval: {interval}s\n"
                 f"Rules: {len(rules)}\n"
                 f"Thread alive: {alive}")
-        return {"status":"ok","response": text}
+        result = {"status":"ok","response": text}
+        return _post_price_alert_hook(update, result)
     # --- HOTFIX_EXT_ROUTES_END ---
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
-        return {"status": status, "response": body, "handled": True}
+        result = {"status": status, "response": body, "handled": True}
+        # Apply price alert hook before returning
+        return _post_price_alert_hook(update, result)
     
     import time
     start_time = time.time()

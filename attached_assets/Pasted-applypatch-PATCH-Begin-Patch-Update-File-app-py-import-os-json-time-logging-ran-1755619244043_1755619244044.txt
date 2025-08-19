@@ -1,0 +1,131 @@
+applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os, json, time, logging, random
++import os, json, time, logging, random, re
+@@
+ logger = logging.getLogger("app")
++
++# --- Alerts wiring: price→group hook (lightweight & safe) --------------------
++# Persists last seen price per mint; honors your alerts_config.json thresholds.
++ALERTS_CFG_PATH = os.getenv("ALERTS_CFG_PATH", "alerts_config.json")
++ALERTS_BASE_PATH = os.getenv("ALERTS_BASE_PATH", "alerts_price_baseline.json")
++
++_PRICE_BLOCK_RE = re.compile(
++    r"Price Lookup:\s*\*?\s*([A-Za-z0-9:_\-\.]+).*?Current Price:\s*[$]([0-9]*\.?[0-9]+).*?Source:\s*\*?([a-zA-Z0-9_]+)",
++    re.IGNORECASE | re.DOTALL,
++)
++
++def _alerts_load_cfg():
++    try:
++        with open(ALERTS_CFG_PATH, "r") as f:
++            cfg = json.load(f)
++    except Exception:
++        cfg = {}
++    # sane defaults
++    cfg.setdefault("chat_id", None)
++    cfg.setdefault("min_move_pct", 0.0)     # %; set with /alerts_minmove
++    cfg.setdefault("rate_per_min", 60)      # max sends / minute
++    cfg.setdefault("muted_until", 0)        # epoch seconds
++    cfg.setdefault("sent_log", [])          # timestamps of recent sends
++    return cfg
++
++def _alerts_save_cfg(cfg):
++    try:
++        with open(ALERTS_CFG_PATH, "w") as f:
++            json.dump(cfg, f, indent=2)
++    except Exception:
++        pass
++
++def _baseline_load():
++    try:
++        with open(ALERTS_BASE_PATH, "r") as f:
++            return json.load(f)
++    except Exception:
++        return {}
++
++def _baseline_save(obj):
++    try:
++        with open(ALERTS_BASE_PATH, "w") as f:
++            json.dump(obj, f, indent=2)
++    except Exception:
++        pass
++
++def _alerts_allowed(cfg, now):
++    # mute?
++    if now < int(cfg.get("muted_until", 0) or 0):
++        return False
++    # rate limit?
++    window = 60
++    sent = [t for t in cfg.get("sent_log", []) if now - t < window]
++    if len(sent) >= int(cfg.get("rate_per_min", 60) or 60):
++        return False
++    cfg["sent_log"] = sent
++    return True
++
++def _alerts_record_send(cfg, now):
++    cfg.setdefault("sent_log", []).append(now)
++    _alerts_save_cfg(cfg)
++
++def _alerts_emit(text, force=False):
++    """Send to configured alerts chat (respects mute/rate unless force=True)."""
++    from app import tg_send  # reuse unified sender
++    cfg = _alerts_load_cfg()
++    chat_id = cfg.get("chat_id")
++    if not chat_id:
++        return False
++    now = int(time.time())
++    if not force and not _alerts_allowed(cfg, now):
++        return False
++    ok = bool(tg_send(chat_id, text, preview=True).get("ok"))
++    if ok:
++        _alerts_record_send(cfg, now)
++    return ok
++
++def _maybe_alert_from_price(mint, price, source):
++    """Compare to baseline & alert if move >= min_move_pct."""
++    try:
++        mint_key = str(mint)
++        base = _baseline_load()
++        prev = base.get(mint_key)
++        base[mint_key] = {"px": float(price), "ts": int(time.time())}
++        _baseline_save(base)
++        if prev is None:
++            return False  # first observation, no delta yet
++        prev_px = float(prev.get("px", 0) or 0)
++        if prev_px <= 0:
++            return False
++        move_pct = (float(price) - prev_px) / prev_px * 100.0
++        cfg = _alerts_load_cfg()
++        thresh = float(cfg.get("min_move_pct", 0) or 0.0)
++        if abs(move_pct) < thresh:
++            return False
++        emoji = "🔺" if move_pct >= 0 else "🔻"
++        msg = (
++            f"{emoji} *Price Alert*\n"
++            f"*Mint:* `{mint_key}`\n"
++            f"*Move:* {move_pct:+.2f}%\n"
++            f"*Price:* ${float(price):.6f}\n"
++            f"*Source:* {source}"
++        )
++        return _alerts_emit(msg, force=False)
++    except Exception as e:
++        logger.warning("alert hook error: %s", e)
++        return False
++
++def _post_price_alert_hook(update, out):
++    """Inspect router reply; if it's a /price block, parse & maybe alert."""
++    try:
++        # only text replies
++        text = (out or {}).get("response") or ""
++        m = _PRICE_BLOCK_RE.search(text)
++        if not m:
++            return out
++        mint, px, src = m.group(1), m.group(2), m.group(3)
++        _maybe_alert_from_price(mint, float(px), src)
++    except Exception as e:
++        logger.debug("price hook skip: %s", e)
++    return out
+*** End Patch
+PATCH
