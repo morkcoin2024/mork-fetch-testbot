@@ -1388,23 +1388,17 @@ def process_telegram_command(update: dict):
         elif cmd == "/watch_tick":
             checked, fired, lines = watch_tick_once(send_alerts=True)
             body = "\n".join(lines) if lines else "(no items)"
-            return {
-                "status": "ok",
-                "response": f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}",
-                "parse_mode": "Markdown"
-            }
+            return {"status":"ok","response":f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}","parse_mode":"Markdown"}
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return {"status": "ok", "response": "Usage: `/watch_off <mint>`", "parse_mode": "MarkdownV2"}
+                return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
             mint = parts[1].strip()
             wl = _load_watchlist()
-            before = len(wl)
-            def _m(x): return x.get("mint") if isinstance(x, dict) else (x if isinstance(x, str) else "")
-            wl = [x for x in wl if _m(x) != mint]
-            _save_watchlist(wl)
-            return {"status": "ok", "response": "✅ Unwatched" if len(wl) < before else "(mint not in watchlist)"}
+            def _m(x): return x.get("mint") if isinstance(x,dict) else (x if isinstance(x,str) else "")
+            before=len(wl); wl=[x for x in wl if _m(x) != mint]; _save_watchlist(wl)
+            return {"status":"ok","response":"✅ Unwatched" if len(wl)<before else "(mint not in watchlist)"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")
