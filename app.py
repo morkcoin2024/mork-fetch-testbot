@@ -2231,6 +2231,15 @@ def _alerts_save(data):
     except Exception:
         pass
 
+# --- One-time wrapper to run post-processing hooks safely --------------------
+try:
+    _ORIG__PTC
+except NameError:
+    _ORIG__PTC = process_telegram_command
+    def process_telegram_command(update):
+        out = _ORIG__PTC(update)
+        return _post_price_alert_hook(update, out)
+
 if __name__ == '__main__':
     # Development mode
     initialize_app()
