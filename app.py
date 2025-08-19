@@ -20,12 +20,12 @@ APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote",
+    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
     "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", 
-    "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+    "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
     "/alerts_status", "/alerts_mute", "/alerts_unmute", "/digest_status", "/digest_time", 
@@ -669,7 +669,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -830,6 +830,72 @@ def process_telegram_command(update: dict):
             src = res["source"]
             note = " (cached)" if res.get("cached") else ""
             return _reply(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
+        
+        # --- Multi-source snapshot (/fetch, /fetch_now) ---
+        elif cmd in ("/fetch", "/fetch_now"):
+            parts = text.split()
+            if len(parts) < 2:
+                return _reply("Usage: `/fetch <mint>`")
+            mint = parts[1].strip()
+            if not mint or len(mint) < 10:
+                return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
+
+            active = (_read_price_source() or "sim").lower()
+            rows = []
+            sources = []
+            # Preferred first, then the rest
+            order = ["birdeye", "dex", "sim"]
+            if active in order:
+                order.remove(active)
+                order.insert(0, active)
+
+            # Use existing provider wrappers; each returns {"ok", "price", "source"} or {"ok":False}
+            providers = {
+                "birdeye": price_birdeye,
+                "dex":     price_dex,
+                "sim":     price_sim,
+            }
+
+            best_price = None
+            best_src = None
+            for src in order:
+                fn = providers.get(src)
+                if not fn:
+                    continue
+                # honor cache used by get_price by calling through get_price with preferred=src
+                res = get_price(mint, preferred=src)
+                if res.get("ok"):
+                    price = res["price"]
+                    rows.append((src, price, bool(res.get("cached"))))
+                    sources.append(src)
+                    if best_price is None:
+                        best_price, best_src = price, src
+
+            if not rows:
+                return _reply("❌ Snapshot failed (no providers returned a price). Try `/price <mint>`.")
+
+            # Build message
+            lines = [f"🧭 *Price Snapshot:* `{mint[:10]}..`", ""]
+            lines.append(f"*Active source:* `{active}`")
+            lines.append("")
+
+            # Show each row
+            for src, price, cached in rows:
+                flag = "✅" if src == best_src else "•"
+                cache_note = " (cached)" if cached else ""
+                lines.append(f"{flag} *{src}:* {_fmt_usd(price)}{cache_note}")
+
+            # Spread if we have ≥2 sources
+            if len(rows) >= 2:
+                prices = [p for _, p, _ in rows]
+                hi, lo = max(prices), min(prices)
+                spread = 0.0 if lo == 0 else (hi - lo) / lo * 100.0
+                lines.append("")
+                lines.append(f"_Spread:_ {spread:.2f}%  (hi={_fmt_usd(hi)}, lo={_fmt_usd(lo)})")
+
+            lines.append("")
+            lines.append("Tips: `/source sim|dex|birdeye`, `/price <mint> --src=birdeye`")
+            return _reply("\n".join(lines))
         
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
