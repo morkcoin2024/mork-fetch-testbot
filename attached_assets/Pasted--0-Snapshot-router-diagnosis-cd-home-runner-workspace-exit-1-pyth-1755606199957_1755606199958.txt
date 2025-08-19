@@ -1,0 +1,191 @@
+# ============ 0) Snapshot & router diagnosis ============
+cd /home/runner/workspace || exit 1
+
+python3 - <<'PY'
+import os,inspect,hashlib,importlib
+import app
+src=inspect.getsource(app.process_telegram_command)
+print("app.__file__        :", app.__file__)
+print("RouterSHA20(runtime):", hashlib.sha256(src.encode()).hexdigest()[:20])
+print("Has /version?       :", ('cmd=="/version"' in src or 'cmd == "/version"' in src))
+print("Has /source?        :", ('cmd=="/source"' in src or 'cmd == "/source"' in src))
+print("Has /price?         :", ('cmd=="/price"' in src  or 'cmd == "/price"'  in src))
+# best-effort peek at public command list if present
+for name in ("public_commands","PUBLIC_COMMANDS","PUBLIC_CMDS"):
+    if name in src:
+        print("Found list name in router source:", name)
+PY
+
+# ============ 1) Patch app.py (only if /version|/source|/price missing) ============
+NEED_PATCH=0
+python3 - <<'PY'
+import inspect,app,sys
+s=inspect.getsource(app.process_telegram_command)
+need = not all(k in s for k in ['cmd == "/version"','cmd == "/source"','cmd == "/price"'])
+sys.exit(0 if need else 1)
+PY
+if [ $? -eq 0 ]; then
+  echo "[PATCH] Restoring /version + /source + /price handlers and hardening autosell_status"
+  applypatch <<'PATCH'
+*** Begin Patch
+*** Update File: app.py
+@@
+-    # existing router branches...
++    # ---- Public: /version (always available) ----
++    if cmd == "/version":
++        import time,inspect,hashlib
++        try:
++            rsha = hashlib.sha256(inspect.getsource(process_telegram_command).encode()).hexdigest()[:20]
++        except Exception:
++            rsha = "unknown"
++        build = os.getenv("BUILD_TS","unknown")
++        mode  = "Polling (integrated)"
++        text = (
++            "📦 *Release:* stable (build {build})\n"
++            "⏰ *Runtime:* {rt}\n"
++            "🧠 *Mode:* {mode}\n"
++            "🔐 *RouterSHA20:* `{rsha}`\n"
++        ).format(build=build, rt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), mode=mode, rsha=rsha)
++        return ok(text)
++
++    # ---- Public: /source (view/set price source) ----
++    if cmd == "/source":
++        path = "/tmp/mork_price_source"
++        want = (args or "").strip().lower()
++        if want in ("sim","dex","birdeye"):
++            try:
++                with open(path,"w") as f: f.write(want)
++                return ok(f"✅ Price source set: *{want}*")
++            except Exception as e:
++                return err(f"Failed to persist source: {e}")
++        cur = "sim"
++        try:
++            if os.path.exists(path):
++                cur = open(path).read().strip() or "sim"
++        except: pass
++        return ok("📊 *Price Sources Status*\n\n"
++                  f"*Active:* {cur.capitalize()} Mode\n"
++                  "*Primary:* Built-in price simulator\n"
++                  "*Fallback:* API sources available\n"
++                  "*Status:* ✅ Operational\n\n"
++                  "Use `/price <mint>` to check token prices")
++
++    # ---- Public: /price <mint>  ----
++    if cmd == "/price":
++        mint = (args or "").strip()
++        if not mint:
++            return ok("Usage: `/price <mint>`")
++        # determine source preference
++        src = "sim"
++        try:
++            p="/tmp/mork_price_source"
++            if os.path.exists(p):
++                src = (open(p).read().strip() or "sim").lower()
++        except: pass
++        # simple deterministic simulator (always available)
++        def sim_price(s):
++            import hashlib
++            h=int(hashlib.sha256(s.encode()).hexdigest(),16)
++            return round((h % 10000)/1e4 + 0.0005, 6)  # ~0.0005..1.0005
++        price = sim_price(mint); label = "simulated"; source="sim"
++        # try live providers if selected; swallow errors safely
++        if src in ("dex","birdeye"):
++            try:
++                import httpx, json
++                if src=="dex":
++                    # DexScreener token price (best-effort)
++                    # NOTE: if this 404s for a mint, we just keep the sim result
++                    with httpx.Client(timeout=8.0) as cli:
++                        r=cli.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}")
++                    if r.status_code==200:
++                        j=r.json()
++                        lst=(j.get("pairs") or [])
++                        if lst:
++                            # choose top liquidity pair
++                            p = float(lst[0].get("priceUsd") or 0.0)
++                            if p>0: price=p; label="dex"; source="dex"
++                elif src=="birdeye":
++                    key=os.getenv("BIRDEYE_API_KEY","")
++                    if key:
++                        with httpx.Client(timeout=8.0) as cli:
++                            r=cli.get("https://public-api.birdeye.so/public/price",
++                                      params={"address":mint}, headers={"X-API-KEY":key})
++                        if r.status_code==200:
++                            p=float(r.json().get("data",{}).get("value") or 0.0)
++                            if p>0: price=p; label="birdeye"; source="birdeye"
++            except Exception:
++                pass
++        msg = (f"💱 *Price Lookup:* `{mint[:12]}..`\n\n"
++               f"*Current Price:* ${price:.6f}\n"
++               f"*Source:* {label}\n")
++        return ok(msg)
+@@
+-    if cmd == "/autosell_status":
+-        st = autosell.status()
+-        text = (f"🤖 AutoSell Status\n"
+-                f"Enabled: {st.get('enabled')}\n"
+-                f"Interval: {st.get('interval_sec')}s\n"
+-                f"Rules: {len(st.get('rules') or [])}\n"
+-                f"Thread alive: {st.get('alive')}")
+-        return ok(text)
++    if cmd == "/autosell_status":
++        try:
++            st = autosell.status()
++        except Exception as e:
++            return err(f"AutoSell status unavailable: {e}")
++        interval = st.get("interval_sec") or st.get("interval") or "n/a"
++        alive    = st.get("alive") if st.get("alive") is not None else "n/a"
++        rules    = st.get("rules") or []
++        text = (f"🤖 AutoSell Status\n"
++                f"Enabled: {st.get('enabled')}\n"
++                f"Interval: {interval}s\n"
++                f"Rules: {len(rules)}\n"
++                f"Thread alive: {alive}")
++        return ok(text)
+*** End Patch
+PATCH
+else
+  echo "[PATCH] Not needed (handlers already present)"
+fi
+
+# Ensure the three commands are treated as public (best-effort add without breaking)
+python3 - <<'PY'
+import io,sys,re
+p="app.py"; s=open(p,"r",encoding="utf-8").read()
+m=re.search(r"public_commands\s*=\s*\[([^\]]*)\]", s)
+if m:
+    block=m.group(1)
+    needed={"/version","/source","/price"}
+    have={x.strip().strip("'\"") for x in block.split(",")}
+    if not needed.issubset(have):
+        new = ", ".join(sorted(have|needed))
+        s=re.sub(r"public_commands\s*=\s*\[[^\]]*\]", f"public_commands=[{new}]", s)
+        open(p,"w",encoding="utf-8").write(s)
+        print("[public_commands] updated")
+    else:
+        print("[public_commands] already includes version/source/price")
+else:
+    print("[public_commands] list not found; skipping")
+PY
+
+# ============ 2) Clean restart single worker with polling ============
+export POLLING_ENABLED=1
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook" >/dev/null 2>&1 || true
+pkill -f gunicorn || true
+sleep 2
+nohup /home/runner/workspace/.pythonlibs/bin/gunicorn app:app --bind 0.0.0.0:5000 --workers=1 --reload > /tmp/guni.out 2>&1 & disown
+sleep 2
+tail -n 40 /tmp/guni.out || true
+
+# ============ 3) Prove it live (sends to your admin DM) ============
+python3 - <<'PY'
+import os,requests
+tid=int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","1653046781"))
+tok=os.environ["TELEGRAM_BOT_TOKEN"]
+def send(t): requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", json={"chat_id":tid,"text":t})
+send("/ping")
+send("/version")
+send("/source")
+send("/price So1111111111111111111111111111111111111112")
+print("Sent: /ping /version /source /price <SOL>")
+PY
