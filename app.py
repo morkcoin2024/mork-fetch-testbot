@@ -424,10 +424,69 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     _save_token_cache(cache)
     return primary, secondary
 
-# Legacy helper still used in some paths: return *primary name only* (ticker)
 def resolve_token_name(mint: str) -> str:
-    p, s = _token_labels(mint)
-    return p or s or _short(mint)
+    """
+    Returns a human string in *ticker-first* form:
+      - If both available:  "TICKER — Long Name"
+      - If only ticker:     "TICKER"
+      - If only name:       "Name"
+      - Else:               short mint (8..8 form)
+    Caches result in token_names.json
+    """
+    mint = (mint or "").strip()
+    if not mint:
+        return "Unknown"
+
+    # Cache (24h)
+    cache = _name_cache_load()
+    ent = cache.get(mint)
+    if ent and time.time() - ent.get("ts", 0) < 24*3600:
+        return ent.get("display") or ent.get("name") or ent.get("symbol") or f"{mint[:4]}..{mint[-4:]}"
+
+    # Try sources in order of quality for *names/tickers*
+    # 1) Existing Birdeye resolver if you have it already:
+    try:
+        # Your existing function might be called _name_from_birdeye or similar; adapt as needed.
+        bd = None
+        try:
+            bd = _name_from_birdeye(mint)   # <-- keep if present
+        except Exception:
+            bd = None
+        if bd and (bd.get("symbol") or bd.get("name")):
+            sym = (bd.get("symbol") or "").strip()
+            name = (bd.get("name") or "").strip()
+            display = sym if (sym and not name) else (name if (name and not sym) else (f"{sym} — {name}".strip(" —")))
+            cache[mint] = {"symbol": sym, "name": name, "display": display, "ts": time.time(), "src": "birdeye"}
+            _name_cache_save(cache)
+            return display
+    except Exception:
+        pass
+
+    # 2) Solscan
+    src = _name_from_solscan(mint)
+    if not src:
+        # 3) DexScreener
+        src = _name_from_dexscreener(mint)
+    if not src:
+        # 4) Jupiter
+        src = _name_from_jupiter(mint)
+
+    if src:
+        sym = (src.get("symbol") or "").strip()
+        name = (src.get("name") or "").strip()
+        # Ticker-first presentation with de-dup
+        if name and sym and name.upper() == sym.upper():
+            name = ""  # avoid "SOL — SOL"
+        display = sym if (sym and not name) else (name if (name and not sym) else (f"{sym} — {name}".strip(" —")))
+        cache[mint] = {"symbol": sym, "name": name, "display": display, "ts": time.time(), "src": src.get("src","")}
+        _name_cache_save(cache)
+        return display
+
+    # 5) Fallback to shortened mint
+    shorty = f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
+    cache[mint] = {"display": shorty, "ts": time.time(), "src": "fallback"}
+    _name_cache_save(cache)
+    return shorty
 
 def _alert_label(mint: str) -> str:
     p, s = _token_labels(mint)
