@@ -1,0 +1,54 @@
+# app.py (top imports if missing)
+import os, logging, requests
+
+BIRDEYE_BASE = "https://public-api.birdeye.so"
+
+def price_birdeye(mint: str):
+    """
+    Return {'ok': True, 'price': float, 'source': 'birdeye'} or {'ok': False, 'err': str}.
+    Uses Birdeye public/price with required X-Chain header and resilient fallbacks.
+    """
+    key = os.getenv("BIRDEYE_API_KEY", "").strip()
+    if not key:
+        return {"ok": False, "err": "BIRDEYE_API_KEY missing"}
+
+    sess = requests.Session()
+    # 1) Works for Solana when X-Chain header is present
+    combos = [
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint},
+         {"X-API-KEY": key, "X-Chain": "solana"}),
+
+        # 2) Alternate: put chain as query param
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"},
+         {"X-API-KEY": key}),
+
+        # 3) Legacy: defi/price variant
+        (f"{BIRDEYE_BASE}/defi/price", {"address": mint, "chain": "solana"},
+         {"X-API-KEY": key}),
+    ]
+
+    last_err = None
+    for url, params, headers in combos:
+        try:
+            r = sess.get(url, params=params, headers=headers, timeout=8)
+            if r.status_code == 200:
+                j = r.json()
+                data = j.get("data") or {}
+                val = (
+                    data.get("value")
+                    or data.get("price")
+                    or (data.get("items", [{}])[0].get("value")
+                        if isinstance(data.get("items"), list) and data.get("items") else None)
+                )
+                if isinstance(val, (int, float)) and val > 0:
+                    return {"ok": True, "price": float(val), "source": "birdeye"}
+                last_err = f"bad payload: {j}"
+            else:
+                last_err = f"{r.status_code} -> {r.url}"
+                logging.warning("birdeye: %s", last_err)
+                if r.status_code == 429:  # rate limit: stop early
+                    break
+        except Exception as e:
+            last_err = f"exc {type(e).__name__}: {e}"
+
+    return {"ok": False, "err": f"birdeye failed: {last_err}"}

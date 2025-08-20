@@ -22,6 +22,8 @@ FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
+BIRDEYE_BASE = "https://public-api.birdeye.so"
+
 # --- Alerts wiring: price→group hook (lightweight & safe) --------------------
 # Persists last seen price per mint; honors your alerts_config.json thresholds.
 ALERTS_CFG_PATH = os.getenv("ALERTS_CFG_PATH", "alerts_config.json")
@@ -821,45 +823,55 @@ def price_dex(mint, timeout=6):
         return {"ok": False, "err": f"dex error: {e}"}
 
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
-def price_birdeye(mint, timeout=6):
+def price_birdeye(mint: str):
     """
-    Robust Birdeye fetcher:
-      - Sends required X-API-KEY header
-      - Adds chain hint
-      - Tries two endpoints
-      - Emits short debug logs on failure
-    Returns {"ok": bool, "price": float, "source": str} or {"ok": False, "err": str}.
+    Return {'ok': True, 'price': float, 'source': 'birdeye'} or {'ok': False, 'err': str}.
+    Uses Birdeye public/price with required X-Chain header and resilient fallbacks.
     """
-    key = os.getenv("BIRDEYE_API_KEY") or os.getenv("BIRDEYE_KEY")
+    key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not key:
-        logging.info("birdeye: no API key present; skip")
-        return {"ok": False, "err": "birdeye key missing"}
-    
-    headers = {
-        "X-API-KEY": key,
-        "accept": "application/json",
-    }
-    urls = [
-        f"https://public-api.birdeye.so/defi/price?address={mint}&chain=solana",
-        f"https://public-api.birdeye.so/public/price?address={mint}",
+        return {"ok": False, "err": "BIRDEYE_API_KEY missing"}
+
+    sess = requests.Session()
+    # 1) Works for Solana when X-Chain header is present
+    combos = [
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint},
+         {"X-API-KEY": key, "X-Chain": "solana"}),
+
+        # 2) Alternate: put chain as query param
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"},
+         {"X-API-KEY": key}),
+
+        # 3) Legacy: defi/price variant
+        (f"{BIRDEYE_BASE}/defi/price", {"address": mint, "chain": "solana"},
+         {"X-API-KEY": key}),
     ]
-    
-    for url in urls:
+
+    last_err = None
+    for url, params, headers in combos:
         try:
-            r = requests.get(url, headers=headers, timeout=(5, 10))
-            if r.status_code != 200:
-                logging.warning("birdeye: %s -> %s", r.status_code, url)
-                continue
-            j = r.json()
-            data = j.get("data") or {}
-            price = data.get("price") or data.get("value")
-            if price:
-                return {"ok": True, "price": float(price), "source": "birdeye"}
-            logging.warning("birdeye: no price field in response for %s", mint)
+            r = sess.get(url, params=params, headers=headers, timeout=8)
+            if r.status_code == 200:
+                j = r.json()
+                data = j.get("data") or {}
+                val = (
+                    data.get("value")
+                    or data.get("price")
+                    or (data.get("items", [{}])[0].get("value")
+                        if isinstance(data.get("items"), list) and data.get("items") else None)
+                )
+                if isinstance(val, (int, float)) and val > 0:
+                    return {"ok": True, "price": float(val), "source": "birdeye"}
+                last_err = f"bad payload: {j}"
+            else:
+                last_err = f"{r.status_code} -> {r.url}"
+                logging.warning("birdeye: %s", last_err)
+                if r.status_code == 429:  # rate limit: stop early
+                    break
         except Exception as e:
-            logging.warning("birdeye exception for %s: %s", mint, e)
-    
-    return {"ok": False, "err": "birdeye all endpoints failed"}
+            last_err = f"exc {type(e).__name__}: {e}"
+
+    return {"ok": False, "err": f"birdeye failed: {last_err}"}
 
 def get_price(mint, preferred=None):
     """
