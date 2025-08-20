@@ -119,41 +119,83 @@ def _alert_baseline_set(mint, price, src="watch"):
 
 def _post_watch_alert_hook(mint: str, last_price: float, source: str):
     """Called per mint in /watch_tick. Decides to send alert + manages baseline."""
-    import time, logging
+    import json, os, time, logging
+    TRACE = "/tmp/alerts_debug.log"
+    
     cfg = _load_alerts_cfg()
+    chat_id = cfg.get("chat_id")
+    min_move = float(cfg.get("min_move_pct", 1.0))
+    rate_per_min = int(cfg.get("rate_per_min", 5))
+    muted = bool(cfg.get("muted", False))
     now = int(time.time())
-    baseline = _alert_baseline_get(mint)
 
-    if not baseline or float(baseline.get("price", 0)) <= 0:
-        _alert_baseline_set(mint, last_price, src="seed")
-        return {"ok": True, "seeded": True}
+    base = _load_baseline()
+    bl = base.get(mint)
+    base_price = float(bl["price"]) if (bl and "price" in bl) else None
 
-    base_p = float(baseline["price"])
-    delta_pct = (float(last_price) - base_p) / base_p * 100.0
-    threshold = float(cfg["min_move_pct"])
-    can, why = _alerts_can_send(cfg, now, _alerts_recent_log())
-    will = abs(delta_pct) >= threshold and can and cfg["chat_id"] is not None
+    delta_pct = None
+    should_alert = False
+    reason = "no-baseline"
 
-    if will:
-        sign = "▲" if delta_pct >= 0 else "▼"
-        text = (
-            f"*Price Alert* {sign} {abs(delta_pct):.2f}%\n"
-            f"`{mint[:12]}..`\n"
-            f"Now: ${float(last_price):.6f}  (src: {source})\n"
-            f"From: ${base_p:.6f}"
-        )
+    if base_price and last_price:
         try:
-            send_message(cfg["chat_id"], text, parse_mode="Markdown")
-            _alerts_record_send(now)
+            delta_pct = (float(last_price) - base_price) / base_price * 100.0
+        except Exception:
+            delta_pct = None
+
+    # Simple rate-limit: allow one send per (60/rate_per_min) seconds
+    ok_rate = True
+    rl_key = f"_rl_{mint}"
+    rl_state = base.get(rl_key, 0)
+    min_interval = max(1, int(60 / max(1, rate_per_min)))
+    if now - int(rl_state) < min_interval:
+        ok_rate = False
+        reason = "rate-limited"
+
+    if muted:
+        reason = "muted"
+    elif not chat_id:
+        reason = "no-chat"
+    elif delta_pct is None:
+        reason = "no-delta"
+    elif abs(delta_pct) < float(min_move):
+        reason = f"below-thresh({delta_pct:.4f} < {min_move:.4f})"
+    elif not ok_rate:
+        pass  # reason already set
+    else:
+        should_alert = True
+        reason = "send"
+
+    # Write single-line trace
+    try:
+        with open(TRACE, "a") as f:
+            f.write(f"{now} mint={mint[:12]}.. price={last_price:.6f} base={base_price} "
+                    f"Δ={delta_pct} src={source} chat={chat_id} muted={muted} "
+                    f"min_move={min_move} rate={rate_per_min}/min -> {reason}\n")
+    except Exception:
+        pass
+
+    # Send and update baseline if we alerted
+    if should_alert:
+        arrow = "▼" if delta_pct < 0 else "▲"
+        msg = (f"*Price Alert {arrow} {delta_pct:+.2f}%*\n"
+               f"`{mint[:12]}..`\n"
+               f"*Price:* ${last_price:.6f}\n*Source:* {source}")
+        try:
+            # Use existing alert sending mechanism
+            if hasattr(cfg, 'chat_id') and cfg['chat_id']:
+                alerts_send(chat_id, msg)  # existing helper to send MarkdownV2/Markdown as used elsewhere
         except Exception as e:
             logging.exception("alerts_send failed: %s", e)
-        _alert_baseline_set(mint, last_price, src="after_alert")
-        return {"ok": True, "alerted": True, "delta_pct": delta_pct}
-    else:
-        # periodic rebase (every 10m) so tiny moves can accumulate between alerts
-        if now - int(baseline.get("ts", 0)) > 600:
-            _alert_baseline_set(mint, last_price, src="periodic_rebase")
-        return {"ok": True, "alerted": False, "delta_pct": delta_pct, "reason": why or f"< {threshold}%"}
+
+        # Update rate limit stamp
+        base[rl_key] = now
+
+    # Always refresh baseline to current
+    base[mint] = {"price": float(last_price), "ts": now, "src": source}
+    _save_baseline(base)
+    
+    return {"ok": True, "alerted": should_alert, "delta_pct": delta_pct, "reason": reason}
 # --- END ALERTS PATCH ---
 
 # Disable scanners by default for the poller process.
@@ -1905,9 +1947,58 @@ def process_telegram_command(update: dict):
 
         # public watch controls
         elif cmd == "/watch_tick":
-            checked, fired, lines = watch_tick_once(send_alerts=True)
-            body = "\n".join(lines) if lines else "(no items)"
-            return {"status":"ok","response":f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {fired}\n{body}","parse_mode":"Markdown"}
+            import json, time, logging
+            
+            # Load watchlist and configuration
+            try:
+                wl = _load_watchlist()
+            except:
+                wl = []
+            
+            base = _load_baseline()
+            checked = 0
+            alerts = 0
+            out_lines = []
+            
+            for raw in wl:
+                mint = raw.get("mint") if isinstance(raw, dict) else (raw if isinstance(raw, str) else "")
+                if not mint:
+                    continue
+                    
+                checked += 1
+                
+                # Get live price from current source
+                try:
+                    gp = get_price(mint, (CURRENT_PRICE_SOURCE or "birdeye"))
+                    last_price = float(gp.get("price") or 0)
+                    source = gp.get("source") or "?"
+                except Exception:
+                    last_price = 0.0
+                    source = "?"
+                
+                # Compute Δ vs baseline (for display only)
+                bl = base.get(mint)
+                if bl and bl.get("price") and last_price > 0:
+                    try:
+                        delta_pct = (last_price - float(bl["price"])) / float(bl["price"]) * 100.0
+                    except Exception:
+                        delta_pct = 0.0
+                else:
+                    delta_pct = 0.0
+                
+                # Display line with real baseline delta
+                out_lines.append(f"- `{mint[:12]}..`  last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+                
+                # Call the alert hook safely (this decides whether to send to group and updates baseline)
+                try:
+                    result = _post_watch_alert_hook(mint, last_price, source)
+                    if result and result.get("alerted"):
+                        alerts += 1
+                except Exception as e:
+                    logging.exception("watch alert hook failed for %s: %s", mint, e)
+            
+            body = "\n".join(out_lines) if out_lines else "(no items)"
+            return {"status":"ok","response":f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {alerts}\n{body}","parse_mode":"Markdown"}
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
