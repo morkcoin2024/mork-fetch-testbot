@@ -532,7 +532,7 @@ ALL_COMMANDS = [
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
-    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watchlist_detail", "/watch_tick", "/watch_off", "/watch_clear",
+    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watchlist_detail", "/watch_tick", "/watch_off", "/watch_clear", "/watch_debug",
     "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
@@ -1591,7 +1591,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
