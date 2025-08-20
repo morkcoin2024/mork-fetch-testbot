@@ -1,0 +1,66 @@
+elif cmd == "/watch_tick":
+    # iterate current WATCHLIST keys
+    global WATCHLIST
+    bl = _load_baseline()
+    cfg = _alerts_cfg()
+    out_lines = ["🧭 *Watch tick*"]
+    alerts = 0
+    checked = 0
+    now = int(time.time())
+
+    # determine active price source (whatever your existing code uses, keep it)
+    active_src = (open("/tmp/mork_price_source").read().strip()
+                  if os.path.exists("/tmp/mork_price_source") else "sim")
+
+    for mint in list(WATCHLIST.keys()):
+        checked += 1
+        # fetch price using your existing helper
+        gp = get_price(mint, active_src)  # must return {'ok': bool, 'price': float, 'source': '...'}
+        if not gp.get("ok"):
+            out_lines.append(f"- `{mint[:12]}..`  last=?  Δ=?  src=n/a")
+            continue
+
+        px = float(gp["price"])
+        src = gp.get("source", active_src)
+
+        base = bl.get(mint)
+        if not base:
+            # seed baseline on first sight
+            bl[mint] = {"price": px, "ts": now, "src": src}
+            out_lines.append(f"- `{mint[:12]}..`  last=${px:.6f} Δ=+0.00% src={src}")
+            continue
+
+        # compute delta BEFORE updating baseline
+        try:
+            denom = float(base["price"])
+            delta_pct = 0.0 if denom == 0 else (px - denom) / denom * 100.0
+        except Exception:
+            delta_pct = 0.0
+
+        # print user-facing line
+        out_lines.append(f"- `{mint[:12]}..`  last=${px:.6f} Δ={delta_pct:+.2f}% src={src}")
+
+        # decide alert
+        mm = float(cfg.get("min_move_pct", 1.0))
+        chat_id = cfg.get("chat_id")
+        muted = bool(cfg.get("muted")) or (int(cfg.get("muted_until", 0)) > now)
+
+        if chat_id and not muted and abs(delta_pct) >= mm:
+            # respect rate limiting via your existing alert throttle (if any),
+            # otherwise just send; use same function / parse_mode as /alerts_test
+            msg = (f"🚨 *Price alert*\n"
+                   f"`{mint[:12]}..` moved {delta_pct:+.2f}%\n"
+                   f"Now: ${px:.6f} (src: {src})\n"
+                   f"Baseline: ${denom:.6f}")
+            try:
+                alerts_send(msg)  # existing function
+                alerts += 1
+            except Exception as e:
+                logging.warning("alerts_send failed: %s", e)
+
+        # finally update baseline AFTER evaluation
+        bl[mint] = {"price": px, "ts": now, "src": src}
+
+    _save_baseline(bl)
+    text = "\n".join([f"Checked: {checked} · Alerts: {alerts}"] + out_lines)
+    return {"status": "ok", "response": text, "format": "md"}

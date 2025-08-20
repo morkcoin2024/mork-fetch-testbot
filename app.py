@@ -34,6 +34,36 @@ def normalize_mint(m: str) -> str:
 def is_valid_mint(m: str) -> bool:
     return bool(_BASE58_RE.match(m))
 
+# Baseline and configuration helpers
+BASELINE_PATH = "alerts_price_baseline.json"
+
+def _load_json(p):
+    try:
+        import json, os
+        if not os.path.exists(p): return {}
+        return json.load(open(p))
+    except Exception:
+        return {}
+
+def _save_json(p, obj):
+    import json, tempfile, os
+    tmp = p + ".tmp"
+    json.dump(obj, open(tmp, "w"))
+    os.replace(tmp, p)
+
+def _load_baseline():
+    return _load_json(BASELINE_PATH)
+
+def _save_baseline(b):
+    _save_json(BASELINE_PATH, b)
+
+def _alerts_cfg():
+    # existing file is alerts_config.json
+    return _load_json("alerts_config.json") or {
+        "chat_id": None, "min_move_pct": 1.0, "rate_per_min": 30,
+        "muted": False, "muted_until": 0
+    }
+
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
