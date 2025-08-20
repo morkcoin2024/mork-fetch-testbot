@@ -57,6 +57,34 @@ def _load_baseline():
 def _save_baseline(b):
     _save_json(BASELINE_PATH, b)
 
+# --- BEGIN: alerts HTML sender ---
+import time, requests
+from html import escape as _h
+
+ALERTS_API_LOG = "/tmp/alerts_send_api.log"
+
+def _alerts_send_html(chat_id: int, text: str):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        r = requests.post(url, json=payload, timeout=10)
+        ok = r.ok
+        # Log result (status + first bytes of body)
+        with open(ALERTS_API_LOG, "a") as f:
+            f.write(f"{int(time.time())} ok={ok} code={r.status_code} body={r.text[:160]}\n")
+        return ok
+    except Exception as e:
+        with open(ALERTS_API_LOG, "a") as f:
+            f.write(f"{int(time.time())} EXC {type(e).__name__}: {e}\n")
+        return False
+
+# --- END: alerts HTML sender ---
+
 def _active_price_source():
     """Read what /source set; default to birdeye"""
     try:
@@ -207,16 +235,15 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
     # Send and update
     if should_alert:
         arrow = "🔴▼" if delta_pct < 0 else "🟢▲"
-        msg = (f"*Price Alert {arrow} {delta_pct:+.2f}%*\n"
-               f"`{mint[:12]}..`\n"
-               f"*Price:* ${price:.6f}\n"
-               f"*Source:* {src}")
+        # Use HTML format to avoid MarkdownV2 parsing issues
+        msg = (f"<b>Price Alert {arrow} {delta_pct:+.2f}%</b>\n"
+               f"<code>{_h(mint[:12])}..</code>\n"
+               f"<b>Price:</b> ${price:.6f}\n"
+               f"<b>Source:</b> {_h(src)}")
         try:
-            # Use existing alerts_send function
-            if 'alerts_send' in globals():
-                alerts_send(chat_id, msg)
+            _alerts_send_html(chat_id, msg)
         except Exception as e:
-            pylog.exception("alerts_send failed: %s", e)
+            pylog.exception("HTML alert send failed: %s", e)
         base[rl_key] = now
 
     # Always refresh baseline if we had a real price
