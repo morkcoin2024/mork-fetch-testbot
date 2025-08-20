@@ -1,0 +1,70 @@
+def price_birdeye(mint: str):
+    import os, requests, math, json
+    api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
+    if not api_key:
+        return {"ok": False, "err": "birdeye missing api key"}
+    mint = normalize_mint(mint)
+    if not is_valid_mint(mint):
+        return {"ok": False, "err": "invalid mint format"}
+    sess = requests.Session()
+    base = "https://public-api.birdeye.so"
+    headers = {
+        "X-API-KEY": api_key,
+        "Accept": "application/json",
+        "User-Agent": "fetch-bot/1.0",
+    }
+    def _req(path, params=None, multi=False):
+        url = f"{base}{path}"
+        qp = {"chain": "solana"}
+        if multi:
+            # Birdeye expects 'list_address' for multi endpoints
+            qp["list_address"] = mint
+        else:
+            qp["address"] = mint
+        if params:
+            qp.update(params)
+        r = sess.get(url, headers=headers, params=qp, timeout=8)
+        body_snip = (r.text or "")[:120].replace("\n", " ")
+        print(f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp,separators=(',',':'))} body~={body_snip!r}")
+        if r.status_code != 200:
+            return None
+        try:
+            return r.json()
+        except Exception:
+            return None
+    def _extract_price(j):
+        if not j: return None
+        d = j.get("data") or {}
+        for k in ("value","price","priceUsd","price_usd","market_price_usd"):
+            v = d.get(k)
+            try:
+                f = float(v)
+                if math.isfinite(f) and f > 0: return f
+            except Exception:
+                pass
+        # multi_price: {"data":{"<mint>":{"value":...}}}
+        node = d.get(mint)
+        if isinstance(node, dict) and "value" in node:
+            try:
+                f = float(node["value"])
+                if math.isfinite(f) and f > 0: return f
+            except Exception:
+                pass
+        # v3 token market-data sometimes nests price-like fields
+        if isinstance(d, dict):
+            for k,v in d.items():
+                if isinstance(v,(int,float)) and "price" in k and v>0:
+                    return float(v)
+        return None
+    for path, multi in [
+        ("/defi/price", False),
+        ("/public/price", False),
+        ("/defi/v3/token/market-data", False),
+        ("/public/multi_price", True),
+        ("/defi/multi_price", True),
+    ]:
+        j = _req(path, multi=multi)
+        p = _extract_price(j)
+        if p:
+            return {"ok": True, "price": p, "source": "birdeye"}
+    return {"ok": False, "err": "birdeye all endpoints failed"}

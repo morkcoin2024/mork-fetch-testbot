@@ -17,6 +17,23 @@ import math
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
+# Add near top of file (helpers)
+BIRDEYE_MINT_ALIASES = {
+    "SOL": "So11111111111111111111111111111111111111112",  # wSOL
+    "WSOL": "So11111111111111111111111111111111111111112",
+}
+_BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+def normalize_mint(m: str) -> str:
+    m = (m or "").strip()
+    up = m.upper()
+    if up in BIRDEYE_MINT_ALIASES:
+        return BIRDEYE_MINT_ALIASES[up]
+    return m
+
+def is_valid_mint(m: str) -> bool:
+    return bool(_BASE58_RE.match(m))
+
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
@@ -834,6 +851,12 @@ def price_birdeye(mint: str):
     Accepts data.value, data.price*, market fields, or data[addr].value (multi).
     """
     import os, requests, math, json
+    
+    # Validate and normalize mint
+    mint = normalize_mint(mint)
+    if not is_valid_mint(mint):
+        return {"ok": False, "err": f"birdeye invalid mint: {mint}"}
+    
     api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not api_key:
         return {"ok": False, "err": "birdeye missing api key"}
@@ -852,7 +875,7 @@ def price_birdeye(mint: str):
         url = f"{base}{path}"
         qp = {"chain": "solana"}
         if multi:
-            qp["addresses"] = mint
+            qp["list_address"] = mint  # Fixed: use list_address for multi endpoints
         else:
             qp["address"] = mint
         if params:
