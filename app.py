@@ -466,10 +466,10 @@ def _alerts_emit(text, force=False):
     now = int(time.time())
     if not force and not _alerts_allowed(cfg, now):
         return False
-    ok = bool(tg_send(chat_id, text, preview=True).get("ok"))
-    if ok:
+    success = bool(tg_send(chat_id, text, preview=True).get("ok"))
+    if success:
         _alerts_record_send(cfg, now)
-    return ok
+    return success
 
 def _maybe_alert_from_price(mint, price, source):
     """Compare to baseline & alert if move >= min_move_pct."""
@@ -1936,6 +1936,10 @@ def process_telegram_command(update: dict):
                           "**Basic:** /help /info /ping /test123 /debug_cmd\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
+                          "  /watch_tick – run one scan now\n" + \
+                          "  /alerts_auto_on [sec] – enable continuous scanning\n" + \
+                          "  /alerts_auto_off – disable it\n" + \
+                          "  /alerts_auto_status – show status & interval\n" + \
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
@@ -2337,8 +2341,8 @@ def process_telegram_command(update: dict):
         elif cmd == "/alerts_preview" and is_admin:
             try:
                 from alerts_glue import emit_info
-                ok = emit_info("🔔 Preview: alerts glue operational")
-                return _reply("Preview sent." if ok else "Preview not sent (no chat or rate/muted).")
+                success = emit_info("🔔 Preview: alerts glue operational")
+                return _reply("Preview sent." if success else "Preview not sent (no chat or rate/muted).")
             except Exception as e:
                 return _reply(f"Preview failed: {e}", status="error")
         
@@ -2438,8 +2442,8 @@ def process_telegram_command(update: dict):
             target = (args or "").split()[0] if args else ""
             if not target:
                 return _reply("Usage: /autosell_remove <MINT>")
-            ok = autosell.remove_rule(target)
-            return _reply("🗑️ AutoSell rule removed." if ok else "ℹ️ No rule found.")
+            success = autosell.remove_rule(target)
+            return _reply("🗑️ AutoSell rule removed." if success else "ℹ️ No rule found.")
 
         # ---- Alerts simple settings (mute/unmute/status) ----
         elif cmd in ("/alerts_settings","/alerts_status"):
@@ -3238,7 +3242,7 @@ def webhook():
                     return _send_chunk(text, parse_mode, no_preview)
                 # split on paragraph boundaries where possible
                 i = 0
-                ok = True
+                success = True
                 while i < len(text):
                     chunk = text[i:i+MAX]
                     # try not to cut mid-line
@@ -3248,8 +3252,8 @@ def webhook():
                         i += cut + 1
                     else:
                         i += len(chunk)
-                    ok = _send_chunk(chunk, parse_mode, no_preview) and ok
-                return ok
+                    success = _send_chunk(chunk, parse_mode, no_preview) and success
+                return success
 
             def handle_update(update: dict):
                 """Enhanced update handler with single-send guarantee"""
