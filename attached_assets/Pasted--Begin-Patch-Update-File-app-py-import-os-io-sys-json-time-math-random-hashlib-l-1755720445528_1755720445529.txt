@@ -1,0 +1,163 @@
+*** Begin Patch
+*** Update File: app.py
+@@
+ import os, io, sys, json, time, math, random, hashlib, logging, textwrap, re
+@@
+ TOKEN_NAMES_FILE = "token_names.json"
+ ALERTS_BASELINE_FILE = "alerts_price_baseline.json"
++PRICE_HISTORY_DIR = "price_history"  # per-mint .jsonl files for /info windows
++os.makedirs(PRICE_HISTORY_DIR, exist_ok=True)
+@@
+ def _short(mint: str) -> str:
+     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
+@@
+ def _token_labels(mint: str) -> tuple[str|None, str|None]:
+     """
+     Returns (primary,ticker-ish), (secondary,brand-ish).
+     """
+     # existing implementation that prefers ticker as primary
+     ...
+@@
++def _arrow(delta_pct: float) -> str:
++    if delta_pct > 0: return "🟢▲"
++    if delta_pct < 0: return "🔴▼"
++    return "•"
++
++def _fmt_pct(delta_pct: float) -> str:
++    return f"{_arrow(delta_pct)} {delta_pct:+.2f}%"
++
++# --- lightweight price history (append-only jsonl per mint) ---
++def _history_path(mint: str) -> str:
++    return os.path.join(PRICE_HISTORY_DIR, f"{mint}.jsonl")
++
++def _record_price(mint: str, price: float, src: str):
++    try:
++        with open(_history_path(mint), "a", encoding="utf-8") as f:
++            f.write(json.dumps({"ts": int(time.time()), "price": float(price), "src": src}) + "\n")
++    except Exception:
++        logging.exception("history append failed")
++
++def _load_price_at_or_before(mint: str, t_target: int) -> float | None:
++    """
++    Scan the mint's .jsonl backwards and return the latest price with ts <= t_target.
++    For small files in our bot this is fine; can be optimized later.
++    """
++    path = _history_path(mint)
++    if not os.path.exists(path): return None
++    try:
++        # read last ~200 lines to keep it light
++        with open(path, "rb") as f:
++            f.seek(0, os.SEEK_END)
++            size = f.tell()
++            chunk = 64 * 1024
++            buf = b""
++            pos = size
++            while pos > 0 and len(buf.splitlines()) < 200:
++                pos = max(0, pos - chunk)
++                f.seek(pos)
++                buf = f.read(size - pos) + buf
++        lines = buf.splitlines()
++        for line in reversed(lines):
++            try:
++                rec = json.loads(line.decode("utf-8"))
++                if int(rec.get("ts", 0)) <= t_target:
++                    return float(rec.get("price"))
++            except Exception:
++                continue
++    except Exception:
++        logging.exception("history read failed")
++    return None
++
++# Reuse the new alert card name splitter
+ def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
+     ...
+@@
+ def _post_watch_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
+-    arrow_up = delta_pct >= 0
+-    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
+-    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    arrow_up = delta_pct >= 0
++    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
++    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    _record_price(mint, price, src)
+ 
+ def _post_price_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
+-    arrow_up = delta_pct >= 0
+-    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
+-    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    arrow_up = delta_pct >= 0
++    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
++    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    _record_price(mint, price, src)
++
++def _info_card(mint: str, price_now: float, src: str) -> str:
++    """
++    Build multi-window info card using local history snapshots.
++    Windows: 30m, 1h, 4h, 12h, 24h
++    """
++    tline, nline, sm = _alert_name_lines(mint)
++    now = int(time.time())
++    windows = [
++        ("30m",  30*60),
++        ("1h",   60*60),
++        ("4h",  4*60*60),
++        ("12h", 12*60*60),
++        ("24h", 24*60*60),
++    ]
++    rows = []
++    first_seen_price = None
++    first_seen_ts = None
++    # load earliest record (optional: keep it cheap)
++    path = _history_path(mint)
++    if os.path.exists(path):
++        try:
++            with open(path, "r", encoding="utf-8") as f:
++                first = f.readline().strip()
++                if first:
++                    r = json.loads(first)
++                    first_seen_price = float(r.get("price"))
++                    first_seen_ts = int(r.get("ts", 0))
++        except Exception:
++            pass
++    for label, secs in windows:
++        p_then = _load_price_at_or_before(mint, now - secs)
++        if p_then is None:
++            rows.append(f"{label}: n/a")
++        else:
++            delta_pct = (price_now - p_then) / p_then * 100 if p_then > 0 else 0.0
++            rows.append(f"{label}: {_fmt_pct(delta_pct)}")
++    lines = [f"*Info*", f"Mint: {tline}"]
++    if nline: lines.append(nline)
++    lines.append(f"({sm})")
++    lines.append(f"Price: ${price_now:,.6f}")
++    lines.append(f"Source: {src}")
++    lines.append("")
++    lines.extend(rows)
++    if first_seen_price is not None and first_seen_ts:
++        lines.append("")
++        lines.append(f"Since tracking: ${first_seen_price:,.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}")
++    return "\n".join(lines)
+@@
+ def process_telegram_command(update: dict) -> dict | None:
+     ...
+     text = msg.get("text","").strip()
+     cmd, *parts = text.split()
+@@
++    elif cmd == "/info":
++        if not parts:
++            return reply("Usage: /info <mint>", msg)
++        mint = parts[0].strip()
++        # prefer active source, but let router pick birdeye->dex->sim fallback
++        gp = get_price(mint, CURRENT_PRICE_SOURCE or "birdeye")
++        if not gp.get("ok"):
++            return reply("Failed to fetch price for that mint.", msg)
++        price_now = float(gp["price"])
++        src = gp.get("source","?")
++        # record current sample so subsequent info calls have history
++        _record_price(mint, price_now, src)
++        card = _info_card(mint, price_now, src)
++        return reply(card, msg)
+@@
+     else:
+         ...
+*** End Patch
