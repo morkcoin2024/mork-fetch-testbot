@@ -1,0 +1,73 @@
+*** Begin Patch
+*** Update File: app.py
+@@
+ def _short(mint: str) -> str:
+     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
+ 
++# Build three-line identity for alerts: ticker, name, (short)
++def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
++    """
++    Returns (ticker_or_primary, secondary_name_or_None, short_mint)
++    Example: ("WINGS", "Wings Stays On", "8aJ6..3777")
++    """
++    primary, secondary = _token_labels(mint)
++    tline = (primary or secondary or _short(mint)).strip()
++    nline = None
++    if secondary and (not primary or secondary.lower() != (primary or "").lower()):
++        nline = secondary.strip()
++    return tline, nline, _short(mint)
++
++def _format_price_alert_card(
++    mint: str,
++    price: float,
++    baseline: float,
++    delta_pct: float,
++    source: str,
++    up: bool,
++) -> str:
++    arrow = "🟢▲" if up else "🔴▼"
++    tline, nline, sm = _alert_name_lines(mint)
++    lines = [f"Price Alert {arrow}", f"Mint: {tline}"]
++    if nline:
++        lines.append(nline)
++    lines.append(f"({sm})")
++    # 6dp keeps degen tokens readable; large caps still ok
++    lines.append(f"Price: ${price:,.6f}")
++    lines.append(f"Change: {delta_pct:+.2f}%")
++    lines.append(f"Baseline: ${baseline:,.6f}")
++    lines.append(f"Source: {source}")
++    return "\n".join(lines)
+@@
+ def _post_watch_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
+-    # existing builder that used _alert_label(...) -> single-line "Ticker — Name (short)"
+-    arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
+-    label = _alert_label(mint)
+-    text = (
+-        f"Price Alert {arrow}\n"
+-        f"Mint:\n{label}\n"
+-        f"Price: ${price:,.6f}\n"
+-        f"Change: {delta_pct:+.2f}%\n"
+-        f"Baseline: ${baseline:,.6f}\n"
+-        f"Source: {src}"
+-    )
+-    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    arrow_up = delta_pct >= 0
++    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
++    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
+ 
+ def _post_price_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
+-    arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
+-    label = _alert_label(mint)
+-    text = (
+-        f"Price Alert {arrow}\n"
+-        f"Mint:\n{label}\n"
+-        f"Price: ${price:,.6f}\n"
+-        f"Change: {delta_pct:+.2f}%\n"
+-        f"Baseline: ${baseline:,.6f}\n"
+-        f"Source: {src}"
+-    )
+-    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
++    arrow_up = delta_pct >= 0
++    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
++    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
+*** End Patch

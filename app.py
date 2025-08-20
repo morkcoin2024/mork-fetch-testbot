@@ -80,6 +80,40 @@ def _save_token_cache(d):
 def _short(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
 
+# Build three-line identity for alerts: ticker, name, (short)
+def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
+    """
+    Returns (ticker_or_primary, secondary_name_or_None, short_mint)
+    Example: ("WINGS", "Wings Stays On", "8aJ6..3777")
+    """
+    primary, secondary = _token_labels(mint)
+    tline = (primary or secondary or _short(mint)).strip()
+    nline = None
+    if secondary and (not primary or secondary.lower() != (primary or "").lower()):
+        nline = secondary.strip()
+    return tline, nline, _short(mint)
+
+def _format_price_alert_card(
+    mint: str,
+    price: float,
+    baseline: float,
+    delta_pct: float,
+    source: str,
+    up: bool,
+) -> str:
+    arrow = "🟢▲" if up else "🔴▼"
+    tline, nline, sm = _alert_name_lines(mint)
+    lines = [f"Price Alert {arrow}", f"Mint: {tline}"]
+    if nline:
+        lines.append(nline)
+    lines.append(f"({sm})")
+    # 6dp keeps degen tokens readable; large caps still ok
+    lines.append(f"Price: ${price:,.6f}")
+    lines.append(f"Change: {delta_pct:+.2f}%")
+    lines.append(f"Baseline: ${baseline:,.6f}")
+    lines.append(f"Source: {source}")
+    return "\n".join(lines)
+
 def _clean_symbol(s: str) -> str | None:
     """Normalize tickers: uppercase, alnum+_ only, trimmed to 12 chars."""
     if not s or not isinstance(s, str):
@@ -267,17 +301,7 @@ def _alerts_send_html(chat_id: int, text: str):
 # --- END: alerts HTML sender ---
 
 def _format_price_alert_html(mint: str, price: float, base: float, delta_pct: float, src: str):
-    delta = delta_pct / 100.0  # Convert percentage to decimal for formatting
-    arrow = "🟢▲" if delta >= 0 else "🔴▼"
-    text = (
-        f"Price Alert {arrow}\n"
-        f"Mint:\n{_token_label(mint)}\n"
-        f"Price: ${price:.6f}\n"
-        f"Change: {delta:+.2%}\n"
-        f"Baseline: ${base:.6f}\n"
-        f"Source: {src}"
-    )
-    return text
+    return _format_price_alert_card(mint, price, base, delta_pct, src, up=delta_pct >= 0)
 
 def _alerts_try_send(chat_id: int, mint: str, price: float, base: float, delta_pct: float, src: str):
     text = _format_price_alert_html(mint, price, base, delta_pct, src)
