@@ -2181,8 +2181,8 @@ def process_telegram_command(update: dict):
 
         # public watch controls
         elif cmd == "/watch_tick":
-            response_text = watch_tick_internal()
-            return {"status":"ok","response":response_text,"parse_mode":"Markdown"}
+            text = watch_tick_internal()
+            return ok("Watch tick", text)
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
