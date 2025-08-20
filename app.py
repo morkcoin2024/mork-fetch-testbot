@@ -391,7 +391,7 @@ ALL_COMMANDS = [
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
-    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off",
+    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_clear",
     "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
@@ -1961,6 +1961,16 @@ def process_telegram_command(update: dict):
                 
             except Exception as e:
                 return _reply(f"Enhanced test error: {e}")
+
+        elif cmd == "/watch_clear" and is_admin:
+            """Clear watchlist and reset all associated state data."""
+            try:
+                _save_watchlist([])
+                # Also clear per-mint state so baselines reset
+                _watch_state_save({})
+                return _reply("🧹 Watchlist cleared.")
+            except Exception as e:
+                return _reply(f"Clear error: {e}")
 
         # Wallet Commands
         elif cmd == "/wallet":
