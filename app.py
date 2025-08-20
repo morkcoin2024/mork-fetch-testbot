@@ -71,8 +71,9 @@ TOKEN_META_PATH = "token_meta_cache.json"
 
 def _token_label(mint: str) -> str:
     """Return 'SYMBOL (So11…1112)' if we can resolve it, else short mint."""
+    import json, time, os, requests
     short = f"{mint[:4]}…{mint[-4:]}"
-    # cache hit (24h TTL)
+    # cache (24h)
     try:
         cache = json.load(open(TOKEN_META_PATH))
     except Exception:
@@ -82,31 +83,22 @@ def _token_label(mint: str) -> str:
         lab = ent.get("symbol") or ent.get("name")
         if lab:
             return f"{lab} ({short})"
-
     # Birdeye lookup
     try:
-        headers = {
-            "X-API-KEY": os.getenv("BIRDEYE_API_KEY", ""),
-            "X-Chain": "solana",
-        }
+        headers = {"X-API-KEY": os.getenv("BIRDEYE_API_KEY",""), "X-Chain":"solana"}
         qp = {"address": mint, "chain": "solana"}
-        r = requests.get(
-            "https://public-api.birdeye.so/defi/v3/token/market-data",
-            headers=headers, params=qp, timeout=6
-        )
+        r = requests.get("https://public-api.birdeye.so/defi/v3/token/market-data",
+                         headers=headers, params=qp, timeout=6)
         if r.status_code == 200:
-            d = r.json().get("data") or {}
+            d = (r.json() or {}).get("data") or {}
             sym = d.get("symbol") or d.get("baseTokenSymbol") or d.get("tokenSymbol")
             name = d.get("name") or d.get("baseTokenName") or d.get("tokenName")
             if sym or name:
                 cache[mint] = {"symbol": sym, "name": name, "ts": int(time.time())}
-                json.dump(cache, open(TOKEN_META_PATH, "w"))
+                json.dump(cache, open(TOKEN_META_PATH,"w"))
                 return f"{(sym or name)} ({short})"
-        else:
-            logger.info("token label miss %s -> %s", mint, r.status_code)
-    except Exception as e:
-        logger.warning("token label lookup failed for %s: %s", mint, e)
-
+    except Exception:
+        pass
     return short
 # ---------------------------------------------------------------------------
 
