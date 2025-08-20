@@ -617,7 +617,7 @@ def watch_tick_once(send_alerts=False):
         if not mint:
             new_wl.append(it); continue
 
-        res = get_price(mint) if 'get_price' in globals() else {"ok": False}
+        res = get_price_with_preference(mint)
         if not res or not res.get("ok"):
             new_wl.append(it); continue
 
@@ -674,7 +674,7 @@ def _watch_tick_once():
     min_move = _as_float(alerts_cfg.get("min_move_pct", 0.0), 0.0)
     for mint in list(cfg.get("mints", [])):
         try:
-            pr = get_price(mint)  # uses selected /source with fallbacks
+            pr = get_price_with_preference(mint)  # uses selected /source with fallbacks
             if not pr.get("ok"):
                 continue
             price = _as_float(pr["price"], 0.0)
@@ -711,6 +711,48 @@ def watch_start():
 # simple 15s cache: key=(source,mint) -> {price,ts}
 _PRICE_CACHE = {}
 _PRICE_TTL_S = 15
+
+PRICE_SOURCE_PATH = "/tmp/mork_price_source"
+
+def load_current_source() -> str:
+    try:
+        s = open(PRICE_SOURCE_PATH, "r").read().strip().lower()
+        return s if s in {"sim","dex","birdeye"} else "sim"
+    except Exception:
+        return "sim"
+
+def get_price_with_preference(mint: str, preferred: str | None = None) -> dict:
+    """
+    Unified price fetch with clear source labeling and graceful fallback.
+    Returns: {ok: bool, price: float|None, source: str, cached: bool|None}
+    """
+    preferred = (preferred or load_current_source()).lower()
+    chain = [preferred] + [s for s in ("birdeye","dex","sim") if s != preferred]
+    last_src = preferred
+    # NOTE: existing functions return dict format: {"ok": bool, "price": float, "source": str}
+    for prov in chain:
+        if prov == "birdeye":
+            result = price_birdeye(mint)
+        elif prov == "dex":
+            result = price_dexscreener(mint) if 'price_dexscreener' in globals() else {"ok": False}
+        else:
+            # sim always succeeds
+            result = price_sim(mint)
+        
+        if result.get("ok") and result.get("price") is not None:
+            px = result["price"]
+            # Check if this is the preferred source or a fallback
+            is_preferred = (prov == preferred)
+            is_sim_fallback = (prov == "sim" and preferred == "sim")
+            
+            if is_preferred or is_sim_fallback:
+                label = prov
+            else:
+                label = f"{prov} (fallback from {preferred})"
+                
+            return {"ok": True, "price": float(px), "source": label}
+    # ultimate guard
+    return {"ok": True, "price": float(price_sim(mint)), "source": f"sim (fallback from {preferred})"}
 
 def _cache_get(src, mint):
     k = (src, mint)

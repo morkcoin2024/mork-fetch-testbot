@@ -1,1 +1,7 @@
-{"min_move_pct": "1.5%"}
+{
+  "chat_id": null,
+  "min_move_pct": 0.3,
+  "rate_per_min": 5,
+  "muted_until": 0,
+  "muted": false
+}
