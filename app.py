@@ -769,6 +769,7 @@ ALL_COMMANDS = [
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
+    "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status",
     "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
@@ -1840,7 +1841,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug"]
+        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -2159,6 +2160,27 @@ def process_telegram_command(update: dict):
         elif cmd == "/watch_tick":
             text = watch_tick_internal()
             return RESP_OK("Watch tick", text)
+
+        # --- auto ticker control ---
+        elif cmd == "/alerts_auto_on":
+            sec = None
+            if len(parts) > 1:
+                try:
+                    sec = int(parts[1])
+                except:
+                    sec = None
+            alerts_auto_on(sec)
+            s = alerts_auto_status()
+            return RESP_OK("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
+
+        elif cmd == "/alerts_auto_off":
+            alerts_auto_off()
+            return RESP_OK("Auto alerts disabled", "Ticker stopped.")
+
+        elif cmd == "/alerts_auto_status":
+            s = alerts_auto_status()
+            state = "on" if s["alive"] else "off"
+            return RESP_OK("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
