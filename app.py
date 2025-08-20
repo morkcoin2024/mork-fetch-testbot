@@ -3,16 +3,11 @@ Flask Web Application for Mork F.E.T.C.H Bot
 Handles Telegram webhooks and provides web interface
 """
 
-import os
-import logging
+import os, time, json, logging, re, requests
 import threading
-import time
-import requests
 import hashlib
 import inspect
-import json
 import textwrap
-import re
 import math
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
@@ -70,36 +65,135 @@ def _save_baseline(b):
 TOKEN_META_PATH = "token_meta_cache.json"
 
 def _token_label(mint: str) -> str:
-    """Return 'SYMBOL (So11…1112)' if we can resolve it, else short mint."""
-    import json, time, os, requests
-    short = f"{mint[:4]}…{mint[-4:]}"
-    # cache (24h)
+    """Return 'SYMBOL (So11…1112)' if we can resolve it, else short mint. Uses enhanced resolver."""
     try:
-        cache = json.load(open(TOKEN_META_PATH))
+        # Try the enhanced multi-provider resolver first
+        name = resolve_token_name(mint)
+        short = f"{mint[:4]}…{mint[-4:]}"
+        if name and name != _short(mint):  # If we got a real name (not just the short address)
+            return f"{name} ({short})"
+        return short
     except Exception:
-        cache = {}
-    ent = cache.get(mint) or {}
-    if int(time.time()) - int(ent.get("ts", 0)) < 24 * 3600:
-        lab = ent.get("symbol") or ent.get("name")
-        if lab:
-            return f"{lab} ({short})"
-    # Birdeye lookup
+        # Fallback to original logic
+        import json, time, os, requests
+        short = f"{mint[:4]}…{mint[-4:]}"
+        try:
+            cache = json.load(open(TOKEN_META_PATH))
+        except Exception:
+            cache = {}
+        ent = cache.get(mint) or {}
+        if int(time.time()) - int(ent.get("ts", 0)) < 24 * 3600:
+            lab = ent.get("symbol") or ent.get("name")
+            if lab:
+                return f"{lab} ({short})"
+        return short
+# ---------------------------------------------------------------------------
+
+# ---------- Enhanced Token name resolution (multi-provider) ----------
+TOKEN_NAME_CACHE = "token_names.json"
+SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
+
+def _load_token_cache():
     try:
-        headers = {"X-API-KEY": os.getenv("BIRDEYE_API_KEY",""), "X-Chain":"solana"}
-        qp = {"address": mint, "chain": "solana"}
-        r = requests.get("https://public-api.birdeye.so/defi/v3/token/market-data",
-                         headers=headers, params=qp, timeout=6)
-        if r.status_code == 200:
-            d = (r.json() or {}).get("data") or {}
-            sym = d.get("symbol") or d.get("baseTokenSymbol") or d.get("tokenSymbol")
-            name = d.get("name") or d.get("baseTokenName") or d.get("tokenName")
-            if sym or name:
-                cache[mint] = {"symbol": sym, "name": name, "ts": int(time.time())}
-                json.dump(cache, open(TOKEN_META_PATH,"w"))
-                return f"{(sym or name)} ({short})"
+        return json.load(open(TOKEN_NAME_CACHE))
+    except Exception:
+        return {}
+
+def _save_token_cache(d):
+    try:
+        json.dump(d, open(TOKEN_NAME_CACHE, "w"))
     except Exception:
         pass
-    return short
+
+def _short(mint: str) -> str:
+    return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
+
+def resolve_token_name(mint: str) -> str:
+    """
+    Best-effort token name resolver with 24h cache.
+    Order: cache -> special SOL -> Birdeye -> Dexscreener -> fallback(short addr).
+    """
+    now = int(time.time())
+    cache = _load_token_cache()
+    rec = cache.get(mint)
+    if rec and isinstance(rec, dict):
+        ts = rec.get("ts", 0)
+        if now - ts < 24*3600 and rec.get("name"):
+            return rec["name"]
+
+    # Special-case SOL pseudo mint
+    if mint == SOL_PSEUDO_MINT:
+        name = "Solana (SOL)"
+        cache[mint] = {"name": name, "ts": now}
+        _save_token_cache(cache)
+        return name
+
+    # Try Birdeye v3 market-data (needs BIRDEYE_API_KEY)
+    try:
+        api = os.getenv("BIRDEYE_API_KEY", "")
+        if api:
+            h = {"X-API-KEY": api, "X-Chain": "solana"}
+            url = "https://public-api.birdeye.so/defi/v3/token/market-data"
+            r = requests.get(url, params={"address": mint, "chain": "solana"}, headers=h, timeout=(5, 10))
+            if r.status_code == 200:
+                data = r.json().get("data") or {}
+                # Try common fields
+                name = data.get("name") or (data.get("token_info") or {}).get("name") or (data.get("token_info") or {}).get("symbol")
+                if name:
+                    cache[mint] = {"name": name, "ts": now}
+                    _save_token_cache(cache)
+                    return name
+    except Exception:
+        pass
+
+    # Try Dexscreener (no key). tokens endpoint by address.
+    try:
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
+        if r.status_code == 200:
+            js = r.json() or {}
+            pairs = js.get("pairs") or []
+            if pairs:
+                # choose the first pair; prefer baseToken name/symbol
+                p0 = pairs[0]
+                bt = p0.get("baseToken") or {}
+                name = bt.get("name") or bt.get("symbol")
+                if name:
+                    cache[mint] = {"name": name, "ts": now}
+                    _save_token_cache(cache)
+                    return name
+    except Exception:
+        pass
+
+    # Fallback
+    name = _short(mint)
+    cache[mint] = {"name": name, "ts": now}
+    _save_token_cache(cache)
+    return name
+
+# Enhanced alert hook using the new resolver
+def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
+    """
+    Enhanced alert hook that uses the multi-provider token resolver.
+    Called after watch tick determines a significant move.
+    """
+    try:
+        pct = 0.0
+        if base_price and base_price > 0:
+            pct = (price - base_price) / base_price * 100.0
+        tri = "🟢▲" if pct >= 0 else "🔴▼"
+        name = resolve_token_name(mint)
+        short = _short(mint)
+        txt = f"[ALERT] {name} ({short}) {tri} {pct:+.2f}%  price=${price:.6f}  src={source}"
+        # Try to use existing alerts_send function if available
+        try:
+            return alerts_send(txt, chat_id=chat_id)
+        except NameError:
+            # Fallback to simple print for testing
+            print(f"ALERT: {txt}")
+            return True
+    except Exception as e:
+        print(f"Enhanced alert error: {e}")
+        return False
 # ---------------------------------------------------------------------------
 
 # --- BEGIN: alerts HTML sender ---

@@ -1,0 +1,123 @@
+*** Begin Patch
+*** Update File: app.py
+@@
+-import os, time, json, logging, re, requests
++import os, time, json, logging, re, requests
+@@
+ LOGGER = logging.getLogger(__name__)
+ 
++# ---------- Token name resolution (cached) ----------
++TOKEN_NAME_CACHE = "token_names.json"
++SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
++
++def _load_token_cache():
++    try:
++        return json.load(open(TOKEN_NAME_CACHE))
++    except Exception:
++        return {}
++
++def _save_token_cache(d):
++    try:
++        json.dump(d, open(TOKEN_NAME_CACHE, "w"))
++    except Exception:
++        pass
++
++def _short(mint: str) -> str:
++    return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
++
++def resolve_token_name(mint: str) -> str:
++    """
++    Best-effort token name resolver with 24h cache.
++    Order: cache -> special SOL -> Birdeye -> Dexscreener -> fallback(short addr).
++    """
++    now = int(time.time())
++    cache = _load_token_cache()
++    rec = cache.get(mint)
++    if rec and isinstance(rec, dict):
++        ts = rec.get("ts", 0)
++        if now - ts < 24*3600 and rec.get("name"):
++            return rec["name"]
++
++    # Special-case SOL pseudo mint
++    if mint == SOL_PSEUDO_MINT:
++        name = "Solana (SOL)"
++        cache[mint] = {"name": name, "ts": now}
++        _save_token_cache(cache)
++        return name
++
++    # Try Birdeye v3 market-data (needs BIRDEYE_API_KEY)
++    try:
++        api = os.getenv("BIRDEYE_API_KEY", "")
++        if api:
++            h = {"X-API-KEY": api, "X-Chain": "solana"}
++            url = "https://public-api.birdeye.so/defi/v3/token/market-data"
++            r = requests.get(url, params={"address": mint, "chain": "solana"}, headers=h, timeout=(5, 10))
++            if r.status_code == 200:
++                data = r.json().get("data") or {}
++                # Try common fields
++                name = data.get("name") or (data.get("token_info") or {}).get("name") or (data.get("token_info") or {}).get("symbol")
++                if name:
++                    cache[mint] = {"name": name, "ts": now}
++                    _save_token_cache(cache)
++                    return name
++    except Exception:
++        pass
++
++    # Try Dexscreener (no key). tokens endpoint by address.
++    try:
++        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
++        if r.status_code == 200:
++            js = r.json() or {}
++            pairs = js.get("pairs") or []
++            if pairs:
++                # choose the first pair; prefer baseToken name/symbol
++                p0 = pairs[0]
++                bt = p0.get("baseToken") or {}
++                name = bt.get("name") or bt.get("symbol")
++                if name:
++                    cache[mint] = {"name": name, "ts": now}
++                    _save_token_cache(cache)
++                    return name
++    except Exception:
++        pass
++
++    # Fallback
++    name = _short(mint)
++    cache[mint] = {"name": name, "ts": now}
++    _save_token_cache(cache)
++    return name
++
+@@
+-def _post_watch_alert_hook(mint, price, base_price, source, chat_id=None):
+-    """
+-    Called after watch tick determines a significant move.
+-    """
+-    try:
+-        pct = 0.0
+-        if base_price and base_price > 0:
+-            pct = (price - base_price) / base_price * 100.0
+-        tri = "🟢▲" if pct >= 0 else "🔴▼"
+-        short = mint[:10] + ".." if len(mint) > 14 else mint
+-        txt = f"[ALERT] {short} {tri} {pct:+.2f}% price=${price:.6f} src={source}"
+-        return alerts_send(txt, chat_id=chat_id)
+-    except Exception as e:
+-        LOGGER.exception("alert_hook error: %s", e)
+-        return False
++def _post_watch_alert_hook(mint, price, base_price, source, chat_id=None):
++    """
++    Called after watch tick determines a significant move.
++    Now resolves token name and includes it in the alert.
++    """
++    try:
++        pct = 0.0
++        if base_price and base_price > 0:
++            pct = (price - base_price) / base_price * 100.0
++        tri = "🟢▲" if pct >= 0 else "🔴▼"
++        name = resolve_token_name(mint)
++        short = _short(mint)
++        txt = f"[ALERT] {name} ({short}) {tri} {pct:+.2f}%  price=${price:.6f}  src={source}"
++        return alerts_send(txt, chat_id=chat_id)
++    except Exception as e:
++        LOGGER.exception("alert_hook error: %s", e)
++        return False
+*** End Patch
