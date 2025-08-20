@@ -2169,12 +2169,10 @@ def process_telegram_command(update: dict):
         # --- automatic watch ticker controls ---
         elif cmd == "/alerts_auto_on":
             # optional interval value in seconds
-            sec = None
-            if len(parts) > 1:
-                try:
-                    sec = int(parts[1])
-                except Exception:
-                    sec = None
+            try:
+                sec = int(arg) if arg else None
+            except Exception:
+                sec = None
             alerts_auto_on(sec)             # starts or updates the ticker
             s = alerts_auto_status()
             return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
@@ -2207,7 +2205,7 @@ def process_telegram_command(update: dict):
                        "📋 **Available Commands:**\n" + \
                        "/help - Show this help\n" + \
                        "/commands - List all commands\n" + \
-                       "/info - Bot information\n" + \
+                       "/about <mint> - Token snapshot (alias: /info)\n" + \
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
@@ -2232,9 +2230,9 @@ def process_telegram_command(update: dict):
                        "/watchlist - Show watchlist\n" + \
                        "/watch_tick - Force immediate watchlist check\n" + \
                        "/watch_off <mint> - Alias of /unwatch <mint>\n" + \
-                       "/alerts_auto_on [sec] - Enable continuous watch scanning\n" + \
-                       "/alerts_auto_off - Disable it\n" + \
-                       "/alerts_auto_status - Show status & interval\n" + \
+                       "/alerts_auto_on [sec] - Enable continuous scanning\n" + \
+                       "/alerts_auto_off - Disable continuous scanning\n" + \
+                       "/alerts_auto_status - Show auto-scan status\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
@@ -2313,11 +2311,10 @@ def process_telegram_command(update: dict):
             return _reply(version_text)
         
         elif cmd == "/source":
-            parts = text.split()
-            arg = parts[1].strip().lower() if len(parts) > 1 else ""
-            if arg in ("sim", "dex", "birdeye"):
-                _write_price_source(arg)
-                return _reply(f"✅ Price source set: {arg}")
+            source_arg = arg.strip().lower() if arg else ""
+            if source_arg in ("sim", "dex", "birdeye"):
+                _write_price_source(source_arg)
+                return _reply(f"✅ Price source set: {source_arg}")
             cur = _read_price_source()
             body = (
                 "📊 **Price Sources Status**\n\n"
@@ -2330,14 +2327,15 @@ def process_telegram_command(update: dict):
             return _reply(body)
         
         elif cmd == "/price" or cmd == "/quote":
-            parts = text.split()
-            if len(parts) < 2:
+            if not arg:
                 return _reply("Usage: `/price <mint>`")
-            mint = parts[1].strip()
-            # optional override flag: --src=sim|dex|birdeye
+            
+            # Parse mint and optional override flag: --src=sim|dex|birdeye
+            args_parts = args.split() if args else []
+            mint = arg.strip()
             override = None
-            if len(parts) >= 3 and parts[2].startswith("--src="):
-                override = parts[2].split("=",1)[1].lower()
+            if len(args_parts) >= 2 and args_parts[1].startswith("--src="):
+                override = args_parts[1].split("=",1)[1].lower()
                 if override not in ("sim", "dex", "birdeye"):
                     return _reply("Usage: `/price <mint> --src=sim|dex|birdeye`")
             
@@ -2373,10 +2371,9 @@ def process_telegram_command(update: dict):
         
         # --- Multi-source snapshot (/fetch, /fetch_now) ---
         elif cmd in ("/fetch", "/fetch_now"):
-            parts = text.split()
-            if len(parts) < 2:
+            if not arg:
                 return _reply("Usage: `/fetch <mint>`")
-            mint = parts[1].strip()
+            mint = arg.strip()
             if not mint or len(mint) < 10:
                 return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
 
@@ -2439,10 +2436,9 @@ def process_telegram_command(update: dict):
         
         # --- Watchlist commands (lightweight v1) ---
         elif cmd == "/watch":
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return {"status":"ok","response":"Usage: /watch <mint>"}
-            mint = parts[1].strip()
+            mint = arg.strip()
             
             # Validate and normalize mint
             original_mint = mint
@@ -2500,10 +2496,9 @@ def process_telegram_command(update: dict):
 
 
         elif cmd == "/watch_off":
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
-            mint = parts[1].strip()
+            mint = arg.strip()
             
             # Validate and normalize mint
             original_mint = mint
@@ -2544,11 +2539,10 @@ def process_telegram_command(update: dict):
             return _reply(f"✅ Alerts chat set to: `{cfg['chat_id']}`")
 
         elif cmd == "/alerts_setchat" and is_admin:
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return _reply("Usage: `/alerts_setchat <chat_id>`")
             try:
-                chat_id = int(parts[1])
+                chat_id = int(arg)
             except Exception:
                 return _reply("❌ Invalid chat id.")
             cfg = _alerts_load()
@@ -2557,11 +2551,10 @@ def process_telegram_command(update: dict):
             return _reply(f"✅ Alerts chat set to: `{chat_id}`")
 
         elif cmd == "/alerts_rate" and is_admin:
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return _reply("Usage: `/alerts_rate <n>`")
             try:
-                n = max(0, int(float(parts[1])))
+                n = max(0, int(float(arg)))
             except Exception:
                 return _reply("❌ Invalid number.")
             cfg = _alerts_load()
@@ -2578,11 +2571,10 @@ def process_telegram_command(update: dict):
             return _reply("⏸️ Background ticker stopped")
 
         elif cmd == "/alerts_ticker_interval" and is_admin:
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return _reply(f"Usage: `/alerts_ticker_interval <seconds>` (current: {ALERTS_TICK_INTERVAL}s)")
             try:
-                interval = max(5, int(float(parts[1])))  # Min 5 seconds
+                interval = max(5, int(float(arg)))  # Min 5 seconds
             except Exception:
                 return _reply("❌ Invalid interval (minimum 5 seconds)")
             alerts_auto_on(interval)  # Restart with new interval
@@ -2594,10 +2586,10 @@ def process_telegram_command(update: dict):
             return _reply(f"📊 Background ticker: {status}\nInterval: {status_info['interval_sec']}s\nDefault: {ALERTS_TICK_DEFAULT}s")
 
         elif cmd == "/alerts_auto_on":
-            sec = None
-            if len(parts) > 1:
-                try: sec = int(parts[1])
-                except: sec = None
+            try: 
+                sec = int(arg) if arg else None
+            except: 
+                sec = None
             alerts_auto_on(sec)
             s = alerts_auto_status()
             return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
@@ -2612,10 +2604,9 @@ def process_telegram_command(update: dict):
             return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
 
         elif cmd == "/alerts_minmove" and is_admin:
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return _reply("Usage: `/alerts_minmove <percent>  e.g. 0.5 or 0.5%`")
-            value = _as_float(parts[1], None)
+            value = _as_float(arg, None)
             if value is None:
                 return _reply("❌ Invalid value. Try: `/alerts_minmove 0.5`")
             cfg = _load_alerts_cfg()
@@ -2628,8 +2619,7 @@ def process_telegram_command(update: dict):
             return _reply(f"👀 Watch sensitivity set to {value:.2f}%")
 
         elif cmd in ("/alerts_mute", "/alerts_off") and is_admin:
-            parts = text.split(maxsplit=1)
-            dur = "10m" if cmd == "/alerts_off" and len(parts) == 1 else (parts[1] if len(parts) > 1 else "10m")
+            dur = arg if arg else "10m"
             seconds = _parse_duration(dur)
             if seconds <= 0:
                 return _reply("Usage: `/alerts_mute <duration e.g. 120s | 2m | 1h>`")
@@ -2643,8 +2633,7 @@ def process_telegram_command(update: dict):
             return _reply("🔔 Alerts unmuted")
 
         elif cmd == "/alerts_test" and is_admin:
-            parts = text.split(maxsplit=1)
-            msg = parts[1] if len(parts) > 1 else "Test alert"
+            msg = arg if arg else "Test alert"
             res = alerts_send(f"🚨 *Alert:*\n{msg}", force=True)
             if res.get("ok"):
                 return _reply("✅ Test alert sent.")
@@ -3013,10 +3002,9 @@ def process_telegram_command(update: dict):
             return _reply("👁️ Watch tick via web interface\nUse monitoring dashboard for manual watchlist scanning")
 
         elif cmd == "/watch_off":
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2:
+            if not arg:
                 return {"status": "ok", "response": "Usage: `/watch_off <mint>`", "parse_mode": "MarkdownV2"}
-            mint = parts[1].strip()
+            mint = arg.strip()
             wl = _load_watchlist()
             def _m(x): return x.get("mint") if isinstance(x,dict) else (x if isinstance(x,str) else "")
             before = len(wl)
@@ -3026,8 +3014,7 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/watch_debug":
             try:
-                args = text.split(maxsplit=1)
-                mint = args[1].strip() if len(args) > 1 else ""
+                mint = arg.strip() if arg else ""
                 
                 if not mint:
                     return {"status":"ok","response":"Usage: `/watch_debug <mint>`","parse_mode":"Markdown"}
