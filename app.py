@@ -1892,6 +1892,9 @@ def process_telegram_command(update: dict):
                        "/watchlist - Show watchlist\n" + \
                        "/watch_tick - Force immediate watchlist check\n" + \
                        "/watch_off <mint> - Alias of /unwatch <mint>\n" + \
+                       "/alerts_auto_on [sec] - Enable continuous watch scanning\n" + \
+                       "/alerts_auto_off - Disable it\n" + \
+                       "/alerts_auto_status - Show status & interval\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
