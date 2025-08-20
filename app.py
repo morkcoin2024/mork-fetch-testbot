@@ -624,6 +624,7 @@ def watch_tick_once(send_alerts=False):
 
         price = info.get("price")
         src = info.get("source", "n/a")
+        logging.info(f"[watch_tick] mint={mint} preferred={pref} resolved_src={src} price={price}")
         if price is None:
             new_wl.append(it); continue
 
