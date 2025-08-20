@@ -1,0 +1,170 @@
+# ---------- helpers at module scope (keep or merge if you already have) ----------
+import json, time, os
+ALERTS_CFG_FILE = "alerts_config.json"
+ALERTS_BASE_FILE = "alerts_price_baseline.json"
+PRICE_SOURCE_FILE = "price_source.json"   # existing persistence for /source
+
+def _load_alerts_cfg():
+    try: return json.load(open(ALERTS_CFG_FILE))
+    except Exception: return {"chat_id": None, "min_move_pct": 1.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+
+def _load_baseline():
+    try: return json.load(open(ALERTS_BASE_FILE))
+    except Exception: return {}
+
+def _save_baseline(d):
+    json.dump(d, open(ALERTS_BASE_FILE, "w"))
+
+def _active_price_source():
+    # read what /source set; default to birdeye
+    try:
+        d = json.load(open(PRICE_SOURCE_FILE))
+        return d.get("active") or "birdeye"
+    except Exception:
+        return "birdeye"
+
+# Try active -> birdeye -> dex -> sim
+def _price_lookup_any(mint: str):
+    prefer = _active_price_source()
+    for src in [prefer, "birdeye", "dex", "sim"]:
+        try:
+            r = get_price(mint, src)  # existing function
+            if r and r.get("ok") and float(r.get("price") or 0) > 0:
+                return r
+        except Exception:
+            pass
+    return {"ok": False, "price": 0.0, "source": "n/a"}
+
+# ---------- /watch_tick: compute real Δ and only call hook when we have a price ----------
+# In process_telegram_command(), inside the "/watch_tick" branch where you iterate watched mints:
+base = _load_baseline()
+r = _price_lookup_any(mint)
+last_price = float(r.get("price") or 0.0)
+source = r.get("source") or "n/a"
+
+# Δ vs baseline for display
+bl = base.get(mint)
+if bl and ("price" in bl):
+    try:
+        delta_pct = (last_price - float(bl["price"])) / float(bl["price"]) * 100.0
+    except Exception:
+        delta_pct = 0.0
+else:
+    delta_pct = 0.0
+
+lines.append(f"- `{mint[:12]}..`  last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+
+# Only call alert hook if we have a real price
+if last_price > 0:
+    try:
+        _post_watch_alert_hook(mint, last_price, source)
+    except Exception as e:
+        # avoid using a local 'logging' name in this scope
+        import logging as pylog
+        pylog.exception("watch alert hook failed for %s: %s", mint, e)
+
+# ---------- /watch_debug command (new or fixed) ----------
+# Add/replace the /watch_debug branch in process_telegram_command():
+elif cmd == "/watch_debug":
+    mint = args.strip() or ""
+    if not mint:
+        return ok("Usage: `/watch_debug <mint>`")
+    cfg = _load_alerts_cfg()
+    base = _load_baseline()
+    bl = base.get(mint)
+    r = _price_lookup_any(mint)
+    price = float(r.get("price") or 0.0)
+    src = r.get("source") or "n/a"
+    if bl and "price" in bl and float(bl["price"]) > 0 and price > 0:
+        delta_pct = (price - float(bl["price"])) / float(bl["price"]) * 100.0
+    else:
+        delta_pct = 0.0
+    msg = (
+        "*Watch debug*\n"
+        f"cfg: chat={cfg.get('chat_id')} min={cfg.get('min_move_pct')} rate={cfg.get('rate_per_min')}/min muted={cfg.get('muted')}\n"
+        f"- `{mint[:12]}..`  last=${price:.6f}  base=${(bl or {}).get('price', 'n/a')}  Δ={delta_pct:+.4f}%  src={src}"
+    )
+    return ok(msg)
+
+# ---------- alert hook: colored arrows, no-price guard, clear trace ----------
+def _post_watch_alert_hook(mint: str, price: float, src: str):
+    import logging as pylog  # avoid name clash
+    TRACE = "/tmp/alerts_debug.log"
+    cfg = _load_alerts_cfg()
+    chat_id = cfg.get("chat_id")
+    min_move = float(cfg.get("min_move_pct", 1.0))
+    rate_per_min = int(cfg.get("rate_per_min", 5))
+    muted = bool(cfg.get("muted", False))
+    now = int(time.time())
+
+    # No price? trace & exit
+    if not price or price <= 0:
+        try:
+            with open(TRACE, "a") as f:
+                f.write(f"{now} mint={mint[:12]}.. price=0 base=? Δ=? src={src} chat={chat_id} -> no-price\n")
+        except Exception:
+            pass
+        return
+
+    base = _load_baseline()
+    bl = base.get(mint)
+    base_price = float(bl["price"]) if (bl and "price" in bl) else None
+
+    delta_pct = None
+    if base_price:
+        try:
+            delta_pct = (float(price) - base_price) / base_price * 100.0
+        except Exception:
+            delta_pct = None
+
+    # rate limit
+    ok_rate = True
+    rl_key = f"_rl_{mint}"
+    last_sent = int(base.get(rl_key, 0))
+    min_interval = max(1, int(60 / max(1, rate_per_min)))
+    if now - last_sent < min_interval:
+        ok_rate = False
+        reason = "rate-limited"
+    else:
+        reason = "?"
+
+    # decide
+    should_alert = False
+    if muted:
+        reason = "muted"
+    elif not chat_id:
+        reason = "no-chat"
+    elif delta_pct is None:
+        reason = "no-delta"
+    elif abs(delta_pct) < min_move:
+        reason = f"below-thresh({delta_pct:.4f} < {min_move:.4f})"
+    elif not ok_rate:
+        pass
+    else:
+        should_alert = True
+        reason = "send"
+
+    # trace
+    try:
+        with open(TRACE, "a") as f:
+            f.write(f"{now} mint={mint[:12]}.. price={price:.6f} base={base_price} Δ={delta_pct} src={src} "
+                    f"chat={chat_id} min_move={min_move} rate={rate_per_min}/min muted={muted} -> {reason}\n")
+    except Exception:
+        pass
+
+    # send and update
+    if should_alert:
+        arrow = "🔴▼" if delta_pct < 0 else "🟢▲"
+        msg = (f"*Price Alert {arrow} {delta_pct:+.2f}%*\n"
+               f"`{mint[:12]}..`\n"
+               f"*Price:* ${price:.6f}\n"
+               f"*Source:* {src}")
+        try:
+            alerts_send(chat_id, msg)
+        except Exception as e:
+            pylog.exception("alerts_send failed: %s", e)
+        base[rl_key] = now
+
+    # always refresh baseline if we had a real price
+    base[mint] = {"price": float(price), "ts": now, "src": src}
+    _save_baseline(base)
