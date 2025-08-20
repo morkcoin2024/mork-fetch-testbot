@@ -166,32 +166,41 @@ def _format_price_alert_card(
     lines.append(f"Source: {source}")
     return "\n".join(lines)
 
+def _dot(pct):
+    """Visual indicator for percentage changes"""
+    if pct is None: 
+        return "⚪︎"
+    return "🟢▲" if pct >= 0 else "🔴▼"
+
 def _info_card(mint: str, price_now: float, src: str) -> str:
     """
     Build enhanced multi-window info card with API-based real-time changes.
-    Combines local history snapshots with live API percentage changes.
-    Windows: 30m, 1h, 4h, 12h, 24h
+    Professional format with visual indicators and proper token naming.
     """
-    tline, nline, sm = _alert_name_lines(mint)
-    now = int(time.time())
+    # Get token names using existing resolution system
+    primary_name, secondary_name = _token_labels(mint)
+    short_mint = _short(mint)
     
     # Get API-based percentage changes
-    api_changes = get_token_changes(mint)
+    ch = get_token_changes(mint)
     
-    # Build enhanced rows with API data as primary, history as fallback
-    windows = [
-        ("30m", "m30", 30*60),
-        ("1h", "h1", 60*60),
-        ("4h", "h4", 4*60*60),
-        ("12h", "h12", 12*60*60),
-        ("24h", "h24", 24*60*60),
+    # Build professional info card
+    lines = [
+        f"*Info*",
+        f"Mint: {primary_name or short_mint}",
+        f"{secondary_name or primary_name or short_mint}",
+        f"({short_mint})",
+        f"Price: ${price_now:.6f}",
+        f"Source: {src}",
+        "",
+        f"30m: {ch['m30']:+.2f}% {_dot(ch['m30'])}" if ch['m30'] is not None else "30m: n/a ⚪︎",
+        f"1h:  {ch['h1']:+.2f}% {_dot(ch['h1'])}"   if ch['h1']  is not None else "1h:  n/a ⚪︎",
+        f"4h:  {ch['h4']:+.2f}% {_dot(ch['h4'])}"   if ch['h4']  is not None else "4h:  n/a ⚪︎",
+        f"12h: {ch['h12']:+.2f}% {_dot(ch['h12'])}" if ch['h12'] is not None else "12h: n/a ⚪︎",
+        f"24h: {ch['h24']:+.2f}% {_dot(ch['h24'])}" if ch['h24'] is not None else "24h: n/a ⚪︎",
     ]
     
-    rows = []
-    first_seen_price = None
-    first_seen_ts = None
-    
-    # Load earliest record for tracking info
+    # Add tracking history if available (optional enhancement)
     path = _history_path(mint)
     if os.path.exists(path):
         try:
@@ -201,39 +210,10 @@ def _info_card(mint: str, price_now: float, src: str) -> str:
                     r = json.loads(first)
                     first_seen_price = float(r.get("price"))
                     first_seen_ts = int(r.get("ts", 0))
+                    lines.append("")
+                    lines.append(f"Since tracking: ${first_seen_price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}")
         except Exception:
             pass
-    
-    # Build performance rows with API priority
-    for label, api_key, secs in windows:
-        api_pct = api_changes.get(api_key)
-        
-        if api_pct is not None:
-            # Use API data (already in percentage format)
-            rows.append(f"{label}: {_fmt_pct(api_pct)}")
-        else:
-            # Fallback to local history calculation
-            p_then = _load_price_at_or_before(mint, now - secs)
-            if p_then is None:
-                rows.append(f"{label}: n/a")
-            else:
-                delta_pct = (price_now - p_then) / p_then * 100 if p_then > 0 else 0.0
-                rows.append(f"{label}: {_fmt_pct(delta_pct)}")
-    
-    # Build response card
-    lines = [f"*Info*", f"Mint: {tline}"]
-    if nline: 
-        lines.append(nline)
-    lines.append(f"({sm})")
-    lines.append(f"Price: ${price_now:,.6f}")
-    lines.append(f"Source: {src}")
-    lines.append("")
-    lines.extend(rows)
-    
-    # Add tracking history if available
-    if first_seen_price is not None and first_seen_ts:
-        lines.append("")
-        lines.append(f"Since tracking: ${first_seen_price:,.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}")
     
     return "\n".join(lines)
 
