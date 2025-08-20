@@ -617,12 +617,13 @@ def watch_tick_once(send_alerts=False):
         if not mint:
             new_wl.append(it); continue
 
-        res = get_price_with_preference(mint)
-        if not res or not res.get("ok"):
+        pref = load_current_source()
+        info = get_price_with_preference(mint, pref)
+        if not info or not info.get("ok"):
             new_wl.append(it); continue
 
-        price = _as_float(res.get("price"), None)
-        source = res.get("source", "n/a")
+        price = info.get("price")
+        src = info.get("source", "n/a")
         if price is None:
             new_wl.append(it); continue
 
@@ -637,29 +638,29 @@ def watch_tick_once(send_alerts=False):
 
         it["last"] = price
         it["delta_pct"] = delta
-        it["src"] = source
+        it["src"] = src
         new_wl.append(it)
 
-        lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={source}")
+        lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={src}")
 
         # Enhanced dual-layer alert processing with detailed tracking
         if send_alerts and abs(delta) >= min_move:
             try:
                 # Use enhanced watch_eval_and_alert for sophisticated tracking
-                sent, note = watch_eval_and_alert(mint, price, source)
+                sent, note = watch_eval_and_alert(mint, price, src)
                 if sent:
                     fired += 1
                 # Add detailed note to lines for debugging/monitoring
-                lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note={note}")
+                lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note={note}")
             except Exception as e:
                 # Fallback to simple alert system
                 try:
                     if 'alerts_send' in globals():
-                        alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={source}")
+                        alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={src}")
                         fired += 1
-                        lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note=fallback_sent")
+                        lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=fallback_sent")
                 except Exception:
-                    lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note=failed")
+                    lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=failed")
 
     _save_watchlist(new_wl)
     return checked, fired, lines
