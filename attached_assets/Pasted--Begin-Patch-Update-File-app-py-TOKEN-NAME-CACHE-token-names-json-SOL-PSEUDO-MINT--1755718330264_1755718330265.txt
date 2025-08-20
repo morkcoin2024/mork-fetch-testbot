@@ -1,0 +1,110 @@
+*** Begin Patch
+*** Update File: app.py
+@@
+ TOKEN_NAME_CACHE = "token_names.json"
+ SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
+ 
+@@
+ def _short(mint: str) -> str:
+     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
+ 
++def _clean_name(s: str) -> str | None:
++    """Normalize token names; strip marketing fluff (keep *name*, not marketing)."""
++    if not s or not isinstance(s, str):
++        return None
++    s = s.replace("\u200b","").replace("\ufeff","").strip()
++    low = s.lower()
++    # remove leading 'the '
++    low = re.sub(r'^\s*the\s+', '', low)
++    # remove trailing generic words
++    low = re.sub(r'\s+(coin|token|cryptocurrency)$', '', low)
++    # drop bracketed marketing [ ... ] or ( ... ) at end
++    low = re.sub(r'\s*[\(\[][^)\]]{1,32}[\)\]]\s*$', '', low)
++    low = re.sub(r'\s+', ' ', low).strip()
++    cleaned = low.title()
++    return (cleaned or None)[:64]
++
+@@
+-def resolve_token_name(mint: str) -> str:
++def resolve_token_name(mint: str) -> str:
+     """
+-    Resolve a human-friendly token name for a mint. May use Birdeye or Dexscreener.
+-    Caches results to TOKEN_NAME_CACHE with a TTL to avoid spamming APIs.
++    Return the *primary name only* for a mint (no symbol appended).
++    Uses Birdeye first, then Dexscreener. Caches sanitized name.
+     """
+     try:
+         cache = json.load(open(TOKEN_NAME_CACHE))
+     except Exception:
+         cache = {}
+@@
+     now = int(time.time())
+-    if mint == SOL_PSEUDO_MINT:
+-        # special-case SOL
+-        name = "Solana (SOL)"
+-        cache[mint] = {"name": name, "ts": now}
+-        _save_token_cache(cache)
+-        return name
++    if mint == SOL_PSEUDO_MINT:
++        # special-case SOL (primary name only)
++        name = "Solana"
++        cache[mint] = {"name": name, "ts": now}
++        _save_token_cache(cache)
++        return name
+ 
+     # cache hit (7 days)
+     ent = cache.get(mint)
+     if ent and now - int(ent.get("ts", 0)) < 7*24*3600:
+         return ent.get("name") or _short(mint)
+@@
+-    # Birdeye v3 (prefers name then symbol)
++    # Birdeye v3 (prefer name, fallback symbol -> but store as name only)
+     try:
+         api = os.getenv("BIRDEYE_API_KEY","")
+         if api:
+             h = {"X-API-KEY": api, "X-Chain": "solana"}
+             url = "https://public-api.birdeye.so/defi/v3/token/market-data"
+             r = requests.get(url, params={"address": mint, "chain":"solana"}, headers=h, timeout=(5,10))
+             if r.status_code == 200:
+                 data = r.json().get("data") or {}
+                 ti = data.get("token_info") or {}
+-                for cand in (ti.get("name"), data.get("name"), ti.get("symbol")):
++                for cand in (ti.get("name"), data.get("name"), ti.get("symbol")):
+                     nm = _clean_name(cand)
+                     if nm:
+                         cache[mint] = {"name": nm, "ts": now}
+                         _save_token_cache(cache)
+                         return nm
+     except Exception:
+         pass
+ 
+-    # Dexscreener (prefer baseToken name then symbol)
++    # Dexscreener (prefer baseToken.name then symbol)
+     try:
+         r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
+         if r.status_code == 200:
+             js = r.json() or {}
+             pairs = js.get("pairs") or []
+             if pairs:
+                 p0 = pairs[0]
+                 bt = p0.get("baseToken") or {}
+-                for cand in (bt.get("name"), bt.get("symbol")):
++                for cand in (bt.get("name"), bt.get("symbol")):
+                     nm = _clean_name(cand)
+                     if nm:
+                         cache[mint] = {"name": nm, "ts": now}
+                         _save_token_cache(cache)
+                         return nm
+     except Exception:
+         pass
+ 
+     # fallback
+     nm = _short(mint)
+     cache[mint] = {"name": nm, "ts": now}
+     _save_token_cache(cache)
+     return nm
++
++# Standard token label for alerts: "<Name> (<So11..1112>)"
++def _token_label(mint: str) -> str:
++    return f"{resolve_token_name(mint)} ({_short(mint)})"
+*** End Patch

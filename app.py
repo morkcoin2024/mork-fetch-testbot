@@ -61,34 +61,6 @@ def _load_baseline():
 def _save_baseline(b):
     _save_json(BASELINE_PATH, b)
 
-# --- Token label resolver (Birdeye) -----------------------------------------
-TOKEN_META_PATH = "token_meta_cache.json"
-
-def _token_label(mint: str) -> str:
-    """Return 'SYMBOL (So11…1112)' if we can resolve it, else short mint. Uses enhanced resolver."""
-    try:
-        # Try the enhanced multi-provider resolver first
-        name = resolve_token_name(mint)
-        short = f"{mint[:4]}…{mint[-4:]}"
-        if name and name != _short(mint):  # If we got a real name (not just the short address)
-            return f"{name} ({short})"
-        return short
-    except Exception:
-        # Fallback to original logic
-        import json, time, os, requests
-        short = f"{mint[:4]}…{mint[-4:]}"
-        try:
-            cache = json.load(open(TOKEN_META_PATH))
-        except Exception:
-            cache = {}
-        ent = cache.get(mint) or {}
-        if int(time.time()) - int(ent.get("ts", 0)) < 24 * 3600:
-            lab = ent.get("symbol") or ent.get("name")
-            if lab:
-                return f"{lab} ({short})"
-        return short
-# ---------------------------------------------------------------------------
-
 # ---------- Enhanced Token name resolution (multi-provider) ----------
 TOKEN_NAME_CACHE = "token_names.json"
 SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
@@ -109,89 +81,90 @@ def _short(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
 
 def _clean_name(s: str) -> str | None:
-    """Normalize token names; strip marketing fluff. Keep acronyms if it looks like a symbol."""
+    """Normalize token names; strip marketing fluff (keep *name*, not marketing)."""
     if not s or not isinstance(s, str):
         return None
-    s = s.replace("\u200b", "").replace("\ufeff", "").strip()
-    low = s.lower().strip()
-    # Drop leading "the "
-    low = re.sub(r"^\s*the\s+", "", low)
-    # Drop trailing generic words
-    low = re.sub(r"\s+(coin|token|cryptocurrency)$", "", low)
-    # Collapse spaces
-    low = re.sub(r"\s+", " ", low).strip()
-    # If it looks like a short symbol (<=6, mostly uppercase), keep as-is from original
-    if len(s) <= 6 and (s.isupper() or re.fullmatch(r"[A-Z0-9]{2,6}", s)):
-        return s
-    # Title-case the cleaned marketing text
+    s = s.replace("\u200b","").replace("\ufeff","").strip()
+    low = s.lower()
+    # remove leading 'the '
+    low = re.sub(r'^\s*the\s+', '', low)
+    # remove trailing generic words
+    low = re.sub(r'\s+(coin|token|cryptocurrency)$', '', low)
+    # drop bracketed marketing [ ... ] or ( ... ) at end
+    low = re.sub(r'\s*[\(\[][^)\]]{1,32}[\)\]]\s*$', '', low)
+    low = re.sub(r'\s+', ' ', low).strip()
     cleaned = low.title()
-    # Safety clamp
-    return cleaned[:64] or None
+    return (cleaned or None)[:64]
 
 def resolve_token_name(mint: str) -> str:
     """
-    Best-effort token name resolver with 24h cache.
-    Order: cache -> special SOL -> Birdeye -> Dexscreener -> fallback(short addr).
+    Return the *primary name only* for a mint (no symbol appended).
+    Uses Birdeye first, then Dexscreener. Caches sanitized name.
     """
+    try:
+        cache = json.load(open(TOKEN_NAME_CACHE))
+    except Exception:
+        cache = {}
+        
     now = int(time.time())
-    cache = _load_token_cache()
-    rec = cache.get(mint)
-    if rec and isinstance(rec, dict):
-        ts = rec.get("ts", 0)
-        if now - ts < 24*3600 and rec.get("name"):
-            return rec["name"]
-
-    # Special-case SOL pseudo mint
     if mint == SOL_PSEUDO_MINT:
-        name = "Solana (SOL)"
+        # special-case SOL (primary name only)
+        name = "Solana"
         cache[mint] = {"name": name, "ts": now}
         _save_token_cache(cache)
         return name
 
-    # Try Birdeye v3 market-data (needs BIRDEYE_API_KEY). Prefer *name* first.
+    # cache hit (7 days)
+    ent = cache.get(mint)
+    if ent and now - int(ent.get("ts", 0)) < 7*24*3600:
+        return ent.get("name") or _short(mint)
+
+    # Birdeye v3 (prefer name, fallback symbol -> but store as name only)
     try:
-        api = os.getenv("BIRDEYE_API_KEY", "")
+        api = os.getenv("BIRDEYE_API_KEY","")
         if api:
             h = {"X-API-KEY": api, "X-Chain": "solana"}
             url = "https://public-api.birdeye.so/defi/v3/token/market-data"
-            r = requests.get(url, params={"address": mint, "chain": "solana"}, headers=h, timeout=(5, 10))
+            r = requests.get(url, params={"address": mint, "chain":"solana"}, headers=h, timeout=(5,10))
             if r.status_code == 200:
                 data = r.json().get("data") or {}
                 ti = data.get("token_info") or {}
-                # Prefer *name*, then fallback to symbol; clean each candidate
                 for cand in (ti.get("name"), data.get("name"), ti.get("symbol")):
-                    name = _clean_name(cand)
-                    if name:
-                        cache[mint] = {"name": name, "ts": now}
+                    nm = _clean_name(cand)
+                    if nm:
+                        cache[mint] = {"name": nm, "ts": now}
                         _save_token_cache(cache)
-                        return name
+                        return nm
     except Exception:
         pass
 
-    # Try Dexscreener (no key). Prefer baseToken.name (cleaned) then baseToken.symbol.
+    # Dexscreener (prefer baseToken.name then symbol)
     try:
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
         if r.status_code == 200:
             js = r.json() or {}
             pairs = js.get("pairs") or []
             if pairs:
-                # choose the first pair; prefer baseToken name/symbol
                 p0 = pairs[0]
                 bt = p0.get("baseToken") or {}
                 for cand in (bt.get("name"), bt.get("symbol")):
-                    name = _clean_name(cand)
-                    if name:
-                        cache[mint] = {"name": name, "ts": now}
+                    nm = _clean_name(cand)
+                    if nm:
+                        cache[mint] = {"name": nm, "ts": now}
                         _save_token_cache(cache)
-                        return name
+                        return nm
     except Exception:
         pass
 
-    # Fallback
-    name = _short(mint)
-    cache[mint] = {"name": name, "ts": now}
+    # fallback
+    nm = _short(mint)
+    cache[mint] = {"name": nm, "ts": now}
     _save_token_cache(cache)
-    return name
+    return nm
+
+# Standard token label for alerts: "<Name> (<So11..1112>)"
+def _token_label(mint: str) -> str:
+    return f"{resolve_token_name(mint)} ({_short(mint)})"
 
 # Enhanced alert hook using the new resolver
 def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
