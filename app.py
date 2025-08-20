@@ -140,10 +140,11 @@ def _alerts_send_html(chat_id: int, text: str):
 
 def _format_price_alert_html(mint: str, price: float, base: float, delta_pct: float, src: str):
     arrow = "🟢▲" if price >= base else "🔴▼"
-    # Safe HTML: code tag for mint, escape any text fields
+    token_label = _token_label(mint)
+    # Safe HTML: escape text fields
     return (
         f"<b>Price Alert</b> {arrow}\n"
-        f"<b>Mint:</b> <code>{_h(mint)}</code>\n"
+        f"<b>Token:</b> {_h(token_label)}\n"
         f"<b>Price:</b> ${price:,.6f}\n"
         f"<b>Change:</b> {delta_pct:+.2f}%\n"
         f"<b>Baseline:</b> ${base:,.6f}\n"
