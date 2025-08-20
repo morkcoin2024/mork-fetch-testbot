@@ -64,31 +64,39 @@ def _alerts_cfg():
         "muted": False, "muted_until": 0
     }
 
-# --- PATCH: add a reliable watch->alert hook + debug route ---
-
-# put near the other module-level helpers
+# --- BEGIN ALERTS PATCH (drop anywhere near other helpers) ---
 ALERTS_CFG_FILE = "alerts_config.json"
 ALERTS_BASELINE_FILE = "alerts_price_baseline.json"
 
 def _load_alerts_cfg():
-    import json, time, os
+    import json
     cfg = {"chat_id": None, "min_move_pct": 1.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
-    try:
-        cfg.update(json.load(open(ALERTS_CFG_FILE)))
-    except FileNotFoundError:
-        pass
-    # normalize types
+    try: cfg.update(json.load(open(ALERTS_CFG_FILE)))
+    except FileNotFoundError: pass
     cfg["min_move_pct"] = float(cfg.get("min_move_pct", 1.0))
     cfg["rate_per_min"] = int(cfg.get("rate_per_min", 5))
     cfg["muted_until"] = int(cfg.get("muted_until", 0))
     cfg["muted"] = bool(cfg.get("muted", False))
     return cfg
 
+def _alerts_recent_log():
+    import json
+    try: return json.load(open("alerts_send_log.json")).get("events", [])
+    except: return []
+
+def _alerts_record_send(now_ts: int):
+    import json, time
+    fn = "alerts_send_log.json"
+    try: log = json.load(open(fn))
+    except: log = {"events":[]}
+    log["events"] = [t for t in log.get("events", []) if now_ts - t < 300]
+    log["events"].append(now_ts)
+    json.dump(log, open(fn,"w"))
+    return log["events"]
+
 def _alerts_can_send(cfg, now_ts, recent_log):
-    # recent_log is list of epoch seconds of prior sends (we store last 20)
     if cfg["muted"] or now_ts < cfg["muted_until"]:
         return False, "muted"
-    # rate limit
     window = 60
     allowed = cfg["rate_per_min"]
     recent = [t for t in recent_log if now_ts - t < window]
@@ -96,94 +104,57 @@ def _alerts_can_send(cfg, now_ts, recent_log):
         return False, f"rate({len(recent)}/{allowed})"
     return True, ""
 
-def _alerts_record_send(now_ts):
-    import json, time, os
-    fn = "alerts_send_log.json"
-    try:
-        log = json.load(open(fn))
-    except:
-        log = {"events":[]}
-    log["events"] = [t for t in log.get("events", []) if now_ts - t < 300]  # keep 5m
-    log["events"].append(now_ts)
-    json.dump(log, open(fn,"w"))
-    return log["events"]
-
-def _alerts_recent_log():
-    import json
-    try:
-        return json.load(open("alerts_send_log.json")).get("events", [])
-    except:
-        return []
-
 def _alert_baseline_get(mint):
     import json
-    try:
-        base = json.load(open(ALERTS_BASELINE_FILE))
-    except FileNotFoundError:
-        base = {}
+    try: base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError: base = {}
     return base.get(mint)
 
 def _alert_baseline_set(mint, price, src="watch"):
     import json, time
-    try:
-        base = json.load(open(ALERTS_BASELINE_FILE))
-    except FileNotFoundError:
-        base = {}
+    try: base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError: base = {}
     base[mint] = {"price": float(price), "ts": int(time.time()), "src": src}
     json.dump(base, open(ALERTS_BASELINE_FILE,"w"))
 
-def _post_watch_alert_hook(mint, last_price, source):
-    """
-    Called from /watch_tick loop per mint. Decides whether to send an alert.
-    Robust & side-effect free: failures never break the main command.
-    """
-    import time, math
-
+def _post_watch_alert_hook(mint: str, last_price: float, source: str):
+    """Called per mint in /watch_tick. Decides to send alert + manages baseline."""
+    import time, logging
     cfg = _load_alerts_cfg()
     now = int(time.time())
     baseline = _alert_baseline_get(mint)
 
-    # seed if missing
-    if not baseline:
+    if not baseline or float(baseline.get("price", 0)) <= 0:
         _alert_baseline_set(mint, last_price, src="seed")
         return {"ok": True, "seeded": True}
 
     base_p = float(baseline["price"])
-    if base_p <= 0:
-        _alert_baseline_set(mint, last_price, src="reset_zero")
-        return {"ok": True, "reset": True}
-
     delta_pct = (float(last_price) - base_p) / base_p * 100.0
-    abs_pct = abs(delta_pct)
     threshold = float(cfg["min_move_pct"])
-
-    # Decide if we can send at all
     can, why = _alerts_can_send(cfg, now, _alerts_recent_log())
-    will_alert = (abs_pct >= threshold) and can and cfg["chat_id"] is not None
+    will = abs(delta_pct) >= threshold and can and cfg["chat_id"] is not None
 
-    if will_alert:
-        # format alert text
+    if will:
         sign = "▲" if delta_pct >= 0 else "▼"
         text = (
-            f"*Price Alert* {sign} {abs_pct:.2f}%\n"
+            f"*Price Alert* {sign} {abs(delta_pct):.2f}%\n"
             f"`{mint[:12]}..`\n"
             f"Now: ${float(last_price):.6f}  (src: {source})\n"
             f"From: ${base_p:.6f}"
         )
-        # send
         try:
             send_message(cfg["chat_id"], text, parse_mode="Markdown")
             _alerts_record_send(now)
         except Exception as e:
             logging.exception("alerts_send failed: %s", e)
-        # after send, reset baseline to the new price
         _alert_baseline_set(mint, last_price, src="after_alert")
         return {"ok": True, "alerted": True, "delta_pct": delta_pct}
     else:
-        # If change is tiny, do NOT constantly rebase — only rebase every 10 minutes to allow accumulation
+        # periodic rebase (every 10m) so tiny moves can accumulate between alerts
         if now - int(baseline.get("ts", 0)) > 600:
             _alert_baseline_set(mint, last_price, src="periodic_rebase")
         return {"ok": True, "alerted": False, "delta_pct": delta_pct, "reason": why or f"< {threshold}%"}
+# --- END ALERTS PATCH ---
 
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
