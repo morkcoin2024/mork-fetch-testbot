@@ -397,7 +397,7 @@ ALL_COMMANDS = [
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
-    "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
+    "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -642,21 +642,24 @@ def watch_tick_once(send_alerts=False):
 
         lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={source}")
 
-        # Enhanced dual-layer alert processing
+        # Enhanced dual-layer alert processing with detailed tracking
         if send_alerts and abs(delta) >= min_move:
             try:
                 # Use enhanced watch_eval_and_alert for sophisticated tracking
-                alert_sent, note = watch_eval_and_alert(mint, price, source)
-                if alert_sent:
+                sent, note = watch_eval_and_alert(mint, price, source)
+                if sent:
                     fired += 1
-            except Exception:
+                # Add detailed note to lines for debugging/monitoring
+                lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note={note}")
+            except Exception as e:
                 # Fallback to simple alert system
                 try:
                     if 'alerts_send' in globals():
                         alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={source}")
                         fired += 1
+                        lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note=fallback_sent")
                 except Exception:
-                    pass
+                    lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={source} note=failed")
 
     _save_watchlist(new_wl)
     return checked, fired, lines
@@ -1915,6 +1918,49 @@ def process_telegram_command(update: dict):
             st["muted_until"] = 0
             _alerts_save(st)
             return _reply("🔔 Alerts unmuted")
+
+        elif cmd == "/watch_test_enhanced" and is_admin:
+            """Test enhanced alert tracking with detailed monitoring."""
+            try:
+                # Show current state before test
+                cfg = _load_alerts_cfg()
+                state = _watch_state_load()
+                wl = _load_watchlist()
+                
+                lines = ["🧪 *Enhanced Alert Tracking Test*\n"]
+                lines.append(f"Config: threshold={cfg.get('min_move_pct', 0)}%, rate={cfg.get('rate_per_min', 60)}/min")
+                lines.append(f"Watchlist: {len(wl)} tokens")
+                lines.append(f"State entries: {len(state)} total\n")
+                
+                # Run enhanced tick with alerts enabled
+                checked, fired, tick_lines = watch_tick_once(send_alerts=True)
+                lines.append(f"*Tick Results:* checked={checked}, fired={fired}")
+                
+                # Show regular tracking lines
+                regular_lines = [line for line in tick_lines if not line.startswith("   Alert:")]
+                lines.append("*Price Tracking:*")
+                for line in regular_lines[:3]:  # Show first 3
+                    lines.append(f"`{line}`")
+                
+                # Show enhanced alert tracking lines
+                alert_lines = [line for line in tick_lines if line.startswith("   Alert:")]
+                if alert_lines:
+                    lines.append("\n*Alert Tracking:*")
+                    for line in alert_lines:
+                        lines.append(f"`{line}`")
+                else:
+                    lines.append("\n*Alert Tracking:* No alerts triggered")
+                
+                # Show state summary
+                final_state = _watch_state_load()
+                global_state = final_state.get("_global", {})
+                sent_count = len(global_state.get("sent_ts", []))
+                lines.append(f"\n*Rate Limiting:* {sent_count} alerts sent in last minute")
+                
+                return _reply("\n".join(lines))
+                
+            except Exception as e:
+                return _reply(f"Enhanced test error: {e}")
 
         # Wallet Commands
         elif cmd == "/wallet":
