@@ -2160,31 +2160,32 @@ def process_telegram_command(update: dict):
             except Exception as e:
                 return {"status":"ok","response":f"Internal error: {e}"}
 
-        # public watch controls
+        # --- manual scan ---
         elif cmd == "/watch_tick":
-            text = watch_tick_internal()
-            return RESP_OK("Watch tick", text)
+            text = watch_tick_internal()  # returns the rendered watch summary
+            return ok("Watch tick", text)
 
         # --- auto ticker control ---
         elif cmd == "/alerts_auto_on":
+            # optional interval in seconds, default keeps current interval
             sec = None
             if len(parts) > 1:
                 try:
                     sec = int(parts[1])
-                except:
+                except Exception:
                     sec = None
             alerts_auto_on(sec)
             s = alerts_auto_status()
-            return RESP_OK("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
+            return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()
-            return RESP_OK("Auto alerts disabled", "Ticker stopped.")
+            return ok("Auto alerts disabled", "Ticker stopped.")
 
         elif cmd == "/alerts_auto_status":
             s = alerts_auto_status()
             state = "on" if s["alive"] else "off"
-            return RESP_OK("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
+            return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
