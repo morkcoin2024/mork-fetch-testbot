@@ -168,22 +168,30 @@ def _format_price_alert_card(
 
 def _info_card(mint: str, price_now: float, src: str) -> str:
     """
-    Build multi-window info card using local history snapshots.
+    Build enhanced multi-window info card with API-based real-time changes.
+    Combines local history snapshots with live API percentage changes.
     Windows: 30m, 1h, 4h, 12h, 24h
     """
     tline, nline, sm = _alert_name_lines(mint)
     now = int(time.time())
+    
+    # Get API-based percentage changes
+    api_changes = get_token_changes(mint)
+    
+    # Build enhanced rows with API data as primary, history as fallback
     windows = [
-        ("30m",  30*60),
-        ("1h",   60*60),
-        ("4h",  4*60*60),
-        ("12h", 12*60*60),
-        ("24h", 24*60*60),
+        ("30m", "m30", 30*60),
+        ("1h", "h1", 60*60),
+        ("4h", "h4", 4*60*60),
+        ("12h", "h12", 12*60*60),
+        ("24h", "h24", 24*60*60),
     ]
+    
     rows = []
     first_seen_price = None
     first_seen_ts = None
-    # load earliest record (optional: keep it cheap)
+    
+    # Load earliest record for tracking info
     path = _history_path(mint)
     if os.path.exists(path):
         try:
@@ -195,23 +203,38 @@ def _info_card(mint: str, price_now: float, src: str) -> str:
                     first_seen_ts = int(r.get("ts", 0))
         except Exception:
             pass
-    for label, secs in windows:
-        p_then = _load_price_at_or_before(mint, now - secs)
-        if p_then is None:
-            rows.append(f"{label}: n/a")
+    
+    # Build performance rows with API priority
+    for label, api_key, secs in windows:
+        api_pct = api_changes.get(api_key)
+        
+        if api_pct is not None:
+            # Use API data (already in percentage format)
+            rows.append(f"{label}: {_fmt_pct(api_pct)}")
         else:
-            delta_pct = (price_now - p_then) / p_then * 100 if p_then > 0 else 0.0
-            rows.append(f"{label}: {_fmt_pct(delta_pct)}")
+            # Fallback to local history calculation
+            p_then = _load_price_at_or_before(mint, now - secs)
+            if p_then is None:
+                rows.append(f"{label}: n/a")
+            else:
+                delta_pct = (price_now - p_then) / p_then * 100 if p_then > 0 else 0.0
+                rows.append(f"{label}: {_fmt_pct(delta_pct)}")
+    
+    # Build response card
     lines = [f"*Info*", f"Mint: {tline}"]
-    if nline: lines.append(nline)
+    if nline: 
+        lines.append(nline)
     lines.append(f"({sm})")
     lines.append(f"Price: ${price_now:,.6f}")
     lines.append(f"Source: {src}")
     lines.append("")
     lines.extend(rows)
+    
+    # Add tracking history if available
     if first_seen_price is not None and first_seen_ts:
         lines.append("")
         lines.append(f"Since tracking: ${first_seen_price:,.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}")
+    
     return "\n".join(lines)
 
 def _clean_symbol(s: str) -> str | None:
@@ -692,6 +715,109 @@ FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 
 BIRDEYE_BASE = "https://public-api.birdeye.so"
+
+# ── API Helper Functions for Multi-Window Price Changes ──
+
+def birdeye_req(endpoint: str, params: dict = None) -> dict | None:
+    """Make authenticated request to Birdeye API"""
+    import os, requests
+    api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
+    if not api_key:
+        return None
+    
+    try:
+        headers = {"X-API-KEY": api_key, "X-Chain": "solana"}
+        url = f"{BIRDEYE_BASE}{endpoint}"
+        r = requests.get(url, params=params or {}, headers=headers, timeout=(5, 10))
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+def dexscreener_token(mint: str) -> dict | None:
+    """Get best DexScreener pair by liquidity for a token"""
+    import requests
+    try:
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
+        if r.status_code == 200:
+            js = r.json() or {}
+            pairs = js.get("pairs") or []
+            if pairs:
+                # Sort by liquidity USD (descending) and return the best pair
+                pairs_with_liq = []
+                for p in pairs:
+                    liq = (p.get("liquidity") or {}).get("usd")
+                    if isinstance(liq, (int, float)) and liq > 0:
+                        pairs_with_liq.append((liq, p))
+                
+                if pairs_with_liq:
+                    pairs_with_liq.sort(key=lambda x: x[0], reverse=True)
+                    return pairs_with_liq[0][1]  # Return the pair with highest liquidity
+                else:
+                    return pairs[0]  # Fallback to first pair if no liquidity data
+    except Exception:
+        pass
+    return None
+
+def get_token_changes(mint: str) -> dict:
+    """
+    Returns percent changes as floats (e.g., +4.72 -> 4.72, -3.15 -> -3.15)
+    Keys: m30, h1, h4, h12, h24
+    """
+    out = {"m30": None, "h1": None, "h4": None, "h12": None, "h24": None}
+
+    # --- Birdeye primary (v3 market-data) ---
+    # GET /defi/v3/token/market-data?address=<mint>&chain=solana
+    b = birdeye_req("/defi/v3/token/market-data",
+                    {"address": mint, "chain": "solana"})
+    if b and b.get("data"):
+        d = b["data"]
+        # Accept any of these keys if present; some tokens omit a few.
+        keymap = {
+            "m30": ["priceChange30mPercent", "price_change_30m_percent"],
+            "h1":  ["priceChange1hPercent",  "price_change_1h_percent"],
+            "h4":  ["priceChange4hPercent",  "price_change_4h_percent"],
+            "h12": ["priceChange12hPercent", "price_change_12h_percent"],
+            "h24": ["priceChange24hPercent", "price_change_24h_percent"],
+        }
+        for k, candidates in keymap.items():
+            for c in candidates:
+                v = d.get(c)
+                if v is not None:
+                    try:
+                        out[k] = float(v)
+                    except Exception:
+                        pass
+                    break
+
+    # --- DexScreener fallback for any missing fields ---
+    # GET https://api.dexscreener.com/latest/dex/tokens/<mint>
+    # Pick the top pair by liquidity; fields live in pair["priceChange"]
+    missing = [k for k,v in out.items() if v is None]
+    if missing:
+        dx = dexscreener_token(mint)  # <- implement if not present; returns best pair dict or None
+        if dx:
+            pc = (dx.get("priceChange") or {})
+            # DexScreener has m5, m15, m30, h1, h6, h24.
+            if "m30" in missing and pc.get("m30") not in (None, "N/A"):
+                out["m30"] = float(pc["m30"])
+            if "h1" in missing and pc.get("h1") not in (None, "N/A"):
+                out["h1"] = float(pc["h1"])
+            # Best-effort approximations for h4/h12 if Birdeye lacked them:
+            if "h4" in missing:
+                # prefer exact if dex provides it in newer schema; else try h6 as a proxy
+                v = pc.get("h4") or pc.get("h6")
+                if v not in (None, "N/A"):
+                    out["h4"] = float(v)
+            if "h12" in missing:
+                v = pc.get("h12") or None
+                if v not in (None, "N/A"):
+                    out["h12"] = float(v)
+            if "h24" in missing and pc.get("h24") not in (None, "N/A"):
+                out["h24"] = float(pc["h24"])
+
+    return out
 
 # --- Alerts wiring: price→group hook (lightweight & safe) --------------------
 # Persists last seen price per mint; honors your alerts_config.json thresholds.

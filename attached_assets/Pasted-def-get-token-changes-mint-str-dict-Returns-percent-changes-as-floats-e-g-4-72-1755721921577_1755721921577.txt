@@ -1,0 +1,58 @@
+def get_token_changes(mint: str) -> dict:
+    """
+    Returns percent changes as floats (e.g., +4.72 -> 4.72, -3.15 -> -3.15)
+    Keys: m30, h1, h4, h12, h24
+    """
+    out = {"m30": None, "h1": None, "h4": None, "h12": None, "h24": None}
+
+    # --- Birdeye primary (v3 market-data) ---
+    # GET /defi/v3/token/market-data?address=<mint>&chain=solana
+    b = birdeye_req("/defi/v3/token/market-data",
+                    {"address": mint, "chain": "solana"})
+    if b and b.get("data"):
+        d = b["data"]
+        # Accept any of these keys if present; some tokens omit a few.
+        keymap = {
+            "m30": ["priceChange30mPercent", "price_change_30m_percent"],
+            "h1":  ["priceChange1hPercent",  "price_change_1h_percent"],
+            "h4":  ["priceChange4hPercent",  "price_change_4h_percent"],
+            "h12": ["priceChange12hPercent", "price_change_12h_percent"],
+            "h24": ["priceChange24hPercent", "price_change_24h_percent"],
+        }
+        for k, candidates in keymap.items():
+            for c in candidates:
+                v = d.get(c)
+                if v is not None:
+                    try:
+                        out[k] = float(v)
+                    except Exception:
+                        pass
+                    break
+
+    # --- DexScreener fallback for any missing fields ---
+    # GET https://api.dexscreener.com/latest/dex/tokens/<mint>
+    # Pick the top pair by liquidity; fields live in pair["priceChange"]
+    missing = [k for k,v in out.items() if v is None]
+    if missing:
+        dx = dexscreener_token(mint)  # <- implement if not present; returns best pair dict or None
+        if dx:
+            pc = (dx.get("priceChange") or {})
+            # DexScreener has m5, m15, m30, h1, h6, h24.
+            if "m30" in missing and pc.get("m30") not in (None, "N/A"):
+                out["m30"] = float(pc["m30"])
+            if "h1" in missing and pc.get("h1") not in (None, "N/A"):
+                out["h1"] = float(pc["h1"])
+            # Best-effort approximations for h4/h12 if Birdeye lacked them:
+            if "h4" in missing:
+                # prefer exact if dex provides it in newer schema; else try h6 as a proxy
+                v = pc.get("h4") or pc.get("h6")
+                if v not in (None, "N/A"):
+                    out["h4"] = float(v)
+            if "h12" in missing:
+                v = pc.get("h12") or None
+                if v not in (None, "N/A"):
+                    out["h12"] = float(v)
+            if "h24" in missing and pc.get("h24") not in (None, "N/A"):
+                out["h24"] = float(pc["h24"])
+
+    return out
