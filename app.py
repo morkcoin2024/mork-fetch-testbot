@@ -251,10 +251,11 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
     # Send and update
     if should_alert:
         try:
-            _alerts_try_send(chat_id, mint, price, base_price, delta_pct, src)
+            success = _alerts_try_send(chat_id, mint, price, base_price, delta_pct, src)
+            if success:
+                base[rl_key] = now
         except Exception as e:
             pylog.exception("HTML alert send failed: %s", e)
-        base[rl_key] = now
 
     # Always refresh baseline if we had a real price
     base[mint] = {"price": float(price), "ts": now, "src": src}
@@ -2039,16 +2040,24 @@ def process_telegram_command(update: dict):
                 
                 # Compute Δ vs baseline for display
                 bl = base.get(mint)
+                baseline_price = None
                 if bl and ("price" in bl):
                     try:
-                        delta_pct = (last_price - float(bl["price"])) / float(bl["price"]) * 100.0
+                        baseline_price = float(bl["price"])
+                        delta_pct = (last_price - baseline_price) / baseline_price * 100.0
                     except Exception:
                         delta_pct = 0.0
                 else:
                     delta_pct = 0.0
                 
-                # Display line with real baseline delta
-                out_lines.append(f"- `{mint[:12]}..`  last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+                # Colorized triangle based on price movement
+                if baseline_price is not None and last_price > 0:
+                    tri = "🟢▲" if last_price >= baseline_price else "🔴▼"
+                else:
+                    tri = "△"
+                
+                # Display line with colorized arrow and real baseline delta
+                out_lines.append(f"- `{mint[:12]}..` {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
                 
                 # Only call alert hook if we have a real price
                 if last_price > 0:
