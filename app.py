@@ -1053,7 +1053,7 @@ def watch_tick_once(send_alerts=False):
         it["src"] = src
         new_wl.append(it)
 
-        lines.append(f"- {mint[:10]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={src}")
+        lines.append(f"- {_token_label(mint)}  last=${price:.6f}  Δ={delta:+.2f}%  src={src}")
 
         # Enhanced dual-layer alert processing with detailed tracking
         if send_alerts and abs(delta) >= min_move:
@@ -1063,7 +1063,7 @@ def watch_tick_once(send_alerts=False):
                 if sent:
                     fired += 1
                 # Add detailed note to lines for debugging/monitoring
-                lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note={note}")
+                lines.append(f"   Alert: {_token_label(mint)} ${price:.6f} Δ={delta:+.2f}% src={src} note={note}")
             except Exception as e:
                 # Fallback to simple alert system
                 try:
