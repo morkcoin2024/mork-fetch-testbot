@@ -206,7 +206,7 @@ def watch_tick_internal() -> str:
         
         # Display line with colorized arrow, token label, and real baseline delta
         token_label = _token_label(mint)
-        out_lines.append(f"- {token_label} {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+        out_lines.append(f"- {token_label} {tri} last=${last_price:.6f} Δ={delta_pct:+.4%} src={source}")
         
         # Only call alert hook if we have a real price
         if last_price > 0:
@@ -2227,7 +2227,7 @@ def process_telegram_command(update: dict):
                     delta = it["delta_pct"]
                     src = it.get("src") or "n/a"
                     last_s = f"${last:.6f}" if isinstance(last,(int,float)) else "?"
-                    delta_s = f"{delta:+.2f}%" if isinstance(delta,(int,float)) else "?"
+                    delta_s = f"{delta:+.4%}" if isinstance(delta,(int,float)) else "?"
                     token_label = _token_label(mint)
                     lines.append(f"- {token_label}  last={last_s}  Δ={delta_s}  src={src}")
                 body = "\n".join(lines)
