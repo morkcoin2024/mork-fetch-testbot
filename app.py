@@ -177,9 +177,8 @@ def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
         if base_price and base_price > 0:
             pct = (price - base_price) / base_price * 100.0
         tri = "🟢▲" if pct >= 0 else "🔴▼"
-        name = resolve_token_name(mint)
-        short = _short(mint)
-        txt = f"[ALERT] {name} ({short}) {tri} {pct:+.2f}%  price=${price:.6f}  src={source}"
+        label = _token_label(mint)
+        txt = f"[ALERT] {label} {tri} {pct:+.2f}%  price=${price:.6f}  src={source}"
         # Try to use existing alerts_send function if available
         try:
             return alerts_send(txt, chat_id=chat_id)
