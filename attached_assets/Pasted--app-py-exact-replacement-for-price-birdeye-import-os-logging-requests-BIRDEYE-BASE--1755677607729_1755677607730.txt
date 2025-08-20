@@ -1,0 +1,54 @@
+# --- app.py (exact replacement for price_birdeye) ---
+import os, logging, requests
+
+BIRDEYE_BASE = "https://public-api.birdeye.so"
+
+def price_birdeye(mint: str):
+    key = os.getenv("BIRDEYE_API_KEY", "").strip()
+    if not key:
+        return {"ok": False, "err": "BIRDEYE_API_KEY missing"}
+
+    s = requests.Session()
+    s.headers.update({
+        "X-API-KEY": key,
+        # Force chain header on ALL requests (Birdeye returns 404 without it)
+        "X-Chain": "solana",
+        "Accept": "application/json",
+        "User-Agent": "mork-fetch/1.0"
+    })
+
+    attempts = [
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint}),                    # preferred
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"}), # alt qp
+        (f"{BIRDEYE_BASE}/defi/price",   {"address": mint, "chain": "solana"}), # legacy
+    ]
+
+    last_err = None
+    for url, params in attempts:
+        try:
+            r = s.get(url, params=params, timeout=8)
+            logging.info("birdeye_req status=%s url=%s sent_headers=%s",
+                         r.status_code, r.url, {"X-Chain": s.headers.get("X-Chain")})
+            if r.status_code == 200:
+                j = r.json()
+                data = j.get("data") or {}
+                val = (
+                    data.get("value") or
+                    data.get("price") or
+                    (data.get("items", [{}])[0].get("value")
+                     if isinstance(data.get("items"), list) and data.get("items") else None)
+                )
+                if isinstance(val, (int, float)) and val > 0:
+                    return {"ok": True, "price": float(val), "source": "birdeye"}
+                last_err = f"bad payload: {j}"
+            else:
+                last_err = f"{r.status_code} -> {r.url}"
+                logging.warning("birdeye_err %s", last_err)
+                if r.status_code == 429:  # rate-limited; stop trying
+                    break
+        except Exception as e:
+            last_err = f"exc {type(e).__name__}: {e}"
+            logging.exception("birdeye_exc")
+
+    return {"ok": False, "err": f"birdeye failed: {last_err}"}
+# --- end patch ---

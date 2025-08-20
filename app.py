@@ -824,52 +824,51 @@ def price_dex(mint, timeout=6):
 
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
 def price_birdeye(mint: str):
-    """
-    Return {'ok': True, 'price': float, 'source': 'birdeye'} or {'ok': False, 'err': str}.
-    Uses Birdeye public/price with required X-Chain header and resilient fallbacks.
-    """
     key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not key:
         return {"ok": False, "err": "BIRDEYE_API_KEY missing"}
 
-    sess = requests.Session()
-    # 1) Works for Solana when X-Chain header is present
-    combos = [
-        (f"{BIRDEYE_BASE}/public/price", {"address": mint},
-         {"X-API-KEY": key, "X-Chain": "solana"}),
+    s = requests.Session()
+    s.headers.update({
+        "X-API-KEY": key,
+        # Force chain header on ALL requests (Birdeye returns 404 without it)
+        "X-Chain": "solana",
+        "Accept": "application/json",
+        "User-Agent": "mork-fetch/1.0"
+    })
 
-        # 2) Alternate: put chain as query param
-        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"},
-         {"X-API-KEY": key}),
-
-        # 3) Legacy: defi/price variant
-        (f"{BIRDEYE_BASE}/defi/price", {"address": mint, "chain": "solana"},
-         {"X-API-KEY": key}),
+    attempts = [
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint}),                    # preferred
+        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"}), # alt qp
+        (f"{BIRDEYE_BASE}/defi/price",   {"address": mint, "chain": "solana"}), # legacy
     ]
 
     last_err = None
-    for url, params, headers in combos:
+    for url, params in attempts:
         try:
-            r = sess.get(url, params=params, headers=headers, timeout=8)
+            r = s.get(url, params=params, timeout=8)
+            logging.info("birdeye_req status=%s url=%s sent_headers=%s",
+                         r.status_code, r.url, {"X-Chain": s.headers.get("X-Chain")})
             if r.status_code == 200:
                 j = r.json()
                 data = j.get("data") or {}
                 val = (
-                    data.get("value")
-                    or data.get("price")
-                    or (data.get("items", [{}])[0].get("value")
-                        if isinstance(data.get("items"), list) and data.get("items") else None)
+                    data.get("value") or
+                    data.get("price") or
+                    (data.get("items", [{}])[0].get("value")
+                     if isinstance(data.get("items"), list) and data.get("items") else None)
                 )
                 if isinstance(val, (int, float)) and val > 0:
                     return {"ok": True, "price": float(val), "source": "birdeye"}
                 last_err = f"bad payload: {j}"
             else:
                 last_err = f"{r.status_code} -> {r.url}"
-                logging.warning("birdeye: %s", last_err)
-                if r.status_code == 429:  # rate limit: stop early
+                logging.warning("birdeye_err %s", last_err)
+                if r.status_code == 429:  # rate-limited; stop trying
                     break
         except Exception as e:
             last_err = f"exc {type(e).__name__}: {e}"
+            logging.exception("birdeye_exc")
 
     return {"ok": False, "err": f"birdeye failed: {last_err}"}
 
