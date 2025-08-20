@@ -80,46 +80,80 @@ def _save_token_cache(d):
 def _short(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
 
+def _clean_symbol(s: str) -> str | None:
+    """Normalize tickers: uppercase, alnum+_ only, trimmed to 12 chars."""
+    if not s or not isinstance(s, str):
+        return None
+    s = s.strip().upper()
+    # common junk removal
+    s = s.replace("$","").replace("·","").replace("•","")
+    # keep A-Z0-9 and underscore
+    import re
+    s = re.sub(r"[^A-Z0-9_]", "", s)
+    s = s[:12]
+    return s or None
+
 def _clean_name(s: str) -> str | None:
-    """Normalize token names; strip marketing fluff (keep *name*, not marketing)."""
+    """Normalize marketing names; keep a readable proper name only."""
     if not s or not isinstance(s, str):
         return None
     s = s.replace("\u200b","").replace("\ufeff","").strip()
+    import re
     low = s.lower()
-    # remove leading 'the '
-    low = re.sub(r'^\s*the\s+', '', low)
-    # remove trailing generic words
-    low = re.sub(r'\s+(coin|token|cryptocurrency)$', '', low)
-    # drop bracketed marketing [ ... ] or ( ... ) at end
-    low = re.sub(r'\s*[\(\[][^)\]]{1,32}[\)\]]\s*$', '', low)
+    low = re.sub(r'^\s*the\s+', '', low)               # drop leading "the "
+    low = re.sub(r'\s+(coin|token)$', '', low)         # drop trailing generic
+    low = re.sub(r'\s*[\(\[][^)\]]{1,32}[\)\]]\s*$', '', low)  # drop tail ()/[]
     low = re.sub(r'\s+', ' ', low).strip()
     cleaned = low.title()
     return (cleaned or None)[:64]
 
-def resolve_token_name(mint: str) -> str:
-    """
-    Return the *primary name only* for a mint (no symbol appended).
-    Uses Birdeye first, then Dexscreener. Caches sanitized name.
-    """
+def _load_token_cache() -> dict:
     try:
-        cache = json.load(open(TOKEN_NAME_CACHE))
+        import json
+        return json.load(open(TOKEN_NAME_CACHE))
     except Exception:
-        cache = {}
-        
+        return {}
+
+def _save_token_cache(cache: dict) -> None:
+    import json
+    try:
+        json.dump(cache, open(TOKEN_NAME_CACHE, "w"))
+    except Exception:
+        pass
+
+# Back-compat: old cache sometimes stored just {"name": "..."}
+def _coerce_cache_entry(ent) -> dict:
+    if not isinstance(ent, dict):
+        return {}
+    if "primary" in ent or "secondary" in ent:
+        return ent
+    # migrate old shape
+    out = {"primary": None, "secondary": ent.get("name"), "ts": ent.get("ts")}
+    return out
+
+def _token_labels(mint: str) -> tuple[str | None, str | None]:
+    """
+    Resolve (primary, secondary) = (ticker, full name).
+    Caches {'primary','secondary','ts'} for 7 days.
+    """
+    import os, time, requests, json
     now = int(time.time())
+    cache = _load_token_cache()
+    ent = _coerce_cache_entry(cache.get(mint) or {})
+    if ent and now - int(ent.get("ts") or 0) < 7*24*3600:
+        return ent.get("primary"), ent.get("secondary")
+
+    # Special-case SOL
     if mint == SOL_PSEUDO_MINT:
-        # special-case SOL (primary name only)
-        name = "Solana"
-        cache[mint] = {"name": name, "ts": now}
+        ent = {"primary": "SOL", "secondary": "Solana", "ts": now}
+        cache[mint] = ent
         _save_token_cache(cache)
-        return name
+        return ent["primary"], ent["secondary"]
 
-    # cache hit (7 days)
-    ent = cache.get(mint)
-    if ent and now - int(ent.get("ts", 0)) < 7*24*3600:
-        return ent.get("name") or _short(mint)
+    primary = None
+    secondary = None
 
-    # Birdeye v3 (prefer name, fallback symbol -> but store as name only)
+    # Birdeye v3
     try:
         api = os.getenv("BIRDEYE_API_KEY","")
         if api:
@@ -129,42 +163,55 @@ def resolve_token_name(mint: str) -> str:
             if r.status_code == 200:
                 data = r.json().get("data") or {}
                 ti = data.get("token_info") or {}
-                for cand in (ti.get("name"), data.get("name"), ti.get("symbol")):
-                    nm = _clean_name(cand)
-                    if nm:
-                        cache[mint] = {"name": nm, "ts": now}
-                        _save_token_cache(cache)
-                        return nm
+                secondary = _clean_name(ti.get("name") or data.get("name")) or secondary
+                primary   = _clean_symbol(ti.get("symbol")) or primary
     except Exception:
         pass
 
-    # Dexscreener (prefer baseToken.name then symbol)
-    try:
-        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
-        if r.status_code == 200:
-            js = r.json() or {}
-            pairs = js.get("pairs") or []
-            if pairs:
-                p0 = pairs[0]
-                bt = p0.get("baseToken") or {}
-                for cand in (bt.get("name"), bt.get("symbol")):
-                    nm = _clean_name(cand)
-                    if nm:
-                        cache[mint] = {"name": nm, "ts": now}
-                        _save_token_cache(cache)
-                        return nm
-    except Exception:
-        pass
+    # Dexscreener
+    if not primary or not secondary:
+        try:
+            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
+            if r.status_code == 200:
+                js = r.json() or {}
+                pairs = js.get("pairs") or []
+                if pairs:
+                    bt = (pairs[0] or {}).get("baseToken") or {}
+                    secondary = _clean_name(bt.get("name")) or secondary
+                    primary   = _clean_symbol(bt.get("symbol")) or primary
+        except Exception:
+            pass
 
-    # fallback
-    nm = _short(mint)
-    cache[mint] = {"name": nm, "ts": now}
+    # Fallbacks
+    if not primary and secondary:
+        # synthesize ticker from secondary (first word upcased alnum)
+        import re
+        primary = _clean_symbol(re.sub(r'\s.*$', '', secondary))
+    if not secondary and primary:
+        secondary = primary  # better than None
+    if not primary and not secondary:
+        secondary = _short(mint)
+
+    ent = {"primary": primary, "secondary": secondary, "ts": now}
+    cache[mint] = ent
     _save_token_cache(cache)
-    return nm
+    return primary, secondary
+
+# Legacy helper still used in some paths: return *primary name only* (ticker)
+def resolve_token_name(mint: str) -> str:
+    p, s = _token_labels(mint)
+    return p or s or _short(mint)
+
+def _alert_label(mint: str) -> str:
+    p, s = _token_labels(mint)
+    base = p or s or _short(mint)
+    if p and s and p.lower() != s.lower():
+        base = f"{p} — {s}"
+    return f"{base} ({_short(mint)})"
 
 # Standard token label for alerts: "<Name> (<So11..1112>)"
 def _token_label(mint: str) -> str:
-    return f"{resolve_token_name(mint)} ({_short(mint)})"
+    return _alert_label(mint)
 
 # Enhanced alert hook using the new resolver
 def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
