@@ -2188,32 +2188,7 @@ def process_telegram_command(update: dict):
             except Exception as e:
                 return {"status":"ok","response":f"Internal error: {e}"}
 
-        # --- manual scan ---
-        elif cmd == "/watch_tick":
-            text = watch_tick_internal()  # returns the rendered watch summary
-            return ok("Watch tick", text)
 
-        # --- auto ticker control ---
-        elif cmd == "/alerts_auto_on":
-            # optional interval in seconds, default keeps current interval
-            sec = None
-            if len(parts) > 1:
-                try:
-                    sec = int(parts[1])
-                except Exception:
-                    sec = None
-            alerts_auto_on(sec)
-            s = alerts_auto_status()
-            return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
-
-        elif cmd == "/alerts_auto_off":
-            alerts_auto_off()
-            return ok("Auto alerts disabled", "Ticker stopped.")
-
-        elif cmd == "/alerts_auto_status":
-            s = alerts_auto_status()
-            state = "on" if s["alive"] else "off"
-            return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
@@ -2724,61 +2699,9 @@ def process_telegram_command(update: dict):
             return _reply("📋 Watchlist display via web interface\nUse monitoring dashboard to view watched tokens")
 
         elif cmd == "/watch_tick":
-            # iterate current WATCHLIST keys
-            global WATCHLIST
-            bl = _load_baseline()
-            cfg = _alerts_cfg()
-            out_lines = ["🧭 *Watch tick*"]
-            alerts = 0
-            checked = 0
-            now = int(time.time())
-
-            # determine active price source (whatever your existing code uses, keep it)
-            active_src = (open("/tmp/mork_price_source").read().strip()
-                          if os.path.exists("/tmp/mork_price_source") else "sim")
-
-            for mint in list(WATCHLIST.keys()):
-                checked += 1
-                # fetch price using your existing helper
-                gp = get_price(mint, active_src)  # must return {'ok': bool, 'price': float, 'source': '...'}
-                if not gp.get("ok"):
-                    out_lines.append(f"- `{mint[:12]}..`  last=?  Δ=?  src=n/a")
-                    continue
-
-                px = float(gp["price"])
-                src = gp.get("source", active_src)
-
-                # Call the alert hook for reliable alert processing
-                try:
-                    hook_result = _post_watch_alert_hook(mint, px, src)
-                    if hook_result.get("alerted"):
-                        alerts += 1
-                except Exception as e:
-                    logging.exception("watch alert hook failed for %s: %s", mint, e)
-
-                base = bl.get(mint)
-                if not base:
-                    # seed baseline on first sight
-                    bl[mint] = {"price": px, "ts": now, "src": src}
-                    out_lines.append(f"- `{mint[:12]}..`  last=${px:.6f} Δ=+0.00% src={src}")
-                    continue
-
-                # compute delta BEFORE updating baseline
-                try:
-                    denom = float(base["price"])
-                    delta_pct = 0.0 if denom == 0 else (px - denom) / denom * 100.0
-                except Exception:
-                    delta_pct = 0.0
-
-                # print user-facing line
-                out_lines.append(f"- `{mint[:12]}..`  last=${px:.6f} Δ={delta_pct:+.2f}% src={src}")
-
-                # finally update baseline AFTER evaluation
-                bl[mint] = {"price": px, "ts": now, "src": src}
-
-            _save_baseline(bl)
-            text = "\n".join([f"Checked: {checked} · Alerts: {alerts}"] + out_lines)
-            return {"status": "ok", "response": text, "format": "md"}
+            deny = _require_admin(user)
+            if deny: return deny
+            return _reply("👁️ Watch tick via web interface\nUse monitoring dashboard for manual watchlist scanning")
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
