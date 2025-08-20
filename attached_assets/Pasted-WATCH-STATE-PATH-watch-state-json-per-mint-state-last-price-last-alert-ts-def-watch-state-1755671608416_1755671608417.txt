@@ -1,0 +1,86 @@
+WATCH_STATE_PATH = "watch_state.json"  # per-mint state: last_price, last_alert_ts
+
+def _watch_state_load():
+    return load_json(WATCH_STATE_PATH, {})
+
+def _watch_state_save(st):
+    save_json(WATCH_STATE_PATH, st); return st
+
+def _alerts_can_send(now_ts: int, cfg: dict, st: dict, mint: str) -> tuple[bool,str]:
+    """Enforce mute + global per-minute rate by tracking last N sent timestamps."""
+    if cfg.get("muted"):
+        return False, "muted"
+    rpm = int(cfg.get("rate_per_min", 60))
+    # global bucket
+    g = st.setdefault("_global", {"sent_ts":[]})
+    g["sent_ts"] = [t for t in g["sent_ts"] if now_ts - t < 60]
+    if len(g["sent_ts"]) >= rpm:
+        return False, f"rate>{rpm}/min"
+    return True, ""
+
+def _alerts_mark_sent(now_ts: int, st: dict):
+    g = st.setdefault("_global", {"sent_ts":[]})
+   .g["sent_ts"].append(now_ts)
+
+def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|None=None) -> tuple[bool,str]:
+    """
+    Compare current price vs last baseline, send alert if |Δ| >= min_move_pct.
+    Returns (alert_sent, note). Safe if price is None.
+    """
+    import time
+    now_ts = now_ts or int(time.time())
+    if price is None:
+        return False, "no_price"
+    cfg = load_json(ALERTS_CONFIG_PATH, {})
+    chat = cfg.get("chat")
+    min_move = float(cfg.get("min_move_pct", 0))  # e.g. 0.5 means 0.5%
+
+    st = _watch_state_load()
+    mint_st = st.setdefault(mint, {})
+    last = mint_st.get("last_price")
+
+    # Always record latest price for next tick
+    mint_st["last_price"] = price
+    mint_st["last_src"] = src
+    mint_st["last_ts"] = now_ts
+
+    if last is None or min_move <= 0:
+        _watch_state_save(st)
+        return False, "baseline_set"
+
+    try:
+        delta_pct = (price - last) / last * 100.0
+    except Exception:
+        _watch_state_save(st)
+        return False, "calc_err"
+
+    if abs(delta_pct) < min_move:
+        _watch_state_save(st)
+        return False, f"below_{min_move}%"
+
+    can, why = _alerts_can_send(now_ts, cfg, st, mint)
+    if not can:
+        _watch_state_save(st)
+        return False, why
+
+    # Build alert message
+    arrow = "📈" if delta_pct >= 0 else "📉"
+    text = (
+        f"{arrow} *ALERT* `{mint[:10]}..`\n"
+        f"*Δ:* {delta_pct:+.2f}%   *price:* ${price:.6f}\n"
+        f"*src:* {src}"
+    )
+    if chat:
+        try:
+            alerts_send(chat, text)
+            _alerts_mark_sent(now_ts, st)
+            mint_st["last_alert_ts"] = now_ts
+            _watch_state_save(st)
+            return True, "sent"
+        except Exception as e:
+            mint_st["last_err"] = str(e)
+            _watch_state_save(st)
+            return False, "send_err"
+    else:
+        _watch_state_save(st)
+        return False, "no_chat"
