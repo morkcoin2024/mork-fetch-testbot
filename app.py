@@ -79,11 +79,11 @@ def _alerts_send_html(chat_id: int, text: str):
             "disable_web_page_preview": True,
         }
         r = requests.post(url, json=payload, timeout=10)
-        ok = r.ok
+        success = r.ok
         # Log result (status + first bytes of body)
         with open(ALERTS_API_LOG, "a") as f:
-            f.write(f"{int(time.time())} ok={ok} code={r.status_code} body={r.text[:160]}\n")
-        return ok
+            f.write(f"{int(time.time())} ok={success} code={r.status_code} body={r.text[:160]}\n")
+        return success
     except Exception as e:
         with open(ALERTS_API_LOG, "a") as f:
             f.write(f"{int(time.time())} EXC {type(e).__name__}: {e}\n")
