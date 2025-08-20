@@ -183,11 +183,12 @@ def _alerts_ticker_loop():
     import time, logging
     last = 0
     while not ALERTS_TICK_STOP.is_set():
-        now = time.time()
         try:
-            if now - last >= max(5, int(ALERTS_TICK_INTERVAL or 0)):
+            intv = max(5, int(ALERTS_TICK_INTERVAL or 0))
+            now = time.time()
+            if now - last >= intv:
                 try:
-                    _ = watch_tick_internal()  # triggers alert hook internally
+                    _ = watch_tick_internal()  # triggers alert hook
                 except Exception:
                     logging.exception("alerts_ticker: watch_tick_internal failed")
                 last = now
@@ -195,9 +196,7 @@ def _alerts_ticker_loop():
             logging.exception("alerts_ticker: loop error")
         ALERTS_TICK_STOP.wait(1)
 
-
 def alerts_auto_on(seconds: int | None = None):
-    """Start or update the auto-ticker."""
     import threading, logging
     global ALERTS_TICK_THREAD, ALERTS_TICK_STOP, ALERTS_TICK_INTERVAL
     if seconds is not None:
@@ -212,9 +211,7 @@ def alerts_auto_on(seconds: int | None = None):
     ALERTS_TICK_THREAD.start()
     logging.info("ALERTS_TICK started interval=%ss", ALERTS_TICK_INTERVAL)
 
-
 def alerts_auto_off():
-    """Stop the auto-ticker."""
     import logging
     global ALERTS_TICK_THREAD
     if ALERTS_TICK_STOP:
@@ -223,11 +220,9 @@ def alerts_auto_off():
         logging.info("ALERTS_TICK stopping")
         ALERTS_TICK_THREAD = None
 
-
 def alerts_auto_status() -> dict:
     alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
     return {"alive": alive, "interval_sec": int(ALERTS_TICK_INTERVAL or 0)}
-    return True
 
 def _active_price_source():
     """Read what /source set; default to birdeye"""
