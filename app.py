@@ -824,53 +824,88 @@ def price_dex(mint, timeout=6):
 
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
 def price_birdeye(mint: str):
-    key = os.getenv("BIRDEYE_API_KEY", "").strip()
-    if not key:
-        return {"ok": False, "err": "BIRDEYE_API_KEY missing"}
+    """
+    Robust Birdeye price fetch:
+      1) GET /defi/price?address=&chain=solana
+      2) GET /public/price?address=&chain=solana
+      3) GET /defi/v3/token/market-data?address=&chain=solana  (fallback)
+    Accepts data.value, data.price, or v3 market field(s).
+    """
+    import os, requests, math, json
+    api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
+    if not api_key:
+        return {"ok": False, "err": "birdeye missing api key"}
 
-    s = requests.Session()
-    s.headers.update({
-        "X-API-KEY": key,
-        # Force chain header on ALL requests (Birdeye returns 404 without it)
-        "X-Chain": "solana",
+    sess = requests.Session()
+    base = "https://public-api.birdeye.so"
+    headers = {
+        "X-API-KEY": api_key,
+        "X-Chain": "solana",   # header form
         "Accept": "application/json",
-        "User-Agent": "mork-fetch/1.0"
-    })
+        "User-Agent": "fetch-bot/1.0",
+    }
 
-    attempts = [
-        (f"{BIRDEYE_BASE}/public/price", {"address": mint}),                    # preferred
-        (f"{BIRDEYE_BASE}/public/price", {"address": mint, "chain": "solana"}), # alt qp
-        (f"{BIRDEYE_BASE}/defi/price",   {"address": mint, "chain": "solana"}), # legacy
-    ]
-
-    last_err = None
-    for url, params in attempts:
+    def _req(path, params=None):
+        url = f"{base}{path}"
+        # also pass chain as query for endpoints that ignore header-only
+        qp = {"address": mint, "chain": "solana"}
+        if params:
+            qp.update(params)
+        r = sess.get(url, headers=headers, params=qp, timeout=8)
+        # Do NOT log API key; show only status & path to help debugging
+        print(f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp, separators=(',',':'))}")
+        if r.status_code != 200:
+            return None, f"{r.status_code}"
         try:
-            r = s.get(url, params=params, timeout=8)
-            logging.info("birdeye_req status=%s url=%s sent_headers=%s",
-                         r.status_code, r.url, {"X-Chain": s.headers.get("X-Chain")})
-            if r.status_code == 200:
-                j = r.json()
-                data = j.get("data") or {}
-                val = (
-                    data.get("value") or
-                    data.get("price") or
-                    (data.get("items", [{}])[0].get("value")
-                     if isinstance(data.get("items"), list) and data.get("items") else None)
-                )
-                if isinstance(val, (int, float)) and val > 0:
-                    return {"ok": True, "price": float(val), "source": "birdeye"}
-                last_err = f"bad payload: {j}"
-            else:
-                last_err = f"{r.status_code} -> {r.url}"
-                logging.warning("birdeye_err %s", last_err)
-                if r.status_code == 429:  # rate-limited; stop trying
-                    break
-        except Exception as e:
-            last_err = f"exc {type(e).__name__}: {e}"
-            logging.exception("birdeye_exc")
+            return r.json(), None
+        except Exception:
+            return None, "bad_json"
 
-    return {"ok": False, "err": f"birdeye failed: {last_err}"}
+    def _extract_price(j):
+        if not j:
+            return None
+        d = j.get("data") or {}
+        # common single-price fields seen in Birdeye responses:
+        for k in ("value", "price", "priceUsd", "price_usd", "market_price_usd"):
+            v = d.get(k)
+            if v is not None:
+                try:
+                    f = float(v)
+                    if math.isfinite(f) and f > 0:
+                        return f
+                except Exception:
+                    pass
+        # v3 token market-data can nest under "data" too; try typical shards
+        # Sometimes it returns {"data":{"market_price_usd": 178.12, ...}}
+        # Already covered above, but keep a lightweight fallback scan:
+        if isinstance(d, dict):
+            for k, v in d.items():
+                if isinstance(v, (int, float)) and "price" in k and v > 0:
+                    return float(v)
+        return None
+
+    # 1) /defi/price
+    j, err = _req("/defi/price")
+    p = _extract_price(j)
+    if p:
+        return {"ok": True, "price": p, "source": "birdeye"}
+    if err: print(f"WARNING:birdeye_defi_price err={err}")
+
+    # 2) /public/price
+    j, err = _req("/public/price")
+    p = _extract_price(j)
+    if p:
+        return {"ok": True, "price": p, "source": "birdeye"}
+    if err: print(f"WARNING:birdeye_public_price err={err}")
+
+    # 3) /defi/v3/token/market-data
+    j, err = _req("/defi/v3/token/market-data")
+    p = _extract_price(j)
+    if p:
+        return {"ok": True, "price": p, "source": "birdeye"}
+    if err: print(f"WARNING:birdeye_token_market_data err={err}")
+
+    return {"ok": False, "err": "birdeye all endpoints failed"}
 
 def get_price(mint, preferred=None):
     """
