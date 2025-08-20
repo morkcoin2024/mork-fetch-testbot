@@ -641,7 +641,7 @@ def watch_tick_once(send_alerts=False):
         it["src"] = src
         new_wl.append(it)
 
-        lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={src}")
+        lines.append(f"- {mint[:10]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={src}")
 
         # Enhanced dual-layer alert processing with detailed tracking
         if send_alerts and abs(delta) >= min_move:
