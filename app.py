@@ -108,8 +108,73 @@ def _alerts_try_send(chat_id: int, mint: str, price: float, base: float, delta_p
     return _alerts_send_html(chat_id, text)
 
 # ---- Background ticker functions ----
+def watch_tick_internal() -> str:
+    """
+    Do exactly what /watch_tick currently does, but just return the markdown text.
+    This MUST still call _post_watch_alert_hook(...) for each checked mint.
+    """
+    import json, time
+    
+    # Load watchlist and configuration
+    try:
+        wl = _load_watchlist()
+    except:
+        wl = []
+    
+    base = _load_baseline()
+    checked = 0
+    alerts = 0
+    out_lines = []
+    
+    for raw in wl:
+        mint = raw.get("mint") if isinstance(raw, dict) else (raw if isinstance(raw, str) else "")
+        if not mint:
+            continue
+            
+        checked += 1
+        
+        # Get real price with fallback chain
+        r = _price_lookup_any(mint)
+        last_price = float(r.get("price") or 0.0)
+        source = r.get("source") or "n/a"
+        
+        # Compute Δ vs baseline for display
+        bl = base.get(mint)
+        baseline_price = None
+        if bl and ("price" in bl):
+            try:
+                baseline_price = float(bl["price"])
+                delta_pct = (last_price - baseline_price) / baseline_price * 100.0
+            except Exception:
+                delta_pct = 0.0
+        else:
+            delta_pct = 0.0
+        
+        # Colorized triangle based on price movement
+        if baseline_price is not None and last_price > 0:
+            tri = "🟢▲" if last_price >= baseline_price else "🔴▼"
+        else:
+            tri = "△"
+        
+        # Display line with colorized arrow and real baseline delta
+        out_lines.append(f"- `{mint[:12]}..` {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+        
+        # Only call alert hook if we have a real price
+        if last_price > 0:
+            try:
+                result = _post_watch_alert_hook(mint, last_price, source)
+                if result and result.get("alerted"):
+                    alerts += 1
+            except Exception as e:
+                # avoid using a local 'logging' name in this scope
+                import logging as pylog
+                pylog.exception("watch alert hook failed for %s: %s", mint, e)
+    
+    body = "\n".join(out_lines) if out_lines else "(no items)"
+    return f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {alerts}\n{body}"
+
 def _alerts_background_tick():
-    """Background ticker that reuses /watch_tick logic"""
+    """Background ticker that reuses watch_tick_internal() logic"""
     import logging as pylog
     try:
         # Load watchlist
@@ -120,7 +185,9 @@ def _alerts_background_tick():
         
         if not wl:
             return  # No items to check
-        
+            
+        # Use the same logic as /watch_tick but without the output formatting
+        # We need to track alerts separately for logging
         base = _load_baseline()
         alerts_sent = 0
         
@@ -2114,65 +2181,8 @@ def process_telegram_command(update: dict):
 
         # public watch controls
         elif cmd == "/watch_tick":
-            import json, time
-            
-            # Load watchlist and configuration
-            try:
-                wl = _load_watchlist()
-            except:
-                wl = []
-            
-            base = _load_baseline()
-            checked = 0
-            alerts = 0
-            out_lines = []
-            
-            for raw in wl:
-                mint = raw.get("mint") if isinstance(raw, dict) else (raw if isinstance(raw, str) else "")
-                if not mint:
-                    continue
-                    
-                checked += 1
-                
-                # Get real price with fallback chain
-                r = _price_lookup_any(mint)
-                last_price = float(r.get("price") or 0.0)
-                source = r.get("source") or "n/a"
-                
-                # Compute Δ vs baseline for display
-                bl = base.get(mint)
-                baseline_price = None
-                if bl and ("price" in bl):
-                    try:
-                        baseline_price = float(bl["price"])
-                        delta_pct = (last_price - baseline_price) / baseline_price * 100.0
-                    except Exception:
-                        delta_pct = 0.0
-                else:
-                    delta_pct = 0.0
-                
-                # Colorized triangle based on price movement
-                if baseline_price is not None and last_price > 0:
-                    tri = "🟢▲" if last_price >= baseline_price else "🔴▼"
-                else:
-                    tri = "△"
-                
-                # Display line with colorized arrow and real baseline delta
-                out_lines.append(f"- `{mint[:12]}..` {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
-                
-                # Only call alert hook if we have a real price
-                if last_price > 0:
-                    try:
-                        result = _post_watch_alert_hook(mint, last_price, source)
-                        if result and result.get("alerted"):
-                            alerts += 1
-                    except Exception as e:
-                        # avoid using a local 'logging' name in this scope
-                        import logging as pylog
-                        pylog.exception("watch alert hook failed for %s: %s", mint, e)
-            
-            body = "\n".join(out_lines) if out_lines else "(no items)"
-            return {"status":"ok","response":f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {alerts}\n{body}","parse_mode":"Markdown"}
+            response_text = watch_tick_internal()
+            return {"status":"ok","response":response_text,"parse_mode":"Markdown"}
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
