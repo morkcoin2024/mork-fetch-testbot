@@ -173,93 +173,57 @@ def watch_tick_internal() -> str:
     body = "\n".join(out_lines) if out_lines else "(no items)"
     return f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {alerts}\n{body}"
 
-def _alerts_background_tick():
-    """Background ticker that reuses watch_tick_internal() logic"""
-    import logging as pylog
-    try:
-        # Load watchlist
-        try:
-            wl = _load_watchlist()
-        except:
-            wl = []
-        
-        if not wl:
-            return  # No items to check
-            
-        # Use the same logic as /watch_tick but without the output formatting
-        # We need to track alerts separately for logging
-        base = _load_baseline()
-        alerts_sent = 0
-        
-        for raw in wl:
-            mint = raw.get("mint") if isinstance(raw, dict) else (raw if isinstance(raw, str) else "")
-            if not mint:
-                continue
-            
-            # Get real price with fallback chain
-            r = _price_lookup_any(mint)
-            last_price = float(r.get("price") or 0.0)
-            source = r.get("source") or "n/a"
-            
-            # Only call alert hook if we have a real price
-            if last_price > 0:
-                try:
-                    result = _post_watch_alert_hook(mint, last_price, source)
-                    if result and result.get("alerted"):
-                        alerts_sent += 1
-                except Exception as e:
-                    pylog.exception("background ticker alert hook failed for %s: %s", mint, e)
-        
-        if alerts_sent > 0:
-            pylog.info(f"Background ticker sent {alerts_sent} alerts")
-            
-    except Exception as e:
-        pylog.exception("Background ticker error: %s", e)
+# Old ticker functions removed - replaced by improved alerts_auto_* functions
 
+# ---- New improved background ticker functions ----
 def _alerts_ticker_loop():
-    """Main ticker loop that runs in background thread"""
-    global ALERTS_TICK_STOP, ALERTS_TICK_INTERVAL
-    import logging as pylog
-    
-    pylog.info(f"Background ticker started with {ALERTS_TICK_INTERVAL}s interval")
-    
-    while not ALERTS_TICK_STOP:
+    import time, logging
+    last = 0
+    while not ALERTS_TICK_STOP.is_set():
+        now = time.time()
         try:
-            # Check if ticker is disabled
-            if ALERTS_TICK_INTERVAL <= 0:
-                time.sleep(5)  # Short sleep when disabled
-                continue
-                
-            _alerts_background_tick()
-            
-            # Sleep with ability to wake up early if stop is set
-            for _ in range(ALERTS_TICK_INTERVAL):
-                if ALERTS_TICK_STOP:
-                    break
-                time.sleep(1)
-                
-        except Exception as e:
-            pylog.exception("Ticker loop error: %s", e)
-            time.sleep(10)  # Longer sleep on error
-    
-    pylog.info("Background ticker stopped")
+            if now - last >= max(5, int(ALERTS_TICK_INTERVAL or 0)):
+                try:
+                    _ = watch_tick_internal()  # triggers alert hook internally
+                except Exception:
+                    logging.exception("alerts_ticker: watch_tick_internal failed")
+                last = now
+        except Exception:
+            logging.exception("alerts_ticker: loop error")
+        ALERTS_TICK_STOP.wait(1)
 
-def _start_alerts_ticker():
-    """Start the background ticker thread"""
-    global ALERTS_TICK_THREAD, ALERTS_TICK_STOP
-    
+
+def alerts_auto_on(seconds: int | None = None):
+    """Start or update the auto-ticker."""
+    import threading, logging
+    global ALERTS_TICK_THREAD, ALERTS_TICK_STOP, ALERTS_TICK_INTERVAL
+    if seconds is not None:
+        ALERTS_TICK_INTERVAL = max(5, int(seconds))
+    if ALERTS_TICK_STOP is None:
+        ALERTS_TICK_STOP = threading.Event()
     if ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive():
-        return False  # Already running
-        
-    ALERTS_TICK_STOP = False
-    ALERTS_TICK_THREAD = threading.Thread(target=_alerts_ticker_loop, daemon=True)
+        logging.info("ALERTS_TICK already running; interval=%ss", ALERTS_TICK_INTERVAL)
+        return
+    ALERTS_TICK_STOP.clear()
+    ALERTS_TICK_THREAD = threading.Thread(target=_alerts_ticker_loop, daemon=True, name="alerts_ticker")
     ALERTS_TICK_THREAD.start()
-    return True
+    logging.info("ALERTS_TICK started interval=%ss", ALERTS_TICK_INTERVAL)
 
-def _stop_alerts_ticker():
-    """Stop the background ticker thread"""
-    global ALERTS_TICK_STOP
-    ALERTS_TICK_STOP = True
+
+def alerts_auto_off():
+    """Stop the auto-ticker."""
+    import logging
+    global ALERTS_TICK_THREAD
+    if ALERTS_TICK_STOP:
+        ALERTS_TICK_STOP.set()
+    if ALERTS_TICK_THREAD:
+        logging.info("ALERTS_TICK stopping")
+        ALERTS_TICK_THREAD = None
+
+
+def alerts_auto_status() -> dict:
+    alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
+    return {"alive": alive, "interval_sec": int(ALERTS_TICK_INTERVAL or 0)}
     return True
 
 def _active_price_source():
@@ -1579,10 +1543,8 @@ def _ensure_scanners():
                     
                     # Start alerts background ticker if enabled
                     if ALERTS_TICK_DEFAULT > 0:
-                        if _start_alerts_ticker():
-                            logger.info(f"Alerts background ticker started ({ALERTS_TICK_INTERVAL}s interval)")
-                        else:
-                            logger.warning("Failed to start alerts background ticker")
+                        alerts_auto_on(ALERTS_TICK_DEFAULT)
+                        logger.info(f"Alerts background ticker started ({ALERTS_TICK_INTERVAL}s interval)")
                 else:
                     logger.warning("Failed to start telegram polling service")
             except Exception as e:
@@ -2255,36 +2217,28 @@ def process_telegram_command(update: dict):
             return _reply(f"🧮 Alerts rate limit: {n}/min")
 
         elif cmd == "/alerts_ticker_on" and is_admin:
-            import app
-            if app.ALERTS_TICK_INTERVAL <= 0:
-                app.ALERTS_TICK_INTERVAL = app.ALERTS_TICK_DEFAULT or 30
-            success = _start_alerts_ticker()
-            if success:
-                return _reply(f"🔄 Background ticker started ({app.ALERTS_TICK_INTERVAL}s interval)")
-            else:
-                return _reply("⚠️ Ticker already running")
+            alerts_auto_on()
+            return _reply(f"🔄 Background ticker started ({ALERTS_TICK_INTERVAL}s interval)")
 
         elif cmd == "/alerts_ticker_off" and is_admin:
-            _stop_alerts_ticker()
+            alerts_auto_off()
             return _reply("⏸️ Background ticker stopped")
 
         elif cmd == "/alerts_ticker_interval" and is_admin:
-            import app
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return _reply(f"Usage: `/alerts_ticker_interval <seconds>` (current: {app.ALERTS_TICK_INTERVAL}s)")
+                return _reply(f"Usage: `/alerts_ticker_interval <seconds>` (current: {ALERTS_TICK_INTERVAL}s)")
             try:
                 interval = max(5, int(float(parts[1])))  # Min 5 seconds
             except Exception:
                 return _reply("❌ Invalid interval (minimum 5 seconds)")
-            app.ALERTS_TICK_INTERVAL = interval
-            return _reply(f"⏰ Ticker interval set to {interval}s")
+            alerts_auto_on(interval)  # Restart with new interval
+            return _reply(f"⏰ Ticker interval updated to {interval}s")
 
         elif cmd == "/alerts_ticker_status" and is_admin:
-            import app
-            running = app.ALERTS_TICK_THREAD and app.ALERTS_TICK_THREAD.is_alive()
-            status = "🟢 Running" if running else "🔴 Stopped"
-            return _reply(f"📊 Background ticker: {status}\nInterval: {app.ALERTS_TICK_INTERVAL}s\nDefault: {app.ALERTS_TICK_DEFAULT}s")
+            status_info = alerts_auto_status()
+            status = "🟢 Running" if status_info["alive"] else "🔴 Stopped"
+            return _reply(f"📊 Background ticker: {status}\nInterval: {status_info['interval_sec']}s\nDefault: {ALERTS_TICK_DEFAULT}s")
 
         elif cmd == "/alerts_minmove" and is_admin:
             parts = text.split(maxsplit=1)
