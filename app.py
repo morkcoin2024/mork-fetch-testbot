@@ -2125,6 +2125,7 @@ def process_telegram_command(update: dict):
             try:
                 wl = _load_watchlist()
                 st = _watch_state_load()
+                bl = _load_baseline()
                 if not wl:
                     return _reply("👁️ Watchlist empty.")
                 
@@ -2138,12 +2139,25 @@ def process_telegram_command(update: dict):
                     if not mint:
                         continue
                         
-                    # Get enhanced state information
+                    # Get enhanced state information from watch_state
                     ms = st.get(mint, {})
                     last_price = ms.get("last_price")
-                    src = ms.get("last_src", "n/a")
+                    state_src = ms.get("last_src", "n/a")
                     last_ts = ms.get("last_ts", now)
                     last_alert_ts = ms.get("last_alert_ts")
+                    
+                    # Get baseline information (handle both old float format and new dict format)
+                    b = bl.get(mint)
+                    if isinstance(b, dict):
+                        age = f"{now - b.get('ts', now)}s" if b.get('ts') else "n/a"
+                        src = b.get("src", "n/a")
+                    elif b is not None:
+                        # Legacy format: just a price value
+                        age = "legacy"
+                        src = "n/a"
+                    else:
+                        age = "n/a"
+                        src = "n/a"
                     
                     # Calculate time since last update  
                     ago = now - int(last_ts) if last_ts != now else 0
@@ -2155,7 +2169,7 @@ def process_telegram_command(update: dict):
                         alert_ago = now - int(last_alert_ts)
                         alert_info = f" alert={alert_ago}s"
                     
-                    lines.append(f"- `{mint[:10]}..`  last={last_s} src={src} age={ago}s{alert_info}")
+                    lines.append(f"- `{mint[:10]}..`  last={last_s} src={src} age={age}{alert_info}")
                 
                 return _reply("\n".join(lines))
                 
