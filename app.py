@@ -391,7 +391,7 @@ ALL_COMMANDS = [
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
-    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_clear",
+    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watchlist_detail", "/watch_tick", "/watch_off", "/watch_clear",
     "/autosell_on", "/autosell_off", "/autosell_status", 
     "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
@@ -1971,6 +1971,48 @@ def process_telegram_command(update: dict):
                 return _reply("🧹 Watchlist cleared.")
             except Exception as e:
                 return _reply(f"Clear error: {e}")
+
+        elif cmd == "/watchlist_detail":
+            """Show detailed watchlist with enhanced state information."""
+            try:
+                wl = _load_watchlist()
+                st = _watch_state_load()
+                if not wl:
+                    return _reply("👁️ Watchlist empty.")
+                
+                lines = ["📋 *Watchlist detail:*"]
+                import time
+                now = int(time.time())
+                
+                for raw in wl:
+                    item = _normalize_watch_item(raw)
+                    mint = item.get("mint", "")
+                    if not mint:
+                        continue
+                        
+                    # Get enhanced state information
+                    ms = st.get(mint, {})
+                    last_price = ms.get("last_price")
+                    src = ms.get("last_src", "n/a")
+                    last_ts = ms.get("last_ts", now)
+                    last_alert_ts = ms.get("last_alert_ts")
+                    
+                    # Calculate time since last update  
+                    ago = now - int(last_ts) if last_ts != now else 0
+                    last_s = f"${last_price:.6f}" if last_price is not None else "?"
+                    
+                    # Add alert information if available
+                    alert_info = ""
+                    if last_alert_ts:
+                        alert_ago = now - int(last_alert_ts)
+                        alert_info = f" alert={alert_ago}s"
+                    
+                    lines.append(f"- `{mint[:10]}..`  last={last_s} src={src} age={ago}s{alert_info}")
+                
+                return _reply("\n".join(lines))
+                
+            except Exception as e:
+                return _reply(f"Detail error: {e}")
 
         # Wallet Commands
         elif cmd == "/wallet":
