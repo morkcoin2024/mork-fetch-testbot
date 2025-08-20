@@ -1543,6 +1543,7 @@ def _ensure_scanners():
                     try:
                         if int(ALERTS_TICK_DEFAULT) > 0:
                             alerts_auto_on(ALERTS_TICK_DEFAULT)
+                            logger.info("Alerts ticker thread ready (interval=%ss)", ALERTS_TICK_DEFAULT)
                             logger.info("Digest + Alerts ticker threads ready")
                     except Exception:
                         logger.exception("Failed to start alerts auto ticker")
