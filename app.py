@@ -1806,6 +1806,11 @@ def process_telegram_command(update: dict):
         # Apply price alert hook before returning
         return _post_price_alert_hook(update, result)
     
+    # Helper function for structured responses with title and body
+    def ok(title: str, body: str):
+        formatted_text = f"✅ *{title}*\n{body}"
+        return _reply(formatted_text)
+    
     import time
     start_time = time.time()
     user_id = user.get('id')
@@ -2149,8 +2154,8 @@ def process_telegram_command(update: dict):
 
         # public watch controls
         elif cmd == "/watch_tick":
-            response_text = watch_tick_internal()
-            return _reply(response_text)
+            text = watch_tick_internal()
+            return ok("Watch tick", text)
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
