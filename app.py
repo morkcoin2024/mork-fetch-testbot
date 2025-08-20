@@ -64,6 +64,127 @@ def _alerts_cfg():
         "muted": False, "muted_until": 0
     }
 
+# --- PATCH: add a reliable watch->alert hook + debug route ---
+
+# put near the other module-level helpers
+ALERTS_CFG_FILE = "alerts_config.json"
+ALERTS_BASELINE_FILE = "alerts_price_baseline.json"
+
+def _load_alerts_cfg():
+    import json, time, os
+    cfg = {"chat_id": None, "min_move_pct": 1.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+    try:
+        cfg.update(json.load(open(ALERTS_CFG_FILE)))
+    except FileNotFoundError:
+        pass
+    # normalize types
+    cfg["min_move_pct"] = float(cfg.get("min_move_pct", 1.0))
+    cfg["rate_per_min"] = int(cfg.get("rate_per_min", 5))
+    cfg["muted_until"] = int(cfg.get("muted_until", 0))
+    cfg["muted"] = bool(cfg.get("muted", False))
+    return cfg
+
+def _alerts_can_send(cfg, now_ts, recent_log):
+    # recent_log is list of epoch seconds of prior sends (we store last 20)
+    if cfg["muted"] or now_ts < cfg["muted_until"]:
+        return False, "muted"
+    # rate limit
+    window = 60
+    allowed = cfg["rate_per_min"]
+    recent = [t for t in recent_log if now_ts - t < window]
+    if len(recent) >= allowed:
+        return False, f"rate({len(recent)}/{allowed})"
+    return True, ""
+
+def _alerts_record_send(now_ts):
+    import json, time, os
+    fn = "alerts_send_log.json"
+    try:
+        log = json.load(open(fn))
+    except:
+        log = {"events":[]}
+    log["events"] = [t for t in log.get("events", []) if now_ts - t < 300]  # keep 5m
+    log["events"].append(now_ts)
+    json.dump(log, open(fn,"w"))
+    return log["events"]
+
+def _alerts_recent_log():
+    import json
+    try:
+        return json.load(open("alerts_send_log.json")).get("events", [])
+    except:
+        return []
+
+def _alert_baseline_get(mint):
+    import json
+    try:
+        base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError:
+        base = {}
+    return base.get(mint)
+
+def _alert_baseline_set(mint, price, src="watch"):
+    import json, time
+    try:
+        base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError:
+        base = {}
+    base[mint] = {"price": float(price), "ts": int(time.time()), "src": src}
+    json.dump(base, open(ALERTS_BASELINE_FILE,"w"))
+
+def _post_watch_alert_hook(mint, last_price, source):
+    """
+    Called from /watch_tick loop per mint. Decides whether to send an alert.
+    Robust & side-effect free: failures never break the main command.
+    """
+    import time, math
+
+    cfg = _load_alerts_cfg()
+    now = int(time.time())
+    baseline = _alert_baseline_get(mint)
+
+    # seed if missing
+    if not baseline:
+        _alert_baseline_set(mint, last_price, src="seed")
+        return {"ok": True, "seeded": True}
+
+    base_p = float(baseline["price"])
+    if base_p <= 0:
+        _alert_baseline_set(mint, last_price, src="reset_zero")
+        return {"ok": True, "reset": True}
+
+    delta_pct = (float(last_price) - base_p) / base_p * 100.0
+    abs_pct = abs(delta_pct)
+    threshold = float(cfg["min_move_pct"])
+
+    # Decide if we can send at all
+    can, why = _alerts_can_send(cfg, now, _alerts_recent_log())
+    will_alert = (abs_pct >= threshold) and can and cfg["chat_id"] is not None
+
+    if will_alert:
+        # format alert text
+        sign = "▲" if delta_pct >= 0 else "▼"
+        text = (
+            f"*Price Alert* {sign} {abs_pct:.2f}%\n"
+            f"`{mint[:12]}..`\n"
+            f"Now: ${float(last_price):.6f}  (src: {source})\n"
+            f"From: ${base_p:.6f}"
+        )
+        # send
+        try:
+            send_message(cfg["chat_id"], text, parse_mode="Markdown")
+            _alerts_record_send(now)
+        except Exception as e:
+            logging.exception("alerts_send failed: %s", e)
+        # after send, reset baseline to the new price
+        _alert_baseline_set(mint, last_price, src="after_alert")
+        return {"ok": True, "alerted": True, "delta_pct": delta_pct}
+    else:
+        # If change is tiny, do NOT constantly rebase — only rebase every 10 minutes to allow accumulation
+        if now - int(baseline.get("ts", 0)) > 600:
+            _alert_baseline_set(mint, last_price, src="periodic_rebase")
+        return {"ok": True, "alerted": False, "delta_pct": delta_pct, "reason": why or f"< {threshold}%"}
+
 # Disable scanners by default for the poller process.
 FETCH_ENABLE_SCANNERS = os.getenv("FETCH_ENABLE_SCANNERS", "0") == "1"
 
@@ -2308,6 +2429,14 @@ def process_telegram_command(update: dict):
                 px = float(gp["price"])
                 src = gp.get("source", active_src)
 
+                # Call the alert hook for reliable alert processing
+                try:
+                    hook_result = _post_watch_alert_hook(mint, px, src)
+                    if hook_result.get("alerted"):
+                        alerts += 1
+                except Exception as e:
+                    logging.exception("watch alert hook failed for %s: %s", mint, e)
+
                 base = bl.get(mint)
                 if not base:
                     # seed baseline on first sight
@@ -2324,24 +2453,6 @@ def process_telegram_command(update: dict):
 
                 # print user-facing line
                 out_lines.append(f"- `{mint[:12]}..`  last=${px:.6f} Δ={delta_pct:+.2f}% src={src}")
-
-                # decide alert
-                mm = float(cfg.get("min_move_pct", 1.0))
-                chat_id = cfg.get("chat_id")
-                muted = bool(cfg.get("muted")) or (int(cfg.get("muted_until", 0)) > now)
-
-                if chat_id and not muted and abs(delta_pct) >= mm:
-                    # respect rate limiting via your existing alert throttle (if any),
-                    # otherwise just send; use same function / parse_mode as /alerts_test
-                    msg = (f"🚨 *Price alert*\n"
-                           f"`{mint[:12]}..` moved {delta_pct:+.2f}%\n"
-                           f"Now: ${px:.6f} (src: {src})\n"
-                           f"Baseline: ${denom:.6f}")
-                    try:
-                        alerts_send(msg)  # existing function
-                        alerts += 1
-                    except Exception as e:
-                        logging.warning("alerts_send failed: %s", e)
 
                 # finally update baseline AFTER evaluation
                 bl[mint] = {"price": px, "ts": now, "src": src}
@@ -2361,6 +2472,52 @@ def process_telegram_command(update: dict):
             wl = [x for x in wl if _m(x) != mint]
             _save_watchlist(wl)
             return {"status":"ok","response":"✅ Unwatched" if len(wl) < before else "(mint not in watchlist)"}
+
+        elif cmd == "/watch_debug":
+            try:
+                args = text.split(maxsplit=1)
+                target = args[1].strip() if len(args) > 1 else None
+
+                cfg = _load_alerts_cfg()
+                try:
+                    import json
+                    base = json.load(open(ALERTS_BASELINE_FILE))
+                except:
+                    base = {}
+                # populate list of watched mints from whatever you already use
+                watched = []
+                try:
+                    # existing watchlist collector (adjust if you store elsewhere)
+                    watched = list(WATCHLIST) if isinstance(WATCHLIST, (set,list)) else []
+                except:
+                    pass
+
+                # live peek helper (uses current active price source)
+                def live_price(m):
+                    active_src = (open("/tmp/mork_price_source").read().strip()
+                                  if os.path.exists("/tmp/mork_price_source") else "sim")
+                    gp = get_price(m, active_src) or {}
+                    return gp.get("price"), gp.get("source") or "?"
+                # build report
+                lines = []
+                lines.append("*Watch debug*")
+                lines.append(f"cfg: chat={cfg['chat_id']} min={cfg['min_move_pct']}% rate={cfg['rate_per_min']}/min muted={cfg['muted']}")
+                items = [target] if target else watched
+                if not items:
+                    lines.append("_no watched mints_")
+                for m in items:
+                    p, src = live_price(m)
+                    bl = base.get(m)
+                    if bl and p:
+                        delta = (float(p)-float(bl['price']))/float(bl['price'])*100.0
+                        lines.append(f"- `{m[:12]}..` last=${float(p):.6f} src={src} base=${float(bl['price']):.6f} Δ={delta:.4f}%")
+                    else:
+                        price_str = f"${float(p):.6f}" if p else "?"
+                        lines.append(f"- `{m[:12]}..` last={price_str} src={src} base=? Δ=?")
+                return {"status":"ok","response":"\n".join(lines), "parse_mode":"Markdown"}
+            except Exception as e:
+                logging.exception("/watch_debug failed: %s", e)
+                return {"status":"ok","response":f"Internal error: {e}"}
 
         elif cmd == "/fetch":
             deny = _require_admin(user)
