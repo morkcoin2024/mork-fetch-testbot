@@ -131,17 +131,17 @@ def _alerts_send_html(chat_id: int, text: str):
 # --- END: alerts HTML sender ---
 
 def _format_price_alert_html(mint: str, price: float, base: float, delta_pct: float, src: str):
-    arrow = "🟢▲" if price >= base else "🔴▼"
-    token_label = _token_label(mint)
-    # Safe HTML: escape text fields
-    return (
-        f"<b>Price Alert</b> {arrow}\n"
-        f"<b>Token:</b> {_h(token_label)}\n"
-        f"<b>Price:</b> ${price:,.6f}\n"
-        f"<b>Change:</b> {delta_pct:+.2f}%\n"
-        f"<b>Baseline:</b> ${base:,.6f}\n"
-        f"<b>Source:</b> {_h(src)}"
+    delta = delta_pct / 100.0  # Convert percentage to decimal for formatting
+    arrow = "🟢▲" if delta >= 0 else "🔴▼"
+    text = (
+        f"Price Alert {arrow}\n"
+        f"Mint:\n{_token_label(mint)}\n"
+        f"Price: ${price:.6f}\n"
+        f"Change: {delta:+.2%}\n"
+        f"Baseline: ${base:.6f}\n"
+        f"Source: {src}"
     )
+    return text
 
 def _alerts_try_send(chat_id: int, mint: str, price: float, base: float, delta_pct: float, src: str):
     text = _format_price_alert_html(mint, price, base, delta_pct, src)
