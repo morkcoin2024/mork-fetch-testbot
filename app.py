@@ -489,7 +489,7 @@ def _maybe_alert_from_price(mint, price, source):
         thresh = _as_float(cfg.get("min_move_pct", 0) or 0.0, 0.0)
         if abs(move_pct) < thresh:
             return False
-        emoji = "🔺" if move_pct >= 0 else "🔻"
+        emoji = "🟢▲" if move_pct >= 0 else "🔴▼"
         msg = (
             f"{emoji} *Price Alert*\n"
             f"*Mint:* `{mint_key}`\n"
@@ -729,7 +729,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
         return False, why
 
     # Build alert message
-    arrow = "📈" if delta_pct >= 0 else "📉"
+    arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
     text = (
         f"{arrow} *ALERT* `{mint[:10]}..`\n"
         f"*Δ:* {delta_pct:+.2f}%   *price:* ${price:.6f}\n"
