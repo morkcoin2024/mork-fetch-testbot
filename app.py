@@ -2243,6 +2243,24 @@ def process_telegram_command(update: dict):
             status = "🟢 Running" if status_info["alive"] else "🔴 Stopped"
             return _reply(f"📊 Background ticker: {status}\nInterval: {status_info['interval_sec']}s\nDefault: {ALERTS_TICK_DEFAULT}s")
 
+        elif cmd == "/alerts_auto_on":
+            sec = None
+            if len(parts) > 1:
+                try: sec = int(parts[1])
+                except: sec = None
+            alerts_auto_on(sec)
+            s = alerts_auto_status()
+            return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
+
+        elif cmd == "/alerts_auto_off":
+            alerts_auto_off()
+            return ok("Auto alerts disabled", "Ticker stopped.")
+
+        elif cmd == "/alerts_auto_status":
+            s = alerts_auto_status()
+            state = "on" if s["alive"] else "off"
+            return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
+
         elif cmd == "/alerts_minmove" and is_admin:
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
