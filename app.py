@@ -1058,7 +1058,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
+    "/help", "/ping", "/info", "/about", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -2014,9 +2014,13 @@ def process_telegram_command(update: dict):
         return _post_price_alert_hook(update, result)
     
     user = msg.get("from") or {}
-    text = msg.get("text") or ""
-    clean = (text or "").strip() 
-    cmd, args = _parse_cmd(clean)
+    # Enhanced parsing guard (prevents UnboundLocalError)
+    text = msg.get("text", "").strip()
+    parts = text.split()                         # ALWAYS defined → no UnboundLocalError
+    cmd   = parts[0] if parts else ""
+    arg   = parts[1] if len(parts) > 1 else ""   # single string with the rest, if present
+    clean = text
+    args = " ".join(parts[1:]) if len(parts) > 1 else ""
 
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
@@ -2140,7 +2144,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -2244,24 +2248,23 @@ def process_telegram_command(update: dict):
             return _reply(help_text)
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
-        elif cmd == "/info":
-            if not parts:
+        elif cmd in ("/about", "/info"):
+            mint = arg.strip()
+            if not mint:
                 return _reply("Usage: /info <mint>", status="error")
-            mint = parts[0].strip()
-            # prefer active source, but let router pick birdeye->dex->sim fallback
+            # resolve name + quick stats (re-use your helpers; fall back gracefully)
+            name = _token_label(mint) or (mint[:4]+".."+mint[-4:])
+            # pull current price from the active source
             price_src = os.getenv("CURRENT_PRICE_SOURCE", "birdeye")
-            try:
-                gp = get_price(mint, price_src)
-                if not gp.get("ok"):
-                    return _reply("Failed to fetch price for that mint.", status="error")
-                price_now = float(gp["price"])
-                src = gp.get("source","?")
-                # record current sample so subsequent info calls have history
-                _record_price(mint, price_now, src)
-                card = _info_card(mint, price_now, src)
-                return _reply(card)
-            except Exception as e:
-                return _reply(f"Error generating info card: {e}", status="error")
+            gp = get_price(mint, price_src)
+            if not gp.get("ok"):
+                return _reply(f"ℹ️ {name} ({mint[:4]}..{mint[-4:]})\nPrice: n/a", status="info")
+            price = gp["price"]
+            src = gp.get("source","?")
+            # record current sample so subsequent info calls have history
+            _record_price(mint, price, src)
+            card = _info_card(mint, price, src)
+            return _reply(card)
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":

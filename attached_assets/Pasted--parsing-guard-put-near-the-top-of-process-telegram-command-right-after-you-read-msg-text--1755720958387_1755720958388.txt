@@ -1,0 +1,49 @@
+# --- parsing guard (put near the top of process_telegram_command, right after you read msg/text) ---
+text = msg.get("text", "").strip()
+parts = text.split()                         # ALWAYS defined → no UnboundLocalError
+cmd   = parts[0] if parts else ""
+arg   = parts[1] if len(parts) > 1 else ""   # single string with the rest, if present
+
+# … existing routes …
+
+# ---------- Auto alerts controls ----------
+elif cmd == "/alerts_auto_on":
+    # optional seconds, default 30, min 10
+    try:
+        interval = int(arg) if arg else 30
+    except ValueError:
+        return {"status":"ok","response":"Usage: /alerts_auto_on <seconds>"}
+    interval = max(10, interval)
+    s = alerts_auto_on(interval)
+    return {"status":"ok","response":f"✅ Auto alerts enabled\nInterval: {s.get('interval_sec', interval)}s"}
+
+elif cmd == "/alerts_auto_off":
+    alerts_auto_off()
+    return {"status":"ok","response":"🛑 Auto alerts disabled"}
+
+elif cmd == "/alerts_auto_status":
+    s = alerts_auto_status()
+    state = "on" if s.get("alive") else "off"
+    iv   = s.get("interval_sec", 0)
+    return {"status":"ok","response":f"✅ Auto alerts status\nStatus: {state}\nInterval: {iv}s"}
+
+# ---------- Token info (alias) ----------
+elif cmd in ("/about", "/info"):
+    mint = arg.strip()
+    if not mint:
+        return {"status":"ok","response":"Usage: /about <mint>"}
+    # resolve name + quick stats (re-use your helpers; fall back gracefully)
+    name = resolve_token_name(mint) or (mint[:4]+".."+mint[-4:])
+    # pull current price from the active source
+    gp = get_price(mint, current_price_source())  # or just get_price(mint, "birdeye"/"dex")
+    if not gp.get("ok"):
+        return {"status":"ok","response":f"ℹ️ {name} ({mint[:4]}..{mint[-4:]})\nPrice: n/a"}
+    price = gp["price"]
+    # optional: 30m/1h/4h/12h/24h deltas if you have a helper; otherwise omit for now
+    lines = [
+        f"**{name}**",
+        f"`({mint[:4]}..{mint[-4:]})`",
+        f"Price: ${price:,.6f}",
+        f"Source: {gp.get('source','?')}",
+    ]
+    return {"status":"ok","response":"\n".join(lines)}
