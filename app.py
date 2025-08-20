@@ -300,8 +300,8 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
             if r.status_code == 200:
                 data = r.json().get("data") or {}
                 ti = data.get("token_info") or {}
-                secondary = _clean_name(ti.get("name") or data.get("name")) or secondary
-                primary   = _clean_symbol(ti.get("symbol")) or primary
+                secondary = _clean_name(ti.get("name") or data.get("name") or "") or secondary
+                primary   = _clean_symbol(ti.get("symbol") or "") or primary
     except Exception:
         pass
 
@@ -314,8 +314,8 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
                 pairs = js.get("pairs") or []
                 if pairs:
                     bt = (pairs[0] or {}).get("baseToken") or {}
-                    secondary = _clean_name(bt.get("name")) or secondary
-                    primary   = _clean_symbol(bt.get("symbol")) or primary
+                    secondary = _clean_name(bt.get("name") or "") or secondary
+                    primary   = _clean_symbol(bt.get("symbol") or "") or primary
         except Exception:
             pass
 
