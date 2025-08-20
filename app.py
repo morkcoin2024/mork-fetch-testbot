@@ -1655,8 +1655,12 @@ def process_telegram_command(update: dict):
                 override = parts[2].split("=",1)[1].lower()
                 if override not in ("sim", "dex", "birdeye"):
                     return _reply("Usage: `/price <mint> --src=sim|dex|birdeye`")
-            if not mint or len(mint) < 10:
-                return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
+            
+            # Validate and normalize mint
+            original_mint = mint
+            mint = normalize_mint(mint)
+            if not is_valid_mint(mint):
+                return _reply(f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`")
             
             # Enhanced price lookup with explicit fallback labeling
             src = override or _read_price_source()
@@ -1754,6 +1758,13 @@ def process_telegram_command(update: dict):
             if len(parts) < 2:
                 return {"status":"ok","response":"Usage: /watch <mint>"}
             mint = parts[1].strip()
+            
+            # Validate and normalize mint
+            original_mint = mint
+            mint = normalize_mint(mint)
+            if not is_valid_mint(mint):
+                return {"status":"ok","response":f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`"}
+            
             try:
                 wl = _load_watchlist()
                 if _watch_contains(wl, mint):
@@ -1765,6 +1776,12 @@ def process_telegram_command(update: dict):
                 return {"status":"ok","response":f"Internal error: {e}"}
 
         elif cmd == "/unwatch" and args:
+            # Validate and normalize mint
+            original_args = args
+            args = normalize_mint(args)
+            if not is_valid_mint(args):
+                return _reply(f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_args}`")
+                
             cfg = _watch_load()
             if args in cfg["mints"]:
                 cfg["mints"].remove(args)
@@ -1805,6 +1822,13 @@ def process_telegram_command(update: dict):
             if len(parts) < 2:
                 return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
             mint = parts[1].strip()
+            
+            # Validate and normalize mint
+            original_mint = mint
+            mint = normalize_mint(mint)
+            if not is_valid_mint(mint):
+                return {"status":"ok","response":f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`"}
+            
             try:
                 wl = _load_watchlist()
                 before = len(wl)
