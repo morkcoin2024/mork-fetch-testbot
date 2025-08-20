@@ -64,6 +64,73 @@ def _name_cache_save(d):
     except Exception:
         pass
 
+def _name_from_solscan(mint: str):
+    # Pro key first (optional), then public
+    key = os.getenv("SOLSCAN_API_KEY","").strip()
+    if key:
+        url = "https://pro-api.solscan.io/v1.0/market/token/meta"
+        out = _http_get_json(url, headers={"token": key}, params={"address": mint})
+        if out and isinstance(out, dict):
+            sym = (out.get("symbol") or "").strip()
+            name = (out.get("name") or "").strip()
+            if sym or name:
+                return {"symbol": sym, "name": name, "src": "solscan-pro"}
+    # Public
+    out = _http_get_json("https://api.solscan.io/token/meta", params={"address": mint})
+    if not out or not isinstance(out, dict): 
+        out = _http_get_json("https://public-api.solscan.io/token/meta", params={"tokenAddress": mint})
+    if out and isinstance(out, dict):
+        # public returns { "symbol": "...", "tokenName": "..." }
+        sym = (out.get("symbol") or "").strip()
+        name = (out.get("tokenName") or out.get("name") or "").strip()
+        if sym or name:
+            return {"symbol": sym, "name": name, "src": "solscan"}
+    return None
+
+def _name_from_dexscreener(mint: str):
+    out = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}")
+    if not out or "pairs" not in out or not out["pairs"]:
+        return None
+    # Prefer a SOL pair with the mint as baseToken
+    for p in out["pairs"]:
+        base = (p.get("baseToken") or {})
+        if base.get("address") == mint:
+            sym = (base.get("symbol") or "").strip()
+            name = (base.get("name") or "").strip()
+            if sym or name:
+                return {"symbol": sym, "name": name, "src": "dexscreener"}
+    # Fallback first pair
+    base = (out["pairs"][0].get("baseToken") or {})
+    sym = (base.get("symbol") or "").strip()
+    name = (base.get("name") or "").strip()
+    if sym or name:
+        return {"symbol": sym, "name": name, "src": "dexscreener"}
+    return None
+
+def _name_from_jupiter(mint: str):
+    # Cache Jupiter list for 24h
+    try:
+        stat = os.stat(JUP_CACHE_PATH)
+        fresh = (time.time() - stat.st_mtime) < 24*3600
+    except Exception:
+        fresh = False
+    if not fresh:
+        data = _http_get_json("https://tokens.jup.ag/strict")
+        if isinstance(data, list) and data:
+            try: json.dump(data, open(JUP_CACHE_PATH, "w"))
+            except Exception: pass
+    try:
+        data = json.load(open(JUP_CACHE_PATH))
+    except Exception:
+        data = []
+    for t in data:
+        if (t.get("address") or "").strip() == mint:
+            sym = (t.get("symbol") or "").strip()
+            name = (t.get("name") or "").strip()
+            if sym or name:
+                return {"symbol": sym, "name": name, "src": "jupiter"}
+    return None
+
 def _load_json(p):
     try:
         import json, os
