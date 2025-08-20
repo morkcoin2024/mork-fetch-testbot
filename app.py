@@ -26,6 +26,7 @@ APP_BUILD_TAG = time.strftime("%Y-%m-%dT%H:%M:%S")
 # Persists last seen price per mint; honors your alerts_config.json thresholds.
 ALERTS_CFG_PATH = os.getenv("ALERTS_CFG_PATH", "alerts_config.json")
 ALERTS_BASE_PATH = os.getenv("ALERTS_BASE_PATH", "alerts_price_baseline.json")
+WATCH_STATE_PATH = "watch_state.json"  # per-mint state: last_price, last_alert_ts
 
 _PRICE_BLOCK_RE = re.compile(
     r"\*\*Price Lookup:\*\*\s*`([A-Za-z0-9:_\-\.]+).*?\*\*Current Price:\*\*\s*\$([0-9]*\.?[0-9]+).*?\*\*Source:\*\*\s*([a-zA-Z0-9_\(\)\s]+)",
@@ -280,6 +281,109 @@ def alerts_send(text, force=False):
         return response.json() if response.status_code == 200 else {"ok": False, "description": f"HTTP {response.status_code}"}
     except Exception as e:
         return {"ok": False, "description": str(e)}
+
+# --- Enhanced Watch State System: per-mint tracking with sophisticated rate limiting ---
+
+def _watch_state_load():
+    """Load watch state with per-mint tracking."""
+    return load_json(WATCH_STATE_PATH, {})
+
+def _watch_state_save(st):
+    """Save watch state with per-mint tracking."""
+    save_json(WATCH_STATE_PATH, st)
+    return st
+
+def _alerts_can_send(now_ts: int, cfg: dict, st: dict, mint: str) -> tuple[bool, str]:
+    """Enforce mute + global per-minute rate by tracking last N sent timestamps."""
+    if cfg.get("muted"):
+        return False, "muted"
+    rpm = int(cfg.get("rate_per_min", 60))
+    # global bucket
+    g = st.setdefault("_global", {"sent_ts": []})
+    g["sent_ts"] = [t for t in g["sent_ts"] if now_ts - t < 60]
+    if len(g["sent_ts"]) >= rpm:
+        return False, f"rate>{rpm}/min"
+    return True, ""
+
+def _alerts_mark_sent(now_ts: int, st: dict):
+    """Mark timestamp of sent alert in global rate limiting bucket."""
+    g = st.setdefault("_global", {"sent_ts": []})
+    g["sent_ts"].append(now_ts)
+
+def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|None=None) -> tuple[bool, str]:
+    """
+    Compare current price vs last baseline, send alert if |Δ| >= min_move_pct.
+    Returns (alert_sent, note). Safe if price is None.
+    """
+    import time
+    now_ts = now_ts or int(time.time())
+    if price is None:
+        return False, "no_price"
+    
+    cfg = _load_alerts_cfg()  # Use existing enhanced config loader
+    chat = cfg.get("chat_id")  # Use chat_id key from existing system
+    min_move = _as_float(cfg.get("min_move_pct"), 0.0)  # Use enhanced float parser
+
+    st = _watch_state_load()
+    mint_st = st.setdefault(mint, {})
+    last = mint_st.get("last_price")
+
+    # Always record latest price for next tick
+    mint_st["last_price"] = price
+    mint_st["last_src"] = src
+    mint_st["last_ts"] = now_ts
+
+    if last is None or min_move <= 0:
+        _watch_state_save(st)
+        return False, "baseline_set"
+
+    try:
+        last_f = _as_float(last, 0.0)
+        if last_f is None or last_f <= 0:
+            _watch_state_save(st)
+            return False, "invalid_baseline"
+        delta_pct = (price - last_f) / last_f * 100.0
+    except Exception:
+        _watch_state_save(st)
+        return False, "calc_err"
+
+    if abs(delta_pct) < min_move:
+        _watch_state_save(st)
+        return False, f"below_{min_move}%"
+
+    can, why = _alerts_can_send(now_ts, cfg, st, mint)
+    if not can:
+        _watch_state_save(st)
+        return False, why
+
+    # Build alert message
+    arrow = "📈" if delta_pct >= 0 else "📉"
+    text = (
+        f"{arrow} *ALERT* `{mint[:10]}..`\n"
+        f"*Δ:* {delta_pct:+.2f}%   *price:* ${price:.6f}\n"
+        f"*src:* {src}"
+    )
+    
+    if chat:
+        try:
+            # Use existing alerts_send system for consistent behavior
+            result = alerts_send(text)
+            if result.get("ok"):
+                _alerts_mark_sent(now_ts, st)
+                mint_st["last_alert_ts"] = now_ts
+                _watch_state_save(st)
+                return True, "sent"
+            else:
+                mint_st["last_err"] = result.get("description", "send_failed")
+                _watch_state_save(st)
+                return False, "send_err"
+        except Exception as e:
+            mint_st["last_err"] = str(e)
+            _watch_state_save(st)
+            return False, "send_err"
+    else:
+        _watch_state_save(st)
+        return False, "no_chat"
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
@@ -538,12 +642,21 @@ def watch_tick_once(send_alerts=False):
 
         lines.append(f"- {mint[:5]}..  last=${price:.6f}  Δ={delta:+.2f}%  src={source}")
 
-        if abs(delta) >= min_move and send_alerts and 'alerts_send' in globals():
+        # Enhanced dual-layer alert processing
+        if send_alerts and abs(delta) >= min_move:
             try:
-                alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={source}")
-                fired += 1
+                # Use enhanced watch_eval_and_alert for sophisticated tracking
+                alert_sent, note = watch_eval_and_alert(mint, price, source)
+                if alert_sent:
+                    fired += 1
             except Exception:
-                pass
+                # Fallback to simple alert system
+                try:
+                    if 'alerts_send' in globals():
+                        alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={source}")
+                        fired += 1
+                except Exception:
+                    pass
 
     _save_watchlist(new_wl)
     return checked, fired, lines
