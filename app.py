@@ -1541,10 +1541,13 @@ def _ensure_scanners():
                     digest_thread.start()
                     logger.info("Digest scheduler thread started")
                     
-                    # Start alerts background ticker if enabled
-                    if ALERTS_TICK_DEFAULT > 0:
-                        alerts_auto_on(ALERTS_TICK_DEFAULT)
-                        logger.info(f"Alerts background ticker started ({ALERTS_TICK_INTERVAL}s interval)")
+                    # Auto-start alerts ticker if enabled by env
+                    try:
+                        if int(ALERTS_TICK_DEFAULT) > 0:
+                            alerts_auto_on(ALERTS_TICK_DEFAULT)
+                            logger.info("Digest + Alerts ticker threads ready")
+                    except Exception:
+                        logger.exception("Failed to start alerts auto ticker")
                 else:
                     logger.warning("Failed to start telegram polling service")
             except Exception as e:
