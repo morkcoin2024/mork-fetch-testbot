@@ -66,6 +66,50 @@ def _load_baseline():
 def _save_baseline(b):
     _save_json(BASELINE_PATH, b)
 
+# --- Token label resolver (Birdeye) -----------------------------------------
+TOKEN_META_PATH = "token_meta_cache.json"
+
+def _token_label(mint: str) -> str:
+    """Return 'SYMBOL (So11…1112)' if we can resolve it, else short mint."""
+    short = f"{mint[:4]}…{mint[-4:]}"
+    # cache hit (24h TTL)
+    try:
+        cache = json.load(open(TOKEN_META_PATH))
+    except Exception:
+        cache = {}
+    ent = cache.get(mint) or {}
+    if int(time.time()) - int(ent.get("ts", 0)) < 24 * 3600:
+        lab = ent.get("symbol") or ent.get("name")
+        if lab:
+            return f"{lab} ({short})"
+
+    # Birdeye lookup
+    try:
+        headers = {
+            "X-API-KEY": os.getenv("BIRDEYE_API_KEY", ""),
+            "X-Chain": "solana",
+        }
+        qp = {"address": mint, "chain": "solana"}
+        r = requests.get(
+            "https://public-api.birdeye.so/defi/v3/token/market-data",
+            headers=headers, params=qp, timeout=6
+        )
+        if r.status_code == 200:
+            d = r.json().get("data") or {}
+            sym = d.get("symbol") or d.get("baseTokenSymbol") or d.get("tokenSymbol")
+            name = d.get("name") or d.get("baseTokenName") or d.get("tokenName")
+            if sym or name:
+                cache[mint] = {"symbol": sym, "name": name, "ts": int(time.time())}
+                json.dump(cache, open(TOKEN_META_PATH, "w"))
+                return f"{(sym or name)} ({short})"
+        else:
+            logger.info("token label miss %s -> %s", mint, r.status_code)
+    except Exception as e:
+        logger.warning("token label lookup failed for %s: %s", mint, e)
+
+    return short
+# ---------------------------------------------------------------------------
+
 # --- BEGIN: alerts HTML sender ---
 import time, requests
 from html import escape as _h
@@ -159,8 +203,9 @@ def watch_tick_internal() -> str:
         else:
             tri = "△"
         
-        # Display line with colorized arrow and real baseline delta
-        out_lines.append(f"- `{mint[:12]}..` {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
+        # Display line with colorized arrow, token label, and real baseline delta
+        token_label = _token_label(mint)
+        out_lines.append(f"- {token_label} {tri} last=${last_price:.6f} Δ={delta_pct:+.4f}% src={source}")
         
         # Only call alert hook if we have a real price
         if last_price > 0:
@@ -2182,7 +2227,8 @@ def process_telegram_command(update: dict):
                     src = it.get("src") or "n/a"
                     last_s = f"${last:.6f}" if isinstance(last,(int,float)) else "?"
                     delta_s = f"{delta:+.2f}%" if isinstance(delta,(int,float)) else "?"
-                    lines.append(f"- `{mint[:14]}..`  last={last_s}  Δ={delta_s}  src={src}")
+                    token_label = _token_label(mint)
+                    lines.append(f"- {token_label}  last={last_s}  Δ={delta_s}  src={src}")
                 body = "\n".join(lines)
                 return {"status":"ok","response":f"📄 *Watchlist:*\n{body}","parse_mode":"Markdown"}
             except Exception as e:
