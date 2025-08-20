@@ -108,6 +108,26 @@ def _save_token_cache(d):
 def _short(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
 
+def _clean_name(s: str) -> str | None:
+    """Normalize token names; strip marketing fluff. Keep acronyms if it looks like a symbol."""
+    if not s or not isinstance(s, str):
+        return None
+    s = s.replace("\u200b", "").replace("\ufeff", "").strip()
+    low = s.lower().strip()
+    # Drop leading "the "
+    low = re.sub(r"^\s*the\s+", "", low)
+    # Drop trailing generic words
+    low = re.sub(r"\s+(coin|token|cryptocurrency)$", "", low)
+    # Collapse spaces
+    low = re.sub(r"\s+", " ", low).strip()
+    # If it looks like a short symbol (<=6, mostly uppercase), keep as-is from original
+    if len(s) <= 6 and (s.isupper() or re.fullmatch(r"[A-Z0-9]{2,6}", s)):
+        return s
+    # Title-case the cleaned marketing text
+    cleaned = low.title()
+    # Safety clamp
+    return cleaned[:64] or None
+
 def resolve_token_name(mint: str) -> str:
     """
     Best-effort token name resolver with 24h cache.
@@ -128,7 +148,7 @@ def resolve_token_name(mint: str) -> str:
         _save_token_cache(cache)
         return name
 
-    # Try Birdeye v3 market-data (needs BIRDEYE_API_KEY)
+    # Try Birdeye v3 market-data (needs BIRDEYE_API_KEY). Prefer *name* first.
     try:
         api = os.getenv("BIRDEYE_API_KEY", "")
         if api:
@@ -137,16 +157,18 @@ def resolve_token_name(mint: str) -> str:
             r = requests.get(url, params={"address": mint, "chain": "solana"}, headers=h, timeout=(5, 10))
             if r.status_code == 200:
                 data = r.json().get("data") or {}
-                # Try common fields
-                name = data.get("name") or (data.get("token_info") or {}).get("name") or (data.get("token_info") or {}).get("symbol")
-                if name:
-                    cache[mint] = {"name": name, "ts": now}
-                    _save_token_cache(cache)
-                    return name
+                ti = data.get("token_info") or {}
+                # Prefer *name*, then fallback to symbol; clean each candidate
+                for cand in (ti.get("name"), data.get("name"), ti.get("symbol")):
+                    name = _clean_name(cand)
+                    if name:
+                        cache[mint] = {"name": name, "ts": now}
+                        _save_token_cache(cache)
+                        return name
     except Exception:
         pass
 
-    # Try Dexscreener (no key). tokens endpoint by address.
+    # Try Dexscreener (no key). Prefer baseToken.name (cleaned) then baseToken.symbol.
     try:
         r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
         if r.status_code == 200:
@@ -156,11 +178,12 @@ def resolve_token_name(mint: str) -> str:
                 # choose the first pair; prefer baseToken name/symbol
                 p0 = pairs[0]
                 bt = p0.get("baseToken") or {}
-                name = bt.get("name") or bt.get("symbol")
-                if name:
-                    cache[mint] = {"name": name, "ts": now}
-                    _save_token_cache(cache)
-                    return name
+                for cand in (bt.get("name"), bt.get("symbol")):
+                    name = _clean_name(cand)
+                    if name:
+                        cache[mint] = {"name": name, "ts": now}
+                        _save_token_cache(cache)
+                        return name
     except Exception:
         pass
 
