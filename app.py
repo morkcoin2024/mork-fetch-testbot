@@ -40,6 +40,29 @@ def is_valid_mint(m: str) -> bool:
 
 # Baseline and configuration helpers
 BASELINE_PATH = "alerts_price_baseline.json"
+NAME_CACHE_PATH = "token_names.json"
+JUP_CACHE_PATH  = "jup_tokens.json"
+
+def _http_get_json(url, headers=None, params=None, timeout=8):
+    try:
+        r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+def _name_cache_load():
+    try:
+        return json.load(open(NAME_CACHE_PATH))
+    except Exception:
+        return {}
+
+def _name_cache_save(d):
+    try:
+        json.dump(d, open(NAME_CACHE_PATH, "w"))
+    except Exception:
+        pass
 
 def _load_json(p):
     try:
