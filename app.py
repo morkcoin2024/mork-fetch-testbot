@@ -23,6 +23,9 @@ ALERTS_TICK_INTERVAL = ALERTS_TICK_DEFAULT
 ALERTS_TICK_STOP = None
 ALERTS_TICK_THREAD = None
 
+# Guard against shadowing: top-level reference to ok function (defined later)
+RESP_OK = None
+
 # Add near top of file (helpers)
 BIRDEYE_MINT_ALIASES = {
     "SOL": "So11111111111111111111111111111111111111112",  # wSOL
@@ -1811,6 +1814,10 @@ def process_telegram_command(update: dict):
         formatted_text = f"✅ *{title}*\n{body}"
         return _reply(formatted_text)
     
+    # Set the global reference to avoid any shadowing issues
+    global RESP_OK
+    RESP_OK = ok
+    
     import time
     start_time = time.time()
     user_id = user.get('id')
@@ -2155,7 +2162,7 @@ def process_telegram_command(update: dict):
         # public watch controls
         elif cmd == "/watch_tick":
             text = watch_tick_internal()
-            return ok("Watch tick", text)
+            return RESP_OK("Watch tick", text)
 
         elif cmd == "/watch_off":
             parts = text.split(maxsplit=1)
