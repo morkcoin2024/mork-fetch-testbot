@@ -841,51 +841,32 @@ def price_dex(mint, timeout=6):
 
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
 def price_birdeye(mint: str):
-    """
-    Robust Birdeye price fetcher:
-      1) /defi/price
-      2) /public/price
-      3) /defi/v3/token/market-data
-      4) /public/multi_price
-      5) /defi/multi_price
-    Accepts data.value, data.price*, market fields, or data[addr].value (multi).
-    """
     import os, requests, math, json
-    
-    # Validate and normalize mint
-    mint = normalize_mint(mint)
-    if not is_valid_mint(mint):
-        return {"ok": False, "err": f"birdeye invalid mint: {mint}"}
-    
     api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not api_key:
         return {"ok": False, "err": "birdeye missing api key"}
-
+    mint = normalize_mint(mint)
+    if not is_valid_mint(mint):
+        return {"ok": False, "err": "invalid mint format"}
     sess = requests.Session()
     base = "https://public-api.birdeye.so"
     headers = {
         "X-API-KEY": api_key,
         "Accept": "application/json",
-        # some routes accept chain only as query; we still send the header harmlessly
-        "X-Chain": "solana",
         "User-Agent": "fetch-bot/1.0",
     }
-
     def _req(path, params=None, multi=False):
         url = f"{base}{path}"
         qp = {"chain": "solana"}
         if multi:
-            qp["list_address"] = mint  # Fixed: use list_address for multi endpoints
+            # Birdeye expects 'list_address' for multi endpoints
+            qp["list_address"] = mint
         else:
             qp["address"] = mint
         if params:
             qp.update(params)
         r = sess.get(url, headers=headers, params=qp, timeout=8)
-        body_snip = ""
-        try:
-            body_snip = r.text[:120].replace("\n"," ")
-        except Exception:
-            pass
+        body_snip = (r.text or "")[:120].replace("\n", " ")
         print(f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp,separators=(',',':'))} body~={body_snip!r}")
         if r.status_code != 200:
             return None
@@ -893,52 +874,41 @@ def price_birdeye(mint: str):
             return r.json()
         except Exception:
             return None
-
     def _extract_price(j):
-        if not j:
-            return None
+        if not j: return None
         d = j.get("data") or {}
-        # simple scalar fields
         for k in ("value","price","priceUsd","price_usd","market_price_usd"):
             v = d.get(k)
-            if v is not None:
-                try:
-                    f = float(v)
-                    if math.isfinite(f) and f > 0:
-                        return f
-                except Exception:
-                    pass
-        # v3 market-data sometimes nests price-like fields
+            try:
+                f = float(v)
+                if math.isfinite(f) and f > 0: return f
+            except Exception:
+                pass
+        # multi_price: {"data":{"<mint>":{"value":...}}}
+        node = d.get(mint)
+        if isinstance(node, dict) and "value" in node:
+            try:
+                f = float(node["value"])
+                if math.isfinite(f) and f > 0: return f
+            except Exception:
+                pass
+        # v3 token market-data sometimes nests price-like fields
         if isinstance(d, dict):
-            for k, v in d.items():
-                if isinstance(v, (int,float)) and "price" in k and v > 0:
+            for k,v in d.items():
+                if isinstance(v,(int,float)) and "price" in k and v>0:
                     return float(v)
-        # multi_price shape: {"data": { "<addr>": {"value": 178.12, ...} } }
-        if isinstance(d, dict):
-            node = d.get(mint)
-            if isinstance(node, dict):
-                v = node.get("value")
-                try:
-                    f = float(v)
-                    if math.isfinite(f) and f > 0:
-                        return f
-                except Exception:
-                    pass
         return None
-
-    # 1) /defi/price
-    for path, kwargs in [
-        ("/defi/price",          {"multi": False}),
-        ("/public/price",        {"multi": False}),
-        ("/defi/v3/token/market-data", {"multi": False}),
-        ("/public/multi_price",  {"multi": True}),
-        ("/defi/multi_price",    {"multi": True}),
+    for path, multi in [
+        ("/defi/price", False),
+        ("/public/price", False),
+        ("/defi/v3/token/market-data", False),
+        ("/public/multi_price", True),
+        ("/defi/multi_price", True),
     ]:
-        j = _req(path, multi=kwargs["multi"])
+        j = _req(path, multi=multi)
         p = _extract_price(j)
         if p:
             return {"ok": True, "price": p, "source": "birdeye"}
-
     return {"ok": False, "err": "birdeye all endpoints failed"}
 
 def get_price(mint, preferred=None):
