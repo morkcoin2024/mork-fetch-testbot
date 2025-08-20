@@ -85,6 +85,22 @@ def _alerts_send_html(chat_id: int, text: str):
 
 # --- END: alerts HTML sender ---
 
+def _format_price_alert_html(mint: str, price: float, base: float, delta_pct: float, src: str):
+    arrow = "🟢▲" if price >= base else "🔴▼"
+    # Safe HTML: code tag for mint, escape any text fields
+    return (
+        f"<b>Price Alert</b> {arrow}\n"
+        f"<b>Mint:</b> <code>{_h(mint)}</code>\n"
+        f"<b>Price:</b> ${price:,.6f}\n"
+        f"<b>Change:</b> {delta_pct:+.2f}%\n"
+        f"<b>Baseline:</b> ${base:,.6f}\n"
+        f"<b>Source:</b> {_h(src)}"
+    )
+
+def _alerts_try_send(chat_id: int, mint: str, price: float, base: float, delta_pct: float, src: str):
+    text = _format_price_alert_html(mint, price, base, delta_pct, src)
+    return _alerts_send_html(chat_id, text)
+
 def _active_price_source():
     """Read what /source set; default to birdeye"""
     try:
@@ -234,14 +250,8 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
 
     # Send and update
     if should_alert:
-        arrow = "🔴▼" if delta_pct < 0 else "🟢▲"
-        # Use HTML format to avoid MarkdownV2 parsing issues
-        msg = (f"<b>Price Alert {arrow} {delta_pct:+.2f}%</b>\n"
-               f"<code>{_h(mint[:12])}..</code>\n"
-               f"<b>Price:</b> ${price:.6f}\n"
-               f"<b>Source:</b> {_h(src)}")
         try:
-            _alerts_send_html(chat_id, msg)
+            _alerts_try_send(chat_id, mint, price, base_price, delta_pct, src)
         except Exception as e:
             pylog.exception("HTML alert send failed: %s", e)
         base[rl_key] = now
