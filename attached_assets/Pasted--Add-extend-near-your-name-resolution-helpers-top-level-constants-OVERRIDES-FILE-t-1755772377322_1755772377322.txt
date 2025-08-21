@@ -1,0 +1,151 @@
+# ===== Add/extend near your name-resolution helpers (top-level constants) =====
+OVERRIDES_FILE = "token_overrides.json"
+
+def _load_json_safe(path):
+    try:
+        import json
+        return json.load(open(path))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _save_json_safe(path, data):
+    try:
+        import json
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+# ----- overrides helpers -----
+def _name_overrides_get(mint: str) -> tuple[str|None, str|None]:
+    o = _load_json_safe(OVERRIDES_FILE)
+    d = o.get(mint) or {}
+    return d.get("primary"), d.get("secondary")
+
+def _name_overrides_set(mint: str, primary: str|None, secondary: str|None):
+    o = _load_json_safe(OVERRIDES_FILE)
+    o[mint] = {"primary": primary, "secondary": secondary, "ts": __import__("time").time()}
+    _save_json_safe(OVERRIDES_FILE, o)
+
+def _name_overrides_clear(mint: str):
+    o = _load_json_safe(OVERRIDES_FILE)
+    if mint in o:
+        o.pop(mint, None)
+        _save_json_safe(OVERRIDES_FILE, o)
+
+# ----- heuristic primary from secondary (when APIs fail to give a symbol) -----
+_STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
+def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
+    if not sec:
+        return None
+    import re
+    # Split by non-letters, choose a decent “brand” word
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", sec) if w]
+    # Prefer a 3–8 length word that’s not a stopword
+    cands = [w for w in words if 3 <= len(w) <= 12 and w.upper() not in _STOPWORDS]
+    if not cands and words:
+        cands = words
+    if not cands:
+        return None
+    pick = max(cands, key=len)  # longest is often “PUDGY”, “LIGHT”, etc
+    sym = re.sub(r"[^A-Za-z0-9]", "", pick).upper()
+    return sym if 2 <= len(sym) <= 12 else None
+
+# ===== In your existing resolve_token_name(), insert overrides + heuristic =====
+def resolve_token_name(mint: str, refresh: bool=False) -> str:
+    # 1) Hard-coded SOL pseudo-mint stays as-is
+    if mint == "So11111111111111111111111111111111111111112":
+        primary, secondary = "SOL", "Solana"
+        cache = _load_json_safe(NAME_CACHE_FILE); cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(__import__("time").time())}
+        _save_json_safe(NAME_CACHE_FILE, cache)
+        return f"{primary}\n{secondary}"
+
+    # 2) Local overrides take top priority unless refresh=True
+    if not refresh:
+        p0, s0 = _name_overrides_get(mint)
+        if p0 or s0:
+            return f"{p0}\n{s0}" if (p0 and s0 and s0.upper()!=p0) else (p0 or s0)
+
+    # 3) Cached value next
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    if not refresh and isinstance(cache.get(mint), dict):
+        p, s = cache[mint].get("primary"), cache[mint].get("secondary")
+        if p or s:
+            return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
+
+    # 4) Probe live sources + Jupiter catalog (you already have these helpers)
+    cands = []
+    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan, _name_from_jup_catalog):
+        try:
+            cands.append(fn(mint))
+        except Exception:
+            continue
+
+    # 5) Pick best
+    primary = next((p for p,s in cands if p), None)
+    secondary = next((s for p,s in cands if s), None)
+
+    # 6) If still no symbol, derive one from secondary (heuristic)
+    if not primary and secondary:
+        primary = _heuristic_primary_from_secondary(secondary)
+
+    # 7) Absolute last resort: short mint
+    if not primary and not secondary:
+        short = f"{mint[:4]}..{mint[-4:]}"
+        primary = short; secondary = short
+    if not secondary:
+        secondary = primary
+
+    # 8) Cache & return
+    cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(__import__("time").time())}
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    return f"{primary}\n{secondary}" if (secondary and secondary.upper()!=primary) else primary
+
+# ===== Router commands =====
+# In process_telegram_command(), add these handlers near your other admin/basic commands:
+
+elif cmd == "/name_set":
+    # Usage: /name_set <mint> <TICKER>|<Long Name>
+    if len(parts) < 3 or "|" not in text:
+        tg_send(chat_id, "Usage: /name_set <mint> <TICKER>|<Long Name>", preview=False)
+        return {"status":"error","err":"bad args"}
+    mint = parts[1].strip()
+    rest = text.split(None, 2)[2]
+    ticker, longname = [x.strip() for x in rest.split("|", 1)]
+    _name_overrides_set(mint, ticker, longname)
+    # also update cache so it shows immediately
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    cache[mint] = {"primary": ticker, "secondary": longname, "ts": int(__import__("time").time())}
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    tg_send(chat_id, f"✅ Name override saved:\n{mint}\n{ticker}\n{longname}", preview=False)
+    return {"status":"ok"}
+
+elif cmd == "/name_show":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_show <mint>", preview=False)
+        return {"status":"error","err":"missing mint"}
+    mint = parts[1].strip()
+    p0, s0 = _name_overrides_get(mint)
+    cache = _load_json_safe(NAME_CACHE_FILE).get(mint) or {}
+    msg = [
+        "*Name status*",
+        f"Mint: `{mint}`",
+        f"Override: {p0 or '—'} / {s0 or '—'}",
+        f"Cache: {cache.get('primary') or '—'} / {cache.get('secondary') or '—'}",
+    ]
+    tg_send(chat_id, "\n".join(msg), preview=True)
+    return {"status":"ok"}
+
+elif cmd == "/name_clear":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_clear <mint>", preview=False)
+        return {"status":"error","err":"missing mint"}
+    mint = parts[1].strip()
+    _name_overrides_clear(mint)
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    cache.pop(mint, None)
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    tg_send(chat_id, f"🧹 Cleared name override & cache for:\n`{mint}`", preview=True)
+    return {"status":"ok"}

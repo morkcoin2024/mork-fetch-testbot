@@ -45,6 +45,7 @@ JUP_CACHE_PATH  = "jup_tokens.json"
 NAME_CACHE_FILE = "token_names.json"
 JUP_CATALOG_FILE = "jupiter_tokens.json"
 JUP_CATALOG_TTL = 24 * 60 * 60  # 24h
+OVERRIDES_FILE = "token_overrides.json"
 
 def _load_json_safe(path):
     try:
@@ -142,6 +143,40 @@ def _name_from_jup_catalog(mint: str) -> tuple[str|None, str|None]:
     cat = _ensure_jup_catalog()
     d = (cat.get("by_mint") or {}).get(mint) or {}
     return _normalize_symbol(d.get("symbol")), d.get("name")
+
+# ===== Name overrides system =====
+def _name_overrides_get(mint: str) -> tuple[str|None, str|None]:
+    o = _load_json_safe(OVERRIDES_FILE)
+    d = o.get(mint) or {}
+    return d.get("primary"), d.get("secondary")
+
+def _name_overrides_set(mint: str, primary: str|None, secondary: str|None):
+    o = _load_json_safe(OVERRIDES_FILE)
+    o[mint] = {"primary": primary, "secondary": secondary, "ts": time.time()}
+    _save_json_safe(OVERRIDES_FILE, o)
+
+def _name_overrides_clear(mint: str):
+    o = _load_json_safe(OVERRIDES_FILE)
+    if mint in o:
+        o.pop(mint, None)
+        _save_json_safe(OVERRIDES_FILE, o)
+
+# ===== Heuristic primary extraction =====
+_STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
+def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
+    if not sec:
+        return None
+    # Split by non-letters, choose a decent "brand" word
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", sec) if w]
+    # Prefer a 3–8 length word that's not a stopword
+    cands = [w for w in words if 3 <= len(w) <= 12 and w.upper() not in _STOPWORDS]
+    if not cands and words:
+        cands = words
+    if not cands:
+        return None
+    pick = max(cands, key=len)  # longest is often "PUDGY", "LIGHT", etc
+    sym = re.sub(r"[^A-Za-z0-9]", "", pick).upper()
+    return sym if 2 <= len(sym) <= 12 else None
 
 def _choose_name(candidates: list[tuple[str|None, str|None]]):
     # Filter out None candidates and handle safely
@@ -678,43 +713,56 @@ def resolve_token_name(mint: str, refresh: bool=False) -> str:
     - If only one: that single string
     Caches {'primary','secondary','ts'} in token_names.json
     """
-    # special-case SOL pseudo-mint
-    if mint in ("So11111111111111111111111111111111111111112",):
+    # 1) Hard-coded SOL pseudo-mint stays as-is
+    if mint == "So11111111111111111111111111111111111111112":
         primary, secondary = "SOL", "Solana"
         cache = _load_json_safe(NAME_CACHE_FILE)
         cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
         _save_json_safe(NAME_CACHE_FILE, cache)
         return f"{primary}\n{secondary}"
 
+    # 2) Local overrides take top priority unless refresh=True
+    if not refresh:
+        p0, s0 = _name_overrides_get(mint)
+        if p0 or s0:
+            return f"{p0}\n{s0}" if (p0 and s0 and s0.upper()!=p0) else (p0 or s0)
+
+    # 3) Cached value next
     cache = _load_json_safe(NAME_CACHE_FILE)
     if not refresh and isinstance(cache.get(mint), dict):
-        entry = cache[mint]
-        p, s = entry.get("primary"), entry.get("secondary")
+        p, s = cache[mint].get("primary"), cache[mint].get("secondary")
         if p or s:
             return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
 
-    # multi-source sweep: live sources first, then Jupiter catalog fallback
+    # 4) Probe live sources + Jupiter catalog
     cands = []
     for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan, _name_from_jup_catalog):
         try:
             cands.append(fn(mint))
         except Exception:
             continue
-    primary, secondary = _choose_name(cands)
 
-    # ultimate fallback: short mint both lines
+    # 5) Pick best
+    valid_cands = [c for c in cands if c is not None and isinstance(c, tuple)]
+    primary = next((p for p,s in valid_cands if p), None)
+    secondary = next((s for p,s in valid_cands if s), None)
+
+    # 6) If still no symbol, derive one from secondary (heuristic)
+    if not primary and secondary:
+        primary = _heuristic_primary_from_secondary(secondary)
+
+    # 7) Absolute last resort: short mint
     if not primary and not secondary:
         short = _short_mint(mint)
         primary = short
         secondary = short
-
-    # if secondary missing, show at least primary as both lines in UI context
     if not secondary:
         secondary = primary
 
+    # 8) Cache & return
     cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
     _save_json_safe(NAME_CACHE_FILE, cache)
-    return f"{primary}\n{secondary}" if secondary and secondary.upper()!=primary else primary
+    return f"{primary}\n{secondary}" if (secondary and secondary.upper()!=primary) else primary
 
 def _alert_label(mint: str) -> str:
     p, s = _token_labels(mint)
@@ -2829,7 +2877,10 @@ def process_telegram_command(update: dict):
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n" + \
                        "/name_refresh <mint> - Refresh token name cache\n" + \
-                       "/name_refetch_jup - Refresh Jupiter catalog\n\n" + \
+                       "/name_refetch_jup - Refresh Jupiter catalog\n" + \
+                       "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
+                       "/name_show <mint> - Show name status & overrides\n" + \
+                       "/name_clear <mint> - Clear name override & cache\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
                        "/autosell_on / /autosell_off - Enable/disable AutoSell\n" + \
                        "/autosell_status - Check AutoSell status\n" + \
@@ -2855,6 +2906,41 @@ def process_telegram_command(update: dict):
         elif cmd == "/name_refetch_jup":
             _ensure_jup_catalog(force=True)
             return _reply("🔄 Jupiter token catalog refreshed (cached for 24h).")
+        elif cmd == "/name_set":
+            # Usage: /name_set <mint> <TICKER>|<Long Name>
+            if len(parts) < 3 or "|" not in msg_text:
+                return _reply("Usage: /name_set <mint> <TICKER>|<Long Name>")
+            mint = parts[1].strip()
+            rest = msg_text.split(None, 2)[2]
+            ticker, longname = [x.strip() for x in rest.split("|", 1)]
+            _name_overrides_set(mint, ticker, longname)
+            # also update cache so it shows immediately
+            cache = _load_json_safe(NAME_CACHE_FILE)
+            cache[mint] = {"primary": ticker, "secondary": longname, "ts": int(time.time())}
+            _save_json_safe(NAME_CACHE_FILE, cache)
+            return _reply(f"✅ Name override saved:\n{mint}\n{ticker}\n{longname}")
+        elif cmd == "/name_show":
+            if len(parts) < 2:
+                return _reply("Usage: /name_show <mint>")
+            mint = parts[1].strip()
+            p0, s0 = _name_overrides_get(mint)
+            cache = _load_json_safe(NAME_CACHE_FILE).get(mint) or {}
+            msg = [
+                "*Name status*",
+                f"Mint: `{mint}`",
+                f"Override: {p0 or '—'} / {s0 or '—'}",
+                f"Cache: {cache.get('primary') or '—'} / {cache.get('secondary') or '—'}",
+            ]
+            return _reply("\n".join(msg))
+        elif cmd == "/name_clear":
+            if len(parts) < 2:
+                return _reply("Usage: /name_clear <mint>")
+            mint = parts[1].strip()
+            _name_overrides_clear(mint)
+            cache = _load_json_safe(NAME_CACHE_FILE)
+            cache.pop(mint, None)
+            _save_json_safe(NAME_CACHE_FILE, cache)
+            return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         elif cmd == "/about":
             if len(parts) < 2:
                 return _reply("Usage: /about <mint>")
