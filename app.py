@@ -43,6 +43,8 @@ BASELINE_PATH = "alerts_price_baseline.json"
 NAME_CACHE_PATH = "token_names.json"
 JUP_CACHE_PATH  = "jup_tokens.json"
 NAME_CACHE_FILE = "token_names.json"
+JUP_CATALOG_FILE = "jupiter_tokens.json"
+JUP_CATALOG_TTL = 24 * 60 * 60  # 24h
 
 def _load_json_safe(path):
     try:
@@ -114,6 +116,31 @@ def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
 
 def _name_from_solscan(mint: str) -> tuple[str|None, str|None]:
     d = _http_get_json("https://api.solscan.io/token/meta", params={"tokenAddress": mint}) or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+# ===== Jupiter catalog (bulk) =====
+def _ensure_jup_catalog(force: bool = False):
+    cat = _load_json_safe(JUP_CATALOG_FILE)
+    ts = int(cat.get("ts", 0))
+    stale = (time.time() - ts) > JUP_CATALOG_TTL
+    if force or stale or not cat.get("by_mint"):
+        arr = _http_get_json("https://tokens.jup.ag/tokens") or []
+        by_mint = {}
+        for t in arr:
+            mint = t.get("address") or t.get("mint") or t.get("id")
+            if not mint:
+                continue
+            sym = _normalize_symbol(t.get("symbol"))
+            name = t.get("name")
+            if sym or name:
+                by_mint[mint] = {"symbol": sym, "name": name}
+        cat = {"ts": int(time.time()), "by_mint": by_mint}
+        _save_json_safe(JUP_CATALOG_FILE, cat)
+    return cat
+
+def _name_from_jup_catalog(mint: str) -> tuple[str|None, str|None]:
+    cat = _ensure_jup_catalog()
+    d = (cat.get("by_mint") or {}).get(mint) or {}
     return _normalize_symbol(d.get("symbol")), d.get("name")
 
 def _choose_name(candidates: list[tuple[str|None, str|None]]):
@@ -666,9 +693,9 @@ def resolve_token_name(mint: str, refresh: bool=False) -> str:
         if p or s:
             return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
 
-    # multi-source sweep (prefer short/ticker first)
+    # multi-source sweep: live sources first, then Jupiter catalog fallback
     cands = []
-    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan):
+    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan, _name_from_jup_catalog):
         try:
             cands.append(fn(mint))
         except Exception:
@@ -2800,7 +2827,9 @@ def process_telegram_command(update: dict):
                        "/alerts_auto_off - Disable continuous scanning\n" + \
                        "/alerts_auto_status - Show auto-scan status\n" + \
                        "/fetch - Basic token fetch\n" + \
-                       "/fetch_now - Multi-source fetch\n\n" + \
+                       "/fetch_now - Multi-source fetch\n" + \
+                       "/name_refresh <mint> - Refresh token name cache\n" + \
+                       "/name_refetch_jup - Refresh Jupiter catalog\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
                        "/autosell_on / /autosell_off - Enable/disable AutoSell\n" + \
                        "/autosell_status - Check AutoSell status\n" + \
@@ -2823,6 +2852,9 @@ def process_telegram_command(update: dict):
             # re-resolve immediately
             disp = resolve_token_name(mint, refresh=True)
             return _reply(f"🔄 Name cache refreshed:\n{mint}\n→ {disp}")
+        elif cmd == "/name_refetch_jup":
+            _ensure_jup_catalog(force=True)
+            return _reply("🔄 Jupiter token catalog refreshed (cached for 24h).")
         elif cmd == "/about":
             if len(parts) < 2:
                 return _reply("Usage: /about <mint>")

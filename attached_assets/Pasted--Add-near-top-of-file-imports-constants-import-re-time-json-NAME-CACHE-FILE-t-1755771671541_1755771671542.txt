@@ -1,0 +1,156 @@
+# ===== Add near top of file (imports / constants) =====
+import re, time, json
+
+NAME_CACHE_FILE = "token_names.json"
+JUP_CATALOG_FILE = "jupiter_tokens.json"
+JUP_CATALOG_TTL = 24 * 60 * 60  # 24h
+
+# ===== Small JSON helpers =====
+def _load_json_safe(path):
+    try:
+        return json.load(open(path))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _save_json_safe(path, data):
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+# ===== Formatting helpers =====
+def _normalize_symbol(sym: str | None) -> str | None:
+    if not sym:
+        return None
+    s = re.sub(r"[^A-Za-z0-9]", "", str(sym)).upper()
+    if 2 <= len(s) <= 12:
+        return s
+    return None
+
+def _short_mint(mint: str) -> str:
+    return f"{mint[:4]}..{mint[-4:]}"
+
+# ===== Minimal HTTP helper (or reuse your own if present) =====
+def _http_get_json(url, headers=None, params=None, timeout=8):
+    import requests
+    r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    if r.status_code == 200:
+        try:
+            return r.json()
+        except Exception:
+            return None
+    return None
+
+def _birdeye_headers():
+    import os
+    h = {"X-Chain": "solana"}
+    k = os.getenv("BIRDEYE_API_KEY")
+    if k:
+        h["X-API-KEY"] = k
+    return h
+
+# ===== Name probes (live) =====
+def _name_from_birdeye(mint: str) -> tuple[str|None, str|None]:
+    url = "https://public-api.birdeye.so/defi/v3/token/market-data"
+    d = _http_get_json(url, headers=_birdeye_headers(), params={"address": mint, "chain": "solana"}) or {}
+    dd = d.get("data") or {}
+    sym = _normalize_symbol(dd.get("symbol") or dd.get("tokenSymbol"))
+    sec = dd.get("name") or dd.get("tokenName")
+    return sym, sec
+
+def _name_from_jupiter(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json(f"https://tokens.jup.ag/token/{mint}") or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}") or {}
+    pairs = d.get("pairs") or []
+    if not pairs:
+        return None, None
+    bt = pairs[0].get("baseToken") or {}
+    return _normalize_symbol(bt.get("symbol")), bt.get("name")
+
+def _name_from_solscan(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json("https://api.solscan.io/token/meta", params={"tokenAddress": mint}) or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+# ===== Jupiter catalog (bulk) =====
+def _ensure_jup_catalog(force: bool = False):
+    cat = _load_json_safe(JUP_CATALOG_FILE)
+    ts = int(cat.get("ts", 0))
+    stale = (time.time() - ts) > JUP_CATALOG_TTL
+    if force or stale or not cat.get("by_mint"):
+        arr = _http_get_json("https://tokens.jup.ag/tokens") or []
+        by_mint = {}
+        for t in arr:
+            mint = t.get("address") or t.get("mint") or t.get("id")
+            if not mint:
+                continue
+            sym = _normalize_symbol(t.get("symbol"))
+            name = t.get("name")
+            if sym or name:
+                by_mint[mint] = {"symbol": sym, "name": name}
+        cat = {"ts": int(time.time()), "by_mint": by_mint}
+        _save_json_safe(JUP_CATALOG_FILE, cat)
+    return cat
+
+def _name_from_jup_catalog(mint: str) -> tuple[str|None, str|None]:
+    cat = _ensure_jup_catalog()
+    d = (cat.get("by_mint") or {}).get(mint) or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+# ===== Decision logic =====
+def _choose_name(candidates: list[tuple[str|None, str|None]]):
+    primary = next((p for p, s in candidates if p), None)
+    secondary = next((s for p, s in candidates if s), None)
+    if not primary and secondary:
+        left = re.split(r"[—\-|:]", secondary)[0].strip()
+        p2 = _normalize_symbol(left)
+        if p2:
+            primary = p2
+    return primary, secondary
+
+# ===== Replace your existing resolve_token_name with this =====
+def resolve_token_name(mint: str, refresh: bool=False) -> str:
+    # Special-case SOL pseudo-mint
+    if mint == "So11111111111111111111111111111111111111112":
+        primary, secondary = "SOL", "Solana"
+        cache = _load_json_safe(NAME_CACHE_FILE); cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+        _save_json_safe(NAME_CACHE_FILE, cache)
+        return f"{primary}\n{secondary}"
+
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    if not refresh and isinstance(cache.get(mint), dict):
+        p, s = cache[mint].get("primary"), cache[mint].get("secondary")
+        if p or s:
+            return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
+
+    # Sweep: live sources first, then Jupiter catalog
+    cands = []
+    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan, _name_from_jup_catalog):
+        try:
+            cands.append(fn(mint))
+        except Exception:
+            continue
+    primary, secondary = _choose_name(cands)
+
+    if not primary and not secondary:
+        short = _short_mint(mint)
+        primary = short
+        secondary = short
+    if not secondary:
+        secondary = primary
+
+    cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    return f"{primary}\n{secondary}" if (secondary and secondary.upper()!=primary) else primary
+
+# ===== Router: add a command to refresh the Jupiter catalog =====
+# Inside process_telegram_command(), alongside other admin/basic commands:
+elif cmd == "/name_refetch_jup":
+    _ensure_jup_catalog(force=True)
+    tg_send(chat_id, "🔄 Jupiter token catalog refreshed (cached for 24h).", preview=False)
+    return {"status": "ok"}
