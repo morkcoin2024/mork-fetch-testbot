@@ -2589,7 +2589,7 @@ def process_telegram_command(update: dict):
                        "📋 **Available Commands:**\n" + \
                        "/help - Show this help\n" + \
                        "/commands - List all commands\n" + \
-                       "/about <mint> - Token snapshot (alias: /info)\n" + \
+                       "/about <mint> - Token snapshot (price + 5m/1h/6h/24h, 30m/12h when available)\n" + \
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
@@ -2680,7 +2680,7 @@ def process_telegram_command(update: dict):
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
             commands_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /info /ping /test123 /debug_cmd\n" + \
+                          "**Basic:** /help /about /info /ping /test123 /debug_cmd\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
                           "  /watch_tick – run one scan now\n" + \
