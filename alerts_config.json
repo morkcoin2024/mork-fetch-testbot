@@ -3,5 +3,8 @@
   "min_move_pct": 0.01,
   "rate_per_min": 120,
   "muted_until": 0,
-  "muted": false
+  "muted": false,
+  "sent_log": [
+    1755773687
+  ]
 }

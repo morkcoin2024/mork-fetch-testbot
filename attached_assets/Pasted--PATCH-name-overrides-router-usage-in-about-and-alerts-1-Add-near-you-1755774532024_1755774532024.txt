@@ -1,0 +1,165 @@
+# ── PATCH: name overrides + router + usage in /about and alerts ─────────────────
+# 1) Add near your other globals/imports
+import json, time, os
+
+NAME_OVERRIDES_FILE = "token_name_overrides.json"
+
+def _name_overrides_load() -> dict:
+    try:
+        with open(NAME_OVERRIDES_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _name_overrides_save(d: dict) -> None:
+    tmp = NAME_OVERRIDES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2, sort_keys=True)
+    os.replace(tmp, NAME_OVERRIDES_FILE)
+
+def name_override_get(mint: str) -> dict | None:
+    """Return {'primary': TICKER, 'secondary': LongName, 'ts': int} or None."""
+    return _name_overrides_load().get(mint)
+
+def name_override_set(mint: str, primary: str, secondary: str) -> bool:
+    d = _name_overrides_load()
+    d[mint] = {"primary": primary.strip(), "secondary": secondary.strip(), "ts": int(time.time())}
+    _name_overrides_save(d)
+    return True
+
+def name_override_clear(mint: str) -> bool:
+    d = _name_overrides_load()
+    if mint in d:
+        d.pop(mint, None)
+        _name_overrides_save(d)
+        return True
+    return False
+
+def _format_name_block_from_override(mint: str) -> str | None:
+    ov = name_override_get(mint)
+    if not ov: 
+        return None
+    p = (ov.get("primary") or "").strip()
+    s = (ov.get("secondary") or "").strip()
+    if p and s:
+        return f"{p}\n{s}"
+    if p:
+        return p
+    if s:
+        return s
+    return None
+
+# 2) Helper the UI already uses for /about output (keep existing if you have one).
+#    This version only formats the list layout; it expects the display name already decided.
+NARROW_NBSP = "\u202f"   # thin non-breaking space for nicer alignment in Telegram
+def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
+    # name_display can be "TICKER\nLong Name" (preferred) or any string
+    # Align labels + symbol + percentage visually (monospace-ish look in Telegram).
+    def cell(pct):
+        if pct is None: 
+            return "n/a"
+        sym = "🟢▲" if pct >= 0 else "🔴▼"
+        return f"{sym} {pct:+.2f}%"
+    lines = [
+        "*Info*",
+        f"Mint: {name_display.splitlines()[0] if name_display else ''}",
+    ]
+    tail = name_display.splitlines()[1:] if name_display and "\n" in name_display else []
+    for t in tail:
+        lines.append(t)
+    short = f"({mint[:4]}..{mint[-4:]})"
+    if short not in lines[-1]:
+        lines.append(short)
+    lines.extend([
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        f"5m: {NARROW_NBSP*2}{cell(tf.get('5m'))}",
+        f"30m:{NARROW_NBSP} {cell(tf.get('30m'))}",
+        f"1h: {NARROW_NBSP*2}{cell(tf.get('1h'))}",
+        f"6h: {NARROW_NBSP*2}{cell(tf.get('6h'))}",
+        f"24h:{NARROW_NBSP} {cell(tf.get('24h'))}",
+    ])
+    return "\n".join(lines)
+
+# 3) In your /about handler, **replace** the part that computes name_display.
+#    Old (example):
+#       name_display = resolve_token_name(mint) or ""
+#    New:
+def _display_name_for(mint: str) -> str:
+    # 1) admin override
+    ov = _format_name_block_from_override(mint)
+    if ov:
+        return ov
+    # 2) existing resolver (ticker + long name if available)
+    try:
+        nm = resolve_token_name(mint) or ""
+        return nm
+    except Exception:
+        pass
+    # 3) fallback short mint
+    return f"{mint[:4]}..{mint[-4:]}"
+
+# 4) Use _display_name_for() in both /about and your price-alert builder.
+#    (a) /about section (keep your surrounding code intact):
+#       ...
+#       name_display = _display_name_for(mint)
+#       tf = fetch_timeframes(mint) or {}
+#       text = render_about_list(mint, price, src, name_display, tf)
+#       tg_send(chat_id, text, preview=True)
+#       return {"status":"ok"}
+
+#    (b) in your Price Alert builder where you previously did:
+#          name_display = resolve_token_name(mint)
+#        change to:
+#          name_display = _display_name_for(mint)
+
+# 5) Router: add 3 small admin commands:
+#    In process_telegram_command(), add these elif branches:
+
+# /name_set <mint> <TICKER>|<Long Name>
+elif cmd == "/name_set":
+    if len(parts) < 3 or "|" not in text:
+        tg_send(chat_id, "Usage: /name_set <mint> <TICKER>|<Long Name>", preview=True)
+        return {"status":"error","err":"bad args"}
+    mint = parts[1].strip()
+    rhs = text.split(None,2)[2].strip()  # everything after mint
+    try:
+        ticker,longname = [x.strip() for x in rhs.split("|",1)]
+    except Exception:
+        tg_send(chat_id, "Usage: /name_set <mint> <TICKER>|<Long Name>", preview=True)
+        return {"status":"error"}
+    ok = name_override_set(mint, ticker, longname)
+    disp = _display_name_for(mint)
+    tg_send(chat_id, f"✅ Name override set\nMint: {mint}\nNow: {disp.replace(chr(10),' / ')}", preview=True)
+    return {"status":"ok"}
+
+# /name_show <mint>
+elif cmd == "/name_show":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_show <mint>", preview=True)
+        return {"status":"error"}
+    mint = parts[1].strip()
+    ov = name_override_get(mint)
+    resolved = _display_name_for(mint).replace("\n"," / ")
+    if ov:
+        tg_send(chat_id, f"🔎 Name (with override)\nMint: {mint}\nPrimary: {ov.get('primary')}\nSecondary: {ov.get('secondary')}\nResolved: {resolved}", preview=True)
+    else:
+        tg_send(chat_id, f"🔎 Name (no override)\nMint: {mint}\nResolved: {resolved}", preview=True)
+    return {"status":"ok"}
+
+# /name_clear <mint>
+elif cmd == "/name_clear":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_clear <mint>", preview=True)
+        return {"status":"error"}
+    mint = parts[1].strip()
+    ok = name_override_clear(mint)
+    disp = _display_name_for(mint).replace("\n"," / ")
+    tg_send(chat_id, f"{'✅ Cleared override' if ok else 'ℹ️ No override found'}\nMint: {mint}\nResolved: {disp}", preview=True)
+    return {"status":"ok"}
+
+# 6) Add these to your /commands help text (concise):
+#   /name_set /name_show /name_clear
+# ───────────────────────────────────────────────────────────────────────────────

@@ -1600,7 +1600,8 @@ ALL_COMMANDS = [
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
     "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status",
-    "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"
+    "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
+    "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -2908,10 +2909,10 @@ def process_telegram_command(update: dict):
             return _reply("🔄 Jupiter token catalog refreshed (cached for 24h).")
         elif cmd == "/name_set":
             # Usage: /name_set <mint> <TICKER>|<Long Name>
-            if len(parts) < 3 or "|" not in msg_text:
+            if len(parts) < 3 or "|" not in text:
                 return _reply("Usage: /name_set <mint> <TICKER>|<Long Name>")
             mint = parts[1].strip()
-            rest = msg_text.split(None, 2)[2]
+            rest = text.split(None, 2)[2]
             ticker, longname = [x.strip() for x in rest.split("|", 1)]
             _name_overrides_set(mint, ticker, longname)
             # also update cache so it shows immediately
