@@ -1,0 +1,154 @@
+# === [ADD NEAR TOP-LEVEL IMPORTS] ===
+import re, time, json
+
+# === [ADD HELPERS] ===
+NAME_CACHE_FILE = "token_names.json"
+
+def _load_json_safe(path):
+    try:
+        return json.load(open(path))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _save_json_safe(path, data):
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _normalize_symbol(sym: str | None) -> str | None:
+    """Clean a ticker-like symbol. Prefer 2–12 alnum chars, uppercased."""
+    if not sym:
+        return None
+    s = re.sub(r"[^A-Za-z0-9]", "", str(sym)).upper()
+    if 2 <= len(s) <= 12:
+        return s
+    return None
+
+def _short_mint(mint: str) -> str:
+    return f"{mint[:4]}..{mint[-4:]}"
+
+# --- Individual source probes (wrap your existing HTTP helper(s)) ---
+def _http_get_json(url, headers=None, params=None, timeout=8):
+    # Reuse your project’s HTTP getter if you have one; otherwise keep this thin
+    import requests
+    r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    if r.status_code == 200:
+        return r.json()
+    return None
+
+def _birdeye_headers():
+    # Reuse your existing Birdeye header builder if present
+    h = {"X-Chain": "solana"}
+    try:
+        import os
+        k = os.getenv("BIRDEYE_API_KEY")
+        if k:
+            h["X-API-KEY"] = k
+    except Exception:
+        pass
+    return h
+
+def _name_from_birdeye(mint: str) -> tuple[str|None, str|None]:
+    # Try the v3 market-data endpoint which includes symbol/name when available
+    url = "https://public-api.birdeye.so/defi/v3/token/market-data"
+    d = _http_get_json(url, headers=_birdeye_headers(), params={"address": mint, "chain": "solana"}) or {}
+    dd = d.get("data") or {}
+    sym = _normalize_symbol(dd.get("symbol") or dd.get("tokenSymbol"))
+    sec = dd.get("name") or dd.get("tokenName")
+    return sym, sec
+
+def _name_from_jupiter(mint: str) -> tuple[str|None, str|None]:
+    # Jupiter token info has symbol/name
+    d = _http_get_json(f"https://tokens.jup.ag/token/{mint}") or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}") or {}
+    pairs = d.get("pairs") or []
+    if not pairs:
+        return None, None
+    bt = pairs[0].get("baseToken") or {}
+    return _normalize_symbol(bt.get("symbol")), bt.get("name")
+
+def _name_from_solscan(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json("https://api.solscan.io/token/meta", params={"tokenAddress": mint}) or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+def _choose_name(candidates: list[tuple[str|None, str|None]]):
+    # primary = first good ticker; secondary = first descriptive name
+    primary = next((p for p, s in candidates if p), None)
+    secondary = next((s for p, s in candidates if s), None)
+    # heuristic: if only secondary exists and looks like "TICKER — Long Name"
+    if not primary and secondary:
+        left = re.split(r"[—\-|:]", secondary)[0].strip()
+        p2 = _normalize_symbol(left)
+        if p2:
+            primary = p2
+    # ensure we always have something
+    return primary, secondary
+
+# === [REPLACE YOUR resolve_token_name WITH THIS VERSION] ===
+def resolve_token_name(mint: str, refresh: bool=False) -> str:
+    """
+    Returns a display string used by render_about_list:
+    - If both present: 'PRIMARY\nSECONDARY'
+    - If only one: that single string
+    Caches {'primary','secondary','ts'} in token_names.json
+    """
+    # special-case SOL pseudo-mint
+    if mint in ("So11111111111111111111111111111111111111112",):
+        primary, secondary = "SOL", "Solana"
+        cache = _load_json_safe(NAME_CACHE_FILE)
+        cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+        _save_json_safe(NAME_CACHE_FILE, cache)
+        return f"{primary}\n{secondary}"
+
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    if not refresh and isinstance(cache.get(mint), dict):
+        entry = cache[mint]
+        p, s = entry.get("primary"), entry.get("secondary")
+        if p or s:
+            return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
+
+    # multi-source sweep (prefer short/ticker first)
+    cands = []
+    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan):
+        try:
+            cands.append(fn(mint))
+        except Exception:
+            continue
+    primary, secondary = _choose_name(cands)
+
+    # ultimate fallback: short mint both lines
+    if not primary and not secondary:
+        short = _short_mint(mint)
+        primary = short
+        secondary = short
+
+    # if secondary missing, show at least primary as both lines in UI context
+    if not secondary:
+        secondary = primary
+
+    cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    return f"{primary}\n{secondary}" if secondary and secondary.upper()!=primary else primary
+
+# === [ADD A SMALL ROUTE TO BUST NAME CACHE ON DEMAND] ===
+# In process_telegram_command(), add this branch near other admin/basic commands:
+elif cmd == "/name_refresh":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_refresh <mint>", preview=False)
+        return {"status": "error", "err": "missing mint"}
+    mint = parts[1].strip()
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    if mint in cache:
+        cache.pop(mint, None)
+        _save_json_safe(NAME_CACHE_FILE, cache)
+    # re-resolve immediately
+    disp = resolve_token_name(mint, refresh=True)
+    tg_send(chat_id, f"🔄 Name cache refreshed:\n{mint}\n→ {disp}", preview=False)
+    return {"status": "ok"}

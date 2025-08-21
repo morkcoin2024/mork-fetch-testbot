@@ -42,8 +42,99 @@ def is_valid_mint(m: str) -> bool:
 BASELINE_PATH = "alerts_price_baseline.json"
 NAME_CACHE_PATH = "token_names.json"
 JUP_CACHE_PATH  = "jup_tokens.json"
+NAME_CACHE_FILE = "token_names.json"
 
+def _load_json_safe(path):
+    try:
+        return json.load(open(path))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _save_json_safe(path, data):
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _normalize_symbol(sym: str | None) -> str | None:
+    """Clean a ticker-like symbol. Prefer 2–12 alnum chars, uppercased."""
+    if not sym:
+        return None
+    s = re.sub(r"[^A-Za-z0-9]", "", str(sym)).upper()
+    if 2 <= len(s) <= 12:
+        return s
+    return None
+
+def _short_mint(mint: str) -> str:
+    return f"{mint[:4]}..{mint[-4:]}"
+
+# --- Individual source probes (wrap your existing HTTP helper(s)) ---
 def _http_get_json(url, headers=None, params=None, timeout=8):
+    # Reuse your project's HTTP getter if you have one; otherwise keep this thin
+    r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    if r.status_code == 200:
+        return r.json()
+    return None
+
+def _birdeye_headers():
+    # Reuse your existing Birdeye header builder if present
+    h = {"X-Chain": "solana"}
+    try:
+        k = os.getenv("BIRDEYE_API_KEY")
+        if k:
+            h["X-API-KEY"] = k
+    except Exception:
+        pass
+    return h
+
+def _name_from_birdeye(mint: str) -> tuple[str|None, str|None]:
+    # Try the v3 market-data endpoint which includes symbol/name when available
+    url = "https://public-api.birdeye.so/defi/v3/token/market-data"
+    d = _http_get_json(url, headers=_birdeye_headers(), params={"address": mint, "chain": "solana"}) or {}
+    dd = d.get("data") or {}
+    sym = _normalize_symbol(dd.get("symbol") or dd.get("tokenSymbol"))
+    sec = dd.get("name") or dd.get("tokenName")
+    return sym, sec
+
+def _name_from_jupiter(mint: str) -> tuple[str|None, str|None]:
+    # Jupiter token info has symbol/name
+    d = _http_get_json(f"https://tokens.jup.ag/token/{mint}") or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}") or {}
+    pairs = d.get("pairs") or []
+    if not pairs:
+        return None, None
+    bt = pairs[0].get("baseToken") or {}
+    return _normalize_symbol(bt.get("symbol")), bt.get("name")
+
+def _name_from_solscan(mint: str) -> tuple[str|None, str|None]:
+    d = _http_get_json("https://api.solscan.io/token/meta", params={"tokenAddress": mint}) or {}
+    return _normalize_symbol(d.get("symbol")), d.get("name")
+
+def _choose_name(candidates: list[tuple[str|None, str|None]]):
+    # Filter out None candidates and handle safely
+    valid_candidates = [c for c in candidates if c is not None and isinstance(c, tuple)]
+    if not valid_candidates:
+        return None, None
+    
+    # primary = first good ticker; secondary = first descriptive name
+    primary = next((p for p, s in valid_candidates if p), None)
+    secondary = next((s for p, s in valid_candidates if s), None)
+    # heuristic: if only secondary exists and looks like "TICKER — Long Name"
+    if not primary and secondary:
+        left = re.split(r"[—\-|:]", secondary)[0].strip()
+        p2 = _normalize_symbol(left)
+        if p2:
+            primary = p2
+    # ensure we always have something
+    return primary, secondary
+
+def _http_get_json_original(url, headers=None, params=None, timeout=8):
     try:
         r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
         if r.status_code == 200:
@@ -553,69 +644,50 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     _save_token_cache(cache)
     return primary, secondary
 
-def resolve_token_name(mint: str) -> str:
+def resolve_token_name(mint: str, refresh: bool=False) -> str:
     """
-    Returns a human string in *ticker-first* form:
-      - If both available:  "TICKER — Long Name"
-      - If only ticker:     "TICKER"
-      - If only name:       "Name"
-      - Else:               short mint (8..8 form)
-    Caches result in token_names.json
+    Returns a display string used by render_about_list:
+    - If both present: 'PRIMARY\nSECONDARY'
+    - If only one: that single string
+    Caches {'primary','secondary','ts'} in token_names.json
     """
-    mint = (mint or "").strip()
-    if not mint:
-        return "Unknown"
+    # special-case SOL pseudo-mint
+    if mint in ("So11111111111111111111111111111111111111112",):
+        primary, secondary = "SOL", "Solana"
+        cache = _load_json_safe(NAME_CACHE_FILE)
+        cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+        _save_json_safe(NAME_CACHE_FILE, cache)
+        return f"{primary}\n{secondary}"
 
-    # Cache (24h)
-    cache = _name_cache_load()
-    ent = cache.get(mint)
-    if ent and time.time() - ent.get("ts", 0) < 24*3600:
-        return ent.get("display") or ent.get("name") or ent.get("symbol") or f"{mint[:4]}..{mint[-4:]}"
+    cache = _load_json_safe(NAME_CACHE_FILE)
+    if not refresh and isinstance(cache.get(mint), dict):
+        entry = cache[mint]
+        p, s = entry.get("primary"), entry.get("secondary")
+        if p or s:
+            return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
 
-    # Try sources in order of quality for *names/tickers*
-    # 1) Existing Birdeye resolver if you have it already:
-    try:
-        # Your existing function might be called _name_from_birdeye or similar; adapt as needed.
-        bd = None
+    # multi-source sweep (prefer short/ticker first)
+    cands = []
+    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan):
         try:
-            bd = _name_from_birdeye(mint)   # <-- keep if present
+            cands.append(fn(mint))
         except Exception:
-            bd = None
-        if bd and (bd.get("symbol") or bd.get("name")):
-            sym = (bd.get("symbol") or "").strip()
-            name = (bd.get("name") or "").strip()
-            display = sym if (sym and not name) else (name if (name and not sym) else (f"{sym} — {name}".strip(" —")))
-            cache[mint] = {"symbol": sym, "name": name, "display": display, "ts": time.time(), "src": "birdeye"}
-            _name_cache_save(cache)
-            return display
-    except Exception:
-        pass
+            continue
+    primary, secondary = _choose_name(cands)
 
-    # 2) Solscan
-    src = _name_from_solscan(mint)
-    if not src:
-        # 3) DexScreener
-        src = _name_from_dexscreener(mint)
-    if not src:
-        # 4) Jupiter
-        src = _name_from_jupiter(mint)
+    # ultimate fallback: short mint both lines
+    if not primary and not secondary:
+        short = _short_mint(mint)
+        primary = short
+        secondary = short
 
-    if src:
-        sym = (src.get("symbol") or "").strip()
-        name = (src.get("name") or "").strip()
-        # Ticker-first presentation with de-dup
-        if name and sym and name.upper() == sym.upper():
-            name = ""  # avoid "SOL — SOL"
-        display = sym if (sym and not name) else (name if (name and not sym) else (f"{sym} — {name}".strip(" —")))
-        cache[mint] = {"symbol": sym, "name": name, "display": display, "ts": time.time(), "src": src.get("src","")}
-        _name_cache_save(cache)
-        return display
+    # if secondary missing, show at least primary as both lines in UI context
+    if not secondary:
+        secondary = primary
 
-    # 5) Fallback to shortened mint
-    shorty = f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
-    cache[mint] = {"display": shorty, "ts": time.time(), "src": "fallback"}
-    _name_cache_save(cache)
-    return shorty
+    cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
+    _save_json_safe(NAME_CACHE_FILE, cache)
+    return f"{primary}\n{secondary}" if secondary and secondary.upper()!=primary else primary
 
 def _alert_label(mint: str) -> str:
     p, s = _token_labels(mint)
@@ -2740,6 +2812,17 @@ def process_telegram_command(update: dict):
             return _reply(help_text)
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
+        elif cmd == "/name_refresh":
+            if len(parts) < 2:
+                return _reply("Usage: /name_refresh <mint>")
+            mint = parts[1].strip()
+            cache = _load_json_safe(NAME_CACHE_FILE)
+            if mint in cache:
+                cache.pop(mint, None)
+                _save_json_safe(NAME_CACHE_FILE, cache)
+            # re-resolve immediately
+            disp = resolve_token_name(mint, refresh=True)
+            return _reply(f"🔄 Name cache refreshed:\n{mint}\n→ {disp}")
         elif cmd == "/about":
             if len(parts) < 2:
                 return _reply("Usage: /about <mint>")
