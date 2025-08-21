@@ -2631,22 +2631,51 @@ def process_telegram_command(update: dict):
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd in ("/about", "/info"):
-            mint = arg.strip()
-            if not mint:
-                return _reply("Usage: /info <mint>", status="error")
-            # resolve name + quick stats (re-use your helpers; fall back gracefully)
-            name = _token_label(mint) or (mint[:4]+".."+mint[-4:])
-            # pull current price from the active source
-            price_src = os.getenv("CURRENT_PRICE_SOURCE", "birdeye")
-            gp = get_price(mint, price_src)
-            if not gp.get("ok"):
-                return _reply(f"ℹ️ {name} ({mint[:4]}..{mint[-4:]})\nPrice: n/a", status="info")
-            price = gp["price"]
-            src = gp.get("source","?")
-            # record current sample so subsequent info calls have history
-            _record_price(mint, price, src)
-            card = _info_card(mint, price, src)
-            return _reply(card)
+            parts = text.split()
+            if len(parts) < 2:
+                return {"status": "ok", "response": "Usage: `/about <mint>`"}
+            mint = parts[1].strip()  # keep exactly what user sent for display
+            src = (_read_price_source() or "auto")
+
+            got = get_price(mint, src)
+            if not (got and got.get("ok") and got.get("price")):
+                return {"status": "ok", "response": f"Could not fetch price for `{short_mint(mint)}` from `{src}`."}
+            price = float(got["price"]); source = got.get("source", src)
+            record_price_point(mint, price, source)
+
+            # provider-based timeframes
+            tf = fetch_timeframes(mint)  # keys: 5m,1h,6h,24h (floats or missing)
+
+            # recorder-based windows (only if enough history; may be n/a right after boot)
+            def dpct(p): return decorate_pct(p)
+            w30m  = dpct(window_change(mint,  30*60)[0])
+            w12h  = dpct(window_change(mint, 12*60*60)[0])
+
+            # format provider buckets with arrows
+            def fmt_k(k):
+                v = tf.get(k)
+                if v is None: return "n/a"
+                arrow = "🟢▲" if v >= 0 else "🔴▼"
+                return f"{arrow} {v:+.2f}%"
+
+            sym, full = name_line(mint)
+            base = _load_alerts_baseline().get(mint) if '_load_alerts_baseline' in globals() else None
+            base_line = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}" if base and base.get("ts") else ""
+
+            lines = [
+                f"*Info*",
+                f"Mint: {sym}",
+                f"{full}" if full else "",
+                f"({short_mint(mint)})",
+                f"Price: ${price:.6f}",
+                f"Source: {source}",
+                "",
+                f"5m:  {fmt_k('5m')}     |   30m: {w30m}",
+                f"1h:  {fmt_k('1h')}     |    6h: {fmt_k('6h')}",
+                f"12h: {w12h}     |   24h: {fmt_k('24h')}",
+                base_line,
+            ]
+            return {"status": "ok", "response": "\n".join([s for s in lines if s])}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
