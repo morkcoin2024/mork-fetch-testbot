@@ -131,6 +131,54 @@ def _name_from_jupiter(mint: str):
                 return {"symbol": sym, "name": name, "src": "jupiter"}
     return None
 
+PRICE_HISTORY_FILE = "price_history.json"
+def _history_load():
+    import json, os
+    try: return json.load(open(PRICE_HISTORY_FILE))
+    except: return {}
+def _history_save(d):
+    import json
+    json.dump(d, open(PRICE_HISTORY_FILE,"w"))
+def record_price_point(mint:str, price:float, src:str):
+    import time
+    if not (mint and price and price>0): return
+    d=_history_load()
+    lst=d.get(mint) or []
+    lst.append({"ts":int(time.time()), "price":float(price), "src":src})
+    # keep last ~2 days at 30s cadence ≈ 6k points
+    d[mint]=lst[-6000:]
+    _history_save(d)
+def pct(a,b):
+    try: return ((a-b)/b)*100.0
+    except: return None
+def window_change(mint:str, secs:int):
+    """return (pct_change, ref_price) where ref_price is the price at/just before now-secs"""
+    import time, bisect
+    hist=_history_load().get(mint) or []
+    if not hist: return (None, None)
+    cutoff=int(time.time())-secs
+    # find the last point <= cutoff
+    ref=None
+    for p in reversed(hist):
+        if p["ts"]<=cutoff:
+            ref=p["price"]; break
+    if ref is None: return (None, None)
+    cur=hist[-1]["price"]
+    return (pct(cur, ref), ref)
+def decorate_pct(x):
+    if x is None: return "n/a"
+    arrow = "🟢▲" if x>=0 else "🔴▼"
+    return f"{arrow} {x:+.2f}%"
+def short_mint(m): return f"{m[:4]}..{m[-4:]}" if m and len(m)>12 else m
+def name_line(mint):
+    nm = resolve_token_name(mint)  # existing
+    # Expect "TICKER — Full Name"
+    if "—" in nm:
+        sym, full = [s.strip() for s in nm.split("—",1)]
+    else:
+        sym, full = nm, ""
+    return sym, full
+
 def _load_json(p):
     try:
         import json, os
