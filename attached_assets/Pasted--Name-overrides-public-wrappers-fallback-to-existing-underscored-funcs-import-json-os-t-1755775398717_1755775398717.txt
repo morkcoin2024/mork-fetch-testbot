@@ -1,0 +1,138 @@
+# ── Name overrides (public wrappers + fallback to existing underscored funcs) ──
+import json, os, time
+
+NAME_OVERRIDES_FILE = "token_name_overrides.json"
+
+def _ov_load():
+    try:
+        with open(NAME_OVERRIDES_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def _ov_save(d):
+    tmp = NAME_OVERRIDES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2, sort_keys=True)
+    os.replace(tmp, NAME_OVERRIDES_FILE)
+
+# If your code already has _name_overrides_* functions, we will call them.
+# Otherwise we implement them via the JSON file above.
+def _name_overrides_get(mint: str):
+    if ' _name_overrides_get ' in globals():
+        return globals()['_name_overrides_get'](mint)  # type: ignore
+    return _ov_load().get(mint)
+
+def _name_overrides_set(mint: str, primary: str, secondary: str):
+    if ' _name_overrides_set ' in globals():
+        return globals()['_name_overrides_set'](mint, primary, secondary)  # type: ignore
+    d = _ov_load()
+    d[mint] = {"primary": primary.strip(), "secondary": secondary.strip(), "ts": int(time.time())}
+    _ov_save(d)
+    return True
+
+def _name_overrides_clear(mint: str):
+    if ' _name_overrides_clear ' in globals():
+        return globals()['_name_overrides_clear'](mint)  # type: ignore
+    d = _ov_load()
+    if mint in d:
+        d.pop(mint, None)
+        _ov_save(d)
+        return True
+    return False
+
+# Public aliases (so your shell can call name_override_set(...))
+def name_override_get(mint: str):   return _name_overrides_get(mint)
+def name_override_set(mint: str, primary: str, secondary: str): return _name_overrides_set(mint, primary, secondary)
+def name_override_clear(mint: str): return _name_overrides_clear(mint)
+
+def _display_name_for(mint: str) -> str:
+    """Preferred: TICKER\\nLong Name. Fallbacks to resolver, then short mint."""
+    ov = _name_overrides_get(mint)
+    if ov:
+        p, s = (ov.get("primary") or "").strip(), (ov.get("secondary") or "").strip()
+        if p and s: return f"{p}\n{s}"
+        if p:       return p
+        if s:       return s
+    try:
+        nm = resolve_token_name(mint) or ""  # existing resolver
+        if nm: return nm                     # may already be 'TICKER\\nLong'
+    except Exception:
+        pass
+    return f"{mint[:4]}..{mint[-4:]}"        # shortest fallback
+
+# Thin space for alignment in Telegram
+NARROW_NBSP = "\u202f"
+
+def _fmt_pct_cell(pct):
+    if pct is None: return "n/a"
+    return f"{'🟢▲' if pct >= 0 else '🔴▼'} {pct:+.2f}%"
+
+def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
+    lines = ["*Info*"]
+    # First line = ticker, second line = long name (if present)
+    first = name_display.splitlines()[0] if name_display else ""
+    rest  = name_display.splitlines()[1:] if name_display and "\n" in name_display else []
+    lines.append(f"Mint: {first}")
+    for t in rest: lines.append(t)
+    lines.append(f"({mint[:4]}..{mint[-4:]})")
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+    lines.append(f"5m:  {NARROW_NBSP}{NARROW_NBSP}{_fmt_pct_cell(tf.get('5m'))}")
+    lines.append(f"30m: {NARROW_NBSP}{_fmt_pct_cell(tf.get('30m'))}")
+    lines.append(f"1h:  {NARROW_NBSP}{NARROW_NBSP}{_fmt_pct_cell(tf.get('1h'))}")
+    lines.append(f"6h:  {NARROW_NBSP}{NARROW_NBSP}{_fmt_pct_cell(tf.get('6h'))}")
+    lines.append(f"24h: {NARROW_NBSP}{_fmt_pct_cell(tf.get('24h'))}")
+    return "\n".join(lines)
+
+# ── Use _display_name_for(...) everywhere we show a token name ──
+# In your /about handler:
+#   name_display = _display_name_for(mint)
+#   tf = fetch_timeframes(mint) or {}
+#   text = render_about_list(mint, price, src, name_display, tf)
+
+# In your price alert builder:
+#   name_display = _display_name_for(mint)
+
+# ── Telegram router commands ──
+# Add these branches inside process_telegram_command(...):
+
+elif cmd == "/name_set":
+    if len(parts) < 3 or "|" not in text:
+        tg_send(chat_id, "Usage: /name_set <mint> <TICKER>|<Long Name>", preview=True)
+        return {"status":"error"}
+    mint = parts[1].strip()
+    rhs  = text.split(None,2)[2].strip()
+    ticker, longname = [x.strip() for x in rhs.split("|",1)]
+    name_override_set(mint, ticker, longname)
+    disp = _display_name_for(mint).replace("\n"," / ")
+    tg_send(chat_id, f"✅ Name override set\nMint: {mint}\nNow: {disp}", preview=True)
+    return {"status":"ok"}
+
+elif cmd == "/name_show":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_show <mint>", preview=True)
+        return {"status":"error"}
+    mint = parts[1].strip()
+    ov = name_override_get(mint)
+    disp = _display_name_for(mint).replace("\n"," / ")
+    if ov:
+        tg_send(chat_id, f"🔎 Name (override)\nMint: {mint}\nPrimary: {ov.get('primary')}\nSecondary: {ov.get('secondary')}\nResolved: {disp}", preview=True)
+    else:
+        tg_send(chat_id, f"🔎 Name (resolved)\nMint: {mint}\nResolved: {disp}", preview=True)
+    return {"status":"ok"}
+
+elif cmd == "/name_clear":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /name_clear <mint>", preview=True)
+        return {"status":"error"}
+    mint = parts[1].strip()
+    ok = name_override_clear(mint)
+    disp = _display_name_for(mint).replace("\n"," / ")
+    tg_send(chat_id, f"{'✅ Cleared' if ok else 'ℹ️ No override'}\nMint: {mint}\nResolved: {disp}", preview=True)
+    return {"status":"ok"}
+
+# Also add to /commands help:
+#   /name_set /name_show /name_clear

@@ -161,6 +161,37 @@ def _name_overrides_clear(mint: str):
         o.pop(mint, None)
         _save_json_safe(OVERRIDES_FILE, o)
 
+# Public aliases for external use
+def name_override_get(mint: str):
+    d = _load_json_safe(OVERRIDES_FILE).get(mint) or {}
+    return d if d else None
+
+def name_override_set(mint: str, primary: str, secondary: str):
+    return _name_overrides_set(mint, primary.strip(), secondary.strip())
+
+def name_override_clear(mint: str):
+    return _name_overrides_clear(mint)
+
+def _display_name_for(mint: str) -> str:
+    """Preferred: TICKER\nLong Name. Fallbacks to resolver, then short mint."""
+    # 1) Check overrides first
+    p0, s0 = _name_overrides_get(mint)
+    if p0 or s0:
+        if p0 and s0:
+            return f"{p0}\n{s0}"
+        return p0 or s0
+    
+    # 2) Fall back to existing resolver
+    try:
+        nm = resolve_token_name(mint) or ""
+        if nm:
+            return nm
+    except Exception:
+        pass
+    
+    # 3) Shortest fallback
+    return f"{mint[:4]}..{mint[-4:]}"
+
 # ===== Heuristic primary extraction =====
 _STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
 def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
@@ -2596,33 +2627,29 @@ def _fmt_pct_cell(pct):
 
 def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
     """
-    Pretty, aligned /about output (no code block).
-    Always prefers cache primary/secondary; falls back to resolve_token_name/name_display.
+    Pretty, aligned /about output using enhanced name resolution with override support.
+    Uses the provided name_display which should come from _display_name_for().
     """
-    # Prefer cache first
-    primary, secondary = _cached_primary_secondary(mint)
+    # Parse the name_display into primary and secondary components
+    if name_display and "\n" in name_display:
+        parts = name_display.split("\n", 1)
+        primary, secondary = parts[0].strip(), parts[1].strip()
+    else:
+        primary = name_display.strip() if name_display else ""
+        secondary = ""
 
-    # If cache empty, use provided name and try to split
-    if not (primary or secondary):
-        pr2, sc2 = _split_primary_secondary(name_display or "")
-        primary, secondary = (pr2 or primary), (sc2 or secondary)
-
-    # If STILL empty, attempt a fresh resolve (may still be short mint)
-    if not (primary or secondary):
-        try:
-            nm = resolve_token_name(mint) or ""
-            pr3, sc3 = _split_primary_secondary(nm)
-            primary, secondary = (pr3 or primary), (sc3 or secondary)
-        except Exception:
-            pass
-
+    # If still empty, fallback to short mint
+    if not primary:
+        primary = f"{mint[:4]}..{mint[-4:]}"
+    
     short = f"({mint[:4]}..{mint[-4:]})"
 
     lines = ["*Info*"]
-    lines.append(f"Mint: {primary or mint[:4]}")
-    if secondary and secondary.lower() != (primary or "").lower():
+    lines.append(f"Mint: {primary}")
+    if secondary and secondary.lower() != primary.lower():
         lines.append(secondary)
-    lines.append(short)
+    if short not in lines[-1]:  # Only add if not already included
+        lines.append(short)
     lines.append(f"Price: ${price:.6f}")
     lines.append(f"Source: {source}")
 
@@ -2949,10 +2976,7 @@ def process_telegram_command(update: dict):
             pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None) or {}
             price = float(pr.get("price") or 0.0)
             src = pr.get("source") or "?"
-            try:
-                name_display = resolve_token_name(mint) or ""
-            except Exception:
-                name_display = ""
+            name_display = _display_name_for(mint)
             tf = fetch_timeframes(mint) or {}
             text = render_about_list(mint, price, src, name_display, tf)
             return _reply(text)
