@@ -3009,16 +3009,20 @@ def process_telegram_command(update: dict):
 
             mint = parts[1].strip()
 
-            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None)
-            price = float(pr.get("price") or 0.0)
-            src   = pr.get("source") or "?"
+            # price
+            src    = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            pr     = get_price(mint, src)
+            price  = float(pr.get("price") or 0.0)
+            source = pr.get("source") or src
 
+            # names + timeframes
             name_display = _display_name_for(mint)
             tf = fetch_timeframes(mint) or {}
 
-            text = render_about_list(mint, price, src, name_display, tf)
+            # render & send
+            text = render_about_list(mint, price, source, name_display, tf)
             tg_send(chat_id, text, preview=True)
-            return {"status": "ok"}
+            return {"status": "ok", "price": price, "source": source}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
