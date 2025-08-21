@@ -1,0 +1,63 @@
+# ---[ PATCH: nicer /price output with ticker + long name ]--------------------
+
+# 1) Add this helper next to render_about_list (or anywhere near your other
+#    render helpers). It formats the Price card using the same name rules.
+
+def render_price_card(mint: str, price: float, source: str, name_display: str) -> str:
+    """
+    Price card:
+      💰 *Price Lookup*
+      Mint: <TICKER>
+      <Long Name>
+      (<So11..1112>)
+      Price: $123.456789
+      Source: birdeye
+    """
+    # Split resolved name into primary (ticker) and secondary (long)
+    if name_display:
+        parts = name_display.split("\n", 1)
+        primary = parts[0].strip()
+        secondary = parts[1].strip() if len(parts) > 1 else ""
+    else:
+        primary, secondary = "", ""
+
+    # Abbreviated mint (reuse your existing short() helper if present)
+    try:
+        short_id = short(mint)
+    except NameError:
+        short_id = f"{mint[:4]}..{mint[-4:]}"  # minimal fallback
+
+    lines = ["💰 *Price Lookup*"]
+    if primary:
+        lines.append(f"Mint: {primary}")
+        if secondary and secondary.lower() != primary.lower():
+            lines.append(secondary)
+    lines.append(f"({short_id})")
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+    return "\n".join(lines)
+
+
+# 2) In process_telegram_command(), REPLACE the /price handler body with this:
+
+elif cmd == "/price":
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /price <mint>", preview=True)
+        return {"status": "error", "err": "missing mint"}
+
+    mint = parts[1].strip()
+
+    # Use your unified price getter + current source
+    src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+    pr  = get_price(mint, src)
+    price  = float(pr.get("price") or 0.0)
+    source = pr.get("source") or src
+
+    # Resolve display name exactly like /about (ticker first, then long name)
+    name_display = resolve_token_name(mint) or ""
+
+    # Render the nicer card and send
+    text = render_price_card(mint, price, source, name_display)
+    tg_send(chat_id, text, preview=True)
+    return {"status": "ok", "price": price, "source": source}
+# ---------------------------------------------------------------------------

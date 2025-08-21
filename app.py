@@ -2624,6 +2624,40 @@ def _fmt_pct_cell(pct):
     return f"{up} {p:+.2f}%"
 
 
+def render_price_card(mint: str, price: float, source: str, name_display: str) -> str:
+    """
+    Price card:
+      💰 *Price Lookup*
+      Mint: <TICKER>
+      <Long Name>
+      (<So11..1112>)
+      Price: $123.456789
+      Source: birdeye
+    """
+    # Split resolved name into primary (ticker) and secondary (long)
+    if name_display:
+        parts = name_display.split("\n", 1)
+        primary = parts[0].strip()
+        secondary = parts[1].strip() if len(parts) > 1 else ""
+    else:
+        primary, secondary = "", ""
+
+    # Abbreviated mint (reuse your existing short() helper if present)
+    try:
+        short_id = short(mint)
+    except NameError:
+        short_id = f"{mint[:4]}..{mint[-4:]}"  # minimal fallback
+
+    lines = ["💰 *Price Lookup*"]
+    if primary:
+        lines.append(f"Mint: {primary}")
+        if secondary and secondary.lower() != primary.lower():
+            lines.append(secondary)
+    lines.append(f"({short_id})")
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+    return "\n".join(lines)
+
 def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
     """
     Pretty, aligned /about output using enhanced name resolution with override support.
@@ -3053,44 +3087,20 @@ def process_telegram_command(update: dict):
             if not arg:
                 return _reply("Usage: `/price <mint>`")
             
-            # Parse mint and optional override flag: --src=sim|dex|birdeye
-            args_parts = args.split() if args else []
             mint = arg.strip()
-            override = None
-            if len(args_parts) >= 2 and args_parts[1].startswith("--src="):
-                override = args_parts[1].split("=",1)[1].lower()
-                if override not in ("sim", "dex", "birdeye"):
-                    return _reply("Usage: `/price <mint> --src=sim|dex|birdeye`")
-            
-            # Validate and normalize mint
-            original_mint = mint
-            mint = normalize_mint(mint)
-            if not is_valid_mint(mint):
-                return _reply(f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`")
-            
-            # Enhanced price lookup with explicit fallback labeling
-            src = override or _read_price_source()
-            res = get_price(mint, preferred=src)
-            if not res.get("ok"):
-                return _reply(f"❌ Price lookup failed\nsource: auto\nerror: {res.get('err')}")
-            
-            price = res["price"]
-            used = res["source"]
-            cached_note = " (cached)" if res.get("cached") else ""
-            
-            # Labeling (show fallback path when used != src)
-            if used == src:
-                src_line = f"**Source:** {used}{cached_note}"
-            else:
-                src_line = f"**Source:** {used} (fallback from {src}){cached_note}"
-            
-            p = _fmt_usd(price)
-            body = (
-                f"💰 **Price Lookup:** `{mint[:12]}..`\n\n"
-                f"**Current Price:** {p}\n"
-                f"{src_line}\n"
-            )
-            return _reply(body)
+
+            # Use your unified price getter + current source
+            src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            pr  = get_price(mint, src)
+            price  = float(pr.get("price") or 0.0)
+            source = pr.get("source") or src
+
+            # Resolve display name exactly like /about (ticker first, then long name)
+            name_display = _display_name_for(mint)
+
+            # Render the nicer card and send
+            text = render_price_card(mint, price, source, name_display)
+            return _reply(text)
         
         # --- Multi-source snapshot (/fetch, /fetch_now) ---
         elif cmd in ("/fetch", "/fetch_now"):
