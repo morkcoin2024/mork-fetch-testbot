@@ -1,0 +1,60 @@
+elif cmd == "/about":
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return ok("Usage: `/about <mint>`")
+    mint = parts[1].strip()
+
+    # live price from current router source (birdeye/dex/jup) with fallback handled inside
+    src_pref = (_get_current_price_source() or "auto")
+    got = get_price(mint, src_pref)
+    if not (got and got.get("ok") and got.get("price")):
+        return ok(f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`.")
+    price  = float(got["price"])
+    source = got.get("source", src_pref)
+
+    # record one point for our rolling windows
+    try:
+        record_price_point(mint, price, source)
+    except Exception:
+        pass
+
+    # names (primary ticker first, then long/secondary)
+    sym, full = name_line(mint)  # e.g., ("POP CAT", "Popcat")
+    # merged provider timeframes (dexscreener + jupiter)
+    tf = fetch_timeframes(mint) or {}  # keys among: 5m, 1h, 6h, 24h
+
+    # local history windows (n/a until we’ve recorded over those durations)
+    w30m, _ = window_change(mint, 30*60)
+    w12h, _ = window_change(mint, 12*60*60)
+
+    def arrow(v):
+        return "🟢▲" if (v is not None and v >= 0) else ("🔴▼" if v is not None else "n/a")
+    def pct(v):
+        return f"{v:+.2f}%" if v is not None else "n/a"
+    def fmt(v):
+        return f"{arrow(v)} {pct(v)}" if v is not None else "n/a"
+
+    # optional “since tracking” footer from alerts baseline
+    import time
+    try:
+        base = _load_alerts_baseline().get(mint)
+    except Exception:
+        base = None
+    footer = ""
+    if base and base.get("ts"):
+        footer = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
+
+    lines = [
+        "*Info*",
+        f"Mint: {sym}",
+        f"{full}" if full else "",
+        f"({short_mint(mint)})",
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        "",
+        f"5m:  {fmt(tf.get('5m'))}     |   30m: {fmt(w30m)}",
+        f"1h:  {fmt(tf.get('1h'))}     |    6h: {fmt(tf.get('6h'))}",
+        f"12h: {fmt(w12h)}     |   24h: {fmt(tf.get('24h'))}",
+        footer,
+    ]
+    return ok("\n".join([s for s in lines if s]))

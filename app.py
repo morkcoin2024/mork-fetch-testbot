@@ -2631,52 +2631,50 @@ def process_telegram_command(update: dict):
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd in ("/about", "/info"):
-            # parse
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
                 return {"status": "ok", "response": "Usage: `/about <mint>`"}
             mint = parts[1].strip()
 
-            # source + live price
-            src = (_read_price_source() or "auto")
-            got = get_price(mint, src)
+            # live price from current router source (birdeye/dex/jup) with fallback handled inside
+            src_pref = (_read_price_source() or "auto")
+            got = get_price(mint, src_pref)
             if not (got and got.get("ok") and got.get("price")):
-                return {"status": "ok", "response": f"Could not fetch price for `{short_mint(mint)}` from `{src}`."}
+                return {"status": "ok", "response": f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`."}
             price  = float(got["price"])
-            source = got.get("source", src)
+            source = got.get("source", src_pref)
 
-            # record a point so local windows can exist over time
+            # record one point for our rolling windows
             try:
                 record_price_point(mint, price, source)
             except Exception:
                 pass
 
-            # provider timeframes (dexscreener + jupiter merged)
-            tf = fetch_timeframes(mint) or {}   # keys among: 5m,1h,6h,24h
+            # names (primary ticker first, then long/secondary)
+            sym, full = name_line(mint)  # e.g., ("POP CAT", "Popcat")
+            # merged provider timeframes (dexscreener + jupiter)
+            tf = fetch_timeframes(mint) or {}  # keys among: 5m, 1h, 6h, 24h
 
-            # history windows from our recorder (may be n/a right after boot)
-            w30m, _ = window_change(mint,  30*60)
+            # local history windows (n/a until we've recorded over those durations)
+            w30m, _ = window_change(mint, 30*60)
             w12h, _ = window_change(mint, 12*60*60)
 
-            # formatting helpers
             def arrow(v):
-                return "🟢▲" if v is not None and v >= 0 else ("🔴▼" if v is not None else "n/a")
+                return "🟢▲" if (v is not None and v >= 0) else ("🔴▼" if v is not None else "n/a")
             def pct(v):
                 return f"{v:+.2f}%" if v is not None else "n/a"
             def fmt(v):
                 return f"{arrow(v)} {pct(v)}" if v is not None else "n/a"
 
-            sym, full = name_line(mint)
-
-            # optional baseline footer
+            # optional "since tracking" footer from alerts baseline
             import time
             try:
                 base = _load_alerts_baseline().get(mint)
             except Exception:
                 base = None
-            base_line = ""
+            footer = ""
             if base and base.get("ts"):
-                base_line = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
+                footer = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
 
             lines = [
                 "*Info*",
@@ -2689,7 +2687,7 @@ def process_telegram_command(update: dict):
                 f"5m:  {fmt(tf.get('5m'))}     |   30m: {fmt(w30m)}",
                 f"1h:  {fmt(tf.get('1h'))}     |    6h: {fmt(tf.get('6h'))}",
                 f"12h: {fmt(w12h)}     |   24h: {fmt(tf.get('24h'))}",
-                base_line,
+                footer,
             ]
             return {"status": "ok", "response": "\n".join([s for s in lines if s])}
         elif cmd == "/test123":
