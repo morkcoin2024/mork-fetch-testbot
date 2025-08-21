@@ -3003,29 +3003,29 @@ def process_telegram_command(update: dict):
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         elif cmd == "/about":
+            # /about <mint> — info card with ticker/long name + timeframes
             if len(parts) < 2:
                 tg_send(chat_id, "Usage: /about <mint>", preview=True)
                 return {"status": "error", "err": "missing mint"}
 
             mint = parts[1].strip()
-
-            # price
-            src    = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
-            pr     = get_price(mint, src)
+            # current price (falls back to birdeye)
+            src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            pr  = get_price(mint, src)
             price  = float(pr.get("price") or 0.0)
             source = pr.get("source") or src
 
             # names + timeframes
-            name_display = _display_name_for(mint)
+            name_display = resolve_token_name(mint) or ""
             tf = fetch_timeframes(mint) or {}
 
-            # render & send
+            # uniform list layout (ticker line, long name line, short mint line)
             text = render_about_list(mint, price, source, name_display, tf)
             tg_send(chat_id, text, preview=True)
             return {"status": "ok", "price": price, "source": source}
         elif cmd == "/alert":
-            # /alert <mint> -> send a single "Price Alert" card to alerts chat (or this chat)
-            import json, os
+            # /alert <mint> — send a one-off "Price Alert" card to alerts chat (or here)
+            import json
 
             def _jload(path, default):
                 try:
@@ -3044,51 +3044,49 @@ def process_telegram_command(update: dict):
             price  = float(pr.get("price") or 0.0)
             source = pr.get("source") or src
 
-            # read alerts destination + baseline (same files as auto-alerts)
-            cfg = _jload("alerts_config.json", {})
+            # read alerts config + baseline (same files used by auto alerts)
+            cfg  = _jload("alerts_config.json", {})
             base = _jload("alerts_price_baseline.json", {})
             baseline = None
             if isinstance(base, dict):
                 rec = base.get(mint)
-                if isinstance(rec, dict):
-                    baseline = rec.get("price")
+                if isinstance(rec, dict) and rec.get("price"):
+                    try:
+                        baseline = float(rec["price"])
+                    except Exception:
+                        baseline = None
 
-            # name formatting (ticker on line1, long name on line2) - use _display_name_for for consistency
-            name_display = _display_name_for(mint)
-            lines = []
-
-            # arrow
+            # compute change vs baseline (if present)
             delta_pct = None
             if baseline and baseline > 0:
-                delta_pct = (price - float(baseline)) / float(baseline) * 100.0
+                delta_pct = (price - baseline) / baseline * 100.0
+
+            # name (ticker on line 1, long name on line 2)
+            name_display = resolve_token_name(mint) or ""
+            short = f"({mint[:4]}..{mint[-4:]})"
+            primary = name_display.split("\n")[0].strip() if name_display else short
+            secondary = "\n".join(name_display.split("\n")[1:]).strip() if name_display else ""
+
+            # arrow
             arrow = "▫️"
             if delta_pct is not None:
                 arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
 
-            # header + mint block
-            short = f"({mint[:4]}..{mint[-4:]})"
+            # compose alert card
+            lines = []
             lines.append(f"Price Alert {arrow}")
-            if name_display:
-                primary = name_display.split("\n")[0].strip()
-                secondary = "\n".join(name_display.split("\n")[1:]).strip()
-                lines.append(f"Mint: {primary}")
-                if secondary:
-                    lines.append(secondary)
-            else:
-                lines.append(f"Mint: {short}")
-
-            if name_display:
-                lines.append(short)
-
-            # body
+            lines.append(f"Mint: {primary}")
+            if secondary:
+                lines.append(secondary)
+            lines.append(short)
             lines.append(f"Price: ${price:.6f}")
             lines.append(f"Change: {'n/a' if delta_pct is None else f'{delta_pct:+.2f}%'}")
-            lines.append(f"Baseline: {'n/a' if baseline is None else f'${float(baseline):.6f}'}")
+            lines.append(f"Baseline: {'n/a' if baseline is None else f'${baseline:.6f}'}")
             lines.append(f"Source: {source}")
 
             text = "\n".join(lines)
 
-            # send to alerts chat if configured, else respond here
+            # destination = alerts chat if configured, else current chat
             dest_chat = cfg.get("chat_id") or chat_id
             tg_send(dest_chat, text, preview=True)
             return {"status": "ok", "chat": dest_chat, "price": price, "baseline": baseline}
