@@ -1,0 +1,78 @@
+# === [PATCH_ALERTS_V2] add /about and /alert =================================
+
+elif cmd == "/about":
+    # /about <mint> — ticker + long name + compact timeframes
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /about <mint>", preview=True)
+        return {"status": "error", "err": "missing mint"}
+
+    mint = parts[1].strip()
+    # Price via current source (fallback birdeye)
+    src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
+    pr = get_price(mint, src_pref)
+    price = float(pr.get("price") or 0.0)
+    src   = pr.get("source") or src_pref
+
+    # Name and timeframes
+    name_display = resolve_token_name(mint) or ""
+    tf = fetch_timeframes(mint) or {}
+
+    text = render_about_list(mint, price, src, name_display, tf)
+    tg_send(chat_id, text, preview=True)
+    return {"status": "ok", "price": price, "source": src}
+
+elif cmd == "/alert":
+    # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
+    import json, time
+
+    def _jload(path, default):
+        try:
+            with open(path, "r") as f: return json.load(f)
+        except Exception:
+            return default
+
+    if len(parts) < 2:
+        tg_send(chat_id, "Usage: /alert <mint>", preview=True)
+        return {"status": "error", "err": "missing mint"}
+
+    mint = parts[1].strip()
+    src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
+    pr = get_price(mint, src_pref)
+    price = float(pr.get("price") or 0.0)
+    src   = pr.get("source") or src_pref
+
+    cfg  = _jload("alerts_config.json", {})
+    base = _jload("alerts_price_baseline.json", {})
+    rec  = base.get(mint) if isinstance(base, dict) else None
+    baseline = float(rec["price"]) if (isinstance(rec, dict) and rec.get("price")) else None
+    delta_pct = ((price - baseline) / baseline * 100.0) if (baseline and baseline > 0) else None
+
+    name_display = resolve_token_name(mint) or ""
+    short = f"({mint[:4]}..{mint[-4:]})"
+    primary   = (name_display.split("\n")[0].strip() or short) if name_display else short
+    secondary = "\n".join(name_display.split("\n")[1:]).strip() if name_display else ""
+
+    arrow = "▫️"
+    if delta_pct is not None:
+        arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
+
+    lines = [
+        f"Price Alert {arrow}",
+        f"Mint: {primary}",
+    ]
+    if secondary:
+        lines.append(secondary)
+    lines.extend([
+        short,
+        f"Price: ${price:.6f}",
+        f"Change: {'n/a' if delta_pct is None else f'{delta_pct:+.2f}%'}",
+        f"Baseline: {'n/a' if baseline is None else f'${baseline:.6f}'}",
+        f"Source: {src}",
+    ])
+    text = "\n".join(lines)
+
+    dest_chat = cfg.get("chat_id") or chat_id
+    tg_send(dest_chat, text, preview=True)
+    return {"status": "ok", "chat": dest_chat, "price": price, "baseline": baseline}
+
+# === [/PATCH_ALERTS_V2] ======================================================
