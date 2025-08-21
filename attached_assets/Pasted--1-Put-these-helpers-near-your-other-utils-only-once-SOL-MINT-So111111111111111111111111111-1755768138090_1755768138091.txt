@@ -1,0 +1,65 @@
+# 1) Put these helpers near your other utils (only once):
+
+SOL_MINT = "So11111111111111111111111111111111111111112"
+
+def split_primary_secondary(name_str: str) -> tuple[str, str]:
+    s = (name_str or "").strip()
+
+    # Pattern: "Brand (TICKER)"
+    if "(" in s and s.endswith(")"):
+        try:
+            base, tick = s.rsplit("(", 1)
+            brand = base.strip()
+            ticker = tick[:-1].strip()
+            if ticker:
+                return ticker, brand
+        except Exception:
+            pass
+
+    # Pattern: "TICKER — Brand"
+    if "—" in s:
+        a, b = [x.strip() for x in s.split("—", 1)]
+        if a.isupper() and 1 <= len(a) <= 8:
+            return a, b
+
+    # Fallback: choose shortest ALL-CAPS token as ticker
+    tokens = s.replace("(", " ").replace(")", " ").replace("—", " ").split()
+    caps = [t for t in tokens if t.isalpha() and t.isupper()]
+    if caps:
+        ticker = min(caps, key=len)
+        brand = s if s != ticker else ""
+        return ticker, brand
+
+    return s, ""
+
+
+def _fmt_pct_cell(pct):
+    if pct is None:
+        return "n/a"
+    return f"{'🟢▲' if pct >= 0 else '🔴▼'} {pct:+.2f}%"
+
+
+def render_about_list(mint: str, price: float, source: str, combined_name: str, tf: dict) -> str:
+    primary, secondary = split_primary_secondary(combined_name)
+    # Hard override for SOL pseudo-mint
+    if mint == SOL_MINT:
+        primary, secondary = "SOL", "Solana"
+
+    short = f"{mint[:4]}..{mint[-4:]}"
+    lines = [
+        "*Info*",
+        f"Mint: {primary or short}",
+    ]
+    if secondary and secondary.lower() != (primary or "").lower():
+        lines.append(secondary)
+    lines.extend([
+        f"({short})",
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        f"5m:  {_fmt_pct_cell(tf.get('5m'))}",
+        f"30m: {_fmt_pct_cell(tf.get('30m'))}",
+        f"1h:  {_fmt_pct_cell(tf.get('1h'))}",
+        f"6h:  {_fmt_pct_cell(tf.get('6h'))}",
+        f"24h: {_fmt_pct_cell(tf.get('24h'))}",
+    ])
+    return "\n".join(lines)

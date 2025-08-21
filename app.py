@@ -2376,53 +2376,58 @@ def watch_tick_once(send_alerts=True):
 
     return checked, fired, lines
 # ---------- NAME SPLITTER (ticker first, brand second) ----------
+
+
+# ---------- PRETTY ROW (no code block, no copy bar) ----------
+
+
+
+
+SOL_MINT = "So11111111111111111111111111111111111111112"
+
 def split_primary_secondary(name_str: str) -> tuple[str, str]:
-    """
-    Accepts forms like:
-      - 'Solana (SOL)'                  -> ('SOL', 'Solana')
-      - 'WINGS — Wings Stays On'        -> ('WINGS', 'Wings Stays On')
-      - 'BONK Bonk Inu' (fallback)      -> ('BONK', 'Bonk Inu')
-    """
     s = (name_str or "").strip()
 
-    # 1) Form: 'Brand (TICKER)'
+    # Pattern: "Brand (TICKER)"
     if "(" in s and s.endswith(")"):
         try:
             base, tick = s.rsplit("(", 1)
-            secondary = base.strip()
-            primary = tick[:-1].strip()
-            if primary:
-                return primary, secondary
+            brand = base.strip()
+            ticker = tick[:-1].strip()
+            if ticker:
+                return ticker, brand
         except Exception:
             pass
 
-    # 2) Form: 'TICKER — Brand'
+    # Pattern: "TICKER — Brand"
     if "—" in s:
         a, b = [x.strip() for x in s.split("—", 1)]
         if a.isupper() and 1 <= len(a) <= 8:
             return a, b
 
-    # 3) Fallback: pick shortest ALL-CAPS token as ticker; rest as brand
+    # Fallback: choose shortest ALL-CAPS token as ticker
     tokens = s.replace("(", " ").replace(")", " ").replace("—", " ").split()
     caps = [t for t in tokens if t.isalpha() and t.isupper()]
     if caps:
-        primary = min(caps, key=len)
-        secondary = s if s != primary else ""
-        return primary, secondary
+        ticker = min(caps, key=len)
+        brand = s if s != ticker else ""
+        return ticker, brand
 
-    # Last resort: show shortened mint later; here just echo
     return s, ""
 
-# ---------- PRETTY ROW (no code block, no copy bar) ----------
-def _fmt_pct_cell(pct: float | None) -> str:
+
+def _fmt_pct_cell(pct):
     if pct is None:
         return "n/a"
-    arrow = "🟢▲" if pct >= 0 else "🔴▼"
-    # keep two spaces after colon for a tidy look in proportional font
-    return f"{arrow} {pct:+.2f}%"
+    return f"{'🟢▲' if pct >= 0 else '🔴▼'} {pct:+.2f}%"
 
-def render_about_list(mint: str, price: float, source: str, name_str: str, tf: dict) -> str:
-    primary, secondary = split_primary_secondary(name_str)
+
+def render_about_list(mint: str, price: float, source: str, combined_name: str, tf: dict) -> str:
+    primary, secondary = split_primary_secondary(combined_name)
+    # Hard override for SOL pseudo-mint
+    if mint == SOL_MINT:
+        primary, secondary = "SOL", "Solana"
+
     short = f"{mint[:4]}..{mint[-4:]}"
     lines = [
         "*Info*",
@@ -2438,12 +2443,9 @@ def render_about_list(mint: str, price: float, source: str, name_str: str, tf: d
         f"30m: {_fmt_pct_cell(tf.get('30m'))}",
         f"1h:  {_fmt_pct_cell(tf.get('1h'))}",
         f"6h:  {_fmt_pct_cell(tf.get('6h'))}",
-        # 12h intentionally omitted per request
         f"24h: {_fmt_pct_cell(tf.get('24h'))}",
     ])
     return "\n".join(lines)
-
-
 
 # --- end helpers ---
 
