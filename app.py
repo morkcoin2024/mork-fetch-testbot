@@ -1619,7 +1619,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3023,6 +3023,75 @@ def process_telegram_command(update: dict):
             text = render_about_list(mint, price, source, name_display, tf)
             tg_send(chat_id, text, preview=True)
             return {"status": "ok", "price": price, "source": source}
+        elif cmd == "/alert":
+            # /alert <mint> -> send a single "Price Alert" card to alerts chat (or this chat)
+            import json, os
+
+            def _jload(path, default):
+                try:
+                    with open(path, "r") as f:
+                        return json.load(f)
+                except Exception:
+                    return default
+
+            if len(parts) < 2:
+                tg_send(chat_id, "Usage: /alert <mint>", preview=True)
+                return {"status": "error", "err": "missing mint"}
+
+            mint = parts[1].strip()
+            src  = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            pr   = get_price(mint, src)
+            price  = float(pr.get("price") or 0.0)
+            source = pr.get("source") or src
+
+            # read alerts destination + baseline (same files as auto-alerts)
+            cfg = _jload("alerts_config.json", {})
+            base = _jload("alerts_price_baseline.json", {})
+            baseline = None
+            if isinstance(base, dict):
+                rec = base.get(mint)
+                if isinstance(rec, dict):
+                    baseline = rec.get("price")
+
+            # name formatting (ticker on line1, long name on line2) - use _display_name_for for consistency
+            name_display = _display_name_for(mint)
+            lines = []
+
+            # arrow
+            delta_pct = None
+            if baseline and baseline > 0:
+                delta_pct = (price - float(baseline)) / float(baseline) * 100.0
+            arrow = "▫️"
+            if delta_pct is not None:
+                arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
+
+            # header + mint block
+            short = f"({mint[:4]}..{mint[-4:]})"
+            lines.append(f"Price Alert {arrow}")
+            if name_display:
+                primary = name_display.split("\n")[0].strip()
+                secondary = "\n".join(name_display.split("\n")[1:]).strip()
+                lines.append(f"Mint: {primary}")
+                if secondary:
+                    lines.append(secondary)
+            else:
+                lines.append(f"Mint: {short}")
+
+            if name_display:
+                lines.append(short)
+
+            # body
+            lines.append(f"Price: ${price:.6f}")
+            lines.append(f"Change: {'n/a' if delta_pct is None else f'{delta_pct:+.2f}%'}")
+            lines.append(f"Baseline: {'n/a' if baseline is None else f'${float(baseline):.6f}'}")
+            lines.append(f"Source: {source}")
+
+            text = "\n".join(lines)
+
+            # send to alerts chat if configured, else respond here
+            dest_chat = cfg.get("chat_id") or chat_id
+            tg_send(dest_chat, text, preview=True)
+            return {"status": "ok", "chat": dest_chat, "price": price, "baseline": baseline}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
