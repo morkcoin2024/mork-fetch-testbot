@@ -3092,7 +3092,10 @@ def process_telegram_command(update: dict):
 
             dest_chat = cfg.get("chat_id") or chat_id
             tg_send(dest_chat, text, preview=True)
-            return {"status": "ok", "chat": dest_chat, "price": price, "baseline": baseline}
+            
+            # --- ALERT RETURN FIX + TRACE ---
+            _rt_log(f"alert sent len={len(text)} chat={chat_id}")
+            return {"status": "ok", "response": text}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
@@ -3866,7 +3869,15 @@ def process_telegram_command(update: dict):
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         logger.error(f"[CMD] cmd='{cmd or text}' user_id={user_id} duration_ms={duration_ms} error={e}")
-        return _reply(f"Internal error: {e}", "error")
+        ret = _reply(f"Internal error: {e}", "error")
+        
+        # --- ROUTER TRACE HOOK (exit) ---
+        try:
+            _rt_log(f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response','')) if isinstance(ret, dict) else 0}")
+            return ret
+        except NameError:
+            _rt_log("exit ret=None")
+            return None
 
 # Initialize scanners after admin functions are defined
 try:
