@@ -1,0 +1,68 @@
+# --- Add near your other helpers ---
+
+def split_primary_secondary(name_str: str) -> tuple[str, str]:
+    """
+    Parse a combined name into (primary_ticker, secondary_brand).
+    Handles: 'Solana (SOL)', 'WINGS — Wings Stays On', and fallbacks.
+    """
+    s = (name_str or "").strip()
+
+    # 1) 'Brand (TICKER)'
+    if "(" in s and s.endswith(")"):
+        try:
+            base, tick = s.rsplit("(", 1)
+            brand = base.strip()
+            ticker = tick[:-1].strip()
+            if ticker:
+                return ticker, brand
+        except Exception:
+            pass
+
+    # 2) 'TICKER — Brand'
+    if "—" in s:
+        a, b = [x.strip() for x in s.split("—", 1)]
+        if a.isupper() and 1 <= len(a) <= 8:
+            return a, b
+
+    # 3) Fallback: pick shortest ALL-CAPS token as ticker; rest as brand
+    tokens = s.replace("(", " ").replace(")", " ").replace("—", " ").split()
+    caps = [t for t in tokens if t.isalpha() and t.isupper()]
+    if caps:
+        ticker = min(caps, key=len)
+        brand = s if s != ticker else ""
+        return ticker, brand
+
+    return s, ""  # last resort
+
+
+def _fmt_pct_cell(pct: float | None) -> str:
+    if pct is None:
+        return "n/a"
+    arrow = "🟢▲" if pct >= 0 else "🔴▼"
+    return f"{arrow} {pct:+.2f}%"
+
+
+def render_about_list(mint: str, price: float, source: str, combined_name: str, tf: dict) -> str:
+    # Split name; special-case SOL pseudo-mint if needed
+    primary, secondary = split_primary_secondary(combined_name)
+    if mint == "So11111111111111111111111111111111111111112":
+        primary, secondary = ("SOL", "Solana")
+
+    short = f"{mint[:4]}..{mint[-4:]}"
+    lines = [
+        "*Info*",
+        f"Mint: {primary or short}",
+    ]
+    if secondary and secondary.lower() != (primary or "").lower():
+        lines.append(secondary)
+    lines.extend([
+        f"({short})",
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        f"5m:  {_fmt_pct_cell(tf.get('5m'))}",
+        f"30m: {_fmt_pct_cell(tf.get('30m'))}",
+        f"1h:  {_fmt_pct_cell(tf.get('1h'))}",
+        f"6h:  {_fmt_pct_cell(tf.get('6h'))}",
+        f"24h: {_fmt_pct_cell(tf.get('24h'))}",
+    ])
+    return "\n".join(lines)
