@@ -2589,7 +2589,7 @@ def process_telegram_command(update: dict):
                        "📋 **Available Commands:**\n" + \
                        "/help - Show this help\n" + \
                        "/commands - List all commands\n" + \
-                       "/about <mint> - Token snapshot (price + 5m/1h/6h/24h, 30m/12h when available)\n" + \
+                       "/about <mint> - snapshot: price, 5m/1h/6h/24h (providers) + 30m/12h (local) with trend arrows\n" + \
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
