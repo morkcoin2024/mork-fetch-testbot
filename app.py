@@ -2470,6 +2470,7 @@ def process_telegram_command(update: dict):
         return _post_price_alert_hook(update, result)
     
     user = msg.get("from") or {}
+    chat_id = msg.get("chat", {}).get("id")
     # Enhanced parsing guard (prevents UnboundLocalError)
     text = msg.get("text", "").strip()
     parts = text.split()                         # ALWAYS defined → no UnboundLocalError
@@ -2703,35 +2704,25 @@ def process_telegram_command(update: dict):
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd == "/about":
-            parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return _reply("Usage: `/about <mint>`")
+                tg_send(chat_id, "Usage: /about <mint>", preview=True)
+                return {"status": "error", "err": "missing mint"}
+
             mint = parts[1].strip()
+            # Use your existing unified price getter / routing:
+            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye')
+            price = float(pr.get("price") or 0.0)
+            src   = pr.get("source") or "?"
 
-            # Preferred source + fallback handled inside get_price
-            src_pref = (_read_price_source() or "auto")
-            got = get_price(mint, src_pref)
-            if not (got and got.get("ok") and got.get("price")):
-                return _reply(f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`.")
-            price  = float(got["price"])
-            source = got.get("source", src_pref)
-
-            # keep recording so 30m/12h local windows can populate over time
-            try:
-                record_price_point(mint, price, source)
-            except Exception:
-                pass
-
-            # Use the exact pattern specified
-            name_display = resolve_token_name(mint)           # e.g. 'Solana (SOL)' or 'WINGS — Wings Stays On'
-            tf = fetch_timeframes(mint) or {}                 # {5m,1h,6h,24h}
+            name_display = resolve_token_name(mint) or ""   # <-- MUST call this
+            tf = fetch_timeframes(mint) or {}
             # Add local 30m window
             w30m, _ = window_change(mint, 30*60)
             tf["30m"] = w30m
-            text = render_about_list(mint, price, source, name_display, tf)
-            chat_id = msg.get("chat", {}).get("id")
-            tg_send(chat_id, text, preview=True)               # single send, no code-block
-            return {"status": "ok"}                            # <- IMPORTANT: stop here to avoid duplicates
+
+            text = render_about_list(mint, price, src, name_display, tf)
+            tg_send(chat_id, text, preview=True)
+            return {"status": "ok"}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
