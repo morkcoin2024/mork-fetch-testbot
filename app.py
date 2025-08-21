@@ -2443,23 +2443,7 @@ def render_about_list(mint: str, price: float, source: str, name_str: str, tf: d
     ])
     return "\n".join(lines)
 
-def resolve_token_display_name(mint: str) -> str:
-    """Returns the full token name string for display parsing"""
-    sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
-    
-    # Try to create a proper display format
-    if sym and full and sym.upper() != full.upper():
-        # If we have both ticker and full name, format as "Full Name (TICKER)"
-        return f"{full} ({sym.upper()})"
-    elif sym:
-        # Just ticker
-        return sym.upper()
-    elif full:
-        # Just full name
-        return full
-    else:
-        # Fallback to short mint
-        return f"{mint[:4]}..{mint[-4:]}"
+
 
 # --- end helpers ---
 
@@ -2736,26 +2720,16 @@ def process_telegram_command(update: dict):
             except Exception:
                 pass
 
-            # Use new name resolver and list renderer
-            name_display = resolve_token_display_name(mint)  # e.g., 'Solana (SOL)' or 'WINGS — Wings Stays On'
-            tf = fetch_timeframes(mint) or {}        # already exists (5m, 1h, 6h, 24h)
+            # Use the exact pattern specified
+            name_display = resolve_token_name(mint)           # e.g. 'Solana (SOL)' or 'WINGS — Wings Stays On'
+            tf = fetch_timeframes(mint) or {}                 # {5m,1h,6h,24h}
             # Add local 30m window
             w30m, _ = window_change(mint, 30*60)
             tf["30m"] = w30m
-            
             text = render_about_list(mint, price, source, name_display, tf)
-            
-            # Single send with no code block, no copy bar
             chat_id = msg.get("chat", {}).get("id")
-            if chat_id:
-                try:
-                    result = tg_send(chat_id, text, preview=True)
-                    return {"status": "ok", "response": text, "telegram_result": result}
-                except Exception as e:
-                    logger.error(f"Failed to send /about: {e}")
-                    return _reply(text)  # fallback to regular reply
-            else:
-                return _reply(text)
+            tg_send(chat_id, text, preview=True)               # single send, no code-block
+            return {"status": "ok"}                            # <- IMPORTANT: stop here to avoid duplicates
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
