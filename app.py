@@ -2387,39 +2387,47 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 FIGURE_SPACE = "\u2007"  # fixed-width space that aligns in Telegram UI
 
 def _split_primary_secondary(name: str):
-    """
-    Prefer ticker as primary (inside parens or before an em-dash), long name as secondary.
-    Examples:
-      'Solana (SOL)'         -> ('SOL', 'Solana')
-      'SOL — Solana'         -> ('SOL', 'Solana')
-      'PENGU — Pudgy ...'    -> ('PENGU','Pudgy ...')
-    Fallbacks sensibly if not matched.
-    """
+    """Extract ticker (primary) + long name (secondary) from a single string."""
     if not name:
         return "", ""
-    name = name.strip()
+    s = name.strip()
 
-    m = re.match(r"^([^(]+?)\s*\(\s*([A-Z0-9]{2,12})\s*\)$", name)
+    # 'Solana (SOL)' -> secondary='Solana', primary='SOL'
+    m = re.match(r"^([^(]+?)\s*\(\s*([A-Z0-9]{2,12})\s*\)$", s)
     if m:
-        secondary = m.group(1).strip()
-        primary   = m.group(2).strip()
-        return primary, secondary
+        return (m.group(2).strip(), m.group(1).strip())
 
-    m = re.match(r"^([A-Z0-9]{2,12})\s*[—-]\s*(.+)$", name)  # TICKER — Long
+    # 'SOL — Solana' or 'SOL - Solana'
+    m = re.match(r"^([A-Z0-9]{2,12})\s*[—-]\s*(.+)$", s)
     if m:
-        return m.group(1).strip(), m.group(2).strip()
+        return (m.group(1).strip(), m.group(2).strip())
 
-    if re.fullmatch(r"[A-Z0-9]{2,12}", name):
-        return name, ""
+    # Just a ticker
+    if re.fullmatch(r"[A-Z0-9]{2,12}", s):
+        return (s, "")
 
-    # last resort: treat whole string as "primary"
-    return name, ""
+    # Last resort: treat whole string as primary
+    return (s, "")
+
+def _cached_primary_secondary(mint: str):
+    """Read token_names.json; support both old ('name') and new ('primary'/'secondary') shapes."""
+    try:
+        data = json.load(open("token_names.json"))
+        entry = data.get(mint) or {}
+        if isinstance(entry, dict):
+            p = entry.get("primary")
+            s = entry.get("secondary")
+            if p or s:
+                return (p or "", s or "")
+            n = entry.get("name")
+            if n:
+                return _split_primary_secondary(n)
+    except Exception:
+        pass
+    return ("", "")
 
 def _label_block(lbl: str, width: int = 4) -> str:
-    """
-    Builds 'LBL:' padded with figure spaces to a fixed block width (so arrows line up).
-    width counts only the letters/digits part; ':' is appended automatically.
-    """
+    """Produce aligned 'LBL:' using figure spaces so arrows line up."""
     pad = max(0, width - len(lbl))
     return f"{lbl}:{FIGURE_SPACE * pad}"
 
@@ -2440,22 +2448,26 @@ def _fmt_pct_cell(pct):
 
 def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
     """
-    Pretty, aligned /about output WITHOUT code block.
-    Shows:
-        Mint: <TICKER>
-        <Long Name, if any>
-        (<So11..1112>)
-        Price, Source
-        5m/30m/1h/6h/24h rows with aligned arrows.
+    Pretty, aligned /about output (no code block).
+    Always prefers cache primary/secondary; falls back to resolve_token_name/name_display.
     """
-    # Ensure we really have a name; re-resolve if missing/placeholder
-    if not name_display or mint[:4] in name_display or name_display.startswith("So11"):
+    # Prefer cache first
+    primary, secondary = _cached_primary_secondary(mint)
+
+    # If cache empty, use provided name and try to split
+    if not (primary or secondary):
+        pr2, sc2 = _split_primary_secondary(name_display or "")
+        primary, secondary = (pr2 or primary), (sc2 or secondary)
+
+    # If STILL empty, attempt a fresh resolve (may still be short mint)
+    if not (primary or secondary):
         try:
-            name_display = resolve_token_name(mint) or name_display
+            nm = resolve_token_name(mint) or ""
+            pr3, sc3 = _split_primary_secondary(nm)
+            primary, secondary = (pr3 or primary), (sc3 or secondary)
         except Exception:
             pass
 
-    primary, secondary = _split_primary_secondary(name_display or "")
     short = f"({mint[:4]}..{mint[-4:]})"
 
     lines = ["*Info*"]
@@ -2466,9 +2478,8 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
     lines.append(f"Price: ${price:.6f}")
     lines.append(f"Source: {source}")
 
-    # Align the timeframe rows; omit 12h
-    order = ["5m", "30m", "1h", "6h", "24h"]
-    for key in order:
+    # Timeframes (omit 12h)
+    for key in ["5m", "30m", "1h", "6h", "24h"]:
         lines.append(f"{_label_block(key)} { _fmt_pct_cell(tf.get(key)) }")
 
     return "\n".join(lines)
@@ -2731,24 +2742,18 @@ def process_telegram_command(update: dict):
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd == "/about":
             if len(parts) < 2:
-                tg_send(chat_id, "Usage: /about <mint>", preview=True)
-                return {"status": "error", "err": "missing mint"}
-
+                return _reply("Usage: /about <mint>")
             mint = parts[1].strip()
-            # Use your existing unified price getter / routing:
-            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye')
+            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None) or {}
             price = float(pr.get("price") or 0.0)
-            src   = pr.get("source") or "?"
-
-            name_display = resolve_token_name(mint) or ""   # <-- MUST call this
+            src = pr.get("source") or "?"
+            try:
+                name_display = resolve_token_name(mint) or ""
+            except Exception:
+                name_display = ""
             tf = fetch_timeframes(mint) or {}
-            # Add local 30m window
-            w30m, _ = window_change(mint, 30*60)
-            tf["30m"] = w30m
-
             text = render_about_list(mint, price, src, name_display, tf)
-            tg_send(chat_id, text, preview=True)
-            return {"status": "ok"}
+            return _reply(text)
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
