@@ -48,7 +48,7 @@ The application uses Flask with a robust single-poller architecture for Telegram
 - **Multi-Window API Analysis System:** Real-time percentage change tracking using Birdeye and DexScreener APIs with intelligent fallback chains. Features `get_token_changes()` function providing comprehensive multi-provider analysis, enhanced `/info` command with professional visual indicators (🟢▲ gains, 🔴▼ losses, ⚪︎ unavailable), and smart API-first history-fallback strategy for maximum data accuracy.
 - **Enhanced Parsing Guard System:** Comprehensive command parsing safety system preventing UnboundLocalError issues by replacing all ad-hoc `parts[x]` usage with standardized `cmd`, `arg`, and `args` variables throughout the entire codebase, ensuring robust command processing.
 - **Updated Help Documentation:** Refined command descriptions with clearer explanations for `/about` as token snapshot alias, `/alerts_auto_on` as continuous scanning enabler, and improved command categorization for better user experience.
-**Deployment Date:** August 20, 2025 - fully operational with normalized data architecture, token label resolver, comprehensive price history tracking, enhanced parsing guard system, and RouterSHA20: d5546ad1331e47d691b1.
+**Deployment Date:** August 21, 2025 - fully operational with optimized `/about` command featuring comprehensive multi-timeframe analysis, enhanced parsing with maxsplit=1, professional visual indicators (🟢▲🔴▼), side-by-side layout with provider-based (5m,1h,6h,24h) and recorder-based (30m,12h) timeframes, intelligent error handling, and complete command discoverability integration.
 
 ## External Dependencies
 - **Telegram Bot API**

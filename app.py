@@ -2631,48 +2631,64 @@ def process_telegram_command(update: dict):
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd in ("/about", "/info"):
-            parts = text.split()
+            # parse
+            parts = text.split(maxsplit=1)
             if len(parts) < 2:
                 return {"status": "ok", "response": "Usage: `/about <mint>`"}
-            mint = parts[1].strip()  # keep exactly what user sent for display
-            src = (_read_price_source() or "auto")
+            mint = parts[1].strip()
 
+            # source + live price
+            src = (_read_price_source() or "auto")
             got = get_price(mint, src)
             if not (got and got.get("ok") and got.get("price")):
                 return {"status": "ok", "response": f"Could not fetch price for `{short_mint(mint)}` from `{src}`."}
-            price = float(got["price"]); source = got.get("source", src)
-            record_price_point(mint, price, source)
+            price  = float(got["price"])
+            source = got.get("source", src)
 
-            # provider-based timeframes
-            tf = fetch_timeframes(mint)  # keys: 5m,1h,6h,24h (floats or missing)
+            # record a point so local windows can exist over time
+            try:
+                record_price_point(mint, price, source)
+            except Exception:
+                pass
 
-            # recorder-based windows (only if enough history; may be n/a right after boot)
-            def dpct(p): return decorate_pct(p)
-            w30m  = dpct(window_change(mint,  30*60)[0])
-            w12h  = dpct(window_change(mint, 12*60*60)[0])
+            # provider timeframes (dexscreener + jupiter merged)
+            tf = fetch_timeframes(mint) or {}   # keys among: 5m,1h,6h,24h
 
-            # format provider buckets with arrows
-            def fmt_k(k):
-                v = tf.get(k)
-                if v is None: return "n/a"
-                arrow = "🟢▲" if v >= 0 else "🔴▼"
-                return f"{arrow} {v:+.2f}%"
+            # history windows from our recorder (may be n/a right after boot)
+            w30m, _ = window_change(mint,  30*60)
+            w12h, _ = window_change(mint, 12*60*60)
+
+            # formatting helpers
+            def arrow(v):
+                return "🟢▲" if v is not None and v >= 0 else ("🔴▼" if v is not None else "n/a")
+            def pct(v):
+                return f"{v:+.2f}%" if v is not None else "n/a"
+            def fmt(v):
+                return f"{arrow(v)} {pct(v)}" if v is not None else "n/a"
 
             sym, full = name_line(mint)
-            base = _load_alerts_baseline().get(mint) if '_load_alerts_baseline' in globals() else None
-            base_line = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}" if base and base.get("ts") else ""
+
+            # optional baseline footer
+            import time
+            try:
+                base = _load_alerts_baseline().get(mint)
+            except Exception:
+                base = None
+            base_line = ""
+            if base and base.get("ts"):
+                base_line = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
 
             lines = [
-                f"*Info*",
+                "*Info*",
                 f"Mint: {sym}",
                 f"{full}" if full else "",
                 f"({short_mint(mint)})",
                 f"Price: ${price:.6f}",
                 f"Source: {source}",
                 "",
-                f"5m:  {fmt_k('5m')}     |   30m: {w30m}",
-                f"1h:  {fmt_k('1h')}     |    6h: {fmt_k('6h')}",
-                f"12h: {w12h}     |   24h: {fmt_k('24h')}",
+                f"5m:  {fmt(tf.get('5m'))}     |   30m: {fmt(w30m)}",
+                f"1h:  {fmt(tf.get('1h'))}     |    6h: {fmt(tf.get('6h'))}",
+                f"12h: {fmt(w12h)}     |   24h: {fmt(tf.get('24h'))}",
                 base_line,
             ]
             return {"status": "ok", "response": "\n".join([s for s in lines if s])}
