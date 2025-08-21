@@ -1,0 +1,65 @@
+# === BEGIN TG SEND DEDUP PATCH ============================================
+# place near top of app.py imports
+import hashlib, time, os
+
+TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
+_LAST_SEND_CACHE = {}  # key: (chat_id, hash16) -> last_ts
+
+def _dedup_key(chat_id: int, text: str) -> tuple:
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return (int(chat_id), h)
+
+# replace your existing tg_send(...) with this version
+def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
+    """
+    Telegram send with de-dup. If same text hits the same chat within TG_DEDUP_WINDOW_SEC,
+    drop the duplicate. We attempt ONE successful send; once successful we stop.
+    """
+    now = time.time()
+    key = _dedup_key(chat_id, text)
+    last = _LAST_SEND_CACHE.get(key, 0.0)
+    if now - last < TG_DEDUP_WINDOW_SEC:
+        logger.info("[SEND] deduped chat_id=%s within %ss", chat_id, TG_DEDUP_WINDOW_SEC)
+        return {"ok": True, "deduped": True}
+
+    # reserve slot before sending to protect against races; roll back on total failure
+    _LAST_SEND_CACHE[key] = now
+
+    def _try_send(mode, body):
+        try:
+            return _send_chunk(body, mode, no_preview)
+        except Exception as e:
+            logger.warning("[SEND] exception mode=%s chat_id=%s err=%s", mode, chat_id, e)
+            return False
+
+    sent = False
+
+    # 1) as-is in MarkdownV2
+    if not sent and parse_mode == "MarkdownV2":
+        sent = _try_send("MarkdownV2", text)
+        if sent:
+            logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
+
+    # 2) escaped MarkdownV2 fallback
+    if not sent and parse_mode == "MarkdownV2":
+        try:
+            escaped = escape_markdown_v2(text)
+        except Exception:
+            escaped = text
+        sent = _try_send("MarkdownV2", escaped)
+        if sent:
+            logger.info("[SEND] ok=mdv2_escaped chat_id=%s", chat_id)
+
+    # 3) plain text
+    if not sent:
+        sent = _try_send(None, text)
+        if sent:
+            logger.info("[SEND] ok=plain chat_id=%s", chat_id)
+
+    if not sent:
+        _LAST_SEND_CACHE.pop(key, None)  # allow retry later
+        logger.warning("[SEND] all-attempts-failed chat_id=%s", chat_id)
+        return {"ok": False}
+
+    return {"ok": True}
+# === END TG SEND DEDUP PATCH ==============================================

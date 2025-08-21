@@ -1,0 +1,69 @@
+# === PATCH: send de-dup & single-send guard ================================
+# Put these near the top-level imports in app.py
+import hashlib, time, os
+
+TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
+_LAST_SEND_CACHE = {}  # key: (chat_id, hash16) -> last_ts
+
+def _dedup_key(chat_id: int, text: str) -> tuple:
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return (int(chat_id), h)
+
+# --- Replace your existing tg_send(...) with this version ---
+def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
+    """
+    Send a message to Telegram with de-dup and single-send fallback.
+    We try at most ONE successful send. If a later fallback succeeds,
+    the earlier failure is ignored. If all fail, we roll back the dedup stamp.
+    """
+    # --- De-dup guard (same text to same chat within small window) ---
+    now = time.time()
+    key = _dedup_key(chat_id, text)
+    last = _LAST_SEND_CACHE.get(key, 0.0)
+    if now - last < TG_DEDUP_WINDOW_SEC:
+        logger.info("[SEND] deduped chat_id=%s within %ss", chat_id, TG_DEDUP_WINDOW_SEC)
+        return {"ok": True, "deduped": True}
+
+    # Mark as seen *before* send to protect against racing paths,
+    # roll back if all attempts fail.
+    _LAST_SEND_CACHE[key] = now
+
+    def _try_send(mode, body):
+        try:
+            return _send_chunk(body, mode, no_preview)
+        except Exception as e:
+            logger.warning("[SEND] exception mode=%s chat_id=%s err=%s", mode, chat_id, e)
+            return False
+
+    sent = False
+
+    # 1) Try as-is in MarkdownV2 (your normal path)
+    if not sent and parse_mode == "MarkdownV2":
+        sent = _try_send("MarkdownV2", text)
+        if sent:
+            logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
+
+    # 2) Try MarkdownV2 *escaped* once (avoid double-delivery)
+    if not sent and parse_mode == "MarkdownV2":
+        try:
+            escaped = escape_markdown_v2(text)
+        except Exception:
+            escaped = text
+        sent = _try_send("MarkdownV2", escaped)
+        if sent:
+            logger.info("[SEND] ok=mdv2_escaped chat_id=%s", chat_id)
+
+    # 3) Try plain text (no parse mode)
+    if not sent:
+        sent = _try_send(None, text)
+        if sent:
+            logger.info("[SEND] ok=plain chat_id=%s", chat_id)
+
+    if not sent:
+        # Roll back dedup stamp so a later retry can send
+        _LAST_SEND_CACHE.pop(key, None)
+        logger.warning("[SEND] all-attempts-failed chat_id=%s", chat_id)
+        return {"ok": False}
+
+    return {"ok": True}
+# === END PATCH =============================================================

@@ -12,6 +12,14 @@ import math
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
+# === TG SEND DEDUP SYSTEM ===
+TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
+_LAST_SEND_CACHE = {}  # key: (chat_id, hash16) -> last_ts
+
+def _dedup_key(chat_id: int, text: str) -> tuple:
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return (int(chat_id), h)
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
 _ROUTER_TRACE = "/tmp/router_trace.log"
@@ -2195,44 +2203,74 @@ def _escape_mdv2(text: str) -> str:
         text = text.replace(ch, f"\\{ch}")
     return text
 
-def tg_send(chat_id: int, text: str, preview: bool = True):
-    """Send a Telegram message with 3-tier fallback."""
+def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
+    """
+    Telegram send with de-dup. If same text hits the same chat within TG_DEDUP_WINDOW_SEC,
+    drop the duplicate. We attempt ONE successful send; once successful we stop.
+    """
+    now = time.time()
+    key = _dedup_key(chat_id, text)
+    last = _LAST_SEND_CACHE.get(key, 0.0)
+    if now - last < TG_DEDUP_WINDOW_SEC:
+        logger.info("[SEND] deduped chat_id=%s within %ss", chat_id, TG_DEDUP_WINDOW_SEC)
+        return {"ok": True, "deduped": True}
+
+    # reserve slot before sending to protect against races; roll back on total failure
+    _LAST_SEND_CACHE[key] = now
+
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token: 
+        _LAST_SEND_CACHE.pop(key, None)  # allow retry later
         logger.error("[SEND] Missing TELEGRAM_BOT_TOKEN")
         return {"ok": False, "error": "no_token"}
+    
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    # Attempt 1: as-is, MarkdownV2
-    p = {"chat_id": chat_id, "text": text, "parse_mode": "MarkdownV2", "disable_web_page_preview": not preview}
-    r1 = requests.post(url, json=p, timeout=15)
-    try:
-        j1 = r1.json() if r1.headers.get("content-type","").startswith("application/json") else {"ok":False}
-    except Exception:
-        j1 = {"ok": False}
-    if r1.status_code == 200 and j1.get("ok"):
-        logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
-        return j1
-    desc = (j1.get("description") or "").lower()
-    md_err = ("can't parse entities" in desc) or ("wrong entity" in desc)
-    # Attempt 2: escaped MarkdownV2
-    if md_err:
-        p["text"] = _escape_mdv2(text)
-        r2 = requests.post(url, json=p, timeout=15)
-        j2 = r2.json() if r2.status_code == 200 else {"ok": False}
-        if r2.status_code == 200 and j2.get("ok"):
+
+    def _try_send(mode, body):
+        try:
+            p = {"chat_id": chat_id, "text": body, "disable_web_page_preview": no_preview or not preview}
+            if mode:
+                p["parse_mode"] = mode
+            r = requests.post(url, json=p, timeout=15)
+            try:
+                j = r.json() if r.headers.get("content-type","").startswith("application/json") else {"ok":False}
+            except Exception:
+                j = {"ok": False}
+            return j if (r.status_code == 200 and j.get("ok")) else False
+        except Exception as e:
+            logger.warning("[SEND] exception mode=%s chat_id=%s err=%s", mode, chat_id, e)
+            return False
+
+    sent = False
+
+    # 1) as-is in MarkdownV2
+    if not sent and parse_mode == "MarkdownV2":
+        sent = _try_send("MarkdownV2", text)
+        if sent:
+            logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
+
+    # 2) escaped MarkdownV2 fallback
+    if not sent and parse_mode == "MarkdownV2":
+        try:
+            escaped = _escape_mdv2(text)
+        except Exception:
+            escaped = text
+        sent = _try_send("MarkdownV2", escaped)
+        if sent:
             logger.info("[SEND] ok=mdv2_escaped chat_id=%s", chat_id)
-            return j2
-        logger.error("[SEND] mdv2 escaped failed: %s", j2)
-    # Attempt 3: plain text
-    p.pop("parse_mode", None)
-    p["text"] = text
-    r3 = requests.post(url, json=p, timeout=15)
-    j3 = r3.json() if r3.status_code == 200 else {"ok": False}
-    if r3.status_code == 200 and j3.get("ok"):
-        logger.info("[SEND] ok=plain chat_id=%s", chat_id)
-        return j3
-    logger.error("[SEND] all attempts failed r1=%s r3=%s", r1.status_code, r3.status_code)
-    return j3
+
+    # 3) plain text
+    if not sent:
+        sent = _try_send(None, text)
+        if sent:
+            logger.info("[SEND] ok=plain chat_id=%s", chat_id)
+
+    if not sent:
+        _LAST_SEND_CACHE.pop(key, None)  # allow retry later
+        logger.warning("[SEND] all-attempts-failed chat_id=%s", chat_id)
+        return {"ok": False}
+
+    return sent
 
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
