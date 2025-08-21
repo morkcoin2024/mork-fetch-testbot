@@ -2636,7 +2636,7 @@ def process_telegram_command(update: dict):
                 return {"status": "ok", "response": "Usage: `/about <mint>`"}
             mint = parts[1].strip()
 
-            # live price from current router source (birdeye/dex/jup) with fallback handled inside
+            # preferred source (birdeye/dex/jup/auto), with internal fallback
             src_pref = (_read_price_source() or "auto")
             got = get_price(mint, src_pref)
             if not (got and got.get("ok") and got.get("price")):
@@ -2644,18 +2644,19 @@ def process_telegram_command(update: dict):
             price  = float(got["price"])
             source = got.get("source", src_pref)
 
-            # record one point for our rolling windows
+            # record a point for rolling windows (best-effort)
             try:
                 record_price_point(mint, price, source)
             except Exception:
                 pass
 
-            # names (primary ticker first, then long/secondary)
-            sym, full = name_line(mint)  # e.g., ("POP CAT", "Popcat")
-            # merged provider timeframes (dexscreener + jupiter)
+            # names: primary (ticker-style) first, then long/secondary
+            sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
+
+            # provider deltas (Dexscreener + Jupiter)
             tf = fetch_timeframes(mint) or {}  # keys among: 5m, 1h, 6h, 24h
 
-            # local history windows (n/a until we've recorded over those durations)
+            # local windows (only show when we have history)
             w30m, _ = window_change(mint, 30*60)
             w12h, _ = window_change(mint, 12*60*60)
 
@@ -2666,7 +2667,7 @@ def process_telegram_command(update: dict):
             def fmt(v):
                 return f"{arrow(v)} {pct(v)}" if v is not None else "n/a"
 
-            # optional "since tracking" footer from alerts baseline
+            # optional "since tracking" line from alerts baseline
             import time
             try:
                 base = _load_alerts_baseline().get(mint)
@@ -2674,8 +2675,9 @@ def process_telegram_command(update: dict):
                 base = None
             footer = ""
             if base and base.get("ts"):
-                footer = f"\nSince tracking: ${price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
+                footer = f"\nSince tracking: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
 
+            # compact layout (ticker on Mint line, long name below, short mint on its own line)
             lines = [
                 "*Info*",
                 f"Mint: {sym}",
