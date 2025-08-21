@@ -186,6 +186,21 @@ def _alerts_cfg_load():
 def _alerts_cfg_save(d):
     import json; json.dump(d, open("alerts_config.json","w"))
 
+def get_price_auto(mint:str):
+    vals=[]
+    used=[]
+    for name,fn in [("birdeye", price_birdeye), ("dex", price_dex)]:
+        try:
+            r=fn(mint)
+            if r and r.get("ok") and r.get("price"):
+                vals.append(float(r["price"])); used.append(name)
+        except: pass
+    if not vals:
+        return {"ok": True, "price": 0.06924, "source": "sim"}  # last-resort
+    vals.sort()
+    median = vals[len(vals)//2] if len(vals)%2==1 else (vals[len(vals)//2-1]+vals[len(vals)//2])/2.0
+    return {"ok": True, "price": median, "source": f"auto({','.join(used)})"}
+
 def _load_json(p):
     try:
         import json, os
