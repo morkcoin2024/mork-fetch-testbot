@@ -2630,33 +2630,37 @@ def process_telegram_command(update: dict):
             return _reply(help_text)
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
-        elif cmd in ("/about", "/info"):
+        elif cmd == "/about":
             parts = text.split(maxsplit=1)
             if len(parts) < 2:
-                return {"status": "ok", "response": "Usage: `/about <mint>`"}
+                return _reply("Usage: `/about <mint>`")
             mint = parts[1].strip()
 
-            # preferred source (birdeye/dex/jup/auto), with internal fallback
+            # Preferred source + fallback handled inside get_price
             src_pref = (_read_price_source() or "auto")
             got = get_price(mint, src_pref)
             if not (got and got.get("ok") and got.get("price")):
-                return {"status": "ok", "response": f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`."}
+                return _reply(f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`.")
             price  = float(got["price"])
             source = got.get("source", src_pref)
 
-            # record a point for rolling windows (best-effort)
+            # keep recording so 30m/12h local windows can populate over time
             try:
                 record_price_point(mint, price, source)
             except Exception:
                 pass
 
-            # names: primary (ticker-style) first, then long/secondary
+            # names -> (primary/ticker, long/secondary)
             sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
+            # Mint line wants PRIMARY (ticker) in ALL CAPS; fallbacks if missing
+            primary = (sym or "").strip()
+            if not primary:
+                primary = (full or "").split()[0]
+            primary = (primary or short_mint(mint)).upper()
 
-            # provider deltas (Dexscreener + Jupiter)
-            tf = fetch_timeframes(mint) or {}  # keys among: 5m, 1h, 6h, 24h
-
-            # local windows (only show when we have history)
+            # Provider timeframes (Dexscreener + Jupiter)
+            tf = fetch_timeframes(mint) or {}   # keys among: 5m, 1h, 6h, 24h
+            # Local windows from our recorder (only present after some runtime)
             w30m, _ = window_change(mint, 30*60)
             w12h, _ = window_change(mint, 12*60*60)
 
@@ -2664,34 +2668,35 @@ def process_telegram_command(update: dict):
                 return "🟢▲" if (v is not None and v >= 0) else ("🔴▼" if v is not None else "n/a")
             def pct(v):
                 return f"{v:+.2f}%" if v is not None else "n/a"
-            def fmt(v):
-                return f"{arrow(v)} {pct(v)}" if v is not None else "n/a"
+            def row(label, v):
+                return f"{label}: {arrow(v)} {pct(v)}" if v is not None else f"{label}: n/a"
 
-            # optional "since tracking" line from alerts baseline
+            # Optional baseline footer (if present)
             import time
+            footer = ""
             try:
                 base = _load_alerts_baseline().get(mint)
+                if base and base.get("ts"):
+                    footer = f"\nSince tracking: ${base.get('price', 0):.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
             except Exception:
-                base = None
-            footer = ""
-            if base and base.get("ts"):
-                footer = f"\nSince tracking: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
+                pass
 
-            # compact layout (ticker on Mint line, long name below, short mint on its own line)
             lines = [
                 "*Info*",
-                f"Mint: {sym}",
+                f"Mint: {primary}",
                 f"{full}" if full else "",
                 f"({short_mint(mint)})",
                 f"Price: ${price:.6f}",
                 f"Source: {source}",
-                "",
-                f"5m:  {fmt(tf.get('5m'))}     |   30m: {fmt(w30m)}",
-                f"1h:  {fmt(tf.get('1h'))}     |    6h: {fmt(tf.get('6h'))}",
-                f"12h: {fmt(w12h)}     |   24h: {fmt(tf.get('24h'))}",
+                row("5m",  tf.get("5m")),
+                row("30m", w30m),
+                row("1h",  tf.get("1h")),
+                row("6h",  tf.get("6h")),
+                row("12h", w12h),
+                row("24h", tf.get("24h")),
                 footer,
             ]
-            return {"status": "ok", "response": "\n".join([s for s in lines if s])}
+            return _reply("\n".join([s for s in lines if s]))
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":

@@ -1,0 +1,67 @@
+elif cmd == "/about":
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return ok("Usage: `/about <mint>`")
+    mint = parts[1].strip()
+
+    # Preferred source + fallback handled inside get_price
+    src_pref = (_get_current_price_source() or "auto")
+    got = get_price(mint, src_pref)
+    if not (got and got.get("ok") and got.get("price")):
+        return ok(f"Could not fetch price for `{short_mint(mint)}` from `{src_pref}`.")
+    price  = float(got["price"])
+    source = got.get("source", src_pref)
+
+    # keep recording so 30m/12h local windows can populate over time
+    try:
+        record_price_point(mint, price, source)
+    except Exception:
+        pass
+
+    # names -> (primary/ticker, long/secondary)
+    sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
+    # Mint line wants PRIMARY (ticker) in ALL CAPS; fallbacks if missing
+    primary = (sym or "").strip()
+    if not primary:
+        primary = (full or "").split()[0]
+    primary = (primary or short_mint(mint)).upper()
+
+    # Provider timeframes (Dexscreener + Jupiter)
+    tf = fetch_timeframes(mint) or {}   # keys among: 5m, 1h, 6h, 24h
+    # Local windows from our recorder (only present after some runtime)
+    w30m, _ = window_change(mint, 30*60)
+    w12h, _ = window_change(mint, 12*60*60)
+
+    def arrow(v):
+        return "🟢▲" if (v is not None and v >= 0) else ("🔴▼" if v is not None else "n/a")
+    def pct(v):
+        return f"{v:+.2f}%" if v is not None else "n/a"
+    def row(label, v):
+        return f"{label}: {arrow(v)} {pct(v)}" if v is not None else f"{label}: n/a"
+
+    # Optional baseline footer (if present)
+    import time
+    footer = ""
+    try:
+        base = _load_alerts_baseline().get(mint)
+        if base and base.get("ts"):
+            footer = f"\nSince tracking: ${base.get('price', 0):.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
+    except Exception:
+        pass
+
+    lines = [
+        "*Info*",
+        f"Mint: {primary}",
+        f"{full}" if full else "",
+        f"({short_mint(mint)})",
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        row("5m",  tf.get("5m")),
+        row("30m", w30m),
+        row("1h",  tf.get("1h")),
+        row("6h",  tf.get("6h")),
+        row("12h", w12h),
+        row("24h", tf.get("24h")),
+        footer,
+    ]
+    return ok("\n".join([s for s in lines if s]))
