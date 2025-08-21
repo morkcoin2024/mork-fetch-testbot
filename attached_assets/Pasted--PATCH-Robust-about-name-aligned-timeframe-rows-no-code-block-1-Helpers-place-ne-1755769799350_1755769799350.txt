@@ -1,0 +1,103 @@
+# === PATCH: Robust /about name + aligned timeframe rows (no code block) ===
+
+# 1) Helpers (place near other small helpers)
+import re
+FIGURE_SPACE = "\u2007"  # fixed-width space that aligns in Telegram UI
+
+def _fmt_pct_cell(pct):
+    if pct is None:
+        return "n/a"
+    try:
+        p = float(pct)
+    except Exception:
+        return "n/a"
+    up = "🟢▲" if p >= 0 else "🔴▼"
+    return f"{up} {p:+.2f}%"
+
+def _split_primary_secondary(name: str):
+    """
+    Prefer ticker as primary (inside parens or before an em-dash), long name as secondary.
+    Examples:
+      'Solana (SOL)'         -> ('SOL', 'Solana')
+      'SOL — Solana'         -> ('SOL', 'Solana')
+      'PENGU — Pudgy ...'    -> ('PENGU','Pudgy ...')
+    Fallbacks sensibly if not matched.
+    """
+    if not name:
+        return "", ""
+    name = name.strip()
+
+    m = re.match(r"^([^(]+?)\s*\(\s*([A-Z0-9]{2,12})\s*\)$", name)
+    if m:
+        secondary = m.group(1).strip()
+        primary   = m.group(2).strip()
+        return primary, secondary
+
+    m = re.match(r"^([A-Z0-9]{2,12})\s*[—-]\s*(.+)$", name)  # TICKER — Long
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+
+    if re.fullmatch(r"[A-Z0-9]{2,12}", name):
+        return name, ""
+
+    # last resort: treat whole string as "primary"
+    return name, ""
+
+def _label_block(lbl: str, width: int = 4) -> str:
+    """
+    Builds 'LBL:' padded with figure spaces to a fixed block width (so arrows line up).
+    width counts only the letters/digits part; ':' is appended automatically.
+    """
+    pad = max(0, width - len(lbl))
+    return f"{lbl}:{FIGURE_SPACE * pad}"
+
+def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
+    """
+    Pretty, aligned /about output WITHOUT code block.
+    Shows:
+        Mint: <TICKER>
+        <Long Name, if any>
+        (<So11..1112>)
+        Price, Source
+        5m/30m/1h/6h/24h rows with aligned arrows.
+    """
+    # Ensure we really have a name; re-resolve if missing/placeholder
+    if not name_display or mint[:4] in name_display or name_display.startswith("So11"):
+        try:
+            from app import resolve_token_name  # safe local import
+            name_display = resolve_token_name(mint) or name_display
+        except Exception:
+            pass
+
+    primary, secondary = _split_primary_secondary(name_display or "")
+    short = f"({mint[:4]}..{mint[-4:]})"
+
+    lines = ["*Info*"]
+    lines.append(f"Mint: {primary or mint[:4]}")
+    if secondary and secondary.lower() != (primary or "").lower():
+        lines.append(secondary)
+    lines.append(short)
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+
+    # Align the timeframe rows; omit 12h
+    order = ["5m", "30m", "1h", "6h", "24h"]
+    for key in order:
+        lines.append(f"{_label_block(key)} { _fmt_pct_cell(tf.get(key)) }")
+
+    return "\n".join(lines)
+
+# 2) Make sure /about branch uses the renderer above (replace its body if needed)
+# elif cmd == "/about":
+#     if len(parts) < 2:
+#         tg_send(chat_id, "Usage: /about <mint>", preview=True)
+#         return {"status": "error", "err": "missing mint"}
+#     mint = parts[1].strip()
+#     pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None) or {}
+#     price = float(pr.get("price") or 0.0)
+#     src = pr.get("source") or "?"
+#     name_display = resolve_token_name(mint) or ""
+#     tf = fetch_timeframes(mint) or {}
+#     text = render_about_list(mint, price, src, name_display, tf)
+#     tg_send(chat_id, text, preview=True)
+#     return {"status": "ok"}

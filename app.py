@@ -2386,40 +2386,44 @@ def watch_tick_once(send_alerts=True):
 SOL_MINT = "So11111111111111111111111111111111111111112"
 FIGURE_SPACE = "\u2007"  # fixed-width space that aligns in Telegram UI
 
-def _pad_label(label: str, width: int) -> str:
-    """Pad label to fixed width using figure spaces, so arrows line up without code blocks."""
-    need = max(0, width - len(label))
-    return f"{label}:{FIGURE_SPACE * need}"
+def _split_primary_secondary(name: str):
+    """
+    Prefer ticker as primary (inside parens or before an em-dash), long name as secondary.
+    Examples:
+      'Solana (SOL)'         -> ('SOL', 'Solana')
+      'SOL — Solana'         -> ('SOL', 'Solana')
+      'PENGU — Pudgy ...'    -> ('PENGU','Pudgy ...')
+    Fallbacks sensibly if not matched.
+    """
+    if not name:
+        return "", ""
+    name = name.strip()
 
-def split_primary_secondary(name_str: str) -> tuple[str, str]:
-    s = (name_str or "").strip()
+    m = re.match(r"^([^(]+?)\s*\(\s*([A-Z0-9]{2,12})\s*\)$", name)
+    if m:
+        secondary = m.group(1).strip()
+        primary   = m.group(2).strip()
+        return primary, secondary
 
-    # Pattern: "Brand (TICKER)"
-    if "(" in s and s.endswith(")"):
-        try:
-            base, tick = s.rsplit("(", 1)
-            brand = base.strip()
-            ticker = tick[:-1].strip()
-            if ticker:
-                return ticker, brand
-        except Exception:
-            pass
+    m = re.match(r"^([A-Z0-9]{2,12})\s*[—-]\s*(.+)$", name)  # TICKER — Long
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
 
-    # Pattern: "TICKER — Brand"
-    if "—" in s:
-        a, b = [x.strip() for x in s.split("—", 1)]
-        if a.isupper() and 1 <= len(a) <= 8:
-            return a, b
+    if re.fullmatch(r"[A-Z0-9]{2,12}", name):
+        return name, ""
 
-    # Fallback: choose shortest ALL-CAPS token as ticker
-    tokens = s.replace("(", " ").replace(")", " ").replace("—", " ").split()
-    caps = [t for t in tokens if t.isalpha() and t.isupper()]
-    if caps:
-        ticker = min(caps, key=len)
-        brand = s if s != ticker else ""
-        return ticker, brand
+    # last resort: treat whole string as "primary"
+    return name, ""
 
-    return s, ""
+def _label_block(lbl: str, width: int = 4) -> str:
+    """
+    Builds 'LBL:' padded with figure spaces to a fixed block width (so arrows line up).
+    width counts only the letters/digits part; ':' is appended automatically.
+    """
+    pad = max(0, width - len(lbl))
+    return f"{lbl}:{FIGURE_SPACE * pad}"
+
+
 
 
 def _fmt_pct_cell(pct):
@@ -2437,23 +2441,22 @@ def _fmt_pct_cell(pct):
 def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
     """
     Pretty, aligned /about output WITHOUT code block.
-    Shows primary on 'Mint:', then secondary on next line (if distinct), then short mint.
-    Aligns timeframe rows with figure-space padding so emoji arrows start in a column.
-    Hides 12h (often unavailable).
+    Shows:
+        Mint: <TICKER>
+        <Long Name, if any>
+        (<So11..1112>)
+        Price, Source
+        5m/30m/1h/6h/24h rows with aligned arrows.
     """
-    primary = name_display.split(" (", 1)[0].strip() if name_display else ""
-    secondary = ""
-    short = f"({mint[:4]}..{mint[-4:]})"
-
-    # If resolve_token_name returned like "SOL (Solana)", split primary/secondary
-    if "(" in name_display and name_display.endswith(")"):
-        # e.g., "SOL (Solana)"
+    # Ensure we really have a name; re-resolve if missing/placeholder
+    if not name_display or mint[:4] in name_display or name_display.startswith("So11"):
         try:
-            p, rest = name_display.split("(", 1)
-            primary = p.strip()
-            secondary = rest[:-1].strip()
+            name_display = resolve_token_name(mint) or name_display
         except Exception:
             pass
+
+    primary, secondary = _split_primary_secondary(name_display or "")
+    short = f"({mint[:4]}..{mint[-4:]})"
 
     lines = ["*Info*"]
     lines.append(f"Mint: {primary or mint[:4]}")
@@ -2463,14 +2466,10 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
     lines.append(f"Price: ${price:.6f}")
     lines.append(f"Source: {source}")
 
-    # Build aligned timeframe rows (drop 12h)
-    order = [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("6h", "6h"), ("24h", "24h")]
-    # compute label width before colon (5m, 30m, 1h, 6h, 24h)
-    maxw = max(len(lbl) for _, lbl in order)
-
-    for key, lbl in order:
-        val = _fmt_pct_cell(tf.get(key))
-        lines.append(f"{_pad_label(lbl, maxw)}  {val}")
+    # Align the timeframe rows; omit 12h
+    order = ["5m", "30m", "1h", "6h", "24h"]
+    for key in order:
+        lines.append(f"{_label_block(key)} { _fmt_pct_cell(tf.get(key)) }")
 
     return "\n".join(lines)
 
