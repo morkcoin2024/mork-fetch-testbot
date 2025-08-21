@@ -2375,6 +2375,52 @@ def watch_tick_once(send_alerts=True):
         _save_watchlist(wl)
 
     return checked, fired, lines
+# --- NEW: aligned /about formatter (monospace, dots lined up, no 12h) ---
+def _fmt_change_row(label: str, pct: float | None) -> str:
+    if pct is None:
+        return f"{label:<4}  n/a"
+    arrow = "🟢▲" if pct >= 0 else "🔴▼"
+    return f"{label:<4}  {arrow}  {pct:+7.2f}%"
+
+def resolve_token_name_primary_secondary(mint: str) -> tuple[str, str]:
+    """Returns (primary_name, secondary_name) for token display"""
+    sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
+    
+    # Primary should be ALL CAPS ticker; fallback to short mint if missing
+    primary = (sym or "").strip()
+    if not primary:
+        primary = (full or "").split()[0] if full else ""
+    primary = (primary or f"{mint[:4]}..{mint[-4:]}").upper()
+    
+    # Secondary is the full name, only if different from primary
+    secondary = (full or "").strip()
+    if secondary.upper() == primary:
+        secondary = ""
+    
+    return primary, secondary
+
+def render_about_aligned(mint: str, price: float, source: str, primary: str, secondary: str, tf: dict) -> str:
+    short = f"{mint[:4]}..{mint[-4:]}"
+    # Use a code block so Telegram uses monospace and alignment is perfect
+    lines = [
+        "```",
+        f"Mint: {primary}",
+        f"{secondary}",
+        f"({short})",
+        f"Price: ${price:.6f}",
+        f"Source: {source}",
+        _fmt_change_row("5m:",  tf.get("5m")),
+        _fmt_change_row("30m:", tf.get("30m")),
+        _fmt_change_row("1h:",  tf.get("1h")),
+        _fmt_change_row("6h:",  tf.get("6h")),
+        _fmt_change_row("24h:", tf.get("24h")),
+        "```",
+    ]
+    # Remove any empty secondary name line (e.g., when secondary == primary)
+    if secondary.strip() == "" or secondary.strip().lower() == primary.strip().lower():
+        del lines[2]
+    return "*Info*\n" + "\n".join(lines)
+
 # --- end helpers ---
 
 def process_telegram_command(update: dict):
@@ -2650,53 +2696,36 @@ def process_telegram_command(update: dict):
             except Exception:
                 pass
 
-            # names -> (primary/ticker, long/secondary)
-            sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
-            # Mint line wants PRIMARY (ticker) in ALL CAPS; fallbacks if missing
-            primary = (sym or "").strip()
-            if not primary:
-                primary = (full or "").split()[0]
-            primary = (primary or short_mint(mint)).upper()
-
-            # Provider timeframes (Dexscreener + Jupiter)
+            # Resolve token names using new helper
+            name_primary, name_secondary = resolve_token_name_primary_secondary(mint)
+            
+            # Provider timeframes (Dexscreener + Jupiter) 
             tf = fetch_timeframes(mint) or {}   # keys among: 5m, 1h, 6h, 24h
             # Local windows from our recorder (only present after some runtime)
             w30m, _ = window_change(mint, 30*60)
-            w12h, _ = window_change(mint, 12*60*60)
-
-            def arrow(v):
-                return "🟢▲" if (v is not None and v >= 0) else ("🔴▼" if v is not None else "n/a")
-            def pct(v):
-                return f"{v:+.2f}%" if v is not None else "n/a"
-            def row(label, v):
-                return f"{label}: {arrow(v)} {pct(v)}" if v is not None else f"{label}: n/a"
-
-            # Optional baseline footer (if present)
-            import time
-            footer = ""
-            try:
-                base = _load_alerts_baseline().get(mint)
-                if base and base.get("ts"):
-                    footer = f"\nSince tracking: ${base.get('price', 0):.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(base['ts']))}"
-            except Exception:
-                pass
-
-            lines = [
-                "*Info*",
-                f"Mint: {primary}",
-                f"{full}" if full else "",
-                f"({short_mint(mint)})",
-                f"Price: ${price:.6f}",
-                f"Source: {source}",
-                row("5m",  tf.get("5m")),
-                row("30m", w30m),
-                row("1h",  tf.get("1h")),
-                row("6h",  tf.get("6h")),
-                row("12h", w12h),
-                row("24h", tf.get("24h")),
-                footer,
-            ]
-            return _reply("\n".join([s for s in lines if s]))
+            # Merge provider and local timeframes for rendering
+            tf_combined = {
+                "5m": tf.get("5m"),
+                "30m": w30m,
+                "1h": tf.get("1h"), 
+                "6h": tf.get("6h"),
+                "24h": tf.get("24h")
+            }
+            
+            # Use the new aligned renderer
+            aligned_text = render_about_aligned(mint, price, source, name_primary, name_secondary, tf_combined)
+            
+            # Send with Telegram to preserve code block alignment
+            chat_id = msg.get("chat", {}).get("id")
+            if chat_id:
+                try:
+                    result = tg_send(chat_id, aligned_text, preview=True)
+                    return {"status": "ok", "response": aligned_text, "telegram_result": result}
+                except Exception as e:
+                    logger.error(f"Failed to send aligned /about: {e}")
+                    return _reply(aligned_text)  # fallback to regular reply
+            else:
+                return _reply(aligned_text)
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
