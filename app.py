@@ -9,16 +9,49 @@ import hashlib
 import inspect
 import textwrap
 import math
+import sqlite3
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
-# === TG SEND DEDUP SYSTEM ===
+# === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
-_LAST_SEND_CACHE = {}  # key: (chat_id, hash16) -> last_ts
+_TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
+_tg_db_local = threading.local()
 
-def _dedup_key(chat_id: int, text: str) -> tuple:
+def _tg_dedup_conn():
+    conn = getattr(_tg_db_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_TG_DEDUP_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS msgs(
+                chat_id INTEGER NOT NULL,
+                hash TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                PRIMARY KEY(chat_id, hash)
+            )
+        """)
+        _tg_db_local.conn = conn
+    return conn
+
+def _tg_dedup_hit_and_mark(chat_id: int, text: str, window: int = TG_DEDUP_WINDOW_SEC) -> bool:
+    """Return True if this message is a duplicate within `window` seconds; otherwise mark it and return False."""
+    now = int(time.time())
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-    return (int(chat_id), h)
+    conn = _tg_dedup_conn()
+    with conn:  # atomic
+        row = conn.execute("SELECT ts FROM msgs WHERE chat_id=? AND hash=?", (int(chat_id), h)).fetchone()
+        if row and (now - int(row[0])) < window:
+            return True
+        conn.execute("REPLACE INTO msgs(chat_id, hash, ts) VALUES (?,?,?)", (int(chat_id), h, now))
+        # best-effort sweep of very old rows
+        if now % 17 == 0:
+            conn.execute("DELETE FROM msgs WHERE ts < ?", (now - 3600,))  # 1h TTL
+    return False
+
+def _tg_norm(text: str) -> str:
+    """Normalize text to avoid duplicates differing only by whitespace."""
+    return "\n".join([ln.rstrip() for ln in text.splitlines()]).strip()
 
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
@@ -2205,22 +2238,15 @@ def _escape_mdv2(text: str) -> str:
 
 def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
     """
-    Telegram send with de-dup. If same text hits the same chat within TG_DEDUP_WINDOW_SEC,
-    drop the duplicate. We attempt ONE successful send; once successful we stop.
+    Telegram send with cross-process deduplication. Uses SQLite to prevent duplicates across workers.
     """
-    now = time.time()
-    key = _dedup_key(chat_id, text)
-    last = _LAST_SEND_CACHE.get(key, 0.0)
-    if now - last < TG_DEDUP_WINDOW_SEC:
-        logger.info("[SEND] deduped chat_id=%s within %ss", chat_id, TG_DEDUP_WINDOW_SEC)
+    text = _tg_norm(text)
+    if _tg_dedup_hit_and_mark(chat_id, text):
+        logger.info("[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC)
         return {"ok": True, "deduped": True}
-
-    # reserve slot before sending to protect against races; roll back on total failure
-    _LAST_SEND_CACHE[key] = now
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token: 
-        _LAST_SEND_CACHE.pop(key, None)  # allow retry later
         logger.error("[SEND] Missing TELEGRAM_BOT_TOKEN")
         return {"ok": False, "error": "no_token"}
     
@@ -2266,11 +2292,10 @@ def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=Fal
             logger.info("[SEND] ok=plain chat_id=%s", chat_id)
 
     if not sent:
-        _LAST_SEND_CACHE.pop(key, None)  # allow retry later
         logger.warning("[SEND] all-attempts-failed chat_id=%s", chat_id)
         return {"ok": False}
 
-    return sent
+    return {"ok": True}
 
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
 from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL

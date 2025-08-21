@@ -1,0 +1,82 @@
+# === BEGIN CROSS-PROCESS TELEGRAM DEDUPE PATCH =============================
+# add near other imports
+import sqlite3, threading, hashlib, time, os
+
+TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
+_TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
+_tg_db_local = threading.local()
+
+def _tg_dedup_conn():
+    conn = getattr(_tg_db_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_TG_DEDUP_DB, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS msgs(
+                chat_id INTEGER NOT NULL,
+                hash TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                PRIMARY KEY(chat_id, hash)
+            )
+        """)
+        _tg_db_local.conn = conn
+    return conn
+
+def _tg_dedup_hit_and_mark(chat_id: int, text: str, window: int = TG_DEDUP_WINDOW_SEC) -> bool:
+    """Return True if this message is a duplicate within `window` seconds; otherwise mark it and return False."""
+    now = int(time.time())
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    conn = _tg_dedup_conn()
+    with conn:  # atomic
+        row = conn.execute("SELECT ts FROM msgs WHERE chat_id=? AND hash=?", (int(chat_id), h)).fetchone()
+        if row and (now - int(row[0])) < window:
+            return True
+        conn.execute("REPLACE INTO msgs(chat_id, hash, ts) VALUES (?,?,?)", (int(chat_id), h, now))
+        # best-effort sweep of very old rows
+        if now % 17 == 0:
+            conn.execute("DELETE FROM msgs WHERE ts < ?", (now - 3600,))  # 1h TTL
+    return False
+
+# --- OPTIONAL: a tiny normalizer to avoid duplicates differing only by whitespace
+def _tg_norm(text: str) -> str:
+    return "\n".join([ln.rstrip() for ln in text.splitlines()]).strip()
+
+# Replace your tg_send(...) with this version (or wrap your existing one with the first lines)
+def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
+    text = _tg_norm(text)
+    if _tg_dedup_hit_and_mark(chat_id, text):
+        logger.info("[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC)
+        return {"ok": True, "deduped": True}
+
+    # existing send flow, unchanged except for logging labels
+    def _try_send(mode, body):
+        try:
+            return _send_chunk(body, mode, no_preview)
+        except Exception as e:
+            logger.warning("[SEND] exception mode=%s chat_id=%s err=%s", mode, chat_id, e)
+            return False
+
+    sent = False
+    if parse_mode == "MarkdownV2":
+        sent = _try_send("MarkdownV2", text)
+        if sent: logger.info("[SEND] ok=mdv2 chat_id=%s", chat_id)
+    if not sent and parse_mode == "MarkdownV2":
+        try: escaped = escape_markdown_v2(text)
+        except Exception: escaped = text
+        sent = _try_send("MarkdownV2", escaped)
+        if sent: logger.info("[SEND] ok=mdv2_escaped chat_id=%s", chat_id)
+    if not sent:
+        sent = _try_send(None, text)
+        if sent: logger.info("[SEND] ok=plain chat_id=%s", chat_id)
+    if not sent:
+        logger.warning("[SEND] all-attempts-failed chat_id=%s", chat_id)
+        return {"ok": False}
+    return {"ok": True}
+
+# Belt-and-suspenders: guard the low-level chunk sender too (in case anything bypasses tg_send).
+# Just wrap the top of your _send_chunk(text, parse_mode, no_preview) with:
+#   if _tg_dedup_hit_and_mark(DEFAULT_CHAT_ID_OR_EXPLICIT, _tg_norm(text)):
+#       logger.info("[SEND] deduped at _send_chunk (cross-proc)")
+#       return True
+# (Adjust to your function signature if it already receives chat_id separately.)
+# === END CROSS-PROCESS TELEGRAM DEDUPE PATCH ===============================
