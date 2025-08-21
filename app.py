@@ -201,6 +201,65 @@ def get_price_auto(mint:str):
     median = vals[len(vals)//2] if len(vals)%2==1 else (vals[len(vals)//2-1]+vals[len(vals)//2])/2.0
     return {"ok": True, "price": median, "source": f"auto({','.join(used)})"}
 
+DEXS_URL = "https://api.dexscreener.com/latest/dex/tokens/"
+JUP_URL  = "https://price.jup.ag/v6/price?ids="  # works with mint addresses
+
+def is_base58_mint(s:str)->bool:
+    # cheap check to avoid "wrong mint" surprises; we still pass through as-given for display
+    return bool(s) and len(s) >= 32 and re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]+", s) is not None
+
+def _tf_merge(*dicts):
+    out = {}
+    for d in dicts:
+        if not d: continue
+        for k,v in d.items():
+            if v is None: continue
+            out[k] = v
+    return out  # last writer wins
+
+def fetch_timeframes_dex(mint:str):
+    try:
+        r = requests.get(DEXS_URL + mint, timeout=6)
+        if r.status_code != 200: return {}
+        j = r.json()
+        # pick best pair (highest liquidity) if many
+        pairs = j.get("pairs") or []
+        if not pairs: return {}
+        best = max(pairs, key=lambda p: float(p.get("liquidity",{}).get("usd",0)))
+        pc = best.get("priceChange", {})  # { "m5": "...", "h1": "...", "h6": "...", "h24": "..." }
+        def f(key):
+            v = pc.get(key)
+            try: return float(v)
+            except: return None
+        return {
+            "5m": f("m5"),
+            "1h": f("h1"),
+            "6h": f("h6"),
+            "24h": f("h24"),
+        }
+    except Exception:
+        return {}
+
+def fetch_timeframes_jup(mint:str):
+    try:
+        r = requests.get(JUP_URL + mint, timeout=6)
+        if r.status_code != 200: return {}
+        j = r.json()
+        data = (j.get("data") or {}).get(mint) or {}
+        # Jupiter gives 24h change; sometimes also 1h; we normalize keys
+        out = {}
+        for k_src, k_dst in (("24hChange", "24h"), ("1hChange","1h")):
+            v = data.get(k_src)
+            try: out[k_dst] = float(v)
+            except: pass
+        return out
+    except Exception:
+        return {}
+
+def fetch_timeframes(mint:str):
+    # Merge Dexscreener first (more buckets), then layer any extra from Jupiter
+    return _tf_merge(fetch_timeframes_dex(mint), fetch_timeframes_jup(mint))
+
 def _load_json(p):
     try:
         import json, os
