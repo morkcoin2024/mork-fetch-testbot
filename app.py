@@ -179,6 +179,13 @@ def name_line(mint):
         sym, full = nm, ""
     return sym, full
 
+def _alerts_cfg_load():
+    import json, os
+    try: return json.load(open("alerts_config.json"))
+    except: return {"enabled": True, "chat_id": None, "min_move_pct": 0.01, "rate_per_min": 60, "muted_until": 0, "muted": False}
+def _alerts_cfg_save(d):
+    import json; json.dump(d, open("alerts_config.json","w"))
+
 def _load_json(p):
     try:
         import json, os
