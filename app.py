@@ -12,6 +12,17 @@ import math
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
+# --- ROUTER TRACE BEGIN ---
+import time as _rt_time
+_ROUTER_TRACE = "/tmp/router_trace.log"
+def _rt_log(msg: str):
+    try:
+        with open(_ROUTER_TRACE, "a") as _f:
+            _f.write(f"{int(_rt_time.time())} {msg}\n")
+    except Exception:
+        pass
+# --- ROUTER TRACE END ---
+
 # ---- Alerts auto-ticker globals ----
 ALERTS_TICK_DEFAULT = int(os.getenv("ALERTS_TICK_SEC", "30"))  # 0 = disabled
 ALERTS_TICK_INTERVAL = ALERTS_TICK_DEFAULT
@@ -2716,6 +2727,7 @@ def process_telegram_command(update: dict):
     
     user = msg.get("from") or {}
     chat_id = msg.get("chat", {}).get("id")
+    user_id = user.get("id")
     # Enhanced parsing guard (prevents UnboundLocalError)
     text = msg.get("text", "").strip()
     parts = text.split()                         # ALWAYS defined → no UnboundLocalError
@@ -2723,6 +2735,9 @@ def process_telegram_command(update: dict):
     arg   = parts[1] if len(parts) > 1 else ""   # single string with the rest, if present
     clean = text
     args = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+    # --- ROUTER TRACE HOOK (entry) ---
+    _rt_log(f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}")
 
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
@@ -3021,7 +3036,10 @@ def process_telegram_command(update: dict):
 
             text = render_about_list(mint, price, src, name_display, tf)
             tg_send(chat_id, text, preview=True)
-            return {"status": "ok", "price": price, "source": src}
+            
+            # --- ABOUT RETURN FIX + TRACE ---
+            _rt_log(f"about sent len={len(text)} chat={chat_id}")
+            return {"status": "ok", "response": text}
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
             import json, time

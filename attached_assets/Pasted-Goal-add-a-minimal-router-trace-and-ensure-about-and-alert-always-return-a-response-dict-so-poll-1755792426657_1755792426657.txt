@@ -1,0 +1,42 @@
+Goal: add a minimal router trace and ensure /about and /alert always return a response dict (so polling doesn’t log “Empty response from router”).
+
+1) In app.py, near the other imports, add:
+# --- ROUTER TRACE BEGIN ---
+import time as _rt_time
+_ROUTER_TRACE = "/tmp/router_trace.log"
+def _rt_log(msg: str):
+    try:
+        with open(_ROUTER_TRACE, "a") as _f:
+            _f.write(f"{int(_rt_time.time())} {msg}\n")
+    except Exception:
+        pass
+# --- ROUTER TRACE END ---
+
+2) In process_telegram_command(update): at the very top after you parse `text`, `chat_id`, `user_id`, add:
+# --- ROUTER TRACE HOOK (entry) ---
+_rt_log(f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}")
+
+3) Still inside process_telegram_command, ensure branches return a dict.
+For /about <mint> branch, after you build the final `out_text` that you send to Telegram:
+# --- ABOUT RETURN FIX + TRACE ---
+_rt_log(f"about sent len={len(out_text)} chat={chat_id}")
+return {"status": "ok", "response": out_text}
+
+For /alert <mint> branch, after you build the final `out_text` (or summary you send):
+# --- ALERT RETURN FIX + TRACE ---
+_rt_log(f"alert sent len={len(out_text)} chat={chat_id}")
+return {"status": "ok", "response": out_text}
+
+4) At the very end of process_telegram_command (right before any default `return None`), add a final trace of whatever you’re about to return:
+# --- ROUTER TRACE HOOK (exit) ---
+try:
+    _rt_log(f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response','')) if isinstance(ret, dict) else 0}")
+    return ret
+except NameError:
+    _rt_log("exit ret=None")
+    return None
+
+Notes:
+- If your function currently returns directly from multiple places, keep those direct returns, but add the TRACE + `return {"status":"ok","response":...}` in /about and /alert exactly as shown.
+- Don’t change business logic; just make sure /about and /alert compute `out_text` (the exact text you send) and then return it in a dict.
+- This creates /tmp/router_trace.log that we can tail.
