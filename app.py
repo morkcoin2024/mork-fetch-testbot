@@ -173,19 +173,10 @@ def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
 def _display_name_for(mint: str) -> str:
-    """
-    Preferred layout:
-        TICKER\nLong Name
-    Order of precedence:
-        1) explicit override (token_name_overrides.json)
-        2) cached/resolved token_names.json via resolve_token_name(...)
-        3) short mint (abcd..wxyz)
-    """
     try:
         ov = _name_overrides_get(mint)
     except Exception:
         ov = None
-
     if ov:
         p, s = ov
         p = (p or "").strip()
@@ -193,15 +184,11 @@ def _display_name_for(mint: str) -> str:
         if p and s: return f"{p}\n{s}"
         if p:       return p
         if s:       return s
-
-    # fallback to your existing resolver/cache
     try:
         nm = resolve_token_name(mint) or ""
-        if nm:
-            return nm  # may already be "TICKER\nLong"
+        if nm: return nm   # may be "TICKER\nLong"
     except Exception:
         pass
-
     return f"{mint[:4]}..{mint[-4:]}"
 
 # ===== Heuristic primary extraction =====
