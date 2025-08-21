@@ -2723,7 +2723,7 @@ def process_telegram_command(update: dict):
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
         result = {"status":"ok","response":"", "handled":True}  # swallow duplicate
-        return _post_price_alert_hook(update, result)
+        return result
     
     user = msg.get("from") or {}
     chat_id = msg.get("chat", {}).get("id")
@@ -2787,19 +2787,19 @@ def process_telegram_command(update: dict):
 
         if cmd == "/digest_status":
             result = {"status":"ok","response": cmd_digest_status()}
-            return _post_price_alert_hook(update, result)
+            return result
         elif cmd == "/digest_on":
             result = {"status":"ok","response": cmd_digest_on()}
-            return _post_price_alert_hook(update, result)
+            return result
         elif cmd == "/digest_off":
             result = {"status":"ok","response": cmd_digest_off()}
-            return _post_price_alert_hook(update, result)
+            return result
         elif cmd == "/digest_time":
             result = {"status":"ok","response": cmd_digest_time(args)}
-            return _post_price_alert_hook(update, result)
+            return result
         elif cmd == "/digest_test":
             result = {"status":"ok","response": cmd_digest_test(args)}
-            return _post_price_alert_hook(update, result)
+            return result
 
     if cmd == "/autosell_status":
         try:
@@ -2807,7 +2807,7 @@ def process_telegram_command(update: dict):
             st = autosell.status()
         except Exception as e:
             result = {"status":"error","response": f"AutoSell status unavailable: {e}"}
-            return _post_price_alert_hook(update, result)
+            return result
         interval = st.get("interval_sec") or st.get("interval") or "n/a"
         alive    = st.get("alive", "n/a")
         rules    = st.get("rules") or []
@@ -2817,14 +2817,14 @@ def process_telegram_command(update: dict):
                 f"Rules: {len(rules)}\n"
                 f"Thread alive: {alive}")
         result = {"status":"ok","response": text}
-        return _post_price_alert_hook(update, result)
+        return result
     # --- HOTFIX_EXT_ROUTES_END ---
 
     # Unified reply function - single source of truth for response format
     def _reply(body: str, status: str = "ok"):
         result = {"status": status, "response": body, "handled": True}
         # Apply price alert hook before returning
-        return _post_price_alert_hook(update, result)
+        return result
     
     # Helper function for structured responses with title and body
     def ok(title: str, body: str):
