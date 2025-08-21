@@ -187,8 +187,9 @@ def _display_name_for(mint: str) -> str:
         ov = None
 
     if ov:
-        p = (ov[0] or "").strip() if ov[0] else ""
-        s = (ov[1] or "").strip() if ov[1] else ""
+        p, s = ov
+        p = (p or "").strip()
+        s = (s or "").strip()
         if p and s: return f"{p}\n{s}"
         if p:       return p
         if s:       return s
