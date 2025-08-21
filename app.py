@@ -2384,6 +2384,12 @@ def watch_tick_once(send_alerts=True):
 
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
+FIGURE_SPACE = "\u2007"  # fixed-width space that aligns in Telegram UI
+
+def _pad_label(label: str, width: int) -> str:
+    """Pad label to fixed width using figure spaces, so arrows line up without code blocks."""
+    need = max(0, width - len(label))
+    return f"{label}:{FIGURE_SPACE * need}"
 
 def split_primary_secondary(name_str: str) -> tuple[str, str]:
     s = (name_str or "").strip()
@@ -2417,34 +2423,55 @@ def split_primary_secondary(name_str: str) -> tuple[str, str]:
 
 
 def _fmt_pct_cell(pct):
+    """Existing helper is fine, keep arrows & colors; just return 'n/a' when pct is None."""
     if pct is None:
         return "n/a"
-    return f"{'🟢▲' if pct >= 0 else '🔴▼'} {pct:+.2f}%"
+    try:
+        p = float(pct)
+    except Exception:
+        return "n/a"
+    up = "🟢▲" if p >= 0 else "🔴▼"
+    return f"{up} {p:+.2f}%"
 
 
-def render_about_list(mint: str, price: float, source: str, combined_name: str, tf: dict) -> str:
-    primary, secondary = split_primary_secondary(combined_name)
-    # Hard override for SOL pseudo-mint
-    if mint == SOL_MINT:
-        primary, secondary = "SOL", "Solana"
+def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
+    """
+    Pretty, aligned /about output WITHOUT code block.
+    Shows primary on 'Mint:', then secondary on next line (if distinct), then short mint.
+    Aligns timeframe rows with figure-space padding so emoji arrows start in a column.
+    Hides 12h (often unavailable).
+    """
+    primary = name_display.split(" (", 1)[0].strip() if name_display else ""
+    secondary = ""
+    short = f"({mint[:4]}..{mint[-4:]})"
 
-    short = f"{mint[:4]}..{mint[-4:]}"
-    lines = [
-        "*Info*",
-        f"Mint: {primary or short}",
-    ]
+    # If resolve_token_name returned like "SOL (Solana)", split primary/secondary
+    if "(" in name_display and name_display.endswith(")"):
+        # e.g., "SOL (Solana)"
+        try:
+            p, rest = name_display.split("(", 1)
+            primary = p.strip()
+            secondary = rest[:-1].strip()
+        except Exception:
+            pass
+
+    lines = ["*Info*"]
+    lines.append(f"Mint: {primary or mint[:4]}")
     if secondary and secondary.lower() != (primary or "").lower():
         lines.append(secondary)
-    lines.extend([
-        f"({short})",
-        f"Price: ${price:.6f}",
-        f"Source: {source}",
-        f"5m:  {_fmt_pct_cell(tf.get('5m'))}",
-        f"30m: {_fmt_pct_cell(tf.get('30m'))}",
-        f"1h:  {_fmt_pct_cell(tf.get('1h'))}",
-        f"6h:  {_fmt_pct_cell(tf.get('6h'))}",
-        f"24h: {_fmt_pct_cell(tf.get('24h'))}",
-    ])
+    lines.append(short)
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+
+    # Build aligned timeframe rows (drop 12h)
+    order = [("5m", "5m"), ("30m", "30m"), ("1h", "1h"), ("6h", "6h"), ("24h", "24h")]
+    # compute label width before colon (5m, 30m, 1h, 6h, 24h)
+    maxw = max(len(lbl) for _, lbl in order)
+
+    for key, lbl in order:
+        val = _fmt_pct_cell(tf.get(key))
+        lines.append(f"{_pad_label(lbl, maxw)}  {val}")
+
     return "\n".join(lines)
 
 # --- end helpers ---
