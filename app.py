@@ -173,23 +173,34 @@ def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
 def _display_name_for(mint: str) -> str:
-    """Preferred: TICKER\nLong Name. Fallbacks to resolver, then short mint."""
-    # 1) Check overrides first
-    p0, s0 = _name_overrides_get(mint)
-    if p0 or s0:
-        if p0 and s0:
-            return f"{p0}\n{s0}"
-        return p0 or s0
-    
-    # 2) Fall back to existing resolver
+    """
+    Preferred layout:
+        TICKER\nLong Name
+    Order of precedence:
+        1) explicit override (token_name_overrides.json)
+        2) cached/resolved token_names.json via resolve_token_name(...)
+        3) short mint (abcd..wxyz)
+    """
+    try:
+        ov = _name_overrides_get(mint)
+    except Exception:
+        ov = None
+
+    if ov:
+        p = (ov[0] or "").strip() if ov[0] else ""
+        s = (ov[1] or "").strip() if ov[1] else ""
+        if p and s: return f"{p}\n{s}"
+        if p:       return p
+        if s:       return s
+
+    # fallback to your existing resolver/cache
     try:
         nm = resolve_token_name(mint) or ""
         if nm:
-            return nm
+            return nm  # may already be "TICKER\nLong"
     except Exception:
         pass
-    
-    # 3) Shortest fallback
+
     return f"{mint[:4]}..{mint[-4:]}"
 
 # ===== Heuristic primary extraction =====
@@ -2971,15 +2982,21 @@ def process_telegram_command(update: dict):
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         elif cmd == "/about":
             if len(parts) < 2:
-                return _reply("Usage: /about <mint>")
+                tg_send(chat_id, "Usage: /about <mint>", preview=True)
+                return {"status": "error", "err": "missing mint"}
+
             mint = parts[1].strip()
-            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None) or {}
+
+            pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else None)
             price = float(pr.get("price") or 0.0)
-            src = pr.get("source") or "?"
+            src   = pr.get("source") or "?"
+
             name_display = _display_name_for(mint)
             tf = fetch_timeframes(mint) or {}
+
             text = render_about_list(mint, price, src, name_display, tf)
-            return _reply(text)
+            tg_send(chat_id, text, preview=True)
+            return {"status": "ok"}
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
