@@ -2375,51 +2375,91 @@ def watch_tick_once(send_alerts=True):
         _save_watchlist(wl)
 
     return checked, fired, lines
-# --- NEW: aligned /about formatter (monospace, dots lined up, no 12h) ---
-def _fmt_change_row(label: str, pct: float | None) -> str:
+# ---------- NAME SPLITTER (ticker first, brand second) ----------
+def split_primary_secondary(name_str: str) -> tuple[str, str]:
+    """
+    Accepts forms like:
+      - 'Solana (SOL)'                  -> ('SOL', 'Solana')
+      - 'WINGS — Wings Stays On'        -> ('WINGS', 'Wings Stays On')
+      - 'BONK Bonk Inu' (fallback)      -> ('BONK', 'Bonk Inu')
+    """
+    s = (name_str or "").strip()
+
+    # 1) Form: 'Brand (TICKER)'
+    if "(" in s and s.endswith(")"):
+        try:
+            base, tick = s.rsplit("(", 1)
+            secondary = base.strip()
+            primary = tick[:-1].strip()
+            if primary:
+                return primary, secondary
+        except Exception:
+            pass
+
+    # 2) Form: 'TICKER — Brand'
+    if "—" in s:
+        a, b = [x.strip() for x in s.split("—", 1)]
+        if a.isupper() and 1 <= len(a) <= 8:
+            return a, b
+
+    # 3) Fallback: pick shortest ALL-CAPS token as ticker; rest as brand
+    tokens = s.replace("(", " ").replace(")", " ").replace("—", " ").split()
+    caps = [t for t in tokens if t.isalpha() and t.isupper()]
+    if caps:
+        primary = min(caps, key=len)
+        secondary = s if s != primary else ""
+        return primary, secondary
+
+    # Last resort: show shortened mint later; here just echo
+    return s, ""
+
+# ---------- PRETTY ROW (no code block, no copy bar) ----------
+def _fmt_pct_cell(pct: float | None) -> str:
     if pct is None:
-        return f"{label:<4}  n/a"
+        return "n/a"
     arrow = "🟢▲" if pct >= 0 else "🔴▼"
-    return f"{label:<4}  {arrow}  {pct:+7.2f}%"
+    # keep two spaces after colon for a tidy look in proportional font
+    return f"{arrow} {pct:+.2f}%"
 
-def resolve_token_name_primary_secondary(mint: str) -> tuple[str, str]:
-    """Returns (primary_name, secondary_name) for token display"""
-    sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
-    
-    # Primary should be ALL CAPS ticker; fallback to short mint if missing
-    primary = (sym or "").strip()
-    if not primary:
-        primary = (full or "").split()[0] if full else ""
-    primary = (primary or f"{mint[:4]}..{mint[-4:]}").upper()
-    
-    # Secondary is the full name, only if different from primary
-    secondary = (full or "").strip()
-    if secondary.upper() == primary:
-        secondary = ""
-    
-    return primary, secondary
-
-def render_about_aligned(mint: str, price: float, source: str, primary: str, secondary: str, tf: dict) -> str:
+def render_about_list(mint: str, price: float, source: str, name_str: str, tf: dict) -> str:
+    primary, secondary = split_primary_secondary(name_str)
     short = f"{mint[:4]}..{mint[-4:]}"
-    # Use a code block so Telegram uses monospace and alignment is perfect
     lines = [
-        "```",
-        f"Mint: {primary}",
-        f"{secondary}",
+        "*Info*",
+        f"Mint: {primary or short}",
+    ]
+    if secondary and secondary.lower() != (primary or "").lower():
+        lines.append(secondary)
+    lines.extend([
         f"({short})",
         f"Price: ${price:.6f}",
         f"Source: {source}",
-        _fmt_change_row("5m:",  tf.get("5m")),
-        _fmt_change_row("30m:", tf.get("30m")),
-        _fmt_change_row("1h:",  tf.get("1h")),
-        _fmt_change_row("6h:",  tf.get("6h")),
-        _fmt_change_row("24h:", tf.get("24h")),
-        "```",
-    ]
-    # Remove any empty secondary name line (e.g., when secondary == primary)
-    if secondary.strip() == "" or secondary.strip().lower() == primary.strip().lower():
-        del lines[2]
-    return "*Info*\n" + "\n".join(lines)
+        f"5m:  {_fmt_pct_cell(tf.get('5m'))}",
+        f"30m: {_fmt_pct_cell(tf.get('30m'))}",
+        f"1h:  {_fmt_pct_cell(tf.get('1h'))}",
+        f"6h:  {_fmt_pct_cell(tf.get('6h'))}",
+        # 12h intentionally omitted per request
+        f"24h: {_fmt_pct_cell(tf.get('24h'))}",
+    ])
+    return "\n".join(lines)
+
+def resolve_token_display_name(mint: str) -> str:
+    """Returns the full token name string for display parsing"""
+    sym, full = name_line(mint)  # e.g. ("WINGS", "Wings Stays On")
+    
+    # Try to create a proper display format
+    if sym and full and sym.upper() != full.upper():
+        # If we have both ticker and full name, format as "Full Name (TICKER)"
+        return f"{full} ({sym.upper()})"
+    elif sym:
+        # Just ticker
+        return sym.upper()
+    elif full:
+        # Just full name
+        return full
+    else:
+        # Fallback to short mint
+        return f"{mint[:4]}..{mint[-4:]}"
 
 # --- end helpers ---
 
@@ -2696,36 +2736,26 @@ def process_telegram_command(update: dict):
             except Exception:
                 pass
 
-            # Resolve token names using new helper
-            name_primary, name_secondary = resolve_token_name_primary_secondary(mint)
-            
-            # Provider timeframes (Dexscreener + Jupiter) 
-            tf = fetch_timeframes(mint) or {}   # keys among: 5m, 1h, 6h, 24h
-            # Local windows from our recorder (only present after some runtime)
+            # Use new name resolver and list renderer
+            name_display = resolve_token_display_name(mint)  # e.g., 'Solana (SOL)' or 'WINGS — Wings Stays On'
+            tf = fetch_timeframes(mint) or {}        # already exists (5m, 1h, 6h, 24h)
+            # Add local 30m window
             w30m, _ = window_change(mint, 30*60)
-            # Merge provider and local timeframes for rendering
-            tf_combined = {
-                "5m": tf.get("5m"),
-                "30m": w30m,
-                "1h": tf.get("1h"), 
-                "6h": tf.get("6h"),
-                "24h": tf.get("24h")
-            }
+            tf["30m"] = w30m
             
-            # Use the new aligned renderer
-            aligned_text = render_about_aligned(mint, price, source, name_primary, name_secondary, tf_combined)
+            text = render_about_list(mint, price, source, name_display, tf)
             
-            # Send with Telegram to preserve code block alignment
+            # Single send with no code block, no copy bar
             chat_id = msg.get("chat", {}).get("id")
             if chat_id:
                 try:
-                    result = tg_send(chat_id, aligned_text, preview=True)
-                    return {"status": "ok", "response": aligned_text, "telegram_result": result}
+                    result = tg_send(chat_id, text, preview=True)
+                    return {"status": "ok", "response": text, "telegram_result": result}
                 except Exception as e:
-                    logger.error(f"Failed to send aligned /about: {e}")
-                    return _reply(aligned_text)  # fallback to regular reply
+                    logger.error(f"Failed to send /about: {e}")
+                    return _reply(text)  # fallback to regular reply
             else:
-                return _reply(aligned_text)
+                return _reply(text)
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
