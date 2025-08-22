@@ -1,0 +1,152 @@
+# === app.py (watchlist – per-chat & consistent rendering) ===================
+
+def _short_mint(m: str) -> str:
+    if not m or len(m) < 10:
+        return m or "?"
+    return f"{m[:4]}..{m[-4:]}"
+
+def _mint_match(user_supplied: str, full_mint: str) -> bool:
+    u = (user_supplied or "").strip()
+    if not u:
+        return False
+    return u == full_mint or u == _short_mint(full_mint)
+
+def _watch_state_load() -> dict:
+    st = _load_json("scanner_state.json", default={})
+    # normalize containers
+    if not isinstance(st.get("watchlist_by_chat"), dict):
+        st["watchlist_by_chat"] = {}
+    return st
+
+def _watch_get_list(st: dict, chat_id: int) -> list[str]:
+    wc = st["watchlist_by_chat"]
+    key = str(chat_id)
+    wl = wc.get(key)
+    if not isinstance(wl, list):
+        wl = []
+        wc[key] = wl
+    # one-time migration: if legacy top-level list exists, merge it in
+    if isinstance(st.get("watchlist"), list) and st["watchlist"]:
+        for m in st["watchlist"]:
+            if m not in wl:
+                wl.append(m)
+        st["watchlist"] = []  # clear legacy after migration
+    return wl
+
+def _watch_set_list(st: dict, chat_id: int, wl: list[str]) -> None:
+    st["watchlist_by_chat"][str(chat_id)] = wl
+    _save_json("scanner_state.json", st)
+
+def _render_name_block(mint: str) -> str:
+    name = resolve_token_name(mint)  # may be "TICKER\nLong"
+    lines = []
+    if name:
+        lines.append(name)
+    else:
+        lines.append(_short_mint(mint))
+    lines.append(f"({_short_mint(mint)})")
+    return "\n".join(lines)
+
+def _render_watchlist_lines(mints: list[str]) -> str:
+    if not mints:
+        return "_(empty)_"
+    out = []
+    for i, m in enumerate(mints, 1):
+        out.append(f"{i}. {_render_name_block(m)}")
+    return "\n".join(out)
+
+# ---- Router branches --------------------------------------------------------
+
+elif cmd == "/watch":
+    # /watch <mint1> <mint2> ...
+    if len(parts) < 2:
+        tg_send(chat_id, "*Watchlist*\nUsage: `/watch <MINT...>`", preview=True)
+        return {"status": "error", "err": "missing args"}
+
+    st = _watch_state_load()
+    wl = _watch_get_list(st, chat_id)
+
+    raw_mints = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
+    to_add, already, invalid = [], [], []
+
+    for u in raw_mints:
+        full = u if len(u) > 12 else None
+        if not full:
+            # try match to existing by short
+            for fm in wl:
+                if _mint_match(u, fm):
+                    full = fm
+                    break
+        if not full:
+            if len(u) > 12:
+                full = u
+            else:
+                invalid.append(u)
+                continue
+
+        if full in wl:
+            already.append(full)
+        else:
+            wl.append(full)
+            to_add.append(full)
+
+    _watch_set_list(st, chat_id, wl)
+
+    blocks = ["*Watchlist*"]
+    if to_add:
+        blocks.append("Added:")
+        blocks += [_render_name_block(m) for m in to_add]
+    if already:
+        blocks.append("Already present:")
+        blocks += [_render_name_block(m) for m in already]
+    if invalid:
+        blocks.append("Ignored (invalid):")
+        blocks += [f"`{u}`" for u in invalid]
+    tg_send(chat_id, "\n".join(blocks), preview=True)
+    return {"status": "ok"}
+
+elif cmd == "/unwatch":
+    if len(parts) < 2:
+        tg_send(chat_id, "*Watchlist*\nUsage: `/unwatch <MINT...>`", preview=True)
+        return {"status": "error", "err": "missing args"}
+
+    st = _watch_state_load()
+    wl = _watch_get_list(st, chat_id)
+
+    raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
+    removed, not_found = [], []
+
+    for u in raw:
+        match = next((fm for fm in wl if _mint_match(u, fm)), None)
+        if match:
+            wl.remove(match)
+            removed.append(match)
+        else:
+            not_found.append(u)
+
+    _watch_set_list(st, chat_id, wl)
+
+    blocks = ["*Watchlist*"]
+    if removed:
+        blocks.append("Removed:")
+        blocks += [_render_name_block(m) for m in removed]
+    if not_found:
+        blocks.append("Not found:")
+        blocks += [f"`{u}`" for u in not_found]
+    blocks.append(f"Total: {len(wl)}")
+    tg_send(chat_id, "\n".join(blocks), preview=True)
+    return {"status": "ok"}
+
+elif cmd == "/watchlist":
+    st = _watch_state_load()
+    wl = _watch_get_list(st, chat_id)
+    tg_send(chat_id, f"*Watchlist*\n{_render_watchlist_lines(wl)}", preview=True)
+    return {"status": "ok"}
+
+elif cmd == "/watch_clear":
+    st = _watch_state_load()
+    _watch_set_list(st, chat_id, [])
+    tg_send(chat_id, "🧹 *Watchlist cleared.*", preview=True)
+    return {"status": "ok"}
+
+# === end patch ===============================================================

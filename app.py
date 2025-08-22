@@ -81,34 +81,66 @@ def render_name_status(mint: str) -> str:
         f"Cache: {c_pair}"
     )
 
-# Enhanced watchlist management helpers
+# Enhanced per-chat watchlist management helpers
+def _short_mint(m: str) -> str:
+    if not m or len(m) < 10:
+        return m or "?"
+    return f"{m[:4]}..{m[-4:]}"
+
 def _mint_match(user_supplied: str, full_mint: str) -> bool:
-    """Accept either the full mint or its short form."""
     u = (user_supplied or "").strip()
     if not u:
         return False
-    if u == full_mint:
-        return True
-    return u == _short(full_mint)
+    return u == full_mint or u == _short_mint(full_mint)
+
+def _watch_state_load() -> dict:
+    st = _load_json_safe("scanner_state.json")
+    if not isinstance(st, dict):
+        st = {}
+    # normalize containers
+    if not isinstance(st.get("watchlist_by_chat"), dict):
+        st["watchlist_by_chat"] = {}
+    return st
+
+def _watch_get_list(st: dict, chat_id: int) -> list:
+    # Ensure watchlist_by_chat exists
+    if "watchlist_by_chat" not in st:
+        st["watchlist_by_chat"] = {}
+    wc = st["watchlist_by_chat"]
+    key = str(chat_id)
+    wl = wc.get(key)
+    if not isinstance(wl, list):
+        wl = []
+        wc[key] = wl
+    # one-time migration: if legacy top-level list exists, merge it in
+    if isinstance(st.get("watchlist"), list) and st["watchlist"]:
+        for m in st["watchlist"]:
+            if m not in wl:
+                wl.append(m)
+        st["watchlist"] = []  # clear legacy after migration
+    return wl
+
+def _watch_set_list(st: dict, chat_id: int, wl: list) -> None:
+    st["watchlist_by_chat"][str(chat_id)] = wl
+    _save_json_safe("scanner_state.json", st)
 
 def _render_name_block(mint: str) -> str:
-    # Reuse the unified name resolver you added (ticker + long name)  
-    name = _display_name_for(mint)  # Use existing function
+    name = resolve_token_name(mint)  # may be "TICKER\nLong"
     lines = []
     if name:
-        lines.append(name)           # may be "TICKER\nLong"
+        lines.append(name)
     else:
-        lines.append(_short(mint))
-    lines.append(f"({_short(mint)})")
+        lines.append(_short_mint(mint))
+    lines.append(f"({_short_mint(mint)})")
     return "\n".join(lines)
 
 def _render_watchlist_lines(mints: list) -> str:
     if not mints:
         return "_(empty)_"
-    parts = []
+    out = []
     for i, m in enumerate(mints, 1):
-        parts.append(f"{i}. {_render_name_block(m)}")
-    return "\n".join(parts)
+        out.append(f"{i}. {_render_name_block(m)}")
+    return "\n".join(out)
 
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
@@ -3151,38 +3183,27 @@ def process_telegram_command(update: dict):
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         
-        # Enhanced watchlist commands
+        # Enhanced per-chat watchlist commands
         elif cmd == "/watch":
             # /watch <mint1> <mint2> ...
             if len(parts) < 2:
                 return _reply("*Watchlist*\nUsage: `/watch <MINT...>`")
 
-            try:
-                with open("scanner_state.json") as f:
-                    st = json.load(f)
-            except Exception:
-                st = {}
-            wl = st.get("watchlist", [])
+            st = _watch_state_load()
+            wl = _watch_get_list(st, chat_id)
 
             raw_mints = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
-            # Try to resolve to full mint for each (if user passed short)
-            to_add = []
-            already = []
-            invalid = []
+            to_add, already, invalid = [], [], []
 
             for u in raw_mints:
-                # If it looks like a full mint, keep as-is; else try to match any existing or treat as invalid
-                full = None
-                if len(u) > 12:   # heuristic for full mint
-                    full = u
-                else:
-                    # attempt to map a short to a full from existing list
+                full = u if len(u) > 12 else None
+                if not full:
+                    # try match to existing by short
                     for fm in wl:
                         if _mint_match(u, fm):
                             full = fm
                             break
                 if not full:
-                    # allow adding unknown-looking strings as full if they're long enough
                     if len(u) > 12:
                         full = u
                     else:
@@ -3195,97 +3216,58 @@ def process_telegram_command(update: dict):
                     wl.append(full)
                     to_add.append(full)
 
-            st["watchlist"] = wl
-            try:
-                with open("scanner_state.json", "w") as f:
-                    json.dump(st, f, indent=2)
-            except Exception:
-                pass
+            _watch_set_list(st, chat_id, wl)
 
             blocks = ["*Watchlist*"]
             if to_add:
                 blocks.append("Added:")
-                for m in to_add:
-                    blocks.append(_render_name_block(m))
+                blocks += [_render_name_block(m) for m in to_add]
             if already:
                 blocks.append("Already present:")
-                for m in already:
-                    blocks.append(_render_name_block(m))
+                blocks += [_render_name_block(m) for m in already]
             if invalid:
                 blocks.append("Ignored (invalid):")
-                for u in invalid:
-                    blocks.append(f"`{u}`")
+                blocks += [f"`{u}`" for u in invalid]
             return _reply("\n".join(blocks))
 
         elif cmd == "/unwatch":
-            # /unwatch <mint1> <mint2> ...
             if len(parts) < 2:
                 return _reply("*Watchlist*\nUsage: `/unwatch <MINT...>`")
 
-            try:
-                with open("scanner_state.json") as f:
-                    st = json.load(f)
-            except Exception:
-                st = {}
-            wl = st.get("watchlist", [])
+            st = _watch_state_load()
+            wl = _watch_get_list(st, chat_id)
 
             raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
             removed, not_found = [], []
 
             for u in raw:
-                # Find a matching full mint in wl via full or short
-                match = None
-                for fm in wl:
-                    if _mint_match(u, fm):
-                        match = fm
-                        break
+                match = next((fm for fm in wl if _mint_match(u, fm)), None)
                 if match:
                     wl.remove(match)
                     removed.append(match)
                 else:
                     not_found.append(u)
 
-            st["watchlist"] = wl
-            try:
-                with open("scanner_state.json", "w") as f:
-                    json.dump(st, f, indent=2)
-            except Exception:
-                pass
+            _watch_set_list(st, chat_id, wl)
 
             blocks = ["*Watchlist*"]
             if removed:
                 blocks.append("Removed:")
-                for m in removed:
-                    blocks.append(_render_name_block(m))
+                blocks += [_render_name_block(m) for m in removed]
             if not_found:
                 blocks.append("Not found:")
-                for u in not_found:
-                    blocks.append(f"`{u}`")
+                blocks += [f"`{u}`" for u in not_found]
             blocks.append(f"Total: {len(wl)}")
             return _reply("\n".join(blocks))
 
         elif cmd == "/watchlist":
-            try:
-                with open("scanner_state.json") as f:
-                    st = json.load(f)
-            except Exception:
-                st = {}
-            wl = st.get("watchlist", [])
-            body = _render_watchlist_lines(wl)
-            return _reply(f"*Watchlist*\n{body}")
+            st = _watch_state_load()
+            wl = _watch_get_list(st, chat_id)
+            return _reply(f"*Watchlist*\n{_render_watchlist_lines(wl)}")
 
         elif cmd == "/watch_clear":
-            try:
-                with open("scanner_state.json") as f:
-                    st = json.load(f)
-            except Exception:
-                st = {}
-            st["watchlist"] = []
-            try:
-                with open("scanner_state.json", "w") as f:
-                    json.dump(st, f, indent=2)
-            except Exception:
-                pass
+            st = _watch_state_load()
+            _watch_set_list(st, chat_id, [])
             return _reply("🧹 *Watchlist cleared.*")
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes
