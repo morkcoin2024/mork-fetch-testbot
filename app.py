@@ -3547,29 +3547,19 @@ def process_telegram_command(update: dict):
                 handled=True
             )
         elif cmd == "/fetch":
-            # /fetch <mint|ticker> — identical to /about (reuse same logic)
+            # /fetch is an alias to /about - route directly
             arg = (args[0] if args else "").strip()
             mint, name = _resolve_input_to_mint_and_name(arg)
             if not mint:
-                tg_send(chat_id, "Usage: /fetch <mint|ticker>", preview=True)
-                return {"status": "error", "err": "missing mint", "handled": True}
+                return _reply(chat_id, "Usage: /fetch <mint|ticker>", handled=True)
 
-            # Reuse the same code path as /about:
-            src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
-            pr = get_price(mint, src_pref)
-            price = float(pr.get("price") or 0.0)
-            src   = pr.get("source") or src_pref
-
-            # Use resolved name from helper, fallback to timeframes
-            name_display = name or ""
+            pr = get_price(mint, 'birdeye')
             tf = fetch_timeframes(mint) or {}
-
-            text = render_about_list(mint, price, src, name_display, tf)
-            tg_send(chat_id, text, preview=True)
-            
-            # --- FETCH RETURN FIX + TRACE ---
-            _rt_log(f"fetch sent len={len(text)} chat={chat_id}")
-            return {"status": "ok", "response": text, "handled": True}
+            return _reply(
+                chat_id,
+                render_about_list(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name or "", tf),
+                handled=True
+            )
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
             import json, time
