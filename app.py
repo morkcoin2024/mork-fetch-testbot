@@ -169,7 +169,8 @@ def _cmd_watch(chat_id, args):
         return {"status": "ok", "response": "*Watchlist*\nUsage: `/watch <MINT...>`", "parse_mode": "Markdown"}
 
     state = _load_json_safe("scanner_state.json")
-    bucket = _wl_bucket(state, chat_id)
+    chat_id_or_default = chat_id or 0
+    bucket = _wl_bucket(state, chat_id_or_default)
 
     # parse incoming mints from args
     raw = [p.strip() for p in args.split() if p.strip()]
@@ -213,7 +214,8 @@ def _cmd_watch(chat_id, args):
 def _cmd_watchlist(chat_id, args):
     """Enhanced /watchlist handler with per-chat isolation"""
     state = _load_json_safe("scanner_state.json")
-    bucket = _wl_bucket(state, chat_id)
+    chat_id_or_default = chat_id or 0
+    bucket = _wl_bucket(state, chat_id_or_default)
 
     if not bucket:
         return {"status": "ok", "response": "*Watchlist*\n_(empty)_", "parse_mode": "Markdown"}
@@ -233,7 +235,8 @@ def _cmd_unwatch(chat_id, args):
         return {"status": "ok", "response": "*Watchlist*\nUsage: `/unwatch <MINT...>`", "parse_mode": "Markdown"}
 
     state = _load_json_safe("scanner_state.json")
-    bucket = _wl_bucket(state, chat_id)
+    chat_id_or_default = chat_id or 0
+    bucket = _wl_bucket(state, chat_id_or_default)
 
     raw = [p.strip() for p in args.split() if p.strip()]
     not_found = []
@@ -258,7 +261,8 @@ def _cmd_unwatch(chat_id, args):
 def _cmd_watch_clear(chat_id, args):
     """Enhanced /watch_clear handler with per-chat isolation"""
     state = _load_json_safe("scanner_state.json")
-    bucket = _wl_bucket(state, chat_id)
+    chat_id_or_default = chat_id or 0
+    bucket = _wl_bucket(state, chat_id_or_default)
     bucket.clear()
     _save_json_safe("scanner_state.json", state)
     return {"status": "ok", "response": "🧹 *Watchlist cleared.*", "parse_mode": "Markdown"}
