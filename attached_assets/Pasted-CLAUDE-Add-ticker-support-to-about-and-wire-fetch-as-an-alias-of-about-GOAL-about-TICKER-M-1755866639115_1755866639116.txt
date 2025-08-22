@@ -1,0 +1,48 @@
+CLAUDE: Add ticker support to /about and wire /fetch as an alias of /about.
+
+GOAL
+- /about <TICKER|MINT> should behave like /about <MINT>.
+- /fetch <TICKER|MINT> should be an alias of /about.
+- Reuse the existing _resolve_arg_to_mint() that /price already uses.
+
+CHANGES (in app.py)
+
+1) Ensure these helpers already exist (they do, since /price SOL worked).
+   No changes needed to them.
+
+2) Update the /about branch in process_telegram_command to resolve tickers:
+-----------------------------------------------------------------------
+elif cmd == "/about":
+    if not args:
+        return _reply(chat_id, "Usage: /about <mint|ticker>")
+    mint = _resolve_arg_to_mint(args[0])
+    if not mint:
+        return _reply(chat_id, "❌ Invalid mint or unknown ticker.")
+    # Keep the rest of your existing /about code exactly the same,
+    # but use `mint` from above (do NOT re-read args[0] later).
+    # (If you currently inline the card rendering here, leave it as is.)
+-----------------------------------------------------------------------
+
+3) Add a /fetch alias that reuses the same code path as /about:
+   (Place this near the /about branch in the same router.)
+-----------------------------------------------------------------------
+elif cmd == "/fetch":
+    if not args:
+        return _reply(chat_id, "Usage: /fetch <mint|ticker>")
+    mint = _resolve_arg_to_mint(args[0])
+    if not mint:
+        return _reply(chat_id, "❌ Invalid mint or unknown ticker.")
+    # Reuse the about handler. If you have a helper (e.g. _send_about_card),
+    # call it here. Otherwise, duplicate the small /about block after `mint`.
+    # Example if you have a helper already:
+    return _send_about_card(chat_id, mint)
+-----------------------------------------------------------------------
+
+(If you don’t have `_send_about_card`, just copy the same few lines you use in `/about` after you have `mint`.)
+
+ACCEPTANCE
+- `/about PUMP` returns the PUMP card (same as `/about <mint>`).
+- `/fetch PENGU` returns the same card style as `/about PENGU`.
+- `/price SOL`, `/about <mint>` continue to work.
+- Unknown symbols (e.g. `/price NOTREAL`) return the “Invalid mint or unknown ticker.” error.
+END PATCH
