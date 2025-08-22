@@ -3546,17 +3546,16 @@ def process_telegram_command(update: dict):
                 handled=True
             )
         elif cmd == "/fetch":
-            # /fetch is an alias to /about - route directly
+            # /fetch
             arg = (args[0] if args else "").strip()
             mint, name = _resolve_input_to_mint_and_name(arg)
             if not mint:
                 return _reply(chat_id, "Usage: /fetch <mint|ticker>", handled=True)
 
             pr = get_price(mint, 'birdeye')
-            tf = fetch_timeframes(mint) or {}
             return _reply(
                 chat_id,
-                render_about_list(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name or "", tf),
+                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name),
                 handled=True
             )
         elif cmd == "/alert":
