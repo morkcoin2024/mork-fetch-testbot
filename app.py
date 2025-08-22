@@ -758,6 +758,53 @@ def _arrow(delta_pct: float) -> str:
 def _fmt_pct(delta_pct: float) -> str:
     return f"{_arrow(delta_pct)} {delta_pct:+.2f}%"
 
+# ----------------- shared: convert user arg -> (mint, name) -----------------
+
+_BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+
+def _looks_like_mint(s: str) -> bool:
+    s = (s or "").strip()
+    return len(s) >= 32 and all(c in _BASE58 for c in s)
+
+# if you have overrides set via _name_overrides_set(), the dict is usually _NAME_OVERRIDES
+# keys: mint -> (ticker, long_name)
+def _mint_from_ticker_via_overrides(ticker: str):
+    tt = (ticker or "").strip().upper()
+    d = globals().get("_NAME_OVERRIDES") or globals().get("NAME_OVERRIDES")
+    if isinstance(d, dict):
+        for mint, pair in d.items():
+            if not pair:
+                continue
+            tk = pair[0] if isinstance(pair, (list, tuple)) else (pair.get("ticker") if isinstance(pair, dict) else None)
+            if tk and str(tk).upper() == tt:
+                return mint
+    return None
+
+_BUILTIN_TICKERS = {
+    "SOL": "So11111111111111111111111111111111111111112",
+}
+
+def _resolve_input_to_mint_and_name(user_arg: str):
+    arg = (user_arg or "").strip()
+    if not arg:
+        return (None, None)
+
+    if _looks_like_mint(arg):
+        mint = arg
+    else:
+        mint = _mint_from_ticker_via_overrides(arg) or _BUILTIN_TICKERS.get(arg.upper())
+
+    if not mint:
+        return (None, None)
+
+    try:
+        nm = resolve_token_name(mint)   # your existing function returns "TICKER\nLong Name"
+    except Exception:
+        nm = None
+    return (mint, nm)
+
+# --------------- end shared: user arg -> (mint, name) -----------------
+
 # --- lightweight price history (append-only jsonl per mint) ---
 def _history_path(mint: str) -> str:
     return os.path.join(PRICE_HISTORY_DIR, f"{mint}.jsonl")
