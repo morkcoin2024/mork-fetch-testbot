@@ -2443,6 +2443,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- content-aware dedupe for tg_send ---------------------------------------
+_LAST_SENT = {}  # (chat_id, hash12) -> timestamp
+
+def _dedupe_recent(chat_id: int, text: str, ttl: float = 3.0) -> bool:
+    import time, hashlib, logging
+    h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    key = (chat_id, h)
+    now = time.time()
+    ts = _LAST_SENT.get(key, 0.0)
+    if now - ts < ttl:
+        logging.info(f"[SEND] deduped chat_id={chat_id} within {ttl}s (content-aware)")
+        return True
+    _LAST_SENT[key] = now
+    # light GC
+    if len(_LAST_SENT) > 1000:
+        for k, t in list(_LAST_SENT.items()):
+            if now - t > ttl:
+                _LAST_SENT.pop(k, None)
+    return False
+
 # --- Shared Telegram send with MarkdownV2 fallback (used by webhook & poller) ---
 def _escape_mdv2(text: str) -> str:
     if text is None: return ""
@@ -2451,14 +2471,21 @@ def _escape_mdv2(text: str) -> str:
         text = text.replace(ch, f"\\{ch}")
     return text
 
-def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False):
+def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False, force=False):
     """
-    Telegram send with cross-process deduplication. Uses SQLite to prevent duplicates across workers.
+    Telegram send with dual-layer deduplication: content-aware + cross-process.
+    Uses in-memory hash for fast content deduplication and SQLite for cross-worker protection.
     """
     text = _tg_norm(text)
+    
+    # First layer: content-aware deduplication (fast, in-memory)
+    if not force and _dedupe_recent(chat_id, text, ttl=3.0):
+        return {"ok": True, "deduped": True, "layer": "content-aware"}
+    
+    # Second layer: cross-process deduplication (SQLite-based)
     if _tg_dedup_hit_and_mark(chat_id, text):
         logger.info("[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC)
-        return {"ok": True, "deduped": True}
+        return {"ok": True, "deduped": True, "layer": "cross-process"}
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token: 
