@@ -93,34 +93,21 @@ def _mint_match(user_supplied: str, full_mint: str) -> bool:
         return False
     return u == full_mint or u == _short_mint(full_mint)
 
-def _watch_state_load() -> dict:
-    st = _load_json("scanner_state.json")
-    if not isinstance(st, dict):
-        st = {}
-    if not isinstance(st.get("watchlist_by_chat"), dict):
-        st["watchlist_by_chat"] = {}
-    return st
-
-def _watch_get_list(st: dict, chat_id: int) -> list:
-    # Ensure watchlist_by_chat exists
-    if "watchlist_by_chat" not in st:
-        st["watchlist_by_chat"] = {}
-    wc = st["watchlist_by_chat"]
+def _wl_bucket(state, chat_id):
+    """
+    Return the mutable per-chat watchlist list (list of mint strings).
+    Keys are str(chat_id). Performs a one-time migration from legacy
+    state["watchlist"] into this chat's bucket if present and bucket empty.
+    """
+    wl_by = state.setdefault("watchlist_by_chat", {})         # {str(chat_id): [mints]}
     key = str(chat_id)
-    wl = wc.get(key)
-    if not isinstance(wl, list):
-        wl = []
-        wc[key] = wl
-    # One-time migration: move legacy top-level list into this chat
-    if isinstance(st.get("watchlist"), list) and st["watchlist"]:
-        for m in st["watchlist"]:
-            if m not in wl:
-                wl.append(m)
-        st["watchlist"] = []
-    return wl
-
-def _watch_save(st: dict) -> None:
-    _save_json("scanner_state.json", st)
+    bucket = wl_by.setdefault(key, [])
+    # one-time migration from legacy global list
+    if state.get("watchlist") and not bucket:
+        # dedupe while preserving order
+        bucket[:] = list(dict.fromkeys(state["watchlist"]))
+        state["watchlist"] = []
+    return bucket
 
 def _render_name_block(mint: str) -> str:
     disp = resolve_token_name(mint)  # usually "TICKER\nLong Name"
@@ -3203,89 +3190,102 @@ def process_telegram_command(update: dict):
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         
-        # Enhanced per-chat watchlist commands
+        # Enhanced per-chat watchlist commands with improved bucket system
         elif cmd == "/watch":
             # /watch <mint1> <mint2> ...
             if len(parts) < 2:
                 return _reply("*Watchlist*\nUsage: `/watch <MINT...>`")
 
-            st = _watch_state_load()
-            wl = _watch_get_list(st, chat_id)
+            state = _load_json_safe("scanner_state.json")
+            bucket = _wl_bucket(state, chat_id)
 
+            # parse incoming mints from all arguments
             raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
-            to_add, already, invalid = [], [], []
+            added, already, invalid = [], [], []
 
-            for u in raw:
-                # prefer full mint if it looks long, otherwise try short-match
-                full = u if len(u) >= 20 else next((fm for fm in wl if _mint_match(u, fm)), None)
-                if not full:
-                    if len(u) >= 20:
-                        full = u
-                    else:
-                        invalid.append(u)
-                        continue
-                if full in wl:
-                    already.append(full)
+            for m in raw:
+                if not isinstance(m, str) or len(m) < 8:  # extremely light sanity
+                    invalid.append(m)
+                    continue
+                if m in bucket:
+                    already.append(m)
                 else:
-                    wl.append(full)
-                    to_add.append(full)
+                    bucket.append(m)
+                    added.append(m)
 
-            _watch_save(st)
+            _save_json_safe("scanner_state.json", state)
 
-            blocks = ["*Watchlist*"]
-            if to_add:
-                blocks.append("Added:")
-                blocks += [_render_name_block(m) for m in to_add]
+            lines = ["*Watchlist*"]
+            if added:
+                lines.append("Added:")
+                for m in added:
+                    # Show 2-line token name if available (ticker / long name)
+                    nm = _display_name_for(m)
+                    lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
+                    lines.append(f"({_short_mint(m)})")
             if already:
-                blocks.append("Already present:")
-                blocks += [_render_name_block(m) for m in already]
+                lines.append("Already present:")
+                for m in already:
+                    nm = _display_name_for(m)
+                    lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
+                    lines.append(f"({_short_mint(m)})")
             if invalid:
-                blocks.append("Ignored (invalid):")
-                blocks += [f"`{u}`" for u in invalid]
-            return _reply("\n".join(blocks))
+                lines.append("Ignored (invalid):")
+                for m in invalid:
+                    lines.append(f"`{m}`")
+
+            # Show total for quick sanity
+            lines.append(f"Total: {len(bucket)}")
+            return _reply("\n".join(lines))
 
         elif cmd == "/unwatch":
             if len(parts) < 2:
                 return _reply("*Watchlist*\nUsage: `/unwatch <MINT...>`")
 
-            st = _watch_state_load()
-            wl = _watch_get_list(st, chat_id)
+            state = _load_json_safe("scanner_state.json")
+            bucket = _wl_bucket(state, chat_id)
 
             raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
-            removed, not_found = [], []
+            not_found = []
+            removed = 0
+            for m in raw:
+                try:
+                    bucket.remove(m)
+                    removed += 1
+                except ValueError:
+                    not_found.append(m)
 
-            for u in raw:
-                match = next((fm for fm in wl if _mint_match(u, fm)), None)
-                if match:
-                    wl.remove(match)
-                    removed.append(match)
-                else:
-                    not_found.append(u)
+            _save_json_safe("scanner_state.json", state)
 
-            _watch_save(st)
-
-            blocks = ["*Watchlist*"]
-            if removed:
-                blocks.append("Removed:")
-                blocks += [_render_name_block(m) for m in removed]
+            lines = ["*Watchlist*"]
             if not_found:
-                blocks.append("Not found:")
-                blocks += [f"`{u}`" for u in not_found]
-            blocks.append(f"Total: {len(wl)}")
-            return _reply("\n".join(blocks))
+                lines.append("Not found:")
+                for m in not_found:
+                    lines.append(f"`{m}`")
+            lines.append(f"Total: {len(bucket)}")
+            return _reply("\n".join(lines))
 
         elif cmd == "/watchlist":
-            st = _watch_state_load()
-            wl = _watch_get_list(st, chat_id)
-            return _reply(f"*Watchlist*\n{_render_watchlist_lines(wl)}")
+            state = _load_json_safe("scanner_state.json")
+            bucket = _wl_bucket(state, chat_id)
+
+            if not bucket:
+                return _reply("*Watchlist*\n_(empty)_")
+
+            out = ["*Watchlist*"]
+            for i, m in enumerate(bucket, 1):
+                nm = _display_name_for(m)
+                # Render as: "1. TICKER" then "(mint_abbrev)"
+                ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(m)
+                out.append(f"{i}. {ticker}")
+                out.append(f"({_short_mint(m)})")
+            return _reply("\n".join(out))
 
         elif cmd == "/watch_clear":
-            st = _watch_state_load()
-            # ensure the bucket exists, then clear it
-            if "watchlist_by_chat" not in st:
-                st["watchlist_by_chat"] = {}
-            st["watchlist_by_chat"][str(chat_id)] = []
-            _watch_save(st)
+            state = _load_json_safe("scanner_state.json")
+            bucket = _wl_bucket(state, chat_id)
+            bucket.clear()
+            _save_json_safe("scanner_state.json", state)
             return _reply("🧹 *Watchlist cleared.*")
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes

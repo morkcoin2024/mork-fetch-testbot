@@ -1,0 +1,128 @@
+# === 1) Add this helper near the other state utilities =======================
+def _wl_bucket(state, chat_id):
+    """
+    Return the mutable per-chat watchlist list (list of mint strings).
+    Keys are str(chat_id). Performs a one-time migration from legacy
+    state["watchlist"] into this chat's bucket if present and bucket empty.
+    """
+    wl_by = state.setdefault("watchlist_by_chat", {})         # {str(chat_id): [mints]}
+    key = str(chat_id)
+    bucket = wl_by.setdefault(key, [])
+    # one-time migration from legacy global list
+    if state.get("watchlist") and not bucket:
+        # dedupe while preserving order
+        bucket[:] = list(dict.fromkeys(state["watchlist"]))
+        state["watchlist"] = []
+    return bucket
+
+
+# === 2) Update /watch handler ================================================
+def _cmd_watch(chat_id, args):
+    state = _load_scanner_state()
+    bucket = _wl_bucket(state, chat_id)
+
+    # parse incoming mints
+    try:
+        mints = _parse_mints(args)
+    except Exception:
+        mints = []
+
+    if not mints:
+        # friendly usage panel
+        return _reply(chat_id, "Watchlist\nUsage: /watch <MINT...>")
+
+    added, already, invalid = [], [], []
+
+    for m in mints:
+        if not isinstance(m, str) or len(m) < 8:  # extremely light sanity
+            invalid.append(m)
+            continue
+        if m in bucket:
+            already.append(m)
+        else:
+            bucket.append(m)
+            added.append(m)
+
+    _save_scanner_state(state)
+
+    lines = ["*Watchlist*"]
+    if added:
+        lines.append("Added:")
+        for m in added:
+            # Show 2-line token name if available (ticker / long name)
+            nm = _display_name_for(m)
+            lines.append(nm.splitlines()[0])
+            lines.append(f"({m[:4]}..{m[-4:]})")
+    if already:
+        lines.append("Already present:")
+        for m in already:
+            nm = _display_name_for(m)
+            lines.append(nm.splitlines()[0])
+            lines.append(f"({m[:4]}..{m[-4:]})")
+    if invalid:
+        lines.append("Ignored (invalid):")
+        for m in invalid:
+            lines.append(f"`{m}`")
+
+    # Show total for quick sanity
+    lines.append(f"Total: {len(bucket)}")
+    return _reply(chat_id, "\n".join(lines))
+
+
+# === 3) Update /watchlist handler ===========================================
+def _cmd_watchlist(chat_id, args):
+    state = _load_scanner_state()
+    bucket = _wl_bucket(state, chat_id)
+
+    if not bucket:
+        return _reply(chat_id, "*Watchlist*\n_(empty)_")
+
+    out = ["*Watchlist*"]
+    for i, m in enumerate(bucket, 1):
+        nm = _display_name_for(m)
+        # Render as: "1. TICKER" then "(mint_abbrev)"
+        out.append(f"{i}. {nm.splitlines()[0]}")
+        out.append(f"({m[:4]}..{m[-4:]})")
+    return _reply(chat_id, "\n".join(out))
+
+
+# === 4) Update /unwatch handler =============================================
+def _cmd_unwatch(chat_id, args):
+    state = _load_scanner_state()
+    bucket = _wl_bucket(state, chat_id)
+
+    try:
+        mints = _parse_mints(args)
+    except Exception:
+        mints = []
+
+    if not mints:
+        return _reply(chat_id, "Watchlist\nUsage: /unwatch <MINT...>")
+
+    not_found = []
+    removed = 0
+    for m in mints:
+        try:
+            bucket.remove(m)
+            removed += 1
+        except ValueError:
+            not_found.append(m)
+
+    _save_scanner_state(state)
+
+    lines = ["Watchlist"]
+    if not_found:
+        lines.append("Not found:")
+        for m in not_found:
+            lines.append(f"`{m}`")
+    lines.append(f"Total: {len(bucket)}")
+    return _reply(chat_id, "\n".join(lines))
+
+
+# === 5) Update /watch_clear handler =========================================
+def _cmd_watch_clear(chat_id, args):
+    state = _load_scanner_state()
+    bucket = _wl_bucket(state, chat_id)
+    bucket.clear()
+    _save_scanner_state(state)
+    return _reply(chat_id, "🧹 *Watchlist cleared.*")
