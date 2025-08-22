@@ -1,0 +1,97 @@
+# ============ BEGIN PATCH: HELP_COMMANDS_AND_ALERT_ALIAS_V1 ============
+
+# 1) Extend price-card renderer to allow a custom title (keeps /price identical)
+#    Find existing render_price_card(...) and replace it with this version.
+
+def render_price_card(mint: str, price: float, source: str, name_display: str, title: str = "Price Lookup") -> str:
+    """
+    Renders a compact one-shot price card. 'name_display' is the two-line display name
+    produced by resolve_token_name/_display_name_for (TICKER \n Long Name).
+    """
+    short = f"({mint[:4]}..{mint[-4:]})" if mint and len(mint) > 8 else f"({mint})"
+    lines = []
+    lines.append(f"💰 *{title}*")
+    lines.append("Mint: " + (name_display.split("\n")[0] if name_display else short))
+    # If we have a second line that's different, include it
+    if name_display:
+        parts = name_display.split("\n")
+        primary = (parts[0] or "").strip()
+        secondary = (parts[1] or "").strip() if len(parts) > 1 else ""
+        if secondary and secondary.lower() != primary.lower():
+            lines.append(secondary)
+    lines.append(short)
+    lines.append(f"Price: ${price:.6f}")
+    lines.append(f"Source: {source}")
+    return "\n".join(lines)
+
+
+# 2) Add a small help/commands renderer set
+
+def _render_help_panel() -> str:
+    """Pretty help panel (Markdown-safe enough for our sender)."""
+    lines = [
+        "*F.E.T.C.H Bot — Commands*",
+        "",
+        "*General*",
+        "• `/price <mint>` — price snapshot",
+        "• `/about <mint>` — full card with timeframes",
+        "• `/alert <mint>` — manual snapshot (same format as /price)",
+        "",
+        "*Names*",
+        "• `/name <mint>` — show name status",
+        "• `/name_show <mint>` — show name status",
+        "• `/name_set <mint> <TICKER>|<Long Name>` — set override",
+        "• `/name_clear <mint>` — clear override & cache",
+        "",
+        "*Watchlist*",
+        "• `/watch <M1> <M2> ...` — add one or more",
+        "• `/unwatch <M1> <M2> ...` — remove one or more",
+        "• `/watchlist` — show list",
+        "• `/watch_clear` — clear all",
+        "",
+        "*Auto alerts*",
+        "• `/alerts_auto_on <sec>` — start the ticker (sec interval)",
+        "• `/alerts_auto_off` — stop the ticker",
+        "• `/alerts_auto_status` — status/interval",
+    ]
+    return "\n".join(lines)
+
+def _render_commands_list() -> str:
+    cmds = [
+        "/price <mint>", "/about <mint>", "/alert <mint>",
+        "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
+        "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
+        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status",
+    ]
+    return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
+
+
+# 3) Add router branches for /help, /commands, /alert
+#    Find process_telegram_command(update) and add these branches alongside /price,/about, etc.
+
+# --- inside process_telegram_command(...), after cmd/parts parsing:
+
+    if cmd == "/help":
+        tg_send(chat_id, _render_help_panel(), preview=True)
+        return {"status": "ok"}
+
+    elif cmd == "/commands":
+        tg_send(chat_id, _render_commands_list(), preview=True)
+        return {"status": "ok"}
+
+    elif cmd == "/alert":
+        # Manual snapshot; same fetch path as /price but with a different title
+        if len(parts) < 2:
+            tg_send(chat_id, "Usage: /alert <mint>", preview=True)
+            return {"status": "error", "err": "missing mint"}
+
+        mint = parts[1].strip()
+        pr = get_price(mint, CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye')
+        price = float(pr.get("price") or 0.0)
+        src = pr.get("source") or "?"
+        name_display = resolve_token_name(mint) or ""
+        text = render_price_card(mint, price, src, name_display, title="Price Alert")
+        tg_send(chat_id, text, preview=True)
+        return {"status": "ok"}
+
+# ============ END PATCH: HELP_COMMANDS_AND_ALERT_ALIAS_V1 ============

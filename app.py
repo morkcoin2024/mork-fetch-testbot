@@ -136,6 +136,45 @@ def _render_watchlist_lines(mints: list) -> str:
         lines.append(f"{i}. {_render_name_block(m)}")
     return "\n".join(lines)
 
+# Help and command discovery functions
+def _render_help_panel() -> str:
+    """Pretty help panel (Markdown-safe enough for our sender)."""
+    lines = [
+        "*F.E.T.C.H Bot — Commands*",
+        "",
+        "*General*",
+        "• `/price <mint>` — price snapshot",
+        "• `/about <mint>` — full card with timeframes",
+        "• `/alert <mint>` — manual snapshot (same format as /price)",
+        "",
+        "*Names*",
+        "• `/name <mint>` — show name status",
+        "• `/name_show <mint>` — show name status",
+        "• `/name_set <mint> <TICKER>|<Long Name>` — set override",
+        "• `/name_clear <mint>` — clear override & cache",
+        "",
+        "*Watchlist*",
+        "• `/watch <M1> <M2> ...` — add one or more",
+        "• `/unwatch <M1> <M2> ...` — remove one or more",
+        "• `/watchlist` — show list",
+        "• `/watch_clear` — clear all",
+        "",
+        "*Auto alerts*",
+        "• `/alerts_auto_on <sec>` — start the ticker (sec interval)",
+        "• `/alerts_auto_off` — stop the ticker",
+        "• `/alerts_auto_status` — status/interval",
+    ]
+    return "\n".join(lines)
+
+def _render_commands_list() -> str:
+    cmds = [
+        "/price <mint>", "/about <mint>", "/alert <mint>",
+        "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
+        "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
+        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status",
+    ]
+    return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
 _ROUTER_TRACE = "/tmp/router_trace.log"
@@ -2782,36 +2821,23 @@ def _fmt_pct_cell(pct):
     return f"{up} {p:+.2f}%"
 
 
-def render_price_card(mint: str, price: float, source: str, name_display: str) -> str:
+def render_price_card(mint: str, price: float, source: str, name_display: str, title: str = "Price Lookup") -> str:
     """
-    Price card:
-      💰 *Price Lookup*
-      Mint: <TICKER>
-      <Long Name>
-      (<So11..1112>)
-      Price: $123.456789
-      Source: birdeye
+    Renders a compact one-shot price card. 'name_display' is the two-line display name
+    produced by resolve_token_name/_display_name_for (TICKER \n Long Name).
     """
-    # Split resolved name into primary (ticker) and secondary (long)
+    short = f"({mint[:4]}..{mint[-4:]})" if mint and len(mint) > 8 else f"({mint})"
+    lines = []
+    lines.append(f"💰 *{title}*")
+    lines.append("Mint: " + (name_display.split("\n")[0] if name_display else short))
+    # If we have a second line that's different, include it
     if name_display:
-        parts = name_display.split("\n", 1)
-        primary = parts[0].strip()
-        secondary = parts[1].strip() if len(parts) > 1 else ""
-    else:
-        primary, secondary = "", ""
-
-    # Abbreviated mint (reuse your existing short() helper if present)
-    try:
-        short_id = short(mint)
-    except NameError:
-        short_id = f"{mint[:4]}..{mint[-4:]}"  # minimal fallback
-
-    lines = ["💰 *Price Lookup*"]
-    if primary:
-        lines.append(f"Mint: {primary}")
+        parts = name_display.split("\n")
+        primary = (parts[0] or "").strip()
+        secondary = (parts[1] or "").strip() if len(parts) > 1 else ""
         if secondary and secondary.lower() != primary.lower():
             lines.append(secondary)
-    lines.append(f"({short_id})")
+    lines.append(short)
     lines.append(f"Price: ${price:.6f}")
     lines.append(f"Source: {source}")
     return "\n".join(lines)
@@ -3403,6 +3429,26 @@ def process_telegram_command(update: dict):
                 "Use `/source sim|dex|birdeye`"
             )
             return _reply(body)
+        
+        elif cmd == "/help":
+            return _reply(_render_help_panel())
+
+        elif cmd == "/commands":
+            return _reply(_render_commands_list())
+
+        elif cmd == "/alert":
+            # Manual snapshot; same fetch path as /price but with a different title
+            if not arg:
+                return _reply("Usage: `/alert <mint>`")
+
+            mint = arg.strip()
+            src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            pr = get_price(mint, src)
+            price = float(pr.get("price") or 0.0)
+            source = pr.get("source") or src
+            name_display = _display_name_for(mint)
+            text = render_price_card(mint, price, source, name_display, title="Price Alert")
+            return _reply(text)
         
         elif cmd == "/price" or cmd == "/quote":
             if not arg:
