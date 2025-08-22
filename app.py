@@ -3540,10 +3540,9 @@ def process_telegram_command(update: dict):
                 return _reply(chat_id, "Usage: /about <mint|ticker>", handled=True)
 
             pr = get_price(mint, 'birdeye')
-            tf = fetch_timeframes(mint) or {}
             return _reply(
                 chat_id,
-                render_about_list(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name or "", tf),
+                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name),
                 handled=True
             )
         elif cmd == "/fetch":
