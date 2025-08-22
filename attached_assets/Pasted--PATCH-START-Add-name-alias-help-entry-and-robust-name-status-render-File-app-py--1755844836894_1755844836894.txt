@@ -1,0 +1,71 @@
+# === PATCH START: Add `/name` alias + help entry and robust name status render ===
+# File: app.py
+
+# 1) Near your imports add (if not present already):
+import json, os
+
+# 2) Add a small helper to render the name status (safe with or without files)
+def render_name_status(mint: str) -> str:
+    def _load(path):
+        try:
+            return json.load(open(path))
+        except Exception:
+            return {}
+    overrides = _load("name_overrides.json")
+    cache     = _load("token_names.json")
+
+    def _fmt_pair(obj):
+        if not isinstance(obj, dict):
+            return "— / —"
+        p = obj.get("primary") or "—"
+        s = obj.get("secondary") or "—"
+        return f"{p} / {s}"
+
+    o_pair = _fmt_pair(overrides.get(mint))
+    c_pair = _fmt_pair(cache.get(mint))
+
+    return (
+        "*Name status*\n"
+        "Mint:\n"
+        f"`{mint}`\n"
+        f"Override: {o_pair}\n"
+        f"Cache: {c_pair}"
+    )
+
+# 3) In your process_telegram_command(update) router:
+#    - Add a branch for `/name` that behaves like `/name_show`
+#    Find the existing name commands area and insert the following:
+
+    elif cmd == "/name":
+        if len(parts) < 2:
+            tg_send(chat_id, "Usage: /name <mint>", preview=True)
+            return {"status": "error", "err": "missing mint"}
+        mint = parts[1].strip()
+        text = render_name_status(mint)
+        tg_send(chat_id, text, preview=False)
+        return {"status": "ok", "response": text}
+
+    elif cmd == "/name_show":
+        if len(parts) < 2:
+            tg_send(chat_id, "Usage: /name_show <mint>", preview=True)
+            return {"status": "error", "err": "missing mint"}
+        mint = parts[1].strip()
+        text = render_name_status(mint)
+        tg_send(chat_id, text, preview=False)
+        return {"status": "ok", "response": text}
+
+# (leave your existing /name_set and /name_clear branches unchanged)
+
+# 4) In your /help (or /commands) text, add the Name section or extend it:
+#    Somewhere in your help string builder:
+#    (Only add if not present yet)
+    help_lines.extend([
+        "",
+        "Name helpers:",
+        "  /name <mint>          – show override/cache (alias of /name_show)",
+        "  /name_show <mint>     – show override/cache",
+        "  /name_set <mint> TICKER|Long Name",
+        "  /name_clear <mint>    – remove override and purge cache",
+    ])
+
+# === PATCH END ===

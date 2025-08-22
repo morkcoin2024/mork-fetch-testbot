@@ -53,6 +53,34 @@ def _tg_norm(text: str) -> str:
     """Normalize text to avoid duplicates differing only by whitespace."""
     return "\n".join([ln.rstrip() for ln in text.splitlines()]).strip()
 
+def render_name_status(mint: str) -> str:
+    """Render name status with robust file handling (safe with or without files)."""
+    def _load(path):
+        try:
+            return json.load(open(path))
+        except Exception:
+            return {}
+    overrides = _load("token_name_overrides.json")
+    cache     = _load("token_names.json")
+
+    def _fmt_pair(obj):
+        if not isinstance(obj, dict):
+            return "— / —"
+        p = obj.get("primary") or "—"
+        s = obj.get("secondary") or "—"
+        return f"{p} / {s}"
+
+    o_pair = _fmt_pair(overrides.get(mint))
+    c_pair = _fmt_pair(cache.get(mint))
+
+    return (
+        "*Name status*\n"
+        "Mint:\n"
+        f"`{mint}`\n"
+        f"Override: {o_pair}\n"
+        f"Cache: {c_pair}"
+    )
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
 _ROUTER_TRACE = "/tmp/router_trace.log"
@@ -1683,7 +1711,7 @@ ALL_COMMANDS = [
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
     "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status",
     "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
-    "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear"
+    "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -3015,6 +3043,7 @@ def process_telegram_command(update: dict):
                        "/alerts_auto_status - Show auto-scan status\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n" + \
+                       "/name <mint> - Show override/cache (alias of /name_show)\n" + \
                        "/name_refresh <mint> - Refresh token name cache\n" + \
                        "/name_refetch_jup - Refresh Jupiter catalog\n" + \
                        "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
@@ -3045,6 +3074,12 @@ def process_telegram_command(update: dict):
         elif cmd == "/name_refetch_jup":
             _ensure_jup_catalog(force=True)
             return _reply("🔄 Jupiter token catalog refreshed (cached for 24h).")
+        elif cmd == "/name":
+            if len(parts) < 2:
+                return _reply("Usage: /name <mint>")
+            mint = parts[1].strip()
+            text = render_name_status(mint)
+            return _reply(text)
         elif cmd == "/name_set":
             # Usage: /name_set <mint> <TICKER>|<Long Name>
             if len(parts) < 3 or "|" not in text:
