@@ -3487,22 +3487,20 @@ def process_telegram_command(update: dict):
             return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
             # /about <mint|ticker> — ticker + long name + compact timeframes
-            if len(parts) < 2:
-                tg_send(chat_id, "Usage: /about <mint|ticker>", preview=True)
-                return {"status": "error", "err": "missing mint"}
-
-            mint = _resolve_arg_to_mint(parts[1].strip())
+            arg = (args[0] if args else "").strip()
+            mint, name = _resolve_input_to_mint_and_name(arg)
             if not mint:
-                tg_send(chat_id, "❌ Invalid mint or unknown ticker.", preview=True)
-                return {"status": "error", "err": "invalid mint or ticker"}
+                tg_send(chat_id, "Usage: /about <mint|ticker>", preview=True)
+                return {"status": "error", "err": "missing mint", "handled": True}
+
             # Price via current source (fallback birdeye)
             src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
             pr = get_price(mint, src_pref)
             price = float(pr.get("price") or 0.0)
             src   = pr.get("source") or src_pref
 
-            # Name and timeframes
-            name_display = resolve_token_name(mint) or ""
+            # Use resolved name from helper, fallback to timeframes
+            name_display = name or ""
             tf = fetch_timeframes(mint) or {}
 
             text = render_about_list(mint, price, src, name_display, tf)
@@ -3510,7 +3508,7 @@ def process_telegram_command(update: dict):
             
             # --- ABOUT RETURN FIX + TRACE ---
             _rt_log(f"about sent len={len(text)} chat={chat_id}")
-            return {"status": "ok", "response": text}
+            return {"status": "ok", "response": text, "handled": True}
         elif cmd == "/fetch":
             # /fetch <mint|ticker> — identical to /about (reuse same logic)
             if len(parts) < 2:
