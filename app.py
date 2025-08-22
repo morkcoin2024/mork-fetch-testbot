@@ -94,10 +94,9 @@ def _mint_match(user_supplied: str, full_mint: str) -> bool:
     return u == full_mint or u == _short_mint(full_mint)
 
 def _watch_state_load() -> dict:
-    st = _load_json_safe("scanner_state.json")
+    st = _load_json("scanner_state.json")
     if not isinstance(st, dict):
         st = {}
-    # normalize containers
     if not isinstance(st.get("watchlist_by_chat"), dict):
         st["watchlist_by_chat"] = {}
     return st
@@ -112,35 +111,30 @@ def _watch_get_list(st: dict, chat_id: int) -> list:
     if not isinstance(wl, list):
         wl = []
         wc[key] = wl
-    # one-time migration: if legacy top-level list exists, merge it in
+    # One-time migration: move legacy top-level list into this chat
     if isinstance(st.get("watchlist"), list) and st["watchlist"]:
         for m in st["watchlist"]:
             if m not in wl:
                 wl.append(m)
-        st["watchlist"] = []  # clear legacy after migration
+        st["watchlist"] = []
     return wl
 
-def _watch_set_list(st: dict, chat_id: int, wl: list) -> None:
-    st["watchlist_by_chat"][str(chat_id)] = wl
-    _save_json_safe("scanner_state.json", st)
+def _watch_save(st: dict) -> None:
+    _save_json("scanner_state.json", st)
 
 def _render_name_block(mint: str) -> str:
-    name = resolve_token_name(mint)  # may be "TICKER\nLong"
-    lines = []
-    if name:
-        lines.append(name)
-    else:
-        lines.append(_short_mint(mint))
-    lines.append(f"({_short_mint(mint)})")
-    return "\n".join(lines)
+    disp = resolve_token_name(mint)  # usually "TICKER\nLong Name"
+    if not disp:
+        disp = _short_mint(mint)
+    return f"{disp}\n({_short_mint(mint)})"
 
 def _render_watchlist_lines(mints: list) -> str:
     if not mints:
         return "_(empty)_"
-    out = []
+    lines = []
     for i, m in enumerate(mints, 1):
-        out.append(f"{i}. {_render_name_block(m)}")
-    return "\n".join(out)
+        lines.append(f"{i}. {_render_name_block(m)}")
+    return "\n".join(lines)
 
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
@@ -3192,31 +3186,25 @@ def process_telegram_command(update: dict):
             st = _watch_state_load()
             wl = _watch_get_list(st, chat_id)
 
-            raw_mints = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
+            raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
             to_add, already, invalid = [], [], []
 
-            for u in raw_mints:
-                full = u if len(u) > 12 else None
+            for u in raw:
+                # prefer full mint if it looks long, otherwise try short-match
+                full = u if len(u) >= 20 else next((fm for fm in wl if _mint_match(u, fm)), None)
                 if not full:
-                    # try match to existing by short
-                    for fm in wl:
-                        if _mint_match(u, fm):
-                            full = fm
-                            break
-                if not full:
-                    if len(u) > 12:
+                    if len(u) >= 20:
                         full = u
                     else:
                         invalid.append(u)
                         continue
-
                 if full in wl:
                     already.append(full)
                 else:
                     wl.append(full)
                     to_add.append(full)
 
-            _watch_set_list(st, chat_id, wl)
+            _watch_save(st)
 
             blocks = ["*Watchlist*"]
             if to_add:
@@ -3248,7 +3236,7 @@ def process_telegram_command(update: dict):
                 else:
                     not_found.append(u)
 
-            _watch_set_list(st, chat_id, wl)
+            _watch_save(st)
 
             blocks = ["*Watchlist*"]
             if removed:
@@ -3267,7 +3255,11 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/watch_clear":
             st = _watch_state_load()
-            _watch_set_list(st, chat_id, [])
+            # ensure the bucket exists, then clear it
+            if "watchlist_by_chat" not in st:
+                st["watchlist_by_chat"] = {}
+            st["watchlist_by_chat"][str(chat_id)] = []
+            _watch_save(st)
             return _reply("🧹 *Watchlist cleared.*")
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes
