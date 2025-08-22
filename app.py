@@ -1885,7 +1885,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -2715,6 +2715,56 @@ def _ensure_scanners():
 
 import re
 
+# --- NEW: /fetchnow helpers ---
+def _parse_mints_or_count(arg_str: str):
+    args = (arg_str or "").strip().split()
+    if not args:
+        return {"count": 1, "mints": []}
+    # if first token is an int, treat as count
+    if args[0].isdigit():
+        return {"count": max(1, int(args[0])), "mints": [a for a in args[1:] if len(a) >= 32]}
+    # otherwise treat everything as mints
+    return {"count": 0, "mints": [a for a in args if len(a) >= 32]}
+
+def _load_watchlist_for_chat(chat_id: int):
+    try:
+        import json
+        st = json.load(open("scanner_state.json"))
+        wl = st.get("watchlist_by_chat", {}).get(str(chat_id), [])
+        return [m for m in wl if isinstance(m, str)]
+    except Exception:
+        return []
+
+def _cmd_fetchnow(update, chat_id: int, arg_str: str):
+    spec = _parse_mints_or_count(arg_str)
+    selected = list(spec["mints"])
+    if not selected:
+        # pull from this chat's watchlist
+        wl = _load_watchlist_for_chat(chat_id)
+        if not wl:
+            return {"status": "ok", "response": "📡 *Fetchnow*\nWatchlist is empty.\n\nUsage:\n`/fetchnow <n>` (take n from watchlist)\n`/fetchnow <MINT1> <MINT2> ...`", "handled": True}
+        n = spec["count"] or 1
+        selected = wl[:n]
+
+    # emit a card per mint (same look as /about)
+    sent = 0
+    for m in selected:
+        try:
+            name = resolve_token_name(m)
+            pr = get_price(m, 'birdeye')
+            card = render_info_card(
+                mint=m,
+                name=name,
+                price=pr.get('price') or 0.0,
+                src=pr.get('source') or 'birdeye'
+            )
+            tg_send(chat_id, card)
+            sent += 1
+        except Exception as e:
+            tg_send(chat_id, f"⚠️ Fetchnow error for `{m}`: `{e}`")
+
+    return {"status": "ok", "response": f"📡 *Fetchnow*\nDispatched {sent} mint(s).", "handled": True}
+
 # Enhanced command parsing with zero-width character normalization
 _ZW = "\u200b\u200c\u200d\u2060\ufeff"
 _CMD_RE = re.compile(r"^/\s*([A-Za-z0-9_]+)(?:@[\w_]+)?(?:\s+(.*))?$", re.S)
@@ -3148,7 +3198,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -3239,6 +3289,7 @@ def process_telegram_command(update: dict):
                        "/alerts_auto_status - Show auto-scan status\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n" + \
+                       "/fetchnow [n|mint...] - Smart fetch: n from watchlist or specific mints\n" + \
                        "/name <mint> - Show override/cache (alias of /name_show)\n" + \
                        "/name_refresh <mint> - Refresh token name cache\n" + \
                        "/name_refetch_jup - Refresh Jupiter catalog\n" + \
@@ -3326,6 +3377,8 @@ def process_telegram_command(update: dict):
             return _cmd_unwatch(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/watch_clear":
             return _cmd_watch_clear(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
+        elif cmd == "/fetchnow":
+            return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes
             if len(parts) < 2:

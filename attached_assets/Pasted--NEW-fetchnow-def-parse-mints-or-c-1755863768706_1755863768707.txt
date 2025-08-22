@@ -1,0 +1,52 @@
+# --- NEW: /fetchnow ---------------------------------------------------------
+def _parse_mints_or_count(arg_str: str):
+    args = (arg_str or "").strip().split()
+    if not args:
+        return {"count": 1, "mints": []}
+    # if first token is an int, treat as count
+    if args[0].isdigit():
+        return {"count": max(1, int(args[0])), "mints": [a for a in args[1:] if len(a) >= 32]}
+    # otherwise treat everything as mints
+    return {"count": 0, "mints": [a for a in args if len(a) >= 32]}
+
+def _load_watchlist_for_chat(chat_id: int):
+    try:
+        import json
+        st = json.load(open("scanner_state.json"))
+        wl = st.get("watchlist_by_chat", {}).get(str(chat_id), [])
+        return [m for m in wl if isinstance(m, str)]
+    except Exception:
+        return []
+
+def _cmd_fetchnow(update, chat_id: int, arg_str: str):
+    spec = _parse_mints_or_count(arg_str)
+    selected = list(spec["mints"])
+    if not selected:
+        # pull from this chat's watchlist
+        wl = _load_watchlist_for_chat(chat_id)
+        if not wl:
+            return _reply(update, chat_id,
+                          "📡 *Fetchnow*\nWatchlist is empty.\n\nUsage:\n`/fetchnow <n>` (take n from watchlist)\n`/fetchnow <MINT1> <MINT2> ...`",
+                          handled=True)
+        n = spec["count"] or 1
+        selected = wl[:n]
+
+    # emit a card per mint (same look as /about)
+    sent = 0
+    for m in selected:
+        try:
+            name = resolve_token_name(m)
+            pr = get_price(m, 'birdeye')
+            card = render_info_card(
+                mint=m,
+                name=name,
+                price=pr.get('price') or 0.0,
+                src=pr.get('source') or 'birdeye'
+            )
+            tg_send(chat_id, card)
+            sent += 1
+        except Exception as e:
+            tg_send(chat_id, f"⚠️ Fetchnow error for `{m}`: `{e}`")
+
+    return _reply(update, chat_id, f"📡 *Fetchnow*\nDispatched {sent} mint(s).", handled=True)
+# ---------------------------------------------------------------------------
