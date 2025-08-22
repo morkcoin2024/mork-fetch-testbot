@@ -162,6 +162,107 @@ def _render_commands_list() -> str:
     ]
     return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
 
+# Dedicated watchlist command handlers
+def _cmd_watch(chat_id, args):
+    """Enhanced /watch handler with per-chat isolation"""
+    if not args:
+        return {"status": "ok", "response": "*Watchlist*\nUsage: `/watch <MINT...>`", "parse_mode": "Markdown"}
+
+    state = _load_json_safe("scanner_state.json")
+    bucket = _wl_bucket(state, chat_id)
+
+    # parse incoming mints from args
+    raw = [p.strip() for p in args.split() if p.strip()]
+    added, already, invalid = [], [], []
+
+    for m in raw:
+        if not isinstance(m, str) or len(m) < 8:  # basic sanity check
+            invalid.append(m)
+            continue
+        if m in bucket:
+            already.append(m)
+        else:
+            bucket.append(m)
+            added.append(m)
+
+    _save_json_safe("scanner_state.json", state)
+
+    lines = ["*Watchlist*"]
+    if added:
+        lines.append("Added:")
+        for m in added:
+            # Show token name if available (ticker / long name)
+            nm = _display_name_for(m)
+            lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
+            lines.append(f"({_short_mint(m)})")
+    if already:
+        lines.append("Already present:")
+        for m in already:
+            nm = _display_name_for(m)
+            lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
+            lines.append(f"({_short_mint(m)})")
+    if invalid:
+        lines.append("Ignored (invalid):")
+        for m in invalid:
+            lines.append(f"`{m}`")
+
+    # Show total for quick reference
+    lines.append(f"Total: {len(bucket)}")
+    return {"status": "ok", "response": "\n".join(lines), "parse_mode": "Markdown"}
+
+def _cmd_watchlist(chat_id, args):
+    """Enhanced /watchlist handler with per-chat isolation"""
+    state = _load_json_safe("scanner_state.json")
+    bucket = _wl_bucket(state, chat_id)
+
+    if not bucket:
+        return {"status": "ok", "response": "*Watchlist*\n_(empty)_", "parse_mode": "Markdown"}
+
+    out = ["*Watchlist*"]
+    for i, m in enumerate(bucket, 1):
+        nm = _display_name_for(m)
+        # Render as: "1. TICKER" then "(mint_abbrev)"
+        ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(m)
+        out.append(f"{i}. {ticker}")
+        out.append(f"({_short_mint(m)})")
+    return {"status": "ok", "response": "\n".join(out), "parse_mode": "Markdown"}
+
+def _cmd_unwatch(chat_id, args):
+    """Enhanced /unwatch handler with per-chat isolation"""
+    if not args:
+        return {"status": "ok", "response": "*Watchlist*\nUsage: `/unwatch <MINT...>`", "parse_mode": "Markdown"}
+
+    state = _load_json_safe("scanner_state.json")
+    bucket = _wl_bucket(state, chat_id)
+
+    raw = [p.strip() for p in args.split() if p.strip()]
+    not_found = []
+    removed = 0
+    for m in raw:
+        try:
+            bucket.remove(m)
+            removed += 1
+        except ValueError:
+            not_found.append(m)
+
+    _save_json_safe("scanner_state.json", state)
+
+    lines = ["*Watchlist*"]
+    if not_found:
+        lines.append("Not found:")
+        for m in not_found:
+            lines.append(f"`{m}`")
+    lines.append(f"Total: {len(bucket)}")
+    return {"status": "ok", "response": "\n".join(lines), "parse_mode": "Markdown"}
+
+def _cmd_watch_clear(chat_id, args):
+    """Enhanced /watch_clear handler with per-chat isolation"""
+    state = _load_json_safe("scanner_state.json")
+    bucket = _wl_bucket(state, chat_id)
+    bucket.clear()
+    _save_json_safe("scanner_state.json", state)
+    return {"status": "ok", "response": "🧹 *Watchlist cleared.*", "parse_mode": "Markdown"}
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
 _ROUTER_TRACE = "/tmp/router_trace.log"
@@ -3190,103 +3291,15 @@ def process_telegram_command(update: dict):
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
         
-        # Enhanced per-chat watchlist commands with improved bucket system
+        # Enhanced per-chat watchlist commands using dedicated handlers
         elif cmd == "/watch":
-            # /watch <mint1> <mint2> ...
-            if len(parts) < 2:
-                return _reply("*Watchlist*\nUsage: `/watch <MINT...>`")
-
-            state = _load_json_safe("scanner_state.json")
-            bucket = _wl_bucket(state, chat_id)
-
-            # parse incoming mints from all arguments
-            raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
-            added, already, invalid = [], [], []
-
-            for m in raw:
-                if not isinstance(m, str) or len(m) < 8:  # extremely light sanity
-                    invalid.append(m)
-                    continue
-                if m in bucket:
-                    already.append(m)
-                else:
-                    bucket.append(m)
-                    added.append(m)
-
-            _save_json_safe("scanner_state.json", state)
-
-            lines = ["*Watchlist*"]
-            if added:
-                lines.append("Added:")
-                for m in added:
-                    # Show 2-line token name if available (ticker / long name)
-                    nm = _display_name_for(m)
-                    lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
-                    lines.append(f"({_short_mint(m)})")
-            if already:
-                lines.append("Already present:")
-                for m in already:
-                    nm = _display_name_for(m)
-                    lines.append(nm.split("\n")[0] if "\n" in nm else _short_mint(m))
-                    lines.append(f"({_short_mint(m)})")
-            if invalid:
-                lines.append("Ignored (invalid):")
-                for m in invalid:
-                    lines.append(f"`{m}`")
-
-            # Show total for quick sanity
-            lines.append(f"Total: {len(bucket)}")
-            return _reply("\n".join(lines))
-
-        elif cmd == "/unwatch":
-            if len(parts) < 2:
-                return _reply("*Watchlist*\nUsage: `/unwatch <MINT...>`")
-
-            state = _load_json_safe("scanner_state.json")
-            bucket = _wl_bucket(state, chat_id)
-
-            raw = [p.strip() for p in " ".join(parts[1:]).split() if p.strip()]
-            not_found = []
-            removed = 0
-            for m in raw:
-                try:
-                    bucket.remove(m)
-                    removed += 1
-                except ValueError:
-                    not_found.append(m)
-
-            _save_json_safe("scanner_state.json", state)
-
-            lines = ["*Watchlist*"]
-            if not_found:
-                lines.append("Not found:")
-                for m in not_found:
-                    lines.append(f"`{m}`")
-            lines.append(f"Total: {len(bucket)}")
-            return _reply("\n".join(lines))
-
+            return _cmd_watch(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/watchlist":
-            state = _load_json_safe("scanner_state.json")
-            bucket = _wl_bucket(state, chat_id)
-
-            if not bucket:
-                return _reply("*Watchlist*\n_(empty)_")
-
-            out = ["*Watchlist*"]
-            for i, m in enumerate(bucket, 1):
-                nm = _display_name_for(m)
-                # Render as: "1. TICKER" then "(mint_abbrev)"
-                ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(m)
-                out.append(f"{i}. {ticker}")
-                out.append(f"({_short_mint(m)})")
-            return _reply("\n".join(out))
-
+            return _cmd_watchlist(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
+        elif cmd == "/unwatch":
+            return _cmd_unwatch(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/watch_clear":
-            state = _load_json_safe("scanner_state.json")
-            bucket = _wl_bucket(state, chat_id)
-            bucket.clear()
-            _save_json_safe("scanner_state.json", state)
-            return _reply("🧹 *Watchlist cleared.*")
+            return _cmd_watch_clear(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes
             if len(parts) < 2:
