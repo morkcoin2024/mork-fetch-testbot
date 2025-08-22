@@ -1,0 +1,110 @@
+# === PATCH START: Watchlist commands + help entries ===
+# File: app.py
+
+import json, os  # (near top, if not already imported)
+
+WATCH_STATE_FILE = "scanner_state.json"
+
+def _scanner_state_load() -> dict:
+    try:
+        data = json.load(open(WATCH_STATE_FILE))
+        if not isinstance(data, dict): data = {}
+    except Exception:
+        data = {}
+    data.setdefault("watchlist", [])  # keep other keys if you already have them
+    return data
+
+def _scanner_state_save(state: dict):
+    tmp = WATCH_STATE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp, WATCH_STATE_FILE)
+
+def _short_mint(m: str) -> str:
+    return f"{m[:4]}..{m[-4:]}" if isinstance(m, str) and len(m) > 10 else m
+
+# Optional: reuse your existing name display util if present
+def _display_name_for(mint: str) -> str:
+    try:
+        return _display_name_for  # noqa: F821  (if your real one is already defined)
+    except NameError:
+        # emergency fallback (ticker-only)
+        return mint
+
+# ... inside process_telegram_command(update):
+    elif cmd == "/watch":
+        if len(parts) < 2:
+            tg_send(chat_id, "Usage: /watch <mint>", preview=True)
+            return {"status": "error", "err": "missing mint"}
+        mint = parts[1].strip()
+        st = _scanner_state_load()
+        wl = set(st.get("watchlist", []))
+        if mint not in wl:
+            wl.add(mint)
+            st["watchlist"] = sorted(wl)
+            _scanner_state_save(st)
+            name = _display_name_for(mint)
+            text = (
+                "*Watchlist*\n"
+                "Added:\n"
+                f"{name}\n"
+                f"({_short_mint(mint)})\n"
+                f"Total: {len(st['watchlist'])}"
+            )
+        else:
+            name = _display_name_for(mint)
+            text = (
+                "*Watchlist*\n"
+                "Already present:\n"
+                f"{name}\n"
+                f"({_short_mint(mint)})\n"
+                f"Total: {len(st['watchlist'])}"
+            )
+        tg_send(chat_id, text, preview=False)
+        return {"status": "ok", "response": text}
+
+    elif cmd == "/unwatch":
+        if len(parts) < 2:
+            tg_send(chat_id, "Usage: /unwatch <mint>", preview=True)
+            return {"status": "error", "err": "missing mint"}
+        mint = parts[1].strip()
+        st = _scanner_state_load()
+        wl = set(st.get("watchlist", []))
+        removed = mint in wl
+        wl.discard(mint)
+        st["watchlist"] = sorted(wl)
+        _scanner_state_save(st)
+        name = _display_name_for(mint)
+        text = (
+            "*Watchlist*\n"
+            f"{'Removed' if removed else 'Not found'}:\n"
+            f"{name}\n"
+            f"({_short_mint(mint)})\n"
+            f"Total: {len(st['watchlist'])}"
+        )
+        tg_send(chat_id, text, preview=False)
+        return {"status": "ok", "response": text}
+
+    elif cmd == "/watchlist":
+        st = _scanner_state_load()
+        wl = st.get("watchlist", [])
+        if not wl:
+            tg_send(chat_id, "*Watchlist*\n(empty)", preview=False)
+            return {"status": "ok", "response": "(empty)"}
+        lines = ["*Watchlist*"]
+        for i, m in enumerate(wl, 1):
+            nm = _display_name_for(m)
+            lines.append(f"{i}. {nm}\n({_short_mint(m)})")
+        text = "\n".join(lines)
+        tg_send(chat_id, text, preview=False)
+        return {"status": "ok", "response": text}
+
+# In your /help builder, add if not present:
+    help_lines.extend([
+        "",
+        "Watchlist:",
+        "  /watch <mint>       – add to watchlist",
+        "  /unwatch <mint>     – remove from watchlist",
+        "  /watchlist          – show watchlist",
+    ])
+# === PATCH END ===

@@ -81,6 +81,28 @@ def render_name_status(mint: str) -> str:
         f"Cache: {c_pair}"
     )
 
+# Watchlist management helpers
+WATCH_STATE_FILE = "scanner_state.json"
+
+def _scanner_state_load() -> dict:
+    try:
+        data = json.load(open(WATCH_STATE_FILE))
+        if not isinstance(data, dict): 
+            data = {}
+    except Exception:
+        data = {}
+    data.setdefault("watchlist", [])  # keep other keys if you already have them
+    return data
+
+def _scanner_state_save(state: dict):
+    tmp = WATCH_STATE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp, WATCH_STATE_FILE)
+
+def _short_mint(m: str) -> str:
+    return f"{m[:4]}..{m[-4:]}" if isinstance(m, str) and len(m) > 10 else m
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
 _ROUTER_TRACE = "/tmp/router_trace.log"
@@ -1711,7 +1733,8 @@ ALL_COMMANDS = [
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
     "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status",
     "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
-    "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear"
+    "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear",
+    "/watch", "/unwatch", "/watchlist"
 ]
 from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
 from events import BUS
@@ -3049,6 +3072,10 @@ def process_telegram_command(update: dict):
                        "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
                        "/name_show <mint> - Show name status & overrides\n" + \
                        "/name_clear <mint> - Clear name override & cache\n\n" + \
+                       "🔍 **Watchlist Commands:**\n" + \
+                       "/watch <mint> - Add token to watchlist\n" + \
+                       "/unwatch <mint> - Remove token from watchlist\n" + \
+                       "/watchlist - Show current watchlist\n\n" + \
                        "🤖 **AutoSell Commands:**\n" + \
                        "/autosell_on / /autosell_off - Enable/disable AutoSell\n" + \
                        "/autosell_status - Check AutoSell status\n" + \
@@ -3115,6 +3142,69 @@ def process_telegram_command(update: dict):
             cache.pop(mint, None)
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
+        
+        # Watchlist commands
+        elif cmd == "/watch":
+            if len(parts) < 2:
+                return _reply("Usage: /watch <mint>")
+            mint = parts[1].strip()
+            st = _scanner_state_load()
+            wl = set(st.get("watchlist", []))
+            if mint not in wl:
+                wl.add(mint)
+                st["watchlist"] = sorted(wl)
+                _scanner_state_save(st)
+                name = _display_name_for(mint)
+                text = (
+                    "*Watchlist*\n"
+                    "Added:\n"
+                    f"{name}\n"
+                    f"({_short_mint(mint)})\n"
+                    f"Total: {len(st['watchlist'])}"
+                )
+            else:
+                name = _display_name_for(mint)
+                text = (
+                    "*Watchlist*\n"
+                    "Already present:\n"
+                    f"{name}\n"
+                    f"({_short_mint(mint)})\n"
+                    f"Total: {len(st['watchlist'])}"
+                )
+            return _reply(text)
+
+        elif cmd == "/unwatch":
+            if len(parts) < 2:
+                return _reply("Usage: /unwatch <mint>")
+            mint = parts[1].strip()
+            st = _scanner_state_load()
+            wl = set(st.get("watchlist", []))
+            removed = mint in wl
+            wl.discard(mint)
+            st["watchlist"] = sorted(wl)
+            _scanner_state_save(st)
+            name = _display_name_for(mint)
+            text = (
+                "*Watchlist*\n"
+                f"{'Removed' if removed else 'Not found'}:\n"
+                f"{name}\n"
+                f"({_short_mint(mint)})\n"
+                f"Total: {len(st['watchlist'])}"
+            )
+            return _reply(text)
+
+        elif cmd == "/watchlist":
+            st = _scanner_state_load()
+            wl = st.get("watchlist", [])
+            if not wl:
+                text = "*Watchlist*\n(empty)"
+                return _reply(text)
+            lines = ["*Watchlist*"]
+            for i, m in enumerate(wl, 1):
+                nm = _display_name_for(m)
+                lines.append(f"{i}. {nm}\n({_short_mint(m)})")
+            text = "\n".join(lines)
+            return _reply(text)
         elif cmd == "/about":
             # /about <mint> — ticker + long name + compact timeframes
             if len(parts) < 2:
