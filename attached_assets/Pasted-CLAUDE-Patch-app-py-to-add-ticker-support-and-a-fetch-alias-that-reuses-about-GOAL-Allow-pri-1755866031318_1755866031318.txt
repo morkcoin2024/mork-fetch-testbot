@@ -1,0 +1,121 @@
+CLAUDE: Patch app.py to add ticker support and a /fetch alias that reuses /about.
+
+GOAL
+- Allow /price <TICKER|MINT>, /about <TICKER|MINT>, and /fetch <TICKER|MINT>.
+- If the arg looks like a 32–44 char base58, treat as mint; otherwise try to resolve as a ticker using existing name overrides; fallback table should map SOL->So1111… at minimum.
+- /fetch should be a simple alias to the same handler used by /about (identical output).
+- Append a quick-actions footer to the /about card with /price, /watch, /fetch commands for that mint.
+
+CHANGES
+
+1) Add helpers (near other small utils in app.py):
+-----------------------------------------------------------------------
+_BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+_FALLBACK_TICKER_TO_MINT = {
+    "SOL": "So11111111111111111111111111111111111111112",
+}
+
+def _looks_like_mint(s: str) -> bool:
+    s = (s or "").strip()
+    return 32 <= len(s) <= 44 and all(ch in _BASE58 for ch in s)
+
+def _iter_name_overrides():
+    """
+    Yields (mint, ticker, long_name) from whatever override store we have.
+    Works with either _NAME_OVERRIDES or NAME_OVERRIDES and via
+    name_override_* helpers if present. Falls back to empty if none exist.
+    """
+    store = globals().get("_NAME_OVERRIDES") or globals().get("NAME_OVERRIDES") or {}
+    for m, tup in getattr(store, "items", lambda: [])():
+        # support either tuple or dict shape
+        if isinstance(tup, (list, tuple)) and len(tup) >= 2:
+            yield m, str(tup[0]), str(tup[1])
+        elif isinstance(tup, dict):
+            yield m, str(tup.get("ticker","")), str(tup.get("name",""))
+
+def _ticker_to_mint(sym: str) -> str | None:
+    """
+    Resolve a ticker symbol to a mint via overrides, else fallback table.
+    Compare uppercase against override tickers (case-insensitive).
+    """
+    s = (sym or "").strip()
+    if not s:
+        return None
+    su = s.upper()
+    # overrides first
+    for m, tkr, _ in _iter_name_overrides():
+        if tkr and tkr.upper() == su:
+            return m
+    # fallback table (SOL etc.)
+    if su in _FALLBACK_TICKER_TO_MINT:
+        return _FALLBACK_TICKER_TO_MINT[su]
+    return None
+
+def _resolve_arg_to_mint(arg: str) -> str | None:
+    """
+    If arg looks like a base58 mint, return it. Otherwise attempt ticker->mint.
+    """
+    if _looks_like_mint(arg):
+        return arg.strip()
+    return _ticker_to_mint(arg)
+-----------------------------------------------------------------------
+
+2) Wire the resolver into /price and /about, and add /fetch alias.
+   Find the router in process_telegram_command and update these branches:
+
+- For '/price':
+-----------------------------------------------------------------------
+elif cmd == "/price":
+    if not args:
+        return _reply(chat_id, "Usage: /price <mint|ticker>")
+    mint = _resolve_arg_to_mint(args[0])
+    if not mint:
+        return _reply(chat_id, "❌ Invalid mint or unknown ticker.")
+    # existing handler path continues with `mint` as before
+-----------------------------------------------------------------------
+
+- For '/about':
+-----------------------------------------------------------------------
+elif cmd == "/about":
+    if not args:
+        return _reply(chat_id, "Usage: /about <mint|ticker>")
+    mint = _resolve_arg_to_mint(args[0])
+    if not mint:
+        return _reply(chat_id, "❌ Invalid mint or unknown ticker.")
+    # continue into existing about rendering using `mint`
+-----------------------------------------------------------------------
+
+- Add '/fetch' as an alias that reuses the same branch as '/about':
+-----------------------------------------------------------------------
+elif cmd == "/fetch":
+    if not args:
+        return _reply(chat_id, "Usage: /fetch <mint|ticker>")
+    mint = _resolve_arg_to_mint(args[0])
+    if not mint:
+        return _reply(chat_id, "❌ Invalid mint or unknown ticker.")
+    # Reuse the same code path as /about:
+    # (either call the same helper you use for /about, or duplicate the few lines)
+    return _handle_about_like(chat_id, mint)  # If you have a function; otherwise inline same as /about.
+-----------------------------------------------------------------------
+
+(If there isn’t a _handle_about_like(), just copy the same few lines used by /about after resolution and return the same card.)
+
+3) Add quick-actions footer to the /about card.
+   Locate the function that renders the /about info card (the one that prints Mint, Price, % changes).
+   Append this line at the end of the card string before returning:
+
+-----------------------------------------------------------------------
+    footer = f"\nActions: /price {mint} • /watch {mint} • /fetch {mint}"
+    card_text += footer
+-----------------------------------------------------------------------
+
+   Ensure the final string still passes through the existing markdown-safe sender.
+
+ACCEPTANCE
+- /price SOL prints the same price card you’d get for the SOL mint.
+- /about PUMP prints the info card for pumpCm… with a footer line:
+    Actions: /price <MINT> • /watch <MINT> • /fetch <MINT>
+- /fetch PENGU behaves identically to /about PENGU.
+- Unknown symbols return “Invalid mint or unknown ticker.”
+- Existing mint-based usage remains unchanged.
+END PATCH

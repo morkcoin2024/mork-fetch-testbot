@@ -2445,6 +2445,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- Ticker/Mint Resolution Helpers ---------------------------------------
+_BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+_FALLBACK_TICKER_TO_MINT = {
+    "SOL": "So11111111111111111111111111111111111111112",
+}
+
+def _looks_like_mint(s: str) -> bool:
+    s = (s or "").strip()
+    return 32 <= len(s) <= 44 and all(ch in _BASE58 for ch in s)
+
+def _iter_name_overrides():
+    """
+    Yields (mint, ticker, long_name) from whatever override store we have.
+    Works with either _NAME_OVERRIDES or NAME_OVERRIDES and via
+    name_override_* helpers if present. Falls back to empty if none exist.
+    """
+    store = globals().get("_NAME_OVERRIDES") or globals().get("NAME_OVERRIDES") or {}
+    for m, tup in getattr(store, "items", lambda: [])():
+        # support either tuple or dict shape
+        if isinstance(tup, (list, tuple)) and len(tup) >= 2:
+            yield m, str(tup[0]), str(tup[1])
+        elif isinstance(tup, dict):
+            yield m, str(tup.get("ticker","")), str(tup.get("name",""))
+
+def _ticker_to_mint(sym: str) -> str | None:
+    """
+    Resolve a ticker symbol to a mint via overrides, else fallback table.
+    Compare uppercase against override tickers (case-insensitive).
+    """
+    s = (sym or "").strip()
+    if not s:
+        return None
+    su = s.upper()
+    # overrides first
+    for m, tkr, _ in _iter_name_overrides():
+        if tkr and tkr.upper() == su:
+            return m
+    # fallback table (SOL etc.)
+    if su in _FALLBACK_TICKER_TO_MINT:
+        return _FALLBACK_TICKER_TO_MINT[su]
+    return None
+
+def _resolve_arg_to_mint(arg: str) -> str | None:
+    """
+    If arg looks like a base58 mint, return it. Otherwise attempt ticker->mint.
+    """
+    if _looks_like_mint(arg):
+        return arg.strip()
+    return _ticker_to_mint(arg)
+
 # --- content-aware dedupe for tg_send ---------------------------------------
 # content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
 _LAST_SENT: dict[Tuple[int, str], float] = {}
@@ -3049,6 +3099,10 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
     for key in ["5m", "30m", "1h", "6h", "24h"]:
         lines.append(f"{_label_block(key)} { _fmt_pct_cell(tf.get(key)) }")
 
+    # Add quick-actions footer
+    footer = f"\nActions: /price {mint} • /watch {mint} • /fetch {mint}"
+    lines.append(footer)
+
     return "\n".join(lines)
 
 # --- end helpers ---
@@ -3413,12 +3467,15 @@ def process_telegram_command(update: dict):
         elif cmd == "/fetchnow":
             return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
-            # /about <mint> — ticker + long name + compact timeframes
+            # /about <mint|ticker> — ticker + long name + compact timeframes
             if len(parts) < 2:
-                tg_send(chat_id, "Usage: /about <mint>", preview=True)
+                tg_send(chat_id, "Usage: /about <mint|ticker>", preview=True)
                 return {"status": "error", "err": "missing mint"}
 
-            mint = parts[1].strip()
+            mint = _resolve_arg_to_mint(parts[1].strip())
+            if not mint:
+                tg_send(chat_id, "❌ Invalid mint or unknown ticker.", preview=True)
+                return {"status": "error", "err": "invalid mint or ticker"}
             # Price via current source (fallback birdeye)
             src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
             pr = get_price(mint, src_pref)
@@ -3434,6 +3491,33 @@ def process_telegram_command(update: dict):
             
             # --- ABOUT RETURN FIX + TRACE ---
             _rt_log(f"about sent len={len(text)} chat={chat_id}")
+            return {"status": "ok", "response": text}
+        elif cmd == "/fetch":
+            # /fetch <mint|ticker> — identical to /about (reuse same logic)
+            if len(parts) < 2:
+                tg_send(chat_id, "Usage: /fetch <mint|ticker>", preview=True)
+                return {"status": "error", "err": "missing mint"}
+
+            mint = _resolve_arg_to_mint(parts[1].strip())
+            if not mint:
+                tg_send(chat_id, "❌ Invalid mint or unknown ticker.", preview=True)
+                return {"status": "error", "err": "invalid mint or ticker"}
+            
+            # Reuse the same code path as /about:
+            src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
+            pr = get_price(mint, src_pref)
+            price = float(pr.get("price") or 0.0)
+            src   = pr.get("source") or src_pref
+
+            # Name and timeframes
+            name_display = resolve_token_name(mint) or ""
+            tf = fetch_timeframes(mint) or {}
+
+            text = render_about_list(mint, price, src, name_display, tf)
+            tg_send(chat_id, text, preview=True)
+            
+            # --- FETCH RETURN FIX + TRACE ---
+            _rt_log(f"fetch sent len={len(text)} chat={chat_id}")
             return {"status": "ok", "response": text}
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
@@ -3577,9 +3661,11 @@ def process_telegram_command(update: dict):
         
         elif cmd == "/price" or cmd == "/quote":
             if not arg:
-                return _reply("Usage: `/price <mint>`")
+                return _reply("Usage: `/price <mint|ticker>`")
             
-            mint = arg.strip()
+            mint = _resolve_arg_to_mint(arg.strip())
+            if not mint:
+                return _reply("❌ Invalid mint or unknown ticker.")
 
             # Use your unified price getter + current source
             src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
