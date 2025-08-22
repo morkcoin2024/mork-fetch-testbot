@@ -2495,6 +2495,25 @@ def _resolve_arg_to_mint(arg: str) -> str | None:
         return arg.strip()
     return _ticker_to_mint(arg)
 
+# --- shared: turn a user arg into a mint + name bundle ---
+def _resolve_input_to_mint_and_name(user_arg: str):
+    """
+    Returns (mint, name_tuple) or (None, None).
+    name_tuple is whatever your renderers accept (e.g., from resolve_token_name).
+    Implementation: Uses the exact normalization/lookup block used in /price
+    that makes /price SOL work, then returns both the mint and resolved name.
+    """
+    arg = (user_arg or "").strip()
+    
+    # Use the same logic used by /price to support ticker OR mint
+    mint = _resolve_arg_to_mint(arg)
+    if not mint:
+        return (None, None)
+    
+    # Get the resolved name using the same method as /price and /about
+    name = resolve_token_name(mint)
+    return (mint, name)
+
 # --- content-aware dedupe for tg_send ---------------------------------------
 # content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
 _LAST_SENT: dict[Tuple[int, str], float] = {}
