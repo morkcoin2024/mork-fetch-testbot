@@ -2972,6 +2972,28 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
 def process_telegram_command(update: dict):
 
+
+    # --- SCANNER_ALIAS_PATCH (rewrite scanner* to alerts_auto*) ---
+    try:
+        msg = update.get("message", {})
+        txt = (msg.get("text") or "").strip()
+        cmd = txt.split()[0] if txt else ""
+        aliases = {
+            "/scanner_on": "/alerts_auto_on",
+            "/scanner_off": "/alerts_auto_off",
+            "/scanner_status": "/alerts_auto_status",
+            "/scanner_interval": "/alerts_auto_on",  # accepts seconds; enables if stopped
+        }
+        if cmd in aliases:
+            rest = txt[len(cmd):].lstrip()
+            new_txt = aliases[cmd] + ((" " + rest) if rest else "")
+            update = dict(update) or {}
+            update["message"] = dict(update.get("message") or {})
+            update["message"]["text"] = new_txt
+    except Exception as _e:
+        # soft-fail: never block the router
+        pass
+    # --- /SCANNER_ALIAS_PATCH ---
     """Enhanced command processing with unified response architecture"""
     # TEMPORARY: Log exact update once for 409 debugging
     update_id = update.get("update_id")
