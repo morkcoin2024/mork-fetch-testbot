@@ -1,0 +1,61 @@
+CLAUDE: Apply this patch to app.py.
+
+GOAL
+- Make Telegram sending de-duplicate by (chat_id + message content) within a short TTL (3s).
+- Preserve existing markdown-safe send logic.
+- Add a “force” bypass flag for cases where we always want to send.
+
+CHANGES
+1) Add imports and state near the top of app.py (alongside other imports):
+-----------------------------------------------------------------------
+import hashlib
+from typing import Tuple
+
+# content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
+_LAST_SENT: dict[Tuple[int, str], float] = {}
+
+def _dedupe_recent(chat_id: int, text: str, ttl: float = 3.0) -> bool:
+    """
+    Return True if the exact same message text was sent to this chat within `ttl` seconds.
+    """
+    import time, logging
+    h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+    key = (chat_id, h)
+    now = time.time()
+    last = _LAST_SENT.get(key, 0.0)
+    if now - last < ttl:
+        logging.info(f"[SEND] deduped chat_id={chat_id} within {ttl}s (key={h})")
+        return True
+    _LAST_SENT[key] = now
+    # light GC
+    if len(_LAST_SENT) > 1000:
+        for k, t in list(_LAST_SENT.items()):
+            if now - t > ttl:
+                _LAST_SENT.pop(k, None)
+    return False
+-----------------------------------------------------------------------
+
+2) Modify tg_send signature and add early-return at the very top of the function body.
+   - Find the existing definition:  def tg_send(chat_id: int, text: str, ...
+   - Update signature to include force: bool = False (keep existing params the same).
+   - Insert this early return immediately after the docstring/opening lines:
+
+-----------------------------------------------------------------------
+    # Content-aware de-dup: skip identical text within 3s unless forced
+    if not force and _dedupe_recent(chat_id, text, ttl=3.0):
+        return {"ok": True, "deduped": True}
+-----------------------------------------------------------------------
+
+   - Leave the rest of the send logic as-is (markdown escaping, safe fallback, logging, etc).
+
+3) (Optional but recommended) Wherever we emit a short summary line after bulk sends
+   (e.g., in /fetchnow), call:
+       tg_send(chat_id, summary_text, force=True)
+   so the confirmation always appears, even if identical to the previous one.
+
+ACCEPTANCE
+- Sending the exact same message twice within 3s logs “[SEND] deduped …” and returns {"ok": True, "deduped": True}.
+- Two different messages sent back-to-back always post, even inside 3s.
+- After ~3.2s, the same message posts again.
+- All existing commands continue to work.
+END PATCH

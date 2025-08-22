@@ -2424,6 +2424,8 @@ def get_price(mint, preferred=None):
 import json
 import time
 import queue
+import hashlib
+from typing import Tuple
 # Import bot conditionally - disable if POLLING_MODE is set
 POLLING_MODE = os.environ.get('POLLING_MODE', 'OFF').upper()
 if POLLING_MODE == 'ON':
@@ -2444,16 +2446,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- content-aware dedupe for tg_send ---------------------------------------
-_LAST_SENT = {}  # (chat_id, hash12) -> timestamp
+# content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
+_LAST_SENT: dict[Tuple[int, str], float] = {}
 
 def _dedupe_recent(chat_id: int, text: str, ttl: float = 3.0) -> bool:
-    import time, hashlib, logging
+    """
+    Return True if the exact same message text was sent to this chat within `ttl` seconds.
+    """
+    import time, logging
     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
     key = (chat_id, h)
     now = time.time()
-    ts = _LAST_SENT.get(key, 0.0)
-    if now - ts < ttl:
-        logging.info(f"[SEND] deduped chat_id={chat_id} within {ttl}s (content-aware)")
+    last = _LAST_SENT.get(key, 0.0)
+    if now - last < ttl:
+        logging.info(f"[SEND] deduped chat_id={chat_id} within {ttl}s (key={h})")
         return True
     _LAST_SENT[key] = now
     # light GC
@@ -2471,19 +2477,19 @@ def _escape_mdv2(text: str) -> str:
         text = text.replace(ch, f"\\{ch}")
     return text
 
-def tg_send(chat_id, text, parse_mode="MarkdownV2", preview=True, no_preview=False, force=False):
+def tg_send(chat_id: int, text: str, parse_mode="MarkdownV2", preview=True, no_preview=False, force: bool = False):
     """
     Telegram send with dual-layer deduplication: content-aware + cross-process.
     Uses in-memory hash for fast content deduplication and SQLite for cross-worker protection.
     """
     text = _tg_norm(text)
     
-    # First layer: content-aware deduplication (fast, in-memory)
+    # Content-aware de-dup: skip identical text within 3s unless forced
     if not force and _dedupe_recent(chat_id, text, ttl=3.0):
-        return {"ok": True, "deduped": True, "layer": "content-aware"}
+        return {"ok": True, "deduped": True}
     
-    # Second layer: cross-process deduplication (SQLite-based)
-    if _tg_dedup_hit_and_mark(chat_id, text):
+    # Second layer: cross-process deduplication (SQLite-based) - also respect force flag
+    if not force and _tg_dedup_hit_and_mark(chat_id, text):
         logger.info("[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC)
         return {"ok": True, "deduped": True, "layer": "cross-process"}
 
