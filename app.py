@@ -3722,6 +3722,14 @@ def process_telegram_command(update: dict):
             if not arg:
                 return _reply("Usage: `/price <mint|ticker>`")
             
+            # Apply ticker resolution if args available
+            if args:
+                _c = args.strip()
+                _m = _resolve_target(_c)
+                if _m:
+                    args = _m  # Replace args with resolved mint
+                    arg = _m   # Also update arg for consistency
+            
             mint = _resolve_arg_to_mint(arg.strip())
             if not mint:
                 return _reply("❌ Invalid mint or unknown ticker.")
