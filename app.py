@@ -4321,7 +4321,7 @@ def process_telegram_command(update: dict):
             ]
             return _reply("\n".join(lines), "ok")
         elif cmd == "/liquidity":
-            target = args.split()[0] if args else ""
+            target = (args or "").split()[0] if args else ""
             mint = _resolve_to_mint(target)
             if not mint:
                 return _reply("Usage: `/liquidity <MINT|TICKER>` — unknown token.", "error")
