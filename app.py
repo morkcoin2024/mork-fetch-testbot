@@ -340,6 +340,7 @@ def _render_commands_list(is_admin: bool = False) -> str:
 def _render_help(is_admin: bool) -> str:
     core = [
         "`/price <MINT|SOL>`",
+        "`/convert <AMOUNT> <TICKER|MINT>` - Convert token↔USD (use $N or Nusd for USD→token)",
         "`/about <MINT>`",
         "`/fetch <MINT>` (alias of `/about`)",
         "`/mint_for <TICKER|MINT>` – resolve ticker to mint",
