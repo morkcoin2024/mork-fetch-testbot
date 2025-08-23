@@ -130,8 +130,9 @@ def _render_help_panel() -> str:
         "*F.E.T.C.H Bot — Commands*",
         "",
         "*General*",
-        "• `/price <mint>` — price snapshot",
-        "• `/about <mint>` — full card with timeframes",
+        "• `/price <mint|ticker>` — price snapshot",
+        "• `/about <mint|ticker>` — full card with timeframes",
+        "• `/fetch <mint|ticker>` — alias of /about",
         "• `/alert <mint>` — manual snapshot (same format as /price)",
         "",
         "*Names*",
@@ -155,7 +156,7 @@ def _render_help_panel() -> str:
 
 def _render_commands_list() -> str:
     cmds = [
-        "/price <mint>", "/about <mint>", "/alert <mint>",
+        "/price <mint|ticker>", "/about <mint|ticker>", "/fetch <mint|ticker>", "/alert <mint>",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
         "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status",
