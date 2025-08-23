@@ -3573,23 +3573,35 @@ def process_telegram_command(update: dict):
             )
         elif cmd == "/fetch":
             # /fetch - ticker resolution right after args parsing
-            if not args:
-                return _reply("Unknown token. Try a mint or known ticker.", status="error")
-            _a0 = args.strip()
-            if len(_a0) not in (32, 43, 44):
-                _m = _resolve_target(_a0)
-                if not _m:
-                    return _reply("Unknown token. Try a mint or known ticker.", status="error")
-                args = _m  # Replace args with resolved mint
-                _a0 = _m   # Update local variable
-            
-            # Continue with existing fetch card code that expects args to be a mint
-            mint = _a0
-            name_display = _display_name_for(mint)
-            pr = get_price(mint, 'birdeye')
-            return _reply(
-                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
-            )
+            if args:
+                _a0 = args.strip()
+                if len(_a0) not in (32, 43, 44):
+                    _m = _resolve_target(_a0)
+                    if not _m:
+                        return _reply("Unknown token. Try a mint or known ticker.", status="error")
+                    args = _m  # Replace args with resolved mint
+                    _a0 = _m   # Update local variable
+                
+                # Continue with existing fetch logic (mint path)
+                mint = _a0
+                name_display = _display_name_for(mint)
+                pr = get_price(mint, 'birdeye')
+                return _reply(
+                    render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
+                )
+            else:
+                # No args - use watchlist path (fallback to fetchnow logic)
+                wl = _load_watchlist_for_chat(chat_id)
+                if not wl:
+                    return _reply("📡 *Fetch*\nWatchlist is empty.\n\nUsage:\n`/fetch <mint|ticker>` (specific token)\n`/fetch` (from watchlist)")
+                
+                # Take first mint from watchlist
+                mint = wl[0]
+                name_display = _display_name_for(mint)
+                pr = get_price(mint, 'birdeye')
+                return _reply(
+                    render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
+                )
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
             import json, time
