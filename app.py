@@ -4270,8 +4270,13 @@ def process_telegram_command(update: dict):
             )
             return _reply(body)
         
+        # --- replace: /help branch ---
         elif cmd == "/help":
+            msg = update.get("message", {}) or {}
+            uid = (msg.get("from") or {}).get("id")
+            is_admin = (uid == 1653046781)
             return _reply(_render_help(is_admin))
+        # --- end replace ---
 
         elif cmd == "/commands":
             return _reply(_render_commands_list(is_admin))
