@@ -4455,8 +4455,8 @@ def process_telegram_command(update: dict):
             return _reply("⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning")
         
         else:
-            # This should not be reached due to command validation above
-            return _reply("Command processing error")
+            # Unknown command fallback
+            return _reply("Unknown command (use /help)", status="error")
     
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
