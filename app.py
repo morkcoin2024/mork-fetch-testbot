@@ -687,6 +687,21 @@ def name_override_set(mint: str, primary: str, secondary: str):
 def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
+# === PRICE CACHE ===
+_PRICE_CACHE = {}  # key -> (value, expiry_ts)
+
+def _cache_get(key: str, now: float, default=None):
+    v = _PRICE_CACHE.get(key)
+    if not v: return default
+    val, exp = v
+    if now >= exp:
+        _PRICE_CACHE.pop(key, None)
+        return default
+    return val
+
+def _cache_set(key: str, val, now: float, ttl: float):
+    _PRICE_CACHE[key] = (val, now + ttl)
+
 # === GLOBAL HELPER FUNCTIONS ===
 def _reply(text, status="ok"):
     return {"text": str(text), "status": status, "response": str(text), "handled": True}
@@ -731,14 +746,75 @@ def _fmt_price(v):
     except Exception:
         return "?"
 
-def _birdeye_price(mint: str) -> float|None:
-    # Reuse existing birdeye_req(path="/defi/price", qp={"chain":"solana","address":mint})
+def _birdeye_price(mint: str, ttl: float = 30.0):
+    import time
+    now = time.time()
+    ck = f"price:{mint}"
+    cached = _cache_get(ck, now)
+    if cached is not None:
+        return cached
     try:
-        r = birdeye_req("/defi/price", {"chain":"solana","address":mint})
-        v = (r or {}).get("data", {}).get("value")
-        return float(v) if v is not None else None
+        r = birdeye_req("/defi/price", {"chain":"solana","address":mint}) or {}
+        v = (r.get("data") or {}).get("value")
+        out = float(v) if v is not None else None
     except Exception:
-        return None
+        out = None
+    _cache_set(ck, out, now, ttl)
+    return out
+
+def _resolve_token_or_mint(arg: str):
+    """
+    Try to resolve arg as either a mint address or ticker.
+    Return (mint, symbol, name) or (None, None, None) on failure.
+    """
+    arg = arg.strip()
+    
+    # If it looks like a mint address (32-44 chars, alphanumeric)
+    if len(arg) >= 32 and len(arg) <= 44 and arg.isalnum():
+        mint = arg
+        ticker, long_name = _display_name_for(mint)
+        return mint, ticker, long_name
+    
+    # Check BIRDEYE_MINT_ALIASES first (SOL, WSOL, etc.)
+    try:
+        mint = BIRDEYE_MINT_ALIASES.get(arg.upper())
+        if mint:
+            ticker, long_name = _display_name_for(mint)
+            return mint, ticker, long_name
+    except (NameError, AttributeError):
+        pass
+    
+    # Try ticker lookup using existing name overrides and cache
+    try:
+        # Check name overrides first (reverse lookup)
+        overrides = _name_overrides_load()
+        for mint, (primary, secondary) in overrides.items():
+            if primary and primary.upper() == arg.upper():
+                return mint, primary, secondary
+            if secondary and secondary.upper() == arg.upper():
+                return mint, primary, secondary
+        
+        # Check token name cache (reverse lookup)
+        try:
+            import json
+            with open("token_names.json", "r") as f:
+                cache = json.load(f)
+            for mint, name_data in cache.items():
+                if "\n" in name_data:
+                    parts = name_data.split("\n", 1)
+                    ticker, long_name = parts[0].strip(), parts[1].strip()
+                else:
+                    ticker, long_name = name_data.strip(), ""
+                
+                if ticker.upper() == arg.upper():
+                    return mint, ticker, long_name
+        except Exception:
+            pass
+            
+    except Exception:
+        pass
+    
+    return None, None, None
 
 def _format_watch_row(mint: str, symbol: str|None, name: str|None, price: float|None=None, with_prices: bool=False) -> str:
     sym = symbol or "—"
@@ -4041,6 +4117,17 @@ def process_telegram_command(update: dict):
             return _cmd_watch_clear(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/fetchnow":
             return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
+        elif cmd == "/price":
+            if not args:
+                return _reply("Usage: /price <TICKER|MINT>")
+            mint, sym, nam = _resolve_token_or_mint(args.split()[0])
+            if not mint:
+                return _reply("Unknown token. Provide a mint or known ticker.")
+            p = _birdeye_price(mint)
+            sym = sym or "—"
+            nam = nam or "—"
+            price_txt = _fmt_price(p) if p is not None else "?"
+            return _reply(f"{sym} — {nam}: {price_txt}  `{_short_mint(mint)}`")
         elif cmd == "/about":
             # /about - enforce MINT only
             if not args or len(args.strip()) not in (32, 43, 44):
@@ -4299,8 +4386,9 @@ def process_telegram_command(update: dict):
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
             commands_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami\n" + \
+                          "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami /price\n" + \
                           "  /about <mint> – token snapshot (price, 5m/1h/6h/24h + 30m/12h when available)\n" + \
+                          "  /price <TICKER|MINT> – current price (Birdeye)\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
                           "  /watchlist [prices] – show saved mints (optionally with prices)\n" + \
