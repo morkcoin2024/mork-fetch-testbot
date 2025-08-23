@@ -338,7 +338,7 @@ def _render_help_panel() -> str:
 
 def _render_commands_list() -> str:
     cmds = [
-        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status",
+        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status", "/uptime",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
         "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
@@ -352,6 +352,7 @@ def _help_text():
         "/about <MINT>",
         "/fetch <MINT> (alias of /about)",
         "/status - Bot health: interval/ETA + watchlist size",
+        "/uptime - Process uptime and start time",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
@@ -2137,7 +2138,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3577,7 +3578,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- replace: /status branch ---
         if cmd == "/status":
@@ -3620,6 +3621,14 @@ def process_telegram_command(update: dict):
             ]
             return _reply("\n".join(lines))
         # --- end replace ---
+
+        # --- /uptime ---
+        elif cmd == "/uptime":
+            up = _time.time() - _PROC_STARTED
+            since = _time.strftime("%Y-%m-%d %H:%M:%S UTC", _time.gmtime(_PROC_STARTED))
+            pid = _os.getpid()
+            return _reply(f"Uptime: {_fmt_dhms(up)}\nSince: {since}\nPID: {pid}")
+        # --- end /uptime ---
 
         # --- manual scan (one-shot) ---
         elif cmd == "/watch_tick":
@@ -3716,7 +3725,8 @@ def process_telegram_command(update: dict):
                        "/about <mint> - snapshot: price, 5m/1h/6h/24h (providers) + 30m/12h (local) with trend arrows\n" + \
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n" + \
-                       "/status - Bot health: interval/ETA + watchlist size\n\n" + \
+                       "/status - Bot health: interval/ETA + watchlist size\n" + \
+                       "/uptime - Process uptime and start time\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
                        "/wallet - Wallet summary\n" + \
                        "/wallet_new - Create new wallet\n" + \
