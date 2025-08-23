@@ -4483,22 +4483,50 @@ def process_telegram_command(update: dict):
             if not wl:
                 return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
 
-            lines = []
-            for mint in wl:
-                ticker, long_name = "?", "?"
+            def _name_for_watchlist(mint: str) -> tuple[str, str]:
+                """Best-effort: accept tuple/list/str/dict from _display_name_for; fallback to optional globals."""
+                t, ln = "?", "?"
                 try:
                     disp = _display_name_for(mint)
-                    if isinstance(disp, (tuple, list)) and len(disp) >= 2:
-                        ticker, long_name = disp[0], disp[1]
+                    # tuple/list: (ticker, long_name, ...)
+                    if isinstance(disp, (tuple, list)):
+                        if len(disp) > 0 and isinstance(disp[0], str): t = disp[0]
+                        if len(disp) > 1 and isinstance(disp[1], str): ln = disp[1]
+                    # string: "TICKER\nLong Name"
                     elif isinstance(disp, str):
-                        parts = disp.splitlines()
+                        parts = [p.strip() for p in disp.splitlines() if p.strip()]
                         if parts:
-                            ticker = parts[0]
-                        if len(parts) > 1:
-                            long_name = parts[1]
+                            t = parts[0]
+                            if len(parts) > 1: ln = parts[1]
+                    # dict: support common keys
+                    elif isinstance(disp, dict):
+                        t = disp.get("ticker") or disp.get("symbol") or t
+                        ln = disp.get("long_name") or disp.get("name") or ln
                 except Exception:
                     pass
-                lines.append(f"{ticker} — {long_name}  `{_short_mint(mint)}`")
+
+                # Optional global fallbacks (won't crash if missing)
+                if (not t or t == "?"):
+                    try:
+                        fn = globals().get("_ticker_for_mint")
+                        if callable(fn):
+                            t = fn(mint) or t
+                    except Exception:
+                        pass
+                if (not ln or ln == "?"):
+                    try:
+                        fn = globals().get("_long_name_for_mint")
+                        if callable(fn):
+                            ln = fn(mint) or ln
+                    except Exception:
+                        pass
+
+                return (t or "?"), (ln or "?")
+
+            lines = []
+            for mint in wl:
+                t, ln = _name_for_watchlist(mint)
+                lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
 
             return _reply("👀 *Watchlist*\n" + "\n".join(lines))
 
