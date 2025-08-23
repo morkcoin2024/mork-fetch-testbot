@@ -4483,35 +4483,13 @@ def process_telegram_command(update: dict):
             if not wl:
                 return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
 
-            def _name_parts(mint: str) -> tuple[str, str]:
-                """Robustly derive (ticker, long_name) from _display_name_for output."""
-                try:
-                    disp = _display_name_for(mint)
-                    # tuple/list → (ticker, long)
-                    if isinstance(disp, (tuple, list)):
-                        t = (disp[0] or "?").strip() if len(disp) > 0 else "?"
-                        ln = (disp[1] or "?").strip() if len(disp) > 1 else "?"
-                        return t or "?", ln or "?"
-                    # string → "TICKER\nLong Name"
-                    if isinstance(disp, str):
-                        parts = [p.strip() for p in disp.splitlines() if p.strip()]
-                        if parts:
-                            t = parts[0]
-                            ln = parts[1] if len(parts) > 1 else "?"
-                            return t or "?", ln or "?"
-                    # dict → common keys
-                    if isinstance(disp, dict):
-                        t = (disp.get("ticker") or disp.get("symbol") or "?").strip()
-                        ln = (disp.get("long_name") or disp.get("name") or "?").strip()
-                        return t or "?", ln or "?"
-                except Exception:
-                    pass
-                return "?", "?"
-
             lines = []
             for mint in wl:
-                t, ln = _name_parts(mint)
-                lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
+                # Use same name resolver as /watch command
+                nm = _display_name_for(mint)
+                # Extract ticker (first line) same as /watch does
+                ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(mint)
+                lines.append(f"{ticker}  `{_short_mint(mint)}`")
 
             return _reply("👀 *Watchlist*\n" + "\n".join(lines))
 
