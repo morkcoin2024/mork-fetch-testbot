@@ -3618,48 +3618,45 @@ def process_telegram_command(update: dict):
             return _reply(_render_help(is_admin))
         # --- end early return ---
         
-        # --- replace: /status branch ---
-        if cmd == "/status":
+        # --- replace: /status (compact MDV2 card) ---
+        elif cmd == "/status":
             msg = update.get("message", {}) or {}
             chat_id = (msg.get("chat") or {}).get("id")
             user_id = (msg.get("from") or {}).get("id")
             is_admin = (user_id == 1653046781)
 
-            import time as _time
-            now = _time.strftime("%H:%M:%S UTC", _time.gmtime())
+            import time as _t
+            now = _t.strftime("%H:%M:%S UTC", _t.gmtime())
 
-            # Alerts metrics
+            # metrics
             try:
                 interval = int(_alerts_interval_get())
             except Exception:
                 interval = 30
             last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
             if last > 0:
-                ago = int(_time.time() - last)
+                ago = int(_t.time() - last)
                 nxt = max(0, interval - ago)
-                eta_line = f"Last: {ago}s ago | Next ~ in {nxt}s"
+                eta = f"{ago}s ago | ~{nxt}s"
             else:
-                eta_line = "Last: never | Next: unknown"
+                eta = "never | unknown"
 
-            # Watchlist size for this chat
+            # watchlist size
             try:
                 wl = int(_watchlist_len(chat_id))
             except Exception:
                 wl = 0
 
-            # Compose (keep your header lines, add metrics)
+            # compact MDV2 card (sender is MDV2-safe)
             lines = [
-                "✅ Bot Status: OPERATIONAL",
-                "⚡ Mode: Integrated Polling",
-                f"⏱ Time: {now}",
-                "🔒 Admin access" if is_admin else "👤 User access",
-                f"⏳ Interval: {interval}s",
-                f"🕒 {eta_line}",
-                f"👀 Watchlist (this chat): {wl}",
+                "🐕 *Mork F\\.E\\.T\\.C\\.H Status*",
+                f"⏱ `{now}`",
+                f"👤 {'Admin' if is_admin else 'User'}",
+                f"⏳ Interval: `{interval}s`",
+                f"🕒 Last | Next: `{eta}`",
+                f"👀 Watchlist: `{wl}`",
             ]
-            help_text = "\n".join(lines)
-            help_text = _strip_admin_rows(help_text, is_admin)
-            return _reply(help_text)
+            return _reply("\n".join(lines))
         # --- end replace ---
 
         # --- fix: /uptime should persist start time ---
