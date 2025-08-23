@@ -3584,23 +3584,29 @@ def process_telegram_command(update: dict):
             nxt = max(0, int(interval - ago))
             return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: {int(ago)}s ago\nNext ~ in {nxt}s")
 
-        # --- modify: /alerts_auto_interval (admin-only) ---
+        # --- replace: /alerts_auto_interval (admin-only, robust arg parse) ---
         elif cmd == "/alerts_auto_interval":
             msg = update.get("message", {}) or {}
             user_id = (msg.get("from") or {}).get("id")
             if user_id != 1653046781:
                 return _reply("Admin only.", status="error")
-            if not args:
+
+            raw_text = (msg.get("text") or "").strip()
+            parts = raw_text.split(maxsplit=1)
+            if len(parts) == 1:
                 v = _alerts_interval_get()
-                return _reply(f"Current alerts interval: {int(v)}s (range {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)")
+                return _reply(f"Current alerts interval: {int(v)}s (admin)")
+
+            arg_str = parts[1].strip()
             try:
-                newv = float(str(args[0]).strip())
+                newv = float(arg_str)
             except Exception:
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
+
             import sys as _sys
             v = _sys.modules[__name__]._alerts_interval_set(newv)
             return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
-        # --- end modify ---
+        # --- end replace ---
 
         # --- add: /alerts_eta (show last tick + next ETA) ---
         elif cmd == "/alerts_eta":
