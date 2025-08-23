@@ -4498,8 +4498,16 @@ def process_telegram_command(update: dict):
 
             lines = []
             for mint in wl:
-                t, ln = _display_name_for(mint)  # Now returns tuple directly
-                lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
+                try:
+                    t, ln = _display_name_for(mint)
+                    if t and ln and t != "?" and ln != "?":
+                        lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
+                    elif t and t != "?":
+                        lines.append(f"{t}  `{_short_mint(mint)}`")
+                    else:
+                        lines.append(f"`{_short_mint(mint)}`")
+                except Exception:
+                    lines.append(f"`{_short_mint(mint)}`")
 
             return _reply("👀 *Watchlist*\n" + "\n".join(lines))
 
