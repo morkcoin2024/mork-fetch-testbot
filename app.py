@@ -851,7 +851,7 @@ def _birdeye_token_overview(mint: str) -> dict:
 
         liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
         v24 = d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or d.get("volume24h_usd") or d.get("volume24h")
-        mc  = d.get("mc") or d.get("marketcap") or d.get("marketCap") or d.get("market_cap") or d.get("marketCapUsd")
+        mc  = d.get("mc")  or d.get("marketcap") or d.get("marketCap") or d.get("market_cap") or d.get("marketCapUsd")
 
         return {"liquidity": _num_or_none(liq), "v24": _num_or_none(v24), "mc": _num_or_none(mc)}
     except Exception:
@@ -4320,7 +4320,7 @@ def process_telegram_command(update: dict):
                 f"Jupiter:     `{links['Jupiter']}`",
             ]
             return _reply("\n".join(lines), "ok")
-        elif cmd == "/liquidity":
+        elif cmd == "/liquidity":  # [LIQ_V2]
             target = (args or "").split()[0] if args else ""
             mint = _resolve_to_mint(target)
             if not mint:
@@ -4342,6 +4342,11 @@ def process_telegram_command(update: dict):
             liq_s = _fmt_usd(liq) if liq is not None else "?"
             v24_s = _fmt_usd(v24) if v24 is not None else "?"
             mc_s  = _fmt_usd(mc)  if mc  is not None else None
+
+            try:
+                logger.info("LIQ_V2: formatted with _fmt_usd")
+            except Exception:
+                pass
 
             lines = [
                 "🌊 *Liquidity*",
