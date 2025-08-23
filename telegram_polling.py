@@ -277,7 +277,7 @@ def start_polling_service(message_handler=None) -> bool:
     """Start the global polling service"""
     global _polling_service
     
-    # Check singleton lock first
+    # Singleton guard
     from poller_lock import acquire as _poller_acquire
     if not _poller_acquire():
         logger.info("Polling already active; skipping start for this process")
