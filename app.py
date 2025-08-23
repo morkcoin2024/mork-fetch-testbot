@@ -251,7 +251,7 @@ def _render_commands_list() -> str:
         "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
-        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)",
+        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
     ]
     return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
 
@@ -267,6 +267,7 @@ def _help_text():
         "/watch_clear",
         "/fetchnow [MINT ...]",
         "/alerts_auto_status | /alerts_auto_on | /alerts_auto_off",
+        "/alerts_eta - Show last tick time and next ETA",
         "/name <MINT>",
         "/name_show <MINT>",
         "/help",
