@@ -366,6 +366,53 @@ def _render_commands_list(is_admin: bool = False) -> str:
     return _strip_admin_rows(help_text, is_admin)
     # --- end add ---
 
+# --- HELP RENDERER (admin-aware) ---
+def _render_help(is_admin: bool) -> str:
+    lines = [
+        "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**",
+        "",
+        "**Fast Execution, Trade Control Handler**",
+        "",
+        # Core
+        "/price <MINT|SOL>",
+        "/about <MINT>",
+        "/fetch <MINT> (alias of /about)",
+        "/mint_for <TICKER|MINT> - Resolve ticker to mint",
+        "/watch <MINT>",
+        "/unwatch <MINT>",
+        "/watchlist",
+        "/watch_clear",
+        "/fetchnow",
+        "/trades [N] - Show recent dry-run trades (this chat)",
+        "/buy <MINT> <SOL_AMOUNT> (dry-run)",
+        "/sell <MINT> <PCT|ALL> (dry-run)",
+        "/status",
+        "/uptime - Process uptime (since start)",
+        "/version - Git SHA + built time",
+        # Admin (keep markers!)
+        "/alerts_auto_on (admin)",
+        "/alerts_auto_off (admin)",
+        "/alerts_auto_status (admin)",
+        "/alerts_auto_interval <secs> (admin)",
+    ]
+    text = "\n".join(lines)
+    if is_admin:
+        return text
+    import re
+    # strip (admin) lines or explicit admin cmds
+    admin_patterns = [
+        r'^\s*.*\(admin\)\s*$',
+        r'^\s*/alerts_auto_interval\b.*$',
+        r'^\s*/alerts_auto_on\b.*$',
+        r'^\s*/alerts_auto_off\b.*$',
+        r'^\s*/alerts_auto_status\b.*$',
+    ]
+    for pat in admin_patterns:
+        text = re.sub(pat, "", text, flags=re.MULTILINE)
+    # collapse blanks & trim
+    return re.sub(r'\n{3,}', '\n\n', text, flags=re.MULTILINE).strip()
+# --- END HELP RENDERER ---
+
 # --- helper: strip admin-only rows from /help for non-admins ---
 _ADMIN_HELP_PATTERNS = {"/alerts_auto_interval"}  # extend if you add more admin-only commands
 
@@ -4223,60 +4270,8 @@ def process_telegram_command(update: dict):
             )
             return _reply(body)
         
-        # --- replace: /help (hide admin rows for non-admins) ---
         elif cmd == "/help":
-            msg = update.get("message", {}) or {}
-            user_id = (msg.get("from") or {}).get("id")
-            is_admin = (user_id == 1653046781)
-
-            # Build your help text here. If you already have a builder, call it and assign to help_text.
-            # Otherwise, keep the existing header + sections inline (example minimal header shown).
-            lines = [
-                "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**",
-                "",
-                "**Fast Execution, Trade Control Handler**",
-                "",
-                # --- core commands (examples; keep your existing rows) ---
-                "/price <MINT|SOL>",
-                "/about <MINT>",
-                "/fetch <MINT> (alias of /about)",
-                "/watch <MINT>",
-                "/unwatch <MINT>",
-                "/watchlist",
-                "/watch_clear",
-                "/fetchnow",
-                "/mint_for <TICKER|MINT> - Resolve ticker to mint",
-                "/trades [N] - Show recent dry-run trades (this chat)",
-                "/buy <MINT> <SOL_AMOUNT> (dry-run)",
-                "/sell <MINT> <PCT|ALL> (dry-run)",
-                "/status",
-                "/uptime - Process uptime (since start)",
-                "/version - Git SHA + built time",
-                # --- admin commands: KEEP the "(admin)" marker to make stripping trivial ---
-                "/alerts_auto_on (admin)",
-                "/alerts_auto_off (admin)",
-                "/alerts_auto_status (admin)",
-                "/alerts_auto_interval <secs> (admin)",
-            ]
-            help_text = "\n".join(lines)
-
-            if not is_admin:
-                import re
-                # strip any line marked (admin) OR containing known admin-only commands
-                admin_patterns = [
-                    r'^\s*.*\(admin\)\s*$',
-                    r'^\s*/alerts_auto_interval\b.*$',
-                    r'^\s*/alerts_auto_on\b.*$',
-                    r'^\s*/alerts_auto_off\b.*$',
-                    r'^\s*/alerts_auto_status\b.*$',
-                ]
-                for pat in admin_patterns:
-                    help_text = re.sub(pat, "", help_text, flags=re.MULTILINE)
-                # collapse excessive blank lines and trim
-                help_text = re.sub(r'\n{3,}', '\n\n', help_text, flags=re.MULTILINE).strip()
-
-            return _reply(help_text)
-        # --- end replace ---
+            return _reply(_render_help(is_admin))
 
         elif cmd == "/commands":
             return _reply(_render_commands_list(is_admin))
