@@ -1361,21 +1361,16 @@ def watch_tick_internal() -> str:
 # ---- New improved background ticker functions ----
 def _alerts_ticker_loop():
     import time, logging
-    last = 0
     while not ALERTS_TICK_STOP.is_set():
         try:
-            intv = max(5, int(_alerts_interval_get()))
-            now = time.time()
-            if now - last >= intv:
-                try:
-                    _ = watch_tick_internal()  # triggers alert hook
-                    _alerts_mark_tick()  # mark successful tick execution
-                except Exception:
-                    logging.exception("alerts_ticker: watch_tick_internal failed")
-                last = now
+            _ = watch_tick_internal()  # triggers alert hook
+            # mark this cycle as executed, then sleep for current interval
+            _alerts_mark_tick()
+            _time.sleep(_alerts_interval_get())
         except Exception:
             logging.exception("alerts_ticker: loop error")
-        time.sleep(_alerts_interval_get())
+            # Sleep briefly on error to avoid rapid retry
+            _time.sleep(5)
 
 def alerts_auto_on(seconds: int | None = None):
     import threading, logging
