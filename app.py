@@ -3521,6 +3521,12 @@ def process_telegram_command(update: dict):
     # --- ROUTER TRACE HOOK (entry) ---
     _rt_log(f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}")
 
+    # --- EARLY RETURN: /help (admin-aware) ---
+    if cmd == "/help":
+        is_admin = (user_id == 1653046781)
+        return _reply(_render_help(is_admin))
+    # --- end early return ---
+
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
     # Enhanced digest commands with tolerant UTC scheduler
@@ -4267,13 +4273,7 @@ def process_telegram_command(update: dict):
             )
             return _reply(body)
         
-        # --- replace: /help branch ---
-        elif cmd == "/help":
-            msg = update.get("message", {}) or {}
-            uid = (msg.get("from") or {}).get("id")
-            is_admin = (uid == 1653046781)
-            return _reply(_render_help(is_admin))
-        # --- end replace ---
+
 
         elif cmd == "/commands":
             return _reply(_render_commands_list(is_admin))
