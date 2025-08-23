@@ -354,14 +354,24 @@ def _render_help_panel(is_admin: bool = False) -> str:
     rows = _filter_help_rows(lines, is_admin)
     return "\n".join(rows)
 
-def _render_commands_list() -> str:
+def _render_commands_list(is_admin: bool = False) -> str:
     cmds = [
         "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status", "/uptime", "/version",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
         "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
     ]
-    return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
+    # --- add: hide (admin) rows for non-admins ---
+    help_text = "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
+    
+    if not is_admin:
+        help_text = "\n".join(
+            ln for ln in help_text.splitlines()
+            if " (admin)" not in ln
+        )
+    
+    return help_text
+    # --- end add ---
 
 # --- add: help filter ---
 def _filter_help_rows(rows, is_admin: bool):
@@ -4215,7 +4225,7 @@ def process_telegram_command(update: dict):
             return _reply(_render_help_panel(is_admin))
 
         elif cmd == "/commands":
-            return _reply(_render_commands_list())
+            return _reply(_render_commands_list(is_admin))
 
         elif cmd == "/alert":
             # Manual snapshot; same fetch path as /price but with a different title
