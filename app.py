@@ -3661,6 +3661,9 @@ def process_telegram_command(update: dict):
     def _reply(text, status="ok"):
         return {"text": str(text), "status": status, "response": str(text), "handled": True}
 
+    def _short_mint(m: str) -> str:
+        return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
+
     def _resolve_target(arg: str):
         """
         Accepts TICKER or MINT; returns mint or None.
