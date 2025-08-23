@@ -1950,7 +1950,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3390,7 +3390,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -3694,6 +3694,57 @@ def process_telegram_command(update: dict):
             return _reply(f"User ID: {user_id}\nChat ID: {chat_id}\nAdmin: {is_admin}")
         # --- end add ---
         
+        # --- add: /buy (dry-run, mint-only) ---
+        elif cmd == "/buy":
+            if not args:
+                return _reply("Usage: /buy <MINT> <SOL_AMOUNT> (dry-run)", status="error")
+            parts_args = args.split()
+            if len(parts_args) < 2:
+                return _reply("Usage: /buy <MINT> <SOL_AMOUNT> (dry-run)", status="error")
+            mint = parts_args[0].strip()
+            if len(mint) not in (32, 43, 44):
+                return _reply("Please provide a mint address (32/44 chars). Example: /buy <MINT> 0.5", status="error")
+            try:
+                amt = float(parts_args[1].strip())
+            except Exception:
+                return _reply("Invalid SOL amount. Example: /buy <MINT> 0.5", status="error")
+            if amt <= 0:
+                return _reply("Amount must be > 0 SOL.", status="error")
+            try:
+                header = _display_name_for(mint)
+            except Exception:
+                header = ""
+            text = f"DRY-RUN BUY\n{header}\n{mint}\nAmount: {amt} SOL\n(No real trade executed)"
+            return _reply(text)
+
+        # --- add: /sell (dry-run, mint-only) ---
+        elif cmd == "/sell":
+            if not args:
+                return _reply("Usage: /sell <MINT> <PCT|ALL> (dry-run)", status="error")
+            parts_args = args.split()
+            if len(parts_args) < 2:
+                return _reply("Usage: /sell <MINT> <PCT|ALL> (dry-run)", status="error")
+            mint = parts_args[0].strip()
+            if len(mint) not in (32, 43, 44):
+                return _reply("Please provide a mint address (32/44 chars). Example: /sell <MINT> 25", status="error")
+            pct_raw = parts_args[1].strip().lower()
+            if pct_raw == "all":
+                pct = 100.0
+            else:
+                try:
+                    pct = float(pct_raw.rstrip("%"))
+                except Exception:
+                    return _reply("Invalid percent. Use a number 1-100 or 'ALL'. Example: /sell <MINT> 25", status="error")
+            if not (0 < pct <= 100):
+                return _reply("Percent must be in (0,100].", status="error")
+            try:
+                header = _display_name_for(mint)
+            except Exception:
+                header = ""
+            text = f"DRY-RUN SELL\n{header}\n{mint}\nPercent: {pct}%\n(No real trade executed)"
+            return _reply(text)
+        # --- end add ---
+        
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
@@ -3706,7 +3757,9 @@ def process_telegram_command(update: dict):
                           "  /alerts_auto_on [sec] – enable continuous scanning at optional interval\n" + \
                           "  /alerts_auto_off – disable continuous scanning\n" + \
                           "  /alerts_auto_status – show auto-scan status & interval\n" + \
-                          "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n\n" + \
+                          "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n" + \
+                       "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
+                       "  /sell <mint> <percent|ALL> - Simulate sell order\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
         elif cmd == "/debug_cmd":
