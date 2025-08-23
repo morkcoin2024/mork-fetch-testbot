@@ -2003,7 +2003,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3862,6 +3862,25 @@ def process_telegram_command(update: dict):
                 return _reply(f"Failed to clear trades: {e}", status="error")
         # --- end add ---
         
+        # --- add: /trades_csv [N] ---
+        elif cmd == "/trades_csv":
+            msg = update.get("message", {}) or {}
+            chat_id = (msg.get("chat") or {}).get("id")
+            n = 20
+            if args:
+                try:
+                    n = int(str(args[0]).strip())
+                except Exception:
+                    return _reply("Usage: /trades_csv [N]", status="error")
+            rows = _trade_log_latest(chat_id, n)
+            if not rows:
+                return _reply("No trades to export.")
+            path = _trade_log_export_csv(chat_id, rows)
+            if not path:
+                return _reply("Failed to export CSV.", status="error")
+            return _reply(f"Exported {len(rows)} trade(s) to {path}")
+        # --- end add ---
+        
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
@@ -3878,6 +3897,7 @@ def process_telegram_command(update: dict):
                        "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
                        "  /sell <mint> <percent|ALL> - Simulate sell order\n" + \
                        "  /trades [N] - Show recent dry-run trades (this chat)\n" + \
+                       "  /trades_csv [N] - Export trades to CSV file\n" + \
                        "**Admin:** /trades_clear (admin) - Clear dry-run trades\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
