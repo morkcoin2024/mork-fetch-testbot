@@ -2185,7 +2185,7 @@ ALL_COMMANDS = [
     "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
-    "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status",
+    "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle",
     "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
     "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear",
     "/watch", "/unwatch", "/watchlist", "/watch_clear"
@@ -3666,7 +3666,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
