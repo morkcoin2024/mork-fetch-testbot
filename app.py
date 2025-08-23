@@ -3613,8 +3613,12 @@ def process_telegram_command(update: dict):
             except Exception:
                 sec = None
             alerts_auto_on(sec)             # starts or updates the ticker
-            s = alerts_auto_status()
-            return ok("Auto alerts enabled", f"Interval: {s['interval_sec']}s")
+            # ... after you flip the flag/start the thread ...
+            try:
+                _alerts_mark_tick()  # stamp 'last run' immediately on enable
+            except Exception:
+                pass
+            return _reply("✅ *Auto alerts enabled* | Interval: {}s".format(int(_alerts_interval_get())))
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()               # stops the ticker
