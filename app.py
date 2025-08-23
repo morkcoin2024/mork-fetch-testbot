@@ -3795,47 +3795,28 @@ def process_telegram_command(update: dict):
             
             return _reply(text)
         
-        # --- add: /trades (view trade history) ---
+        # --- add: /trades (show recent dry-run trades for this chat) ---
         elif cmd == "/trades":
-            limit = 5  # default
+            msg = update.get("message", {}) or {}
+            chat_id = (msg.get("chat") or {}).get("id")
+            n = 5
             if args:
                 try:
-                    limit = int(args.strip())
-                    limit = max(1, min(limit, 20))  # clamp 1..20
+                    n = int(str(args).strip())
                 except Exception:
-                    pass
-            
-            trades = _trade_log_latest(chat_id, limit)
-            if not trades:
-                return _reply("No dry-run trades recorded yet.\nUse /buy or /sell to start trading!")
-            
-            lines = [f"📊 Last {len(trades)} Dry-Run Trades:"]
-            for i, trade in enumerate(trades, 1):
-                ts = trade.get("ts", trade.get("timestamp", 0))  # support both old and new format
-                try:
-                    dt = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else "??-??"
-                except:
-                    dt = "??-??"
-                
-                # Handle both old and new format
-                trade_kind = trade.get("kind", trade.get("type", "?")).upper()
-                mint = trade.get("mint", "")
-                
-                # Get token name from mint
-                try:
-                    token_name = _display_name_for(mint).split('\n')[0] if mint else "?"
-                except:
-                    token_name = mint[:8] + "..." if len(mint) > 8 else mint or "?"
-                
-                if trade_kind == "BUY":
-                    amount = trade.get("amount_sol", trade.get("amount", 0))
-                    lines.append(f"{i}. {dt} {trade_kind} {token_name} - {amount} SOL")
-                elif trade_kind == "SELL":
-                    percent = trade.get("percent", 0)
-                    lines.append(f"{i}. {dt} {trade_kind} {token_name} - {percent}%")
+                    return _reply("Usage: /trades [N]", status="error")
+            rows = _trade_log_latest(chat_id, n)
+            if not rows:
+                return _reply("No trades yet.")
+            lines = []
+            for e in reversed(rows):  # newest first
+                ts = time.strftime("%Y-%m-%d %H:%M", time.gmtime(e.get("ts", e.get("timestamp", 0))))
+                if e.get("kind") == "buy" or e.get("type") == "buy":
+                    amount = e.get("amount_sol") or e.get("amount", "?")
+                    lines.append(f"{ts} BUY  {e.get('mint')}  {amount} SOL")
                 else:
-                    lines.append(f"{i}. {dt} {trade_kind} {token_name}")
-            
+                    percent = e.get("percent", "?")
+                    lines.append(f"{ts} SELL {e.get('mint')}  {percent}%")
             return _reply("\n".join(lines))
         # --- end add ---
         
