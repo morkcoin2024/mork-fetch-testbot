@@ -491,14 +491,8 @@ def _cmd_watchlist(chat_id, args):
             cap_str = _fmt_usd(mc) if mc is not None else "?"
             lines.append(f"{ticker} — {long_name}  {cap_str}  `{short}`")
         elif with_volumes:
-            # Use same Birdeye API as /volume command
-            info = _birdeye_token_overview(mint)
-            vol = (
-                info.get("volume_24h")
-                or info.get("volume24hUsd") 
-                or info.get("volume24h")
-                or info.get("v24h")
-            )
+            # Use enhanced volume detection with Dexscreener fallback
+            vol = _volume_24h_usd(mint)
             vol_str = _fmt_usd(vol) if vol is not None else "?"
             lines.append(f"{ticker} — {long_name}  {vol_str}  `{short}`")
         elif with_prices:
@@ -627,6 +621,67 @@ def _http_get_json(url, headers=None, params=None, timeout=8):
     if r.status_code == 200:
         return r.json()
     return None
+
+def _dexscreener_token_pairs(mint: str) -> dict:
+    # Light, unauthenticated; returns {"pairs":[ ... ]}
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+        return _http_get_json(url, headers=None, params=None, timeout=6) or {}
+    except Exception:
+        return {}
+
+def _sum_pairs_volume_24h_usd(pairs: list) -> float | None:
+    total = 0.0
+    seen = False
+    for p in (pairs or [])[:20]:
+        v = None
+        # Common field shapes across Dexscreener responses
+        vol_obj = p.get("volume") or {}
+        v = (
+            vol_obj.get("h24")
+            or p.get("h24VolumeUsd")
+            or p.get("volume24hUsd")
+            or p.get("volume24h")
+        )
+        try:
+            fv = float(v)
+            if fv > 0:
+                total += fv
+                seen = True
+        except Exception:
+            pass
+    return total if seen and total > 0 else None
+
+def _token_metrics(mint: str) -> dict:
+    """Placeholder for token metrics - returns Birdeye data for now"""
+    return _birdeye_token_overview(mint)
+
+def _volume_24h_usd(mint: str) -> float | None:
+    """
+    Try metrics map first; if missing, fall back to Dexscreener pairs sum.
+    """
+    mt = _token_metrics(mint) or {}
+
+    # Expand key sweep for 24h volume in USD
+    for k in (
+        "v24hUSD", "v24hUsd", "v24h",
+        "volumeUsd24h", "volume_usd_24h",
+        "volume24hUsd", "volume24h_usd", "volume24h",
+        "vol24hUsd", "vol24h", "volUSD24h",
+    ):
+        v = mt.get(k)
+        try:
+            if v is not None:
+                fv = float(v)
+                if fv > 0:
+                    return fv
+        except Exception:
+            pass
+
+    # Fallback: Dexscreener
+    ds = _dexscreener_token_pairs(mint)
+    vol = _sum_pairs_volume_24h_usd(ds.get("pairs"))
+    return vol
 
 def _birdeye_headers():
     # Reuse your existing Birdeye header builder if present
@@ -4359,12 +4414,8 @@ def process_telegram_command(update: dict):
             info  = _birdeye_token_overview(mint)
 
             liq = info.get("liquidity")
-            vol = (
-                info.get("volume_24h")
-                or info.get("volume24hUsd") 
-                or info.get("volume24h")
-                or info.get("v24h")
-            )
+            # Use enhanced volume detection with Dexscreener fallback
+            vol = _volume_24h_usd(mint)
             mc  = info.get("mc")
 
             liq_s = _fmt_usd(liq) if liq is not None else "?"
@@ -4427,14 +4478,8 @@ def process_telegram_command(update: dict):
             else:
                 name = str(name_tuple) if name_tuple else short
             
-            # Reuse the same Birdeye metrics as /liquidity and /marketcap
-            info = _birdeye_token_overview(mint)
-            vol = (
-                info.get("volume_24h")
-                or info.get("volume24hUsd") 
-                or info.get("volume24h")
-                or info.get("v24h")  # Use the same field mapping as _birdeye_token_overview
-            )
+            # Use enhanced volume detection with Dexscreener fallback
+            vol = _volume_24h_usd(mint)
             
             vol_str = _fmt_usd(vol) if vol is not None else "?"
             
