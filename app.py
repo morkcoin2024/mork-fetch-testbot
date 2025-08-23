@@ -3897,7 +3897,7 @@ def process_telegram_command(update: dict):
                        "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
                        "  /sell <mint> <percent|ALL> - Simulate sell order\n" + \
                        "  /trades [N] - Show recent dry-run trades (this chat)\n" + \
-                       "  /trades_csv [N] - Export trades to CSV file\n" + \
+                       "  /trades_csv [N] - Export recent dry-run trades to CSV\n" + \
                        "**Admin:** /trades_clear (admin) - Clear dry-run trades\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
