@@ -1950,7 +1950,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3390,7 +3390,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -3487,7 +3487,8 @@ def process_telegram_command(update: dict):
                        "/name_refetch_jup - Refresh Jupiter catalog\n" + \
                        "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
                        "/name_show <mint> - Show name status & overrides\n" + \
-                       "/name_clear <mint> - Clear name override & cache\n\n" + \
+                       "/name_clear <mint> - Clear name override & cache\n" + \
+                       "/mint_for <ticker|mint> - Convert ticker to mint or echo mint\n\n" + \
                        "🔍 **Watchlist Commands:**\n" + \
                        "/watch <mint...> - Add token(s) to watchlist\n" + \
                        "/unwatch <mint...> - Remove token(s) from watchlist\n" + \
@@ -3663,6 +3664,25 @@ def process_telegram_command(update: dict):
             # --- ALERT RETURN FIX + TRACE ---
             _rt_log(f"alert sent len={len(text)} chat={chat_id}")
             return {"status": "ok", "response": text}
+        
+        # --- add: /mint_for helper (ticker->mint or echo mint) ---
+        elif cmd == "/mint_for":
+            if not args:
+                return _reply("Usage: /mint_for <TICKER|MINT>", status="error")
+            raw = args.strip()
+            if len(raw) in (32, 44):
+                mint = raw
+            else:
+                mint = _resolve_arg_to_mint(raw)
+            if not mint:
+                return _reply("Unknown token. Provide a mint or known ticker.", status="error")
+            try:
+                header = _display_name_for(mint)  # two-line: TICKER\nLong Name
+            except Exception:
+                header = ""
+            return _reply(f"{header}\n{mint}")
+        # --- end add ---
+        
         elif cmd == "/test123":
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
