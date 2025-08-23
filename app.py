@@ -317,7 +317,7 @@ def _render_help_panel() -> str:
 
 def _render_commands_list() -> str:
     cmds = [
-        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>",
+        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
         "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
@@ -330,6 +330,7 @@ def _help_text():
         "/price <MINT|TICKER>",
         "/about <MINT>",
         "/fetch <MINT> (alias of /about)",
+        "/status - Bot health & chat status",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
@@ -2115,7 +2116,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3636,6 +3637,22 @@ def process_telegram_command(update: dict):
             return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
         # --- end add ---
 
+        # --- add: /status (bot health) ---
+        elif cmd == "/status":
+            msg = update.get("message", {}) or {}
+            chat_id = (msg.get("chat") or {}).get("id")
+            interval = _alerts_interval_get()
+            last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
+            if last > 0:
+                ago = int(_time.time() - last)
+                nxt = max(0, int(interval - ( _time.time() - last )))
+                when = f"Last: {ago}s ago | Next ~ in {nxt}s"
+            else:
+                when = "Last: never | Next: unknown"
+            wl = _watchlist_len(chat_id)
+            return _reply(f"Up ✅ | Chat {chat_id} | Watchlist: {wl} | Interval: {int(interval)}s | {when}")
+        # --- end add ---
+
 
 
         # Router fallback (and only one in repo) 
@@ -3659,7 +3676,8 @@ def process_telegram_command(update: dict):
                        "/commands - List all commands\n" + \
                        "/about <mint> - snapshot: price, 5m/1h/6h/24h (providers) + 30m/12h (local) with trend arrows\n" + \
                        "/ping - Test connection\n" + \
-                       "/test123 - Connection test\n\n" + \
+                       "/test123 - Connection test\n" + \
+                       "/status - Bot health & chat status\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
                        "/wallet - Wallet summary\n" + \
                        "/wallet_new - Create new wallet\n" + \
