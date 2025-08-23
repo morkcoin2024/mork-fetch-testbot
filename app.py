@@ -384,7 +384,7 @@ def _render_help(is_admin: bool) -> str:
 # --- END HELP RENDERER ---
 
 # --- helper: strip admin-only rows from /help for non-admins ---
-_ADMIN_HELP_PATTERNS = {"/alerts_auto_interval", "/scanners_status", "/scanners_on", "/scanners_off"}  # extend if you add more admin-only commands
+_ADMIN_HELP_PATTERNS = {"/alerts_auto_status", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_toggle", "/alerts_auto_interval", "/scanners_status", "/scanners_on", "/scanners_off"}  # extend if you add more admin-only commands
 
 def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     if is_admin:
@@ -3707,7 +3707,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
