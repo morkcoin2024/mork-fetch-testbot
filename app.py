@@ -3569,7 +3569,7 @@ def process_telegram_command(update: dict):
                 return _reply("Admin only.", status="error")
             if not args:
                 v = _alerts_interval_get()
-                return _reply(f"Current alerts interval: {int(v)}s (admin)")
+                return _reply(f"Current alerts interval: {int(v)}s (range {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)")
             try:
                 newv = float(str(args[0]).strip())
             except Exception:
