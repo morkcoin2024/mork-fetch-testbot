@@ -4479,25 +4479,27 @@ def process_telegram_command(update: dict):
             return _reply("👁️ Unwatched")
 
         elif cmd == "/watchlist":
-            try:
-                wl = _load_watchlist()
-                if not wl:
-                    return {"status":"ok","response":"👁️ Watchlist empty."}
-                lines = []
-                for it in wl:
-                    it = _normalize_watch_item(it)
-                    mint = it["mint"]
-                    last = it["last"]
-                    delta = it["delta_pct"]
-                    src = it.get("src") or "n/a"
-                    last_s = f"${last:.6f}" if isinstance(last,(int,float)) else "?"
-                    delta_s = f"{delta:+.4%}" if isinstance(delta,(int,float)) else "?"
-                    token_label = _token_label(mint)
-                    lines.append(f"- {token_label}  last={last_s}  Δ={delta_s}  src={src}")
-                body = "\n".join(lines)
-                return {"status":"ok","response":f"📄 *Watchlist:*\n{body}","parse_mode":"Markdown"}
-            except Exception as e:
-                return {"status":"ok","response":f"Internal error: {e}"}
+            wl = (watchlist_by_chat.get(chat_id) or [])
+            if not wl:
+                return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
+            lines = []
+            for mint in wl:
+                ticker, long_name = "?", "?"
+                try:
+                    disp = _display_name_for(mint)
+                    if isinstance(disp, (tuple, list)) and len(disp) >= 2:
+                        ticker, long_name = disp[0], disp[1]
+                    else:
+                        parts = str(disp).splitlines()
+                        if parts:
+                            ticker = parts[0]
+                        if len(parts) > 1:
+                            long_name = parts[1]
+                except Exception:
+                    pass
+                lines.append(f"{ticker} — {long_name}  `{_short_mint(mint)}`")
+            body = "👀 *Watchlist*\n" + "\n".join(lines)
+            return _reply(body)
 
 
 
