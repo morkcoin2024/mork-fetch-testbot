@@ -3851,7 +3851,8 @@ def process_telegram_command(update: dict):
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n" + \
                        "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
                        "  /sell <mint> <percent|ALL> - Simulate sell order\n" + \
-                       "  /trades [N] - Show recent dry-run trades (this chat)\n\n" + \
+                       "  /trades [N] - Show recent dry-run trades (this chat)\n" + \
+                       "**Admin:** /trades_clear (admin) - Clear dry-run trades\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
         elif cmd == "/debug_cmd":
