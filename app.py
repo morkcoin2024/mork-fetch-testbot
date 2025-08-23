@@ -467,10 +467,14 @@ def _cmd_watchlist(chat_id, args):
     if not bucket:
         return {"status": "ok", "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`", "parse_mode": "Markdown"}
     
+    # Parse optional price flag
+    with_prices = bool(args and args.strip().lower() in {"p","price","prices"})
+    
     lines = []
     for mint in bucket:
         ticker, long_name = _display_name_for(mint)
-        lines.append(_format_watch_row(mint, ticker, long_name))
+        price = _birdeye_price(mint) if with_prices else None
+        lines.append(_format_watch_row(mint, ticker, long_name, price, with_prices))
     body = "👀 *Watchlist*\n" + "\n".join(lines)
     return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
@@ -721,10 +725,29 @@ def _display_name_for(mint: str):
         pass
     return "?", "?"
 
-def _format_watch_row(mint: str, symbol: str|None, name: str|None) -> str:
+def _fmt_price(v):
+    try:
+        return f"${v:,.6f}" if v < 1 else f"${v:,.4f}" if v < 10 else f"${v:,.2f}"
+    except Exception:
+        return "?"
+
+def _birdeye_price(mint: str) -> float|None:
+    # Reuse existing birdeye_req(path="/defi/price", qp={"chain":"solana","address":mint})
+    try:
+        r = birdeye_req("/defi/price", {"chain":"solana","address":mint})
+        v = (r or {}).get("data", {}).get("value")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+def _format_watch_row(mint: str, symbol: str|None, name: str|None, price: float|None=None, with_prices: bool=False) -> str:
     sym = symbol or "—"
     nam = name or "—"
-    return f"{sym} — {nam}  `{_short_mint(mint)}`"
+    base = f"{sym} — {nam}"
+    if with_prices:
+        pr = _fmt_price(price) if price is not None else "?"
+        base = f"{base}  {pr}"
+    return f"{base}  `{_short_mint(mint)}`"
 
 # ===== Heuristic primary extraction =====
 _STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
@@ -4280,6 +4303,7 @@ def process_telegram_command(update: dict):
                           "  /about <mint> – token snapshot (price, 5m/1h/6h/24h + 30m/12h when available)\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
+                          "  /watchlist [prices] – show saved mints (optionally with prices)\n" + \
                           "  /watch_tick – run one scan now\n" + \
                           "  /alerts_auto_on [sec] – enable continuous scanning at optional interval\n" + \
                           "  /alerts_auto_off – disable continuous scanning\n" + \
