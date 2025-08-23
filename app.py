@@ -363,6 +363,16 @@ def _render_help(is_admin: bool) -> str:
         "`/alerts_auto_interval <secs>` (admin)",
     ]
 
+    # ensure scanners admin rows are present (idempotent)
+    _SCANNERS_ADMIN_ROWS = [
+        "`/scanners_status` (admin)",
+        "`/scanners_on` (admin)",
+        "`/scanners_off` (admin)",
+    ]
+    for _r in _SCANNERS_ADMIN_ROWS:
+        if _r not in admin:
+            admin.append(_r)
+
     # Title uses explicit escapes for MDV2
     title = "🐕 *Mork F\\.E\\.T\\.C\\.H Help*"
     lines = [title, "", "*Core*", *core]
