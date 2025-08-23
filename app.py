@@ -2825,6 +2825,34 @@ def _alerts_is_on() -> bool:
     return bool(globals().get("_ALERTS_AUTO_STATE", False))
 # --- end helpers ---
 
+# --- mini card for alerts auto status ---
+def _render_auto_status_card() -> str:
+    import time as _t
+    try:
+        interval = int(_alerts_interval_get())
+    except Exception:
+        interval = 30
+
+    alive = _alerts_is_on()
+    last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
+    if alive:
+        if last > 0:
+            ago = int(_t.time() - last)
+            nxt = max(0, interval - ago)
+            eta = f"{ago}s ago | ~{nxt}s"
+        else:
+            eta = f"0s ago | ~{interval}s"
+    else:
+        eta = "— | —"
+
+    state = "on" if alive else "off"
+    return "\n".join([
+        "🧭 Auto: `{}`".format(state),
+        "⏳ Interval: `{}s`".format(interval),
+        "🕒 Last | Next: `{}`".format(eta),
+    ])
+# --- end helper ---
+
 # --- content-aware dedupe for tg_send ---------------------------------------
 # content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
 _LAST_SENT: dict[Tuple[int, str], float] = {}
