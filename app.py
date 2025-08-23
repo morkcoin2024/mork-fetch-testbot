@@ -163,6 +163,24 @@ def _render_commands_list() -> str:
     ]
     return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
 
+def _help_text():
+    lines = [
+        "Mork F.E.T.C.H Bot — Commands",
+        "/price <MINT|TICKER>",
+        "/about <MINT|TICKER>",
+        "/fetch <MINT|TICKER> (alias of /about)",
+        "/watch <MINT ...>",
+        "/unwatch <MINT ...>",
+        "/watchlist",
+        "/watch_clear",
+        "/fetchnow [MINT ...]",
+        "/alerts_auto_status | /alerts_auto_on | /alerts_auto_off",
+        "/name <MINT>",
+        "/name_show <MINT>",
+        "/help",
+    ]
+    return "\n".join(lines)
+
 # Dedicated watchlist command handlers
 def _cmd_watch(chat_id, args):
     """Enhanced /watch handler with per-chat isolation"""
