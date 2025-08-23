@@ -3660,7 +3660,9 @@ def process_telegram_command(update: dict):
                 f"🕒 {eta_line}",
                 f"👀 Watchlist (this chat): {wl}",
             ]
-            return _reply("\n".join(lines))
+            help_text = "\n".join(lines)
+            help_text = _strip_admin_rows(help_text, is_admin)
+            return _reply(help_text)
         # --- end replace ---
 
         # --- fix: /uptime should persist start time ---
