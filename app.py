@@ -148,7 +148,7 @@ def _alerts_interval_set(secs: float) -> float:
     except Exception:
         pass
     try:
-        logger.info(f"ALERTS_TICK interval updated to {v}s")
+        logger.info(f"ALERTS_TICK interval updated to {v}s (bounds {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)")
     except Exception:
         pass
     return v
