@@ -2802,11 +2802,7 @@ def _write_price_source(s):
     except Exception:
         logger.exception("persist price source failed")
 
-def _fmt_usd(x):
-    try:
-        return f"${x:,.6f}" if x < 1 else f"${x:,.6f}".rstrip("0").rstrip(".")
-    except Exception:
-        return str(x)
+
 
 # ── Price provider: Simulator (deterministic)
 def price_sim(mint):
