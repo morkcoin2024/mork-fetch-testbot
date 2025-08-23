@@ -3652,17 +3652,9 @@ def process_telegram_command(update: dict):
             return _reply(f"Uptime: {_fmt_dhms(up)}\nSince: {since}\nPID: {pid}")
         # --- end fix ---
 
-        # --- /version command ---
+        # --- /version ---
         elif cmd == "/version":
-            import sys as _sys, platform as _plat
-            lines = [
-                f"🐕 Mork F.E.T.C.H Bot",
-                f"SHA: {_GIT_SHA}",
-                f"Built: {_BUILD_TIME}",
-                f"Python: {_sys.version.split()[0]}",
-                f"Platform: {_plat.system()} {_plat.machine()}",
-            ]
-            return _reply("\n".join(lines))
+            return _reply(f"Version: {_GIT_SHA}\nBuilt: {_BUILD_TIME}")
         # --- end /version ---
 
         # --- manual scan (one-shot) ---
