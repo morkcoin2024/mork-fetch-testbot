@@ -4481,7 +4481,8 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/alerts_ticker_on" and is_admin:
             alerts_auto_on()
-            return _reply(f"🔄 Background ticker started ({ALERTS_TICK_INTERVAL}s interval)")
+            ival = int(_alerts_interval_get() or 0)
+            return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
 
         elif cmd == "/alerts_ticker_off" and is_admin:
             alerts_auto_off()
@@ -4495,7 +4496,7 @@ def process_telegram_command(update: dict):
             except Exception:
                 return _reply("❌ Invalid interval (minimum 5 seconds)")
             alerts_auto_on(interval)  # Restart with new interval
-            return _reply(f"⏰ Ticker interval updated to {interval}s")
+            return _reply(f"✅ *Auto alerts enabled* — `{interval}s`\n" + _render_auto_status_card())
 
         elif cmd == "/alerts_ticker_status" and is_admin:
             status_info = alerts_auto_status()
