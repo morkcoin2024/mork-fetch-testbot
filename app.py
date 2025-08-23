@@ -442,16 +442,13 @@ def _cmd_watch(chat_id, args):
     if added:
         lines.append("Added:")
         for m in added:
-            # Show token name if available (ticker / long name)
             t, ln = _display_name_for(m)
-            lines.append(f"{t}")
-            lines.append(f"({_short_mint(m)})")
+            lines.append(_format_watch_row(m, t, ln))
     if already:
         lines.append("Already present:")
         for m in already:
             t, ln = _display_name_for(m)
-            lines.append(f"{t}")
-            lines.append(f"({_short_mint(m)})")
+            lines.append(_format_watch_row(m, t, ln))
     if invalid:
         lines.append("Ignored (invalid):")
         for m in invalid:
@@ -473,7 +470,7 @@ def _cmd_watchlist(chat_id, args):
     lines = []
     for mint in bucket:
         ticker, long_name = _display_name_for(mint)
-        lines.append(f"{ticker} — {long_name}  `{_short_mint(mint)}`")
+        lines.append(_format_watch_row(mint, ticker, long_name))
     body = "👀 *Watchlist*\n" + "\n".join(lines)
     return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
