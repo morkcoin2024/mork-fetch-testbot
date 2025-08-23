@@ -321,7 +321,7 @@ def _render_watchlist_lines(mints: list) -> str:
     return "\n".join(lines)
 
 # Help and command discovery functions
-def _render_help_panel() -> str:
+def _render_help_panel(is_admin: bool = False) -> str:
     """Pretty help panel (Markdown-safe enough for our sender)."""
     lines = [
         "*F.E.T.C.H Bot — Commands*",
@@ -351,7 +351,8 @@ def _render_help_panel() -> str:
         "• `/alerts_auto_interval <secs>` — set interval (admin)",
         "• `/alerts_eta` — show last/next tick timing",
     ]
-    return "\n".join(lines)
+    rows = _filter_help_rows(lines, is_admin)
+    return "\n".join(rows)
 
 def _render_commands_list() -> str:
     cmds = [
@@ -4211,7 +4212,7 @@ def process_telegram_command(update: dict):
             return _reply(body)
         
         elif cmd == "/help":
-            return _reply(_render_help_panel())
+            return _reply(_render_help_panel(is_admin))
 
         elif cmd == "/commands":
             return _reply(_render_commands_list())
