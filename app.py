@@ -229,6 +229,7 @@ def _render_help_panel() -> str:
         "• `/alerts_auto_on <sec>` — start the ticker (sec interval)",
         "• `/alerts_auto_off` — stop the ticker",
         "• `/alerts_auto_status` — status/interval",
+        "• `/alerts_auto_interval <secs>` — set interval (admin)",
     ]
     return "\n".join(lines)
 
@@ -237,7 +238,7 @@ def _render_commands_list() -> str:
         "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
-        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status",
+        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)",
     ]
     return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
 
@@ -4715,10 +4716,10 @@ def process_telegram_command(update: dict):
             user_id = (msg.get("from") or {}).get("id")
             if user_id != 1653046781:
                 return _reply("Admin only.", status="error")
-            if not args:
+            if not args.strip():
                 return _reply("Usage: /alerts_auto_interval <seconds>", status="error")
             try:
-                newv = float(str(args[0]).strip())
+                newv = float(args.strip())
             except Exception:
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
             v = _alerts_interval_set(newv)
