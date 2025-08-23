@@ -3619,19 +3619,24 @@ def process_telegram_command(update: dict):
             return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
         # --- end add ---
 
-        # --- add: /alerts_force <secs> (admin-only, raw set for debug) ---
+        # --- replace: /alerts_force (admin-only, debug raw set) ---
         elif cmd == "/alerts_force":
             msg = update.get("message", {}) or {}
             user_id = (msg.get("from") or {}).get("id")
             if user_id != 1653046781:
                 return _reply("Admin only.", status="error")
-            if not args:
+
+            raw_text = (msg.get("text") or "").strip()
+            parts = raw_text.split(maxsplit=1)
+            if len(parts) == 1:
                 return _reply("Usage: /alerts_force <seconds>", status="error")
+
+            arg_str = parts[1].strip()
             try:
-                raw = float(str(args[0]).strip())
+                raw = float(arg_str)
             except Exception:
                 return _reply("Invalid seconds. Example: /alerts_force 37", status="error")
-            # direct set with no clamp — debug only
+
             global _ALERTS_TICK_INTERVAL
             with _ALERTS_TICK_LOCK:
                 _ALERTS_TICK_INTERVAL = raw
@@ -3645,7 +3650,7 @@ def process_telegram_command(update: dict):
             except Exception:
                 pass
             return _reply(f"Force-set alerts interval to {int(raw)}s (debug)")
-        # --- end add ---
+        # --- end replace ---
 
         # Router fallback (and only one in repo) 
         if cmd not in ALL_COMMANDS:
