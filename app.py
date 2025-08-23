@@ -352,9 +352,7 @@ def _render_help_panel(is_admin: bool = False) -> str:
         "• `/alerts_eta` — show last/next tick timing",
     ]
     help_text = "\n".join(lines)
-    if not is_admin:
-        help_text = "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
-    return help_text
+    return _strip_admin_rows(help_text, is_admin)
 
 def _render_commands_list(is_admin: bool = False) -> str:
     cmds = [
@@ -365,27 +363,15 @@ def _render_commands_list(is_admin: bool = False) -> str:
     ]
     # --- add: hide (admin) rows for non-admins ---
     help_text = "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
-    
-    if not is_admin:
-        help_text = "\n".join(
-            ln for ln in help_text.splitlines()
-            if " (admin)" not in ln
-        )
-    
-    return help_text
+    return _strip_admin_rows(help_text, is_admin)
     # --- end add ---
 
-# --- add: help filter ---
-def _filter_help_rows(rows, is_admin: bool):
+# --- helper: strip admin-only lines from help for non-admins ---
+def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     if is_admin:
-        return rows
-    keep = []
-    for r in rows:
-        if "(admin)" in r:
-            continue
-        keep.append(r)
-    return keep
-# --- end add ---
+        return help_text
+    return "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
+# --- end helper ---
 
 def _help_text(is_admin: bool = False):
     lines = [
@@ -409,11 +395,7 @@ def _help_text(is_admin: bool = False):
     ]
     # --- ensure admin-only rows are hidden for non-admins ---
     help_text = "\n".join(lines)
-    
-    if not is_admin:
-        help_text = "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
-    
-    return help_text
+    return _strip_admin_rows(help_text, is_admin)
     # --- end patch ---
 
 # Dedicated watchlist command handlers
