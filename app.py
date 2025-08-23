@@ -3504,6 +3504,31 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
 def process_telegram_command(update: dict):
 
+    # === UNIFIED HELPER FUNCTIONS (top scope for all commands) ===
+    def _reply(text, status="ok"):
+        return {"text": str(text), "status": status, "response": str(text), "handled": True}
+
+    def _short_mint(m: str) -> str:
+        return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
+
+    def _display_name_for(mint: str) -> str:
+        try:
+            ov = _name_overrides_get(mint)
+        except Exception:
+            ov = None
+        if ov:
+            p, s = ov
+            p = (p or "").strip()
+            s = (s or "").strip()
+            if p and s: return f"{p}\n{s}"
+            if p:       return p
+            if s:       return s
+        try:
+            nm = resolve_token_name(mint) or ""
+            if nm: return nm   # may be "TICKER\nLong"
+        except Exception:
+            pass
+        return f"{mint[:4]}..{mint[-4:]}"
 
     # --- SCANNER_ALIAS_PATCH (rewrite scanner* to alerts_auto*) ---
     try:
@@ -3641,31 +3666,7 @@ def process_telegram_command(update: dict):
         return result
     # --- HOTFIX_EXT_ROUTES_END ---
 
-    # Unified reply function - single source of truth for response format
-    def _reply(text, status="ok"):
-        return {"text": str(text), "status": status, "response": str(text), "handled": True}
-
-    def _short_mint(m: str) -> str:
-        return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
-
-    def _display_name_for(mint: str) -> str:
-        try:
-            ov = _name_overrides_get(mint)
-        except Exception:
-            ov = None
-        if ov:
-            p, s = ov
-            p = (p or "").strip()
-            s = (s or "").strip()
-            if p and s: return f"{p}\n{s}"
-            if p:       return p
-            if s:       return s
-        try:
-            nm = resolve_token_name(mint) or ""
-            if nm: return nm   # may be "TICKER\nLong"
-        except Exception:
-            pass
-        return f"{mint[:4]}..{mint[-4:]}"
+    # (Helper functions moved to top of process_telegram_command)
 
     def _resolve_target(arg: str):
         """
