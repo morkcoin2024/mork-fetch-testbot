@@ -277,11 +277,9 @@ def start_polling_service(message_handler=None) -> bool:
     """Start the global polling service"""
     global _polling_service
     
-    # Import here to avoid circular imports
-    from app import _acquire_poller_lock
-    
     # Check singleton lock first
-    if not _acquire_poller_lock():
+    import poller_lock
+    if not poller_lock.acquire():
         logger.info("Polling already active; skipping start for this process")
         return False
     
@@ -312,8 +310,8 @@ def stop_polling_service():
         
         # Release singleton lock
         try:
-            from app import _release_poller_lock
-            _release_poller_lock()
+            import poller_lock
+            poller_lock.release()
             logger.info("Polling service stopped and singleton lock released")
         except Exception as e:
             logger.warning(f"Error releasing poller lock: {e}")

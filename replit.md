@@ -45,6 +45,7 @@ The application uses Flask with a robust single-poller architecture for Telegram
 - **Enhanced Parsing Guard System:** Comprehensive command parsing safety system preventing errors by standardizing variable usage.
 - **Comprehensive Multi-Source Name Resolution:** Complete token name discovery system with user-specified implementation patterns, including overrides, caching, and heuristic extraction, ensuring consistent "TICKER\nLong Name" formatting.
 - **Enhanced Ticker Support & /fetch Alias System:** Comprehensive ticker-to-mint resolution system enabling commands like `/price <TICKER|MINT>`, `/about <TICKER|MINT>`, and `/fetch <TICKER|MINT>` with intelligent argument parsing and quick-actions footer.
+- **Singleton Poller Lock System:** Dedicated `poller_lock.py` module with exclusive file-based locking preventing multiple Telegram poller instances. Features configurable lock path via `MORK_POLLER_LOCK` environment variable, clean `acquire()`/`release()` API, automatic PID storage and cleanup, eliminating 409 conflicts and ensuring robust single-poller operation in multi-worker environments.
 
 ## External Dependencies
 - **Telegram Bot API**
