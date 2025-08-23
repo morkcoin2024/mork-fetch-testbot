@@ -2856,10 +2856,12 @@ def _scanners_is_on() -> bool:
 def _scanners_status_card() -> str:
     reg = globals().get("SCANNERS", {}) or {}
     state = "on" if _scanners_is_on() else ("off" if _scanners_available() else "unavailable")
-    keys = ", ".join(sorted(reg.keys())) if reg else "—"
+    total = len(reg)
+    active = total if _scanners_is_on() else 0
+    keys = ", ".join(sorted(reg.keys())) if total else "—"
     return "\n".join([
         f"🛰 Scanners: `{state}`",
-        f"🔌 Sources: `{len(reg)}`",
+        f"🔌 Active: `{active}` of `{total}`",
         f"🔑 Keys: `{keys}`",
     ])
 # --- end scanners helpers ---
