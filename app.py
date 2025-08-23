@@ -242,6 +242,7 @@ def _render_help_panel() -> str:
         "• `/alerts_auto_off` — stop the ticker",
         "• `/alerts_auto_status` — status/interval",
         "• `/alerts_auto_interval <secs>` — set interval (admin)",
+        "• `/alerts_eta` — show last/next tick timing",
     ]
     return "\n".join(lines)
 
@@ -3543,6 +3544,17 @@ def process_telegram_command(update: dict):
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
             v = _alerts_interval_set(newv)
             return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
+        # --- end add ---
+
+        # --- add: /alerts_eta (show last tick + next ETA) ---
+        elif cmd == "/alerts_eta":
+            interval = _alerts_interval_get()
+            last = _ALERTS_TICK_LAST_RUN
+            if last <= 0:
+                return _reply(f"Last: never\nNext: unknown\nInterval: {int(interval)}s")
+            ago = _time.time() - last
+            nxt = max(0, int(interval - ago))
+            return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
         # --- end add ---
 
         # Router fallback (and only one in repo) 
