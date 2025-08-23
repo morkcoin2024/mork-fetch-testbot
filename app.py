@@ -346,6 +346,7 @@ def _render_help(is_admin: bool) -> str:
         "`/links <MINT|TICKER>` - Quick links (Dexscreener/Birdeye/Solscan/Jupiter)",
         "`/liquidity <MINT|TICKER>` - Liquidity & 24h volume",
         "`/marketcap <MINT|TICKER>` - Market capitalization",
+        "`/volume <MINT|TICKER>` - 24h trading volume",
         "`/about <MINT|TICKER>` - Token card (name/price/mint)",
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
@@ -2413,7 +2414,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3940,7 +3941,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -4393,6 +4394,38 @@ def process_telegram_command(update: dict):
                 f"{name}",
                 f"`{short}`",
                 f"Market Cap: {mc_str}"
+            ]
+            return _reply("\n".join(lines), "ok")
+        elif cmd == "/volume":
+            target = (args or "").split()[0] if args else ""
+            mint = _resolve_to_mint(target)
+            if not mint:
+                return _reply("Usage: `/volume <MINT|TICKER>` — unknown token.", "error")
+
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else short
+            
+            # Reuse the same Birdeye metrics as /liquidity and /marketcap
+            info = _birdeye_token_overview(mint)
+            vol = (
+                info.get("volume_24h")
+                or info.get("volume24hUsd") 
+                or info.get("volume24h")
+                or info.get("v24h")  # Use the same field mapping as _birdeye_token_overview
+            )
+            
+            vol_str = _fmt_usd(vol) if vol is not None else "?"
+            
+            lines = [
+                "📈 *24h Volume*",
+                f"{name}",
+                f"`{short}`",
+                f"24h Volume: {vol_str}"
             ]
             return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
