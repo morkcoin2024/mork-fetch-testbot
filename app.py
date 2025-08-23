@@ -3576,7 +3576,7 @@ def process_telegram_command(update: dict):
         elif cmd == "/about":
             # /about - enforce MINT only
             if not args or len(args.strip()) not in (32, 43, 44):
-                return _reply("Please provide a mint address (32/44 chars). Example: /about <MINT>", status="error")
+                return _reply("Please provide a mint address (32/44 chars). Tip: /mint_for <TICKER> to get the mint. Example: /about <MINT>", status="error")
             # Continue existing About card logic (expects args = mint)
             mint = args.strip()
             name_display = _display_name_for(mint)
@@ -3588,7 +3588,7 @@ def process_telegram_command(update: dict):
             # /fetch - enforce MINT only
             if args:
                 if len(args.strip()) not in (32, 43, 44):
-                    return _reply("Please provide a mint address (32/44 chars). Example: /fetch <MINT>", status="error")
+                    return _reply("Please provide a mint address (32/44 chars). Tip: /mint_for <TICKER> to get the mint. Example: /fetch <MINT>", status="error")
                 # Continue existing fetch logic (mint path when args)
                 mint = args.strip()
                 name_display = _display_name_for(mint)
