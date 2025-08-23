@@ -689,24 +689,7 @@ def name_override_set(mint: str, primary: str, secondary: str):
 def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
-def _display_name_for(mint: str) -> str:
-    try:
-        ov = _name_overrides_get(mint)
-    except Exception:
-        ov = None
-    if ov:
-        p, s = ov
-        p = (p or "").strip()
-        s = (s or "").strip()
-        if p and s: return f"{p}\n{s}"
-        if p:       return p
-        if s:       return s
-    try:
-        nm = resolve_token_name(mint) or ""
-        if nm: return nm   # may be "TICKER\nLong"
-    except Exception:
-        pass
-    return f"{mint[:4]}..{mint[-4:]}"
+# Moved _display_name_for to inside process_telegram_command for order-of-definition
 
 # ===== Heuristic primary extraction =====
 _STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
@@ -3665,6 +3648,25 @@ def process_telegram_command(update: dict):
     def _short_mint(m: str) -> str:
         return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
 
+    def _display_name_for(mint: str) -> str:
+        try:
+            ov = _name_overrides_get(mint)
+        except Exception:
+            ov = None
+        if ov:
+            p, s = ov
+            p = (p or "").strip()
+            s = (s or "").strip()
+            if p and s: return f"{p}\n{s}"
+            if p:       return p
+            if s:       return s
+        try:
+            nm = resolve_token_name(mint) or ""
+            if nm: return nm   # may be "TICKER\nLong"
+        except Exception:
+            pass
+        return f"{mint[:4]}..{mint[-4:]}"
+
     def _resolve_target(arg: str):
         """
         Accepts TICKER or MINT; returns mint or None.
@@ -4483,13 +4485,32 @@ def process_telegram_command(update: dict):
             if not wl:
                 return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
 
+            def _name_parts(mint: str) -> tuple[str, str]:
+                # With _display_name_for now defined earlier, this should always work.
+                try:
+                    disp = _display_name_for(mint)
+                    if isinstance(disp, (tuple, list)):
+                        t = (disp[0] or "?").strip() if len(disp) > 0 else "?"
+                        ln = (disp[1] or "?").strip() if len(disp) > 1 else "?"
+                        return t or "?", ln or "?"
+                    if isinstance(disp, str):
+                        parts = [p.strip() for p in disp.splitlines() if p.strip()]
+                        if parts:
+                            t = parts[0]
+                            ln = parts[1] if len(parts) > 1 else "?"
+                            return t or "?", ln or "?"
+                    if isinstance(disp, dict):
+                        t = (disp.get("ticker") or disp.get("symbol") or "?").strip()
+                        ln = (disp.get("long_name") or disp.get("name") or "?").strip()
+                        return t or "?", ln or "?"
+                except Exception:
+                    pass
+                return "?", "?"
+
             lines = []
             for mint in wl:
-                # Use same name resolver as /watch command
-                nm = _display_name_for(mint)
-                # Extract ticker (first line) same as /watch does
-                ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(mint)
-                lines.append(f"{ticker}  `{_short_mint(mint)}`")
+                t, ln = _name_parts(mint)
+                lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
 
             return _reply("👀 *Watchlist*\n" + "\n".join(lines))
 
