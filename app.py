@@ -1361,7 +1361,7 @@ def _alerts_ticker_loop():
                 last = now
         except Exception:
             logging.exception("alerts_ticker: loop error")
-        ALERTS_TICK_STOP.wait(1)
+        time.sleep(_alerts_interval_get())
 
 def alerts_auto_on(seconds: int | None = None):
     import threading, logging
