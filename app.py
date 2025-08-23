@@ -3583,18 +3583,12 @@ def process_telegram_command(update: dict):
                 render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
             )
         elif cmd == "/fetch":
-            # /fetch - ticker resolution right after args parsing
+            # /fetch - enforce MINT only
             if args:
-                _a0 = args.strip()
-                if len(_a0) not in (32, 43, 44):
-                    _m = _resolve_target(_a0)
-                    if not _m:
-                        return _reply("Unknown token. Try a mint or known ticker.", status="error")
-                    args = _m  # Replace args with resolved mint
-                    _a0 = _m   # Update local variable
-                
-                # Continue with existing fetch logic (mint path)
-                mint = _a0
+                if len(args.strip()) not in (32, 43, 44):
+                    return _reply("Please provide a mint address (32/44 chars). Example: /fetch <MINT>", status="error")
+                # Continue existing fetch logic (mint path when args)
+                mint = args.strip()
                 name_display = _display_name_for(mint)
                 pr = get_price(mint, 'birdeye')
                 return _reply(
