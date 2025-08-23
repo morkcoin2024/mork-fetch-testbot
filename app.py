@@ -341,9 +341,9 @@ def _render_help(is_admin: bool) -> str:
     core = [
         "`/price <MINT|SOL>`",
         "`/convert <AMOUNT> <TICKER|MINT>` - Convert token↔USD (use $N or Nusd for USD→token)",
-        "`/about <MINT>`",
+        "`/mint_for <TICKER>` → mint",
+        "`/about <MINT|TICKER>` - Token card (name/price/mint)",
         "`/fetch <MINT>` (alias of `/about`)",
-        "`/mint_for <TICKER|MINT>` – resolve ticker to mint",
         "`/watch <MINT>`",
         "`/unwatch <MINT>`",
         "`/watchlist`",
@@ -788,6 +788,26 @@ def _birdeye_price(mint: str, ttl: float = 30.0):
         out = None
     _cache_set(ck, out, now, ttl)
     return out
+
+# Known tickers (extend later)
+TICKER_MINTS = {
+    "SOL": "So11111111111111111111111111111111111111112",
+}
+
+def _is_mint_like(s: str) -> bool:
+    return isinstance(s, str) and len(s) in (32, 43, 44) and s.isalnum()
+
+def _mint_for_symbol(sym: str) -> str | None:
+    sym = (sym or "").strip().upper()
+    return TICKER_MINTS.get(sym)
+
+def _resolve_to_mint(arg: str) -> str | None:
+    if not arg:
+        return None
+    a = arg.strip()
+    if _is_mint_like(a):
+        return a
+    return _mint_for_symbol(a)
 
 def _resolve_token_or_mint(arg: str):
     """
@@ -2331,7 +2351,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -4183,17 +4203,39 @@ def process_telegram_command(update: dict):
             else:
                 usd = v * p
                 return _reply(f"{_fmt_qty(v)} {sym or ''} ≈ {_fmt_price(usd)}  `{_short_mint(mint)}`")
+        elif cmd == "/mint_for":
+            sym = args.split()[0] if args else ""
+            mint = _mint_for_symbol(sym)
+            if not mint:
+                return _reply("Unknown ticker. Try `/price <MINT>` or `/watch <MINT>`.", "error")
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)  # returns (ticker, long_name) tuple
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else "Unknown"
+            return _reply(f"🔎 *Mint for* `{sym.upper()}`\n{name or ''}  `{short}`\n(copy) `{mint}`", "ok")
         elif cmd == "/about":
-            # /about - enforce MINT only
-            if not args or len(args.strip()) not in (32, 43, 44):
-                return _reply("Please provide a mint address (32/44 chars). Tip: /mint_for <TICKER> to get the mint. Example: /about <MINT>", status="error")
-            # Continue existing About card logic (expects args = mint)
-            mint = args.strip()
-            name_display = _display_name_for(mint)
-            pr = get_price(mint, 'birdeye')
-            return _reply(
-                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
-            )
+            target = args.split()[0] if args else ""
+            mint = _resolve_to_mint(target)
+            if not mint:
+                return _reply("Usage: `/about <MINT|TICKER>` — unknown token.", "error")
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)  # returns (ticker, long_name) tuple
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else "Unknown"
+            px = _birdeye_price(mint)  # returns float or None; use "?" if None
+            price_s = f"${px:,.2f}" if isinstance(px, (int, float)) else "?"
+            lines = [
+                "ℹ️ *Token*",
+                f"{name or 'Unknown'}  `{short}`",
+                f"Price: {price_s}",
+            ]
+            return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
             if args:
