@@ -385,7 +385,7 @@ def _filter_help_rows(rows, is_admin: bool):
     return keep
 # --- end add ---
 
-def _help_text():
+def _help_text(is_admin: bool = False):
     lines = [
         "Mork F.E.T.C.H Bot — Commands",
         "/price <MINT|TICKER>",
@@ -405,7 +405,14 @@ def _help_text():
         "/name_show <MINT>",
         "/help",
     ]
-    return "\n".join(lines)
+    # --- ensure admin-only rows are hidden for non-admins ---
+    help_text = "\n".join(lines)
+    
+    if not is_admin:
+        help_text = "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
+    
+    return help_text
+    # --- end patch ---
 
 # Dedicated watchlist command handlers
 def _cmd_watch(chat_id, args):
