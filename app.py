@@ -373,7 +373,6 @@ def _render_help(is_admin: bool) -> str:
         "",
         "**Fast Execution, Trade Control Handler**",
         "",
-        # Core
         "/price <MINT|SOL>",
         "/about <MINT>",
         "/fetch <MINT> (alias of /about)",
@@ -389,7 +388,7 @@ def _render_help(is_admin: bool) -> str:
         "/status",
         "/uptime - Process uptime (since start)",
         "/version - Git SHA + built time",
-        # Admin (keep markers!)
+        # keep markers for easy strip
         "/alerts_auto_on (admin)",
         "/alerts_auto_off (admin)",
         "/alerts_auto_status (admin)",
@@ -399,7 +398,6 @@ def _render_help(is_admin: bool) -> str:
     if is_admin:
         return text
     import re
-    # strip (admin) lines or explicit admin cmds
     admin_patterns = [
         r'^\s*.*\(admin\)\s*$',
         r'^\s*/alerts_auto_interval\b.*$',
@@ -409,7 +407,6 @@ def _render_help(is_admin: bool) -> str:
     ]
     for pat in admin_patterns:
         text = re.sub(pat, "", text, flags=re.MULTILINE)
-    # collapse blanks & trim
     return re.sub(r'\n{3,}', '\n\n', text, flags=re.MULTILINE).strip()
 # --- END HELP RENDERER ---
 
