@@ -344,6 +344,7 @@ def _render_help(is_admin: bool) -> str:
         "`/mint_for <TICKER>` → mint",
         "`/symbol_for <MINT|TICKER>` → symbol",
         "`/links <MINT|TICKER>` - Quick links (Dexscreener/Birdeye/Solscan/Jupiter)",
+        "`/liquidity <MINT|TICKER>` - Liquidity & 24h volume",
         "`/about <MINT|TICKER>` - Token card (name/price/mint)",
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
@@ -827,6 +828,30 @@ def _symbol_from_display_name(name) -> str:
     elif isinstance(name, str) and " — " in name:
         return name.split(" — ", 1)[0]
     return str(name or "").strip()
+
+def _fmt_usd(v) -> str:
+    try:
+        return f"${float(v):,.2f}"
+    except Exception:
+        return "?"
+
+def _birdeye_token_overview(mint: str) -> dict:
+    """
+    Get liquidity + 24h volume (+ optional market cap) for a token.
+    Uses the same Birdeye request helper used by price fetching.
+    """
+    try:
+        # Reuse your existing Birdeye request helper (same one used for /price)
+        # If your helper is named differently, swap _birdeye_req for it.
+        r = birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
+        d = (r.get("data") or {})
+        # Field names vary across Birdeye responses; cover common aliases.
+        liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD")
+        v24 = d.get("v24") or d.get("volume24h") or d.get("volume24hUSD")
+        mc  = d.get("mc")  or d.get("marketcap") or d.get("marketCap")
+        return {"liquidity": liq, "v24": v24, "mc": mc}
+    except Exception:
+        return {"liquidity": None, "v24": None, "mc": None}
 
 def _resolve_token_or_mint(arg: str):
     """
@@ -2370,7 +2395,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3901,7 +3926,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -4290,6 +4315,33 @@ def process_telegram_command(update: dict):
                 f"Solscan:     `{links['Solscan']}`",
                 f"Jupiter:     `{links['Jupiter']}`",
             ]
+            return _reply("\n".join(lines), "ok")
+        elif cmd == "/liquidity":
+            target = args.split()[0] if args else ""
+            mint = _resolve_to_mint(target)
+            if not mint:
+                return _reply("Usage: `/liquidity <MINT|TICKER>` — unknown token.", "error")
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else short
+            info  = _birdeye_token_overview(mint)
+            liq   = _fmt_usd(info.get("liquidity")) if info.get("liquidity") else "?"
+            v24   = _fmt_usd(info.get("v24")) if info.get("v24") else "?"
+            mc    = _fmt_usd(info.get("mc")) if info.get("mc") else None
+
+            lines = [
+                "🌊 *Liquidity*",
+                f"{name}",
+                f"`{short}`",
+                f"Liquidity: {liq}",
+                f"24h Volume: {v24}",
+            ]
+            if mc:
+                lines.append(f"Market Cap: {mc}")
             return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
             # /fetch - enforce MINT only

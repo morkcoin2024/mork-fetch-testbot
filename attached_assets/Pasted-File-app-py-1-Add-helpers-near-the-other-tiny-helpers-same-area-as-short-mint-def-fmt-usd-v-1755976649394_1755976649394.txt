@@ -1,0 +1,55 @@
+File: app.py
+
+1) Add helpers near the other tiny helpers (same area as _short_mint):
+
+def _fmt_usd(v) -> str:
+    try:
+        return f"${float(v):,.2f}"
+    except Exception:
+        return "?"
+
+def _birdeye_token_overview(mint: str) -> dict:
+    """
+    Get liquidity + 24h volume (+ optional market cap) for a token.
+    Uses the same Birdeye request helper used by price fetching.
+    """
+    try:
+        # Reuse your existing Birdeye request helper (same one used for /price)
+        # If your helper is named differently, swap _birdeye_req for it.
+        r = _birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
+        d = (r.get("data") or {})
+        # Field names vary across Birdeye responses; cover common aliases.
+        liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD")
+        v24 = d.get("v24") or d.get("volume24h") or d.get("volume24hUSD")
+        mc  = d.get("mc")  or d.get("marketcap") or d.get("marketCap")
+        return {"liquidity": liq, "v24": v24, "mc": mc}
+    except Exception:
+        return {"liquidity": None, "v24": None, "mc": None}
+
+2) In process_telegram_command router, add:
+
+elif cmd == "/liquidity":
+    target = args.split()[0] if args else ""
+    mint = _resolve_to_mint(target)
+    if not mint:
+        return _reply("Usage: `/liquidity <MINT|TICKER>` — unknown token.", "error")
+    short = _short_mint(mint)
+    name  = _display_name_for(mint) or short
+    info  = _birdeye_token_overview(mint)
+    liq   = _fmt_usd(info.get("liquidity")) if info.get("liquidity") else "?"
+    v24   = _fmt_usd(info.get("v24")) if info.get("v24") else "?"
+    mc    = _fmt_usd(info.get("mc")) if info.get("mc") else None
+
+    lines = [
+        "🌊 *Liquidity*",
+        f"{name}",
+        f"`{short}`",
+        f"Liquidity: {liq}",
+        f"24h Volume: {v24}",
+    ]
+    if mc:
+        lines.append(f"Market Cap: {mc}")
+    return _reply("\n".join(lines), "ok")
+
+3) In _render_help(is_admin: bool), under the general commands section (near /price, /convert, /about), add:
+    "/liquidity <MINT|TICKER> - Liquidity & 24h volume"
