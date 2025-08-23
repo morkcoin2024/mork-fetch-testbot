@@ -4359,11 +4359,16 @@ def process_telegram_command(update: dict):
             info  = _birdeye_token_overview(mint)
 
             liq = info.get("liquidity")
-            v24 = info.get("v24")
+            vol = (
+                info.get("volume_24h")
+                or info.get("volume24hUsd") 
+                or info.get("volume24h")
+                or info.get("v24h")
+            )
             mc  = info.get("mc")
 
             liq_s = _fmt_usd(liq) if liq is not None else "?"
-            v24_s = _fmt_usd(v24) if v24 is not None else "?"
+            v24_s = _fmt_usd(vol) if vol is not None else "?"
             mc_s  = _fmt_usd(mc)  if mc  is not None else None
 
             try:
