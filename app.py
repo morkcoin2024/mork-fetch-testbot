@@ -3557,20 +3557,47 @@ def process_telegram_command(update: dict):
         # Define public commands that don't require admin access
         public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
-        # Bot health status with interval/ETA + watchlist size
+        # --- replace: /status branch ---
         if cmd == "/status":
             msg = update.get("message", {}) or {}
             chat_id = (msg.get("chat") or {}).get("id")
-            interval = _alerts_interval_get()
+            user_id = (msg.get("from") or {}).get("id")
+            is_admin = (user_id == 1653046781)
+
+            import time as _time
+            now = _time.strftime("%H:%M:%S UTC", _time.gmtime())
+
+            # Alerts metrics
+            try:
+                interval = int(_alerts_interval_get())
+            except Exception:
+                interval = 30
             last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
             if last > 0:
                 ago = int(_time.time() - last)
-                nxt = max(0, int(interval - ( _time.time() - last )))
-                when = f"Last: {ago}s ago | Next ~ in {nxt}s"
+                nxt = max(0, interval - ago)
+                eta_line = f"Last: {ago}s ago | Next ~ in {nxt}s"
             else:
-                when = "Last: never | Next: unknown"
-            wl = _watchlist_len(chat_id)
-            return _reply(f"Up ✅ | Chat {chat_id} | Watchlist: {wl} | Interval: {int(interval)}s | {when}")
+                eta_line = "Last: never | Next: unknown"
+
+            # Watchlist size for this chat
+            try:
+                wl = int(_watchlist_len(chat_id))
+            except Exception:
+                wl = 0
+
+            # Compose (keep your header lines, add metrics)
+            lines = [
+                "✅ Bot Status: OPERATIONAL",
+                "⚡ Mode: Integrated Polling",
+                f"⏱ Time: {now}",
+                "🔒 Admin access" if is_admin else "👤 User access",
+                f"⏳ Interval: {interval}s",
+                f"🕒 {eta_line}",
+                f"👀 Watchlist (this chat): {wl}",
+            ]
+            return _reply("\n".join(lines))
+        # --- end replace ---
 
         # --- manual scan (one-shot) ---
         elif cmd == "/watch_tick":
