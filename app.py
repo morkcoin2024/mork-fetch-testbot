@@ -370,7 +370,7 @@ def _help_text():
         "/fetch <MINT> (alias of /about)",
         "/status - Bot health: interval/ETA + watchlist size",
         "/uptime - Process uptime (since start)",
-        "/version - Show bot version and build info",
+        "/version - Git SHA + built time",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
