@@ -3558,6 +3558,7 @@ def process_telegram_command(update: dict):
                        "/alerts_auto_on [sec] - Enable continuous scanning\n" + \
                        "/alerts_auto_off - Disable continuous scanning\n" + \
                        "/alerts_auto_status - Show auto-scan status\n" + \
+                       "/alerts_auto_interval <sec> - Set alerts ticker interval [Admin Only]\n" + \
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n" + \
                        "/fetchnow [n|mint...] - Smart fetch: n from watchlist or specific mints\n" + \
@@ -4707,6 +4708,22 @@ def process_telegram_command(update: dict):
             deny = _require_admin(user)
             if deny: return deny
             return _reply("⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning")
+        
+        # --- /alerts_auto_interval <secs> (admin-only) ---
+        elif cmd == "/alerts_auto_interval":
+            msg = update.get("message", {}) or {}
+            user_id = (msg.get("from") or {}).get("id")
+            if user_id != 1653046781:
+                return _reply("Admin only.", status="error")
+            if not args:
+                return _reply("Usage: /alerts_auto_interval <seconds>", status="error")
+            try:
+                newv = float(str(args[0]).strip())
+            except Exception:
+                return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
+            v = _alerts_interval_set(newv)
+            return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
+        # --- end add ---
         
         else:
             # Unknown command fallback
