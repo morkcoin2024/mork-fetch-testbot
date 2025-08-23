@@ -3521,11 +3521,7 @@ def process_telegram_command(update: dict):
     # --- ROUTER TRACE HOOK (entry) ---
     _rt_log(f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}")
 
-    # --- EARLY RETURN: /help (admin-aware) ---
-    if cmd == "/help":
-        is_admin = (user_id == 1653046781)
-        return _reply(_render_help(is_admin))
-    # --- end early return ---
+
 
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
@@ -3670,6 +3666,11 @@ def process_telegram_command(update: dict):
         
         # Define public commands that don't require admin access
         public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        
+        # --- EARLY RETURN: /help (admin-aware) ---
+        if cmd == "/help":
+            return _reply(_render_help(is_admin))
+        # --- end early return ---
         
         # --- replace: /status branch ---
         if cmd == "/status":
