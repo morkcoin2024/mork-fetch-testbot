@@ -351,8 +351,10 @@ def _render_help_panel(is_admin: bool = False) -> str:
         "• `/alerts_auto_interval <secs>` — set interval (admin)",
         "• `/alerts_eta` — show last/next tick timing",
     ]
-    rows = _filter_help_rows(lines, is_admin)
-    return "\n".join(rows)
+    help_text = "\n".join(lines)
+    if not is_admin:
+        help_text = "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
+    return help_text
 
 def _render_commands_list(is_admin: bool = False) -> str:
     cmds = [
