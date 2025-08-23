@@ -3773,14 +3773,10 @@ def process_telegram_command(update: dict):
             alerts_auto_off()               # stops the ticker
             return ok("Auto alerts disabled", "Ticker stopped.")
 
+        # --- replace: /alerts_auto_status branch body ---
         elif cmd == "/alerts_auto_status":
-            interval = _alerts_interval_get()
-            last = _ALERTS_TICK_LAST_RUN
-            if last <= 0:
-                return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: never\nNext ~ in {int(interval)}s")
-            ago = _time.time() - last
-            nxt = max(0, int(interval - ago))
-            return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: {int(ago)}s ago\nNext ~ in {nxt}s")
+            return _reply(_render_auto_status_card())
+        # --- end replace ---
 
         # --- replace: /alerts_auto_interval (admin-only, robust arg parse) ---
         elif cmd == "/alerts_auto_interval":
@@ -4503,15 +4499,9 @@ def process_telegram_command(update: dict):
             alerts_auto_off()
             return ok("Auto alerts disabled", "Ticker stopped.")
 
-        # --- replace /alerts_auto_status handler ---
+        # --- replace: /alerts_auto_status branch body ---
         elif cmd == "/alerts_auto_status":
-            interval = _alerts_interval_get()
-            last = _ALERTS_TICK_LAST_RUN
-            if last <= 0:
-                return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: never\nNext ~ in {int(interval)}s")
-            ago = _time.time() - last
-            nxt = max(0, int(interval - ago))
-            return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: {int(ago)}s ago\nNext ~ in {nxt}s")
+            return _reply(_render_auto_status_card())
         # --- end replace ---
 
         elif cmd == "/alerts_minmove" and is_admin:
