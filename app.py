@@ -351,7 +351,7 @@ def _render_help(is_admin: bool) -> str:
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
         "`/unwatch <MINT>`",
-        "`/watchlist [prices|caps]`",
+        "`/watchlist [prices|caps|volumes]`",
         "`/watch_clear`",
         "`/fetchnow`",
         "`/scanonce` (alias of `/fetchnow`)",
@@ -477,6 +477,7 @@ def _cmd_watchlist(chat_id, args):
     show = (args or "").strip().lower()
     with_prices = bool(show in {"p","price","prices"})
     with_caps = bool(show in {"c","cap","caps","marketcap"})
+    with_volumes = bool(show in {"v","vol","volume","volumes"})
     
     lines = []
     for mint in bucket:
@@ -489,6 +490,17 @@ def _cmd_watchlist(chat_id, args):
             mc = info.get("mc")
             cap_str = _fmt_usd(mc) if mc is not None else "?"
             lines.append(f"{ticker} — {long_name}  {cap_str}  `{short}`")
+        elif with_volumes:
+            # Use same Birdeye API as /volume command
+            info = _birdeye_token_overview(mint)
+            vol = (
+                info.get("volume_24h")
+                or info.get("volume24hUsd") 
+                or info.get("volume24h")
+                or info.get("v24h")
+            )
+            vol_str = _fmt_usd(vol) if vol is not None else "?"
+            lines.append(f"{ticker} — {long_name}  {vol_str}  `{short}`")
         elif with_prices:
             price = _birdeye_price(mint)
             lines.append(_format_watch_row(mint, ticker, long_name, price, with_prices))
