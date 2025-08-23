@@ -2848,8 +2848,8 @@ def _ensure_scanners():
         # Start polling service for telegram commands (disabled when POLLING_MODE=ON)
         if POLLING_MODE != 'ON':
             try:
-                from telegram_polling import start_polling_service
-                ok = start_polling_service()
+                import telegram_polling
+                ok = telegram_polling.start_polling_service()
                 if ok:
                     logger.info("Telegram polling service started successfully")
                     
