@@ -352,7 +352,7 @@ def _help_text():
         "/about <MINT>",
         "/fetch <MINT> (alias of /about)",
         "/status - Bot health: interval/ETA + watchlist size",
-        "/uptime - Process uptime and start time",
+        "/uptime - Process uptime (since start)",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
@@ -3726,7 +3726,7 @@ def process_telegram_command(update: dict):
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n" + \
                        "/status - Bot health: interval/ETA + watchlist size\n" + \
-                       "/uptime - Process uptime and start time\n\n" + \
+                       "/uptime - Process uptime (since start)\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
                        "/wallet - Wallet summary\n" + \
                        "/wallet_new - Create new wallet\n" + \
