@@ -109,7 +109,17 @@ if _ALERTS_MAX < _ALERTS_MIN:
 _ALERTS_TICK_LOCK = threading.Lock()
 _ALERTS_STATE_PATH = os.environ.get("ALERTS_STATE_PATH", "alerts_state.json")
 _ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
-# --- end header ---
+
+# --- add: single source of truth for clamping ---
+def _clamp_interval(v):
+    try:
+        v = float(v)
+    except Exception:
+        return _ALERTS_TICK_INTERVAL
+    if v < _ALERTS_MIN: return _ALERTS_MIN
+    if v > _ALERTS_MAX: return _ALERTS_MAX
+    return v
+# --- end add ---
 
 # try load persisted interval
 try:
@@ -118,9 +128,10 @@ try:
             _state = json.load(f) or {}
         v = float(_state.get("interval", _ALERTS_TICK_INTERVAL))
         if v:
-            _ALERTS_TICK_INTERVAL = max(_ALERTS_MIN, min(_ALERTS_MAX, v))
+            _ALERTS_TICK_INTERVAL = _clamp_interval(v)
 except Exception:
     pass
+# --- end header ---
 
 def _alerts_interval_get() -> float:
     with _ALERTS_TICK_LOCK:
@@ -128,11 +139,7 @@ def _alerts_interval_get() -> float:
 
 def _alerts_interval_set(secs: float) -> float:
     global _ALERTS_TICK_INTERVAL
-    try:
-        v = float(secs)
-    except Exception:
-        v = _ALERTS_TICK_INTERVAL
-    v = max(_ALERTS_MIN, min(_ALERTS_MAX, v))
+    v = _clamp_interval(secs)
     with _ALERTS_TICK_LOCK:
         _ALERTS_TICK_INTERVAL = v
     # persist
