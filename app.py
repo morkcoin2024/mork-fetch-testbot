@@ -3765,69 +3765,6 @@ def process_telegram_command(update: dict):
             return _reply("⛔ Admin only")
         
         # Command processing with consistent response handling
-        if cmd == "/help":
-            help_text = "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**\n\n" + \
-                       "**Fast Execution, Trade Control Handler**\n\n" + \
-                       "📋 **Available Commands:**\n" + \
-                       "/help - Show this help\n" + \
-                       "/commands - List all commands\n" + \
-                       "/about <mint> - snapshot: price, 5m/1h/6h/24h (providers) + 30m/12h (local) with trend arrows\n" + \
-                       "/ping - Test connection\n" + \
-                       "/test123 - Connection test\n" + \
-                       "/status - Bot health: interval/ETA + watchlist size\n" + \
-                       "/uptime - Process uptime (since start)\n\n" + \
-                       "💰 **Wallet Commands:**\n" + \
-                       "/wallet - Wallet summary\n" + \
-                       "/wallet_new - Create new wallet\n" + \
-                       "/wallet_addr - Show wallet address\n" + \
-                       "/wallet_balance - Check balance\n" + \
-                       "/wallet_balance_usd - Balance in USD\n" + \
-                       "/wallet_link - Solscan explorer link\n" + \
-                       "/wallet_deposit_qr [amount] - Generate deposit QR code with optional SOL amount\n" + \
-                       "/wallet_reset - Reset wallet (2-step confirm)\n" + \
-                       "/wallet_reset_cancel - Cancel pending reset\n" + \
-                       "/wallet_fullcheck - Comprehensive diagnostics\n" + \
-                       "/wallet_export - Export private key [Admin Only]\n\n" + \
-                       "🔍 **Scanner Commands:**\n" + \
-                       "/solscanstats - Scanner status & config\n" + \
-                       "/config_update - Update scanner settings\n" + \
-                       "/config_show - Show current config\n" + \
-                       "/scanner_on / /scanner_off - Toggle scanner\n" + \
-                       "/threshold <score> - Set score threshold\n" + \
-                       "/watch <mint> / /unwatch <mint> - Manage watchlist\n" + \
-                       "/watchlist - Show watchlist\n" + \
-                       "/watch_tick - Force immediate watchlist check\n" + \
-                       "/watch_off <mint> - Alias of /unwatch <mint>\n" + \
-                       "/alerts_auto_on [sec] - Enable continuous scanning\n" + \
-                       "/alerts_auto_off - Disable continuous scanning\n" + \
-                       "/alerts_auto_status - Show auto-scan status\n" + \
-                       "/alerts_auto_interval <sec> - Set alerts ticker interval [Admin Only]\n" + \
-                       "/fetch - Basic token fetch\n" + \
-                       "/fetch_now - Multi-source fetch\n" + \
-                       "/fetchnow [n|mint...] - Smart fetch: n from watchlist or specific mints\n" + \
-                       "/mint_for <TICKER|MINT> - Resolve ticker to mint (for /about or /fetch)\n" + \
-                       "/name <mint> - Show override/cache (alias of /name_show)\n" + \
-                       "/name_refresh <mint> - Refresh token name cache\n" + \
-                       "/name_refetch_jup - Refresh Jupiter catalog\n" + \
-                       "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
-                       "/name_show <mint> - Show name status & overrides\n" + \
-                       "/name_clear <mint> - Clear name override & cache\n" + \
-                       "/mint_for <ticker|mint> - Convert ticker to mint or echo mint\n" + \
-                       "/whoami - Show your user/chat IDs\n\n" + \
-                       "🔍 **Watchlist Commands:**\n" + \
-                       "/watch <mint...> - Add token(s) to watchlist\n" + \
-                       "/unwatch <mint...> - Remove token(s) from watchlist\n" + \
-                       "/watchlist - Show current watchlist\n" + \
-                       "/watch_clear - Clear entire watchlist\n\n" + \
-                       "🤖 **AutoSell Commands:**\n" + \
-                       "/autosell_on / /autosell_off - Enable/disable AutoSell\n" + \
-                       "/autosell_status - Check AutoSell status\n" + \
-                       "/autosell_interval <seconds> - Set monitoring interval\n" + \
-                       "/autosell_set <mint> [tp=30] [sl=15] [trail=10] [size=100] - Set sell rules\n" + \
-                       "/autosell_list - Show all AutoSell rules\n" + \
-                       "/autosell_remove <mint> - Remove AutoSell rule\n\n" + \
-                       "**Bot Status:** ✅ Online (Polling Mode)"
-            return _reply(help_text)
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
         elif cmd == "/name_refresh":
