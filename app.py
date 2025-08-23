@@ -746,6 +746,32 @@ def _fmt_price(v):
     except Exception:
         return "?"
 
+def _fmt_qty(x):
+    try:
+        if x >= 1:
+            return f"{x:,.4f}".rstrip('0').rstrip('.')
+        else:
+            return f"{x:,.8f}".rstrip('0').rstrip('.')
+    except Exception:
+        return str(x)
+
+def _parse_amount(s: str):
+    s = (s or "").strip().replace(",", "")
+    if not s:
+        return None, None
+    is_usd = False
+    if s.startswith("$"):
+        is_usd = True
+        s = s[1:]
+    if s.lower().endswith("usd"):
+        is_usd = True
+        s = s[:-3]
+    try:
+        v = float(s)
+    except Exception:
+        return None, None
+    return v, is_usd
+
 def _birdeye_price(mint: str, ttl: float = 30.0):
     import time
     now = time.time()
@@ -2304,7 +2330,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3835,7 +3861,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -4128,6 +4154,34 @@ def process_telegram_command(update: dict):
             nam = nam or "—"
             price_txt = _fmt_price(p) if p is not None else "?"
             return _reply(f"{sym} — {nam}: {price_txt}  `{_short_mint(mint)}`")
+        elif cmd == "/convert":
+            if not args:
+                return _reply(
+                    "Usage:\n"
+                    "/convert <AMOUNT> <TICKER|MINT>\n"
+                    "Examples:\n"
+                    "/convert 12 SOL   → USD\n"
+                    "/convert $500 SOL → tokens"
+                )
+            parts = args.split()
+            if len(parts) < 2:
+                return _reply("Usage: /convert <AMOUNT> <TICKER|MINT>")
+            amt_raw, tok = parts[0], parts[1]
+            v, usd_input = _parse_amount(amt_raw)
+            if v is None or v <= 0:
+                return _reply("Amount must be a positive number (e.g. 12 or $500).")
+            mint, sym, nam = _resolve_token_or_mint(tok)
+            if not mint:
+                return _reply("Unknown token. Provide a mint or known ticker.")
+            p = _birdeye_price(mint)
+            if p is None or p <= 0:
+                return _reply(f"Price unavailable for `{_short_mint(mint)}`.")
+            if usd_input:
+                tokens = v / p
+                return _reply(f"${v:,.2f} ≈ {_fmt_qty(tokens)} {sym or ''}  `{_short_mint(mint)}`")
+            else:
+                usd = v * p
+                return _reply(f"{_fmt_qty(v)} {sym or ''} ≈ {_fmt_price(usd)}  `{_short_mint(mint)}`")
         elif cmd == "/about":
             # /about - enforce MINT only
             if not args or len(args.strip()) not in (32, 43, 44):
@@ -4386,9 +4440,10 @@ def process_telegram_command(update: dict):
             return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
         elif cmd == "/commands":
             commands_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami /price\n" + \
+                          "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami /price /convert\n" + \
                           "  /about <mint> – token snapshot (price, 5m/1h/6h/24h + 30m/12h when available)\n" + \
                           "  /price <TICKER|MINT> – current price (Birdeye)\n" + \
+                          "  /convert <AMOUNT> <TICKER|MINT> – convert token↔USD (use $N or Nusd for USD→token)\n" + \
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
                           "  /watchlist [prices] – show saved mints (optionally with prices)\n" + \
