@@ -833,8 +833,7 @@ from decimal import Decimal, InvalidOperation
 
 def _fmt_usd(v) -> str:
     try:
-        # accept numbers or numeric strings; force two decimals
-        q = Decimal(str(v))
+        q = Decimal(str(v)).quantize(Decimal("0.01"))
         return f"${q:,.2f}"
     except (InvalidOperation, Exception):
         return "?"
@@ -846,34 +845,15 @@ def _num_or_none(x):
         return None
 
 def _birdeye_token_overview(mint: str) -> dict:
-    """
-    Fetch liquidity, 24h volume, and market cap for a mint.
-    Returns numeric floats or None.
-    """
     try:
         r = birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
         d = (r.get("data") or {})
 
-        # Liquidity variants
-        liq = (
-            d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
-        )
-        # 24h volume variants
-        v24 = (
-            d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or
-            d.get("volume24h_usd") or d.get("volume24h")
-        )
-        # Market cap variants
-        mc = (
-            d.get("mc") or d.get("marketcap") or d.get("marketCap") or
-            d.get("market_cap") or d.get("marketCapUsd")
-        )
+        liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
+        v24 = d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or d.get("volume24h_usd") or d.get("volume24h")
+        mc  = d.get("mc") or d.get("marketcap") or d.get("marketCap") or d.get("market_cap") or d.get("marketCapUsd")
 
-        return {
-            "liquidity": _num_or_none(liq),
-            "v24": _num_or_none(v24),
-            "mc": _num_or_none(mc),
-        }
+        return {"liquidity": _num_or_none(liq), "v24": _num_or_none(v24), "mc": _num_or_none(mc)}
     except Exception:
         return {"liquidity": None, "v24": None, "mc": None}
 
@@ -4355,9 +4335,13 @@ def process_telegram_command(update: dict):
                 name = str(name_tuple) if name_tuple else short
             info  = _birdeye_token_overview(mint)
 
-            liq_s = _fmt_usd(info.get("liquidity")) if info.get("liquidity") is not None else "?"
-            v24_s = _fmt_usd(info.get("v24")) if info.get("v24") is not None else "?"
-            mc_s  = _fmt_usd(info.get("mc")) if info.get("mc") is not None else None
+            liq = info.get("liquidity")
+            v24 = info.get("v24")
+            mc  = info.get("mc")
+
+            liq_s = _fmt_usd(liq) if liq is not None else "?"
+            v24_s = _fmt_usd(v24) if v24 is not None else "?"
+            mc_s  = _fmt_usd(mc)  if mc  is not None else None
 
             lines = [
                 "🌊 *Liquidity*",
