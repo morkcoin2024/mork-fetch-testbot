@@ -3689,6 +3689,8 @@ def process_telegram_command(update: dict):
                 f"🕒 Last | Next: `{eta}`",
                 f"👀 Watchlist: `{wl}`",
             ]
+            if wl == 0:
+                lines.append("💡 Tip: `/watch <MINT>`")
             return _reply("\n".join(lines))
         # --- end replace ---
 
