@@ -3521,9 +3521,29 @@ def process_telegram_command(update: dict):
             return ok("Auto alerts disabled", "Ticker stopped.")
 
         elif cmd == "/alerts_auto_status":
-            s = alerts_auto_status()
-            state = "on" if s["alive"] else "off"
-            return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
+            interval = _alerts_interval_get()
+            last = _ALERTS_TICK_LAST_RUN
+            if last <= 0:
+                return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: never\nNext ~ in {int(interval)}s")
+            ago = _time.time() - last
+            nxt = max(0, int(interval - ago))
+            return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: {int(ago)}s ago\nNext ~ in {nxt}s")
+
+        # --- add: /alerts_auto_interval (admin-only) ---
+        elif cmd == "/alerts_auto_interval":
+            msg = update.get("message", {}) or {}
+            user_id = (msg.get("from") or {}).get("id")
+            if user_id != 1653046781:
+                return _reply("Admin only.", status="error")
+            if not args:
+                return _reply("Usage: /alerts_auto_interval <seconds>", status="error")
+            try:
+                newv = float(args.split()[0].strip())
+            except Exception:
+                return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
+            v = _alerts_interval_set(newv)
+            return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
+        # --- end add ---
 
         # Router fallback (and only one in repo) 
         if cmd not in ALL_COMMANDS:
