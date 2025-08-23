@@ -368,6 +368,7 @@ def _render_help(is_admin: bool) -> str:
         "`/scanners_status` (admin)",
         "`/scanners_on` (admin)",
         "`/scanners_off` (admin)",
+        "`/scanners_reload` (admin)",
     ]
     for _r in _SCANNERS_ADMIN_ROWS:
         if _r not in admin:
@@ -394,7 +395,7 @@ def _render_help(is_admin: bool) -> str:
 # --- END HELP RENDERER ---
 
 # --- helper: strip admin-only rows from /help for non-admins ---
-_ADMIN_HELP_PATTERNS = {"/alerts_auto_status", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_toggle", "/alerts_auto_interval", "/scanners_status", "/scanners_on", "/scanners_off"}  # extend if you add more admin-only commands
+_ADMIN_HELP_PATTERNS = {"/alerts_auto_status", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_toggle", "/alerts_auto_interval", "/scanners_status", "/scanners_on", "/scanners_off", "/scanners_reload"}  # extend if you add more admin-only commands
 
 def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     if is_admin:
@@ -3886,6 +3887,20 @@ def process_telegram_command(update: dict):
         elif cmd == "/scanners_off":
             _scanners_set_on(False)
             return _reply("✅ Scanners disabled\n" + _scanners_status_card())
+
+        elif cmd == "/scanners_reload":
+            if not is_admin:
+                return _reply("Admin only.", status="error")
+            import os
+            if os.environ.get("FETCH_ENABLE_SCANNERS") != "1":
+                return _reply("Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.", status="error")
+            try:
+                _ensure_scanners()  # reuse existing initializer
+                total = len(SCANNERS or {})
+                active = sum(1 for v in (SCANNERS or {}).values() if v)
+                return _reply(f"✅ Scanners reloaded\n🔌 Active: `{active}` of `{total}`")
+            except Exception as e:
+                return _reply(f"Reload failed: {e}", status="error")
         # --- end scanner commands ---
 
         # --- add: /alerts_eta (show last tick + next ETA) ---
