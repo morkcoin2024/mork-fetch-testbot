@@ -81,6 +81,32 @@ def _trade_log_export_csv(chat_id: int, rows: list):
         return None
 # --- end add ---
 
+# --- Alerts interval controller (live-tunable) ---
+import threading, os
+_ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
+_ALERTS_TICK_LOCK = threading.Lock()
+_ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
+
+def _alerts_interval_get() -> float:
+    with _ALERTS_TICK_LOCK:
+        return _ALERTS_TICK_INTERVAL
+
+def _alerts_interval_set(secs: float) -> float:
+    global _ALERTS_TICK_INTERVAL
+    try:
+        v = float(secs)
+    except Exception:
+        v = _ALERTS_TICK_INTERVAL
+    v = max(_ALERTS_MIN, min(_ALERTS_MAX, v))
+    with _ALERTS_TICK_LOCK:
+        _ALERTS_TICK_INTERVAL = v
+    try:
+        logger.info(f"ALERTS_TICK interval updated to {v}s")
+    except Exception:
+        pass
+    return v
+# --- end add ---
+
 def _trade_log_append(entry: dict):
     try:
         data = []
