@@ -362,6 +362,18 @@ def _render_commands_list() -> str:
     ]
     return "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
 
+# --- add: help filter ---
+def _filter_help_rows(rows, is_admin: bool):
+    if is_admin:
+        return rows
+    keep = []
+    for r in rows:
+        if "(admin)" in r:
+            continue
+        keep.append(r)
+    return keep
+# --- end add ---
+
 def _help_text():
     lines = [
         "Mork F.E.T.C.H Bot — Commands",
