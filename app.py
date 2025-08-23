@@ -724,6 +724,11 @@ def _display_name_for(mint: str):
         pass
     return "?", "?"
 
+def _format_watch_row(mint: str, symbol: str|None, name: str|None) -> str:
+    sym = symbol or "—"
+    nam = name or "—"
+    return f"{sym} — {nam}  `{_short_mint(mint)}`"
+
 # ===== Heuristic primary extraction =====
 _STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
 def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
