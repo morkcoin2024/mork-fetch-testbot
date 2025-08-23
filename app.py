@@ -55,6 +55,32 @@ def _tg_norm(text: str) -> str:
 # --- add: minimal dry-run trade logger (per-chat) ---
 _TRADES_STATE_PATH = os.environ.get("TRADES_STATE_PATH", "dry_trades_log.json")
 
+# --- add: CSV export helper ---
+import csv
+_TRADES_EXPORT_DIR = os.environ.get("TRADES_EXPORT_DIR", ".")
+def _trade_log_export_csv(chat_id: int, rows: list):
+    fn = os.path.join(_TRADES_EXPORT_DIR, f"trades_{chat_id}.csv")
+    try:
+        with open(fn, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["ts", "ts_iso", "kind", "mint", "amount_sol", "percent", "user_id", "chat_id"])
+            for e in rows:
+                ts = int(e.get("ts", 0))
+                w.writerow([
+                    ts,
+                    time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts)),
+                    e.get("kind"),
+                    e.get("mint"),
+                    e.get("amount_sol", ""),
+                    e.get("percent", ""),
+                    e.get("user_id"),
+                    e.get("chat_id"),
+                ])
+        return fn
+    except Exception:
+        return None
+# --- end add ---
+
 def _trade_log_append(entry: dict):
     try:
         data = []
