@@ -1977,7 +1977,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3818,6 +3818,22 @@ def process_telegram_command(update: dict):
                     percent = e.get("percent", "?")
                     lines.append(f"{ts} SELL {e.get('mint')}  {percent}%")
             return _reply("\n".join(lines))
+        # --- end add ---
+        
+        # --- add: /trades_clear (admin-only) ---
+        elif cmd == "/trades_clear":
+            msg = update.get("message", {}) or {}
+            user_id = (msg.get("from") or {}).get("id")
+            if user_id != 1653046781:
+                return _reply("Admin only.", status="error")
+            # wipe trades_state.json
+            try:
+                if os.path.exists(_TRADES_STATE_PATH):
+                    with open(_TRADES_STATE_PATH, "w", encoding="utf-8") as f:
+                        f.write("[]")
+                return _reply("Trades log cleared.")
+            except Exception as e:
+                return _reply(f"Failed to clear trades: {e}", status="error")
         # --- end add ---
         
         elif cmd == "/test123":
