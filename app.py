@@ -3771,7 +3771,7 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()               # stops the ticker
-            return ok("Auto alerts disabled", "Ticker stopped.")
+            return _reply("✅ *Auto alerts disabled*\n" + _render_auto_status_card())
 
         # --- replace: /alerts_auto_status branch body ---
         elif cmd == "/alerts_auto_status":
@@ -4496,7 +4496,7 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()
-            return ok("Auto alerts disabled", "Ticker stopped.")
+            return _reply("✅ *Auto alerts disabled*\n" + _render_auto_status_card())
 
         # --- replace: /alerts_auto_status branch body ---
         elif cmd == "/alerts_auto_status":
