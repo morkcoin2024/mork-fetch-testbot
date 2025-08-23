@@ -336,49 +336,51 @@ def _render_commands_list(is_admin: bool = False) -> str:
     return _strip_admin_rows(help_text, is_admin)
     # --- end add ---
 
-# --- HELP RENDERER (admin-aware) ---
+# --- HELP RENDERER (compact MDV2, admin-aware) ---
 def _render_help(is_admin: bool) -> str:
-    lines = [
-        "🐕 **Mork F.E.T.C.H Bot - The Degens' Best Friend**",
-        "",
-        "**Fast Execution, Trade Control Handler**",
-        "",
-        "/price <MINT|SOL>",
-        "/about <MINT>",
-        "/fetch <MINT> (alias of /about)",
-        "/mint_for <TICKER|MINT> - Resolve ticker to mint",
-        "/watch <MINT>",
-        "/unwatch <MINT>",
-        "/watchlist",
-        "/watch_clear",
-        "/fetchnow",
-        "/scanonce (alias of /fetchnow)",
-        "/trades [N] - Show recent dry-run trades (this chat)",
-        "/buy <MINT> <SOL_AMOUNT> (dry-run)",
-        "/sell <MINT> <PCT|ALL> (dry-run)",
-        "/status",
-        "/uptime - Process uptime (since start)",
-        "/version - Git SHA + built time",
-        # keep markers for easy strip
-        "/alerts_auto_on (admin)",
-        "/alerts_auto_off (admin)",
-        "/alerts_auto_status (admin)",
-        "/alerts_auto_interval <secs> (admin)",
+    core = [
+        "`/price <MINT|SOL>`",
+        "`/about <MINT>`",
+        "`/fetch <MINT>` (alias of `/about`)",
+        "`/mint_for <TICKER|MINT>` – resolve ticker to mint",
+        "`/watch <MINT>`",
+        "`/unwatch <MINT>`",
+        "`/watchlist`",
+        "`/watch_clear`",
+        "`/fetchnow`",
+        "`/scanonce` (alias of `/fetchnow`)",
+        "`/trades [N]` – recent dry-run trades",
+        "`/buy <MINT> <SOL_AMOUNT>` (dry-run)",
+        "`/sell <MINT> <PCT|ALL>` (dry-run)",
+        "`/status`",
+        "`/uptime`",
+        "`/version`",
     ]
-    text = "\n".join(lines)
+    admin = [
+        "`/alerts_auto_on` (admin)",
+        "`/alerts_auto_off` (admin)",
+        "`/alerts_auto_status` (admin)",
+        "`/alerts_auto_interval <secs>` (admin)",
+    ]
+
+    # Title uses explicit escapes for MDV2
+    title = "🐕 *Mork F\\.E\\.T\\.C\\.H Help*"
+    lines = [title, "", "*Core*", *core]
+
     if is_admin:
-        return text
-    import re
-    admin_patterns = [
-        r'^\s*.*\(admin\)\s*$',
-        r'^\s*/alerts_auto_interval\b.*$',
-        r'^\s*/alerts_auto_on\b.*$',
-        r'^\s*/alerts_auto_off\b.*$',
-        r'^\s*/alerts_auto_status\b.*$',
-    ]
-    for pat in admin_patterns:
-        text = re.sub(pat, "", text, flags=re.MULTILINE)
-    return re.sub(r'\n{3,}', '\n\n', text, flags=re.MULTILINE).strip()
+        lines += ["", "*Admin*", *admin]
+    else:
+        # strip any line marked (admin) defensively
+        import re
+        filtered = []
+        for ln in lines:
+            if re.search(r"\(admin\)\s*$", ln):
+                continue
+            filtered.append(ln)
+        lines = filtered
+
+    # Join – sender is MDV2-safe
+    return "\n".join(lines).strip()
 # --- END HELP RENDERER ---
 
 # --- helper: strip admin-only rows from /help for non-admins ---
