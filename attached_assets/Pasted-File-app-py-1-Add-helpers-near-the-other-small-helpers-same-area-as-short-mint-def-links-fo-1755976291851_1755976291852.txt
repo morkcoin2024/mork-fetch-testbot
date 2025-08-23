@@ -1,0 +1,57 @@
+File: app.py
+
+1) Add helpers near the other small helpers (same area as _short_mint):
+
+def _links_for_mint(mint: str) -> dict:
+    base = mint
+    return {
+        "Dexscreener": f"https://dexscreener.com/solana/{base}",
+        "Birdeye":     f"https://birdeye.so/token/{base}?chain=solana",
+        "Solscan":     f"https://solscan.io/token/{base}",
+        "Jupiter":     f"https://jup.ag/swap/SOL-{base}",
+    }
+
+def _symbol_from_display_name(name: str) -> str:
+    # _display_name_for returns e.g. "SOL — Solana"
+    if isinstance(name, str) and " — " in name:
+        return name.split(" — ", 1)[0]
+    return (name or "").strip()
+
+2) In process_telegram_command router, add two branches (follow existing style and _reply):
+
+elif cmd == "/symbol_for":
+    target = args.split()[0] if args else ""
+    mint = _resolve_to_mint(target)
+    if not mint:
+        return _reply("Usage: `/symbol_for <MINT|TICKER>` — unknown token.", "error")
+    name = _display_name_for(mint)  # e.g., "SOL — Solana" or fallback
+    sym = _symbol_from_display_name(name)
+    short = _short_mint(mint)
+    lines = [
+        "🔤 *Symbol*",
+        f"{name or 'Unknown'}",
+        f"`{short}`",
+        f"(copy) `{mint}`",
+    ]
+    return _reply("\n".join(lines), "ok")
+
+elif cmd == "/links":
+    target = args.split()[0] if args else ""
+    mint = _resolve_to_mint(target)
+    if not mint:
+        return _reply("Usage: `/links <MINT|TICKER>` — unknown token.", "error")
+    short = _short_mint(mint)
+    links = _links_for_mint(mint)
+    lines = [
+        "🔗 *Links*",
+        f"`{short}`",
+        f"Dexscreener: `{links['Dexscreener']}`",
+        f"Birdeye:     `{links['Birdeye']}`",
+        f"Solscan:     `{links['Solscan']}`",
+        f"Jupiter:     `{links['Jupiter']}`",
+    ]
+    return _reply("\n".join(lines), "ok")
+
+3) In _render_help(is_admin: bool), under general commands (near /price, /convert, /about), add:
+    "/symbol_for <MINT|TICKER> → symbol",
+    "/links <MINT|TICKER> - Quick links (Dexscreener/Birdeye/Solscan/Jupiter)"

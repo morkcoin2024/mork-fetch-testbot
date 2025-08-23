@@ -342,6 +342,8 @@ def _render_help(is_admin: bool) -> str:
         "`/price <MINT|SOL>`",
         "`/convert <AMOUNT> <TICKER|MINT>` - Convert token↔USD (use $N or Nusd for USD→token)",
         "`/mint_for <TICKER>` → mint",
+        "`/symbol_for <MINT|TICKER>` → symbol",
+        "`/links <MINT|TICKER>` - Quick links (Dexscreener/Birdeye/Solscan/Jupiter)",
         "`/about <MINT|TICKER>` - Token card (name/price/mint)",
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
@@ -808,6 +810,23 @@ def _resolve_to_mint(arg: str) -> str | None:
     if _is_mint_like(a):
         return a
     return _mint_for_symbol(a)
+
+def _links_for_mint(mint: str) -> dict:
+    base = mint
+    return {
+        "Dexscreener": f"https://dexscreener.com/solana/{base}",
+        "Birdeye":     f"https://birdeye.so/token/{base}?chain=solana",
+        "Solscan":     f"https://solscan.io/token/{base}",
+        "Jupiter":     f"https://jup.ag/swap/SOL-{base}",
+    }
+
+def _symbol_from_display_name(name) -> str:
+    # _display_name_for returns a tuple (ticker, long_name)
+    if isinstance(name, tuple) and len(name) >= 1:
+        return str(name[0] or "").strip()
+    elif isinstance(name, str) and " — " in name:
+        return name.split(" — ", 1)[0]
+    return str(name or "").strip()
 
 def _resolve_token_or_mint(arg: str):
     """
@@ -2351,7 +2370,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3882,7 +3901,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -4234,6 +4253,42 @@ def process_telegram_command(update: dict):
                 "ℹ️ *Token*",
                 f"{name or 'Unknown'}  `{short}`",
                 f"Price: {price_s}",
+            ]
+            return _reply("\n".join(lines), "ok")
+        elif cmd == "/symbol_for":
+            target = args.split()[0] if args else ""
+            mint = _resolve_to_mint(target)
+            if not mint:
+                return _reply("Usage: `/symbol_for <MINT|TICKER>` — unknown token.", "error")
+            name_tuple = _display_name_for(mint)  # returns (ticker, long_name) tuple
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else "Unknown"
+            sym = _symbol_from_display_name(name_tuple)
+            short = _short_mint(mint)
+            lines = [
+                "🔤 *Symbol*",
+                f"{name or 'Unknown'}",
+                f"`{short}`",
+                f"(copy) `{mint}`",
+            ]
+            return _reply("\n".join(lines), "ok")
+        elif cmd == "/links":
+            target = args.split()[0] if args else ""
+            mint = _resolve_to_mint(target)
+            if not mint:
+                return _reply("Usage: `/links <MINT|TICKER>` — unknown token.", "error")
+            short = _short_mint(mint)
+            links = _links_for_mint(mint)
+            lines = [
+                "🔗 *Links*",
+                f"`{short}`",
+                f"Dexscreener: `{links['Dexscreener']}`",
+                f"Birdeye:     `{links['Birdeye']}`",
+                f"Solscan:     `{links['Solscan']}`",
+                f"Jupiter:     `{links['Jupiter']}`",
             ]
             return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
