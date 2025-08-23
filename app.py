@@ -366,11 +366,20 @@ def _render_commands_list(is_admin: bool = False) -> str:
     return _strip_admin_rows(help_text, is_admin)
     # --- end add ---
 
-# --- helper: strip admin-only lines from help for non-admins ---
+# --- helper: strip admin-only rows from /help for non-admins ---
+_ADMIN_HELP_PATTERNS = {"/alerts_auto_interval"}  # extend if you add more admin-only commands
+
 def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     if is_admin:
         return help_text
-    return "\n".join(ln for ln in help_text.splitlines() if " (admin)" not in ln)
+    out = []
+    for ln in help_text.splitlines():
+        if " (admin)" in ln:
+            continue
+        if any(pat in ln for pat in _ADMIN_HELP_PATTERNS):
+            continue
+        out.append(ln)
+    return "\n".join(out)
 # --- end helper ---
 
 def _help_text(is_admin: bool = False):
