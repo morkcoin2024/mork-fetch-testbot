@@ -277,6 +277,14 @@ def start_polling_service(message_handler=None) -> bool:
     """Start the global polling service"""
     global _polling_service
     
+    # Import here to avoid circular imports
+    from app import _acquire_poller_lock
+    
+    # Check singleton lock first
+    if not _acquire_poller_lock():
+        logger.warning("Another poller instance is already running (lock file exists)")
+        return False
+    
     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
     if not bot_token:
         logger.error("TELEGRAM_BOT_TOKEN not found")
@@ -288,7 +296,12 @@ def start_polling_service(message_handler=None) -> bool:
     
     admin_chat_id = os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID')
     _polling_service = TelegramPollingService(bot_token, admin_chat_id)
-    return _polling_service.start_polling()
+    result = _polling_service.start_polling()
+    
+    if result:
+        logger.info("Polling service started with singleton lock acquired")
+    
+    return result
 
 def stop_polling_service():
     """Stop the global polling service"""
@@ -296,6 +309,14 @@ def stop_polling_service():
     if _polling_service:
         _polling_service.stop_polling()
         _polling_service = None
+        
+        # Release singleton lock
+        try:
+            from app import _release_poller_lock
+            _release_poller_lock()
+            logger.info("Polling service stopped and singleton lock released")
+        except Exception as e:
+            logger.warning(f"Error releasing poller lock: {e}")
 
 def get_polling_service() -> Optional[TelegramPollingService]:
     """Get the global polling service instance"""

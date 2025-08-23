@@ -12,6 +12,33 @@ import math
 import sqlite3
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+import atexit
+
+# === SINGLETON POLLER LOCK ===
+_PLOCK_PATH = "/tmp/mork_poller.lock"
+_PLOCK_FD = None
+
+def _acquire_poller_lock() -> bool:
+    """Create an exclusive lock so only one poller starts per host."""
+    global _PLOCK_FD
+    try:
+        _PLOCK_FD = os.open(_PLOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        os.write(_PLOCK_FD, str(os.getpid()).encode())
+        atexit.register(_release_poller_lock)
+        return True
+    except FileExistsError:
+        return False
+
+def _release_poller_lock():
+    """Release the poller lock on process exit."""
+    global _PLOCK_FD
+    try:
+        if _PLOCK_FD is not None:
+            os.close(_PLOCK_FD)
+        if os.path.exists(_PLOCK_PATH):
+            os.unlink(_PLOCK_PATH)
+    except Exception:
+        pass
 
 # === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
