@@ -1388,6 +1388,7 @@ def alerts_auto_on(seconds: int | None = None):
     ALERTS_TICK_THREAD = threading.Thread(target=_alerts_ticker_loop, daemon=True, name="alerts_ticker")
     ALERTS_TICK_THREAD.start()
     logger.info(f"ALERTS_TICK started interval={_alerts_interval_get()}s")
+    _alerts_mark_tick()
 
 def alerts_auto_off():
     import logging
