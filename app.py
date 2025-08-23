@@ -4269,10 +4269,16 @@ def process_telegram_command(update: dict):
             alerts_auto_off()
             return ok("Auto alerts disabled", "Ticker stopped.")
 
+        # --- replace /alerts_auto_status handler ---
         elif cmd == "/alerts_auto_status":
-            s = alerts_auto_status()
-            state = "on" if s["alive"] else "off"
-            return ok("Auto alerts status", f"Status: {state}\nInterval: {s['interval_sec']}s")
+            interval = _alerts_interval_get()
+            last = _ALERTS_TICK_LAST_RUN
+            if last <= 0:
+                return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: never\nNext ~ in {int(interval)}s")
+            ago = _time.time() - last
+            nxt = max(0, int(interval - ago))
+            return _reply(f"Alerts: ON\nInterval: {int(interval)}s\nLast: {int(ago)}s ago\nNext ~ in {nxt}s")
+        # --- end replace ---
 
         elif cmd == "/alerts_minmove" and is_admin:
             if not arg:
