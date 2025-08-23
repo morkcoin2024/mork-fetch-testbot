@@ -3744,13 +3744,14 @@ def process_telegram_command(update: dict):
             text = f"DRY-RUN BUY\n{header}\n{mint}\nAmount: {amt} SOL\n(No real trade executed)"
             
             # Log the trade
+            msg = update.get("message", {}) or {}
             _trade_log_append({
-                "chat_id": chat_id,
-                "type": "buy",
+                "ts": int(time.time()),
+                "kind": "buy",
                 "mint": mint,
-                "amount": amt,
-                "timestamp": int(time.time()),
-                "token_name": header
+                "amount_sol": amt,
+                "user_id": (msg.get("from") or {}).get("id"),
+                "chat_id": (msg.get("chat") or {}).get("id"),
             })
             
             return _reply(text)
@@ -3782,13 +3783,14 @@ def process_telegram_command(update: dict):
             text = f"DRY-RUN SELL\n{header}\n{mint}\nPercent: {pct}%\n(No real trade executed)"
             
             # Log the trade
+            msg = update.get("message", {}) or {}
             _trade_log_append({
-                "chat_id": chat_id,
-                "type": "sell",
+                "ts": int(time.time()),
+                "kind": "sell",
                 "mint": mint,
                 "percent": pct,
-                "timestamp": int(time.time()),
-                "token_name": header
+                "user_id": (msg.get("from") or {}).get("id"),
+                "chat_id": (msg.get("chat") or {}).get("id"),
             })
             
             return _reply(text)
@@ -3809,22 +3811,30 @@ def process_telegram_command(update: dict):
             
             lines = [f"📊 Last {len(trades)} Dry-Run Trades:"]
             for i, trade in enumerate(trades, 1):
-                ts = trade.get("timestamp", 0)
+                ts = trade.get("ts", trade.get("timestamp", 0))  # support both old and new format
                 try:
                     dt = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else "??-??"
                 except:
                     dt = "??-??"
-                trade_type = trade.get("type", "?").upper()
-                token_name = trade.get("token_name", "").split('\n')[0] if trade.get("token_name") else "?"
                 
-                if trade_type == "BUY":
-                    amount = trade.get("amount", 0)
-                    lines.append(f"{i}. {dt} {trade_type} {token_name} - {amount} SOL")
-                elif trade_type == "SELL":
+                # Handle both old and new format
+                trade_kind = trade.get("kind", trade.get("type", "?")).upper()
+                mint = trade.get("mint", "")
+                
+                # Get token name from mint
+                try:
+                    token_name = _display_name_for(mint).split('\n')[0] if mint else "?"
+                except:
+                    token_name = mint[:8] + "..." if len(mint) > 8 else mint or "?"
+                
+                if trade_kind == "BUY":
+                    amount = trade.get("amount_sol", trade.get("amount", 0))
+                    lines.append(f"{i}. {dt} {trade_kind} {token_name} - {amount} SOL")
+                elif trade_kind == "SELL":
                     percent = trade.get("percent", 0)
-                    lines.append(f"{i}. {dt} {trade_type} {token_name} - {percent}%")
+                    lines.append(f"{i}. {dt} {trade_kind} {token_name} - {percent}%")
                 else:
-                    lines.append(f"{i}. {dt} {trade_type} {token_name}")
+                    lines.append(f"{i}. {dt} {trade_kind} {token_name}")
             
             return _reply("\n".join(lines))
         # --- end add ---
