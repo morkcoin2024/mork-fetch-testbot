@@ -160,6 +160,23 @@ def _fmt_dhms(sec: float) -> str:
     return " ".join(parts)
 # --- end uptime helpers ---
 
+# --- version info globals ---
+import os as _os, time as _t
+_GIT_SHA = _os.getenv("GIT_SHA")
+_BUILD_TIME = _os.getenv("BUILD_TIME")
+if not _GIT_SHA:
+    try:
+        import subprocess as _sp
+        _GIT_SHA = _sp.check_output(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            stderr=_sp.DEVNULL
+        ).decode().strip()
+    except Exception:
+        _GIT_SHA = "unknown"
+if not _BUILD_TIME:
+    _BUILD_TIME = _t.strftime("%Y-%m-%d %H:%M:%S UTC", _t.gmtime())
+# --- end version info ---
+
 # try load persisted interval
 try:
     if os.path.exists(_ALERTS_STATE_PATH):
@@ -338,7 +355,7 @@ def _render_help_panel() -> str:
 
 def _render_commands_list() -> str:
     cmds = [
-        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status", "/uptime",
+        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status", "/uptime", "/version",
         "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
         "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
         "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
@@ -353,6 +370,7 @@ def _help_text():
         "/fetch <MINT> (alias of /about)",
         "/status - Bot health: interval/ETA + watchlist size",
         "/uptime - Process uptime (since start)",
+        "/version - Show bot version and build info",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
@@ -3633,6 +3651,19 @@ def process_telegram_command(update: dict):
             pid = _os.getpid()
             return _reply(f"Uptime: {_fmt_dhms(up)}\nSince: {since}\nPID: {pid}")
         # --- end fix ---
+
+        # --- /version command ---
+        elif cmd == "/version":
+            import sys as _sys, platform as _plat
+            lines = [
+                f"🐕 Mork F.E.T.C.H Bot",
+                f"SHA: {_GIT_SHA}",
+                f"Built: {_BUILD_TIME}",
+                f"Python: {_sys.version.split()[0]}",
+                f"Platform: {_plat.system()} {_plat.machine()}",
+            ]
+            return _reply("\n".join(lines))
+        # --- end /version ---
 
         # --- manual scan (one-shot) ---
         elif cmd == "/watch_tick":
