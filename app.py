@@ -136,22 +136,38 @@ def _alerts_interval_get() -> float:
     with _ALERTS_TICK_LOCK:
         return _ALERTS_TICK_INTERVAL
 
+# --- replace: _alerts_interval_set (force-correct clamp) ---
 def _alerts_interval_set(secs: float) -> float:
+    """Set alerts interval in seconds, clamped to [_ALERTS_MIN, _ALERTS_MAX], persist, and log."""
     global _ALERTS_TICK_INTERVAL
-    v = _clamp_interval(secs)
+    try:
+        v = float(secs)
+    except Exception:
+        # leave unchanged on parse error
+        return _ALERTS_TICK_INTERVAL
+
+    # explicit clamp (no helpers, no surprises)
+    if v < _ALERTS_MIN:
+        v = _ALERTS_MIN
+    elif v > _ALERTS_MAX:
+        v = _ALERTS_MAX
+
     with _ALERTS_TICK_LOCK:
         _ALERTS_TICK_INTERVAL = v
-    # persist
+
+    # persist best-effort
     try:
         with open(_ALERTS_STATE_PATH, "w", encoding="utf-8") as f:
             json.dump({"interval": _ALERTS_TICK_INTERVAL}, f)
     except Exception:
         pass
+
     try:
         logger.info(f"ALERTS_TICK interval updated to {v}s (bounds {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)")
     except Exception:
         pass
     return v
+# --- end replace ---
 # --- end replacement ---
 
 def _trade_log_append(entry: dict):
