@@ -4482,6 +4482,7 @@ def process_telegram_command(update: dict):
             wl = (watchlist_by_chat.get(chat_id) or [])
             if not wl:
                 return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
+
             lines = []
             for mint in wl:
                 ticker, long_name = "?", "?"
@@ -4489,8 +4490,8 @@ def process_telegram_command(update: dict):
                     disp = _display_name_for(mint)
                     if isinstance(disp, (tuple, list)) and len(disp) >= 2:
                         ticker, long_name = disp[0], disp[1]
-                    else:
-                        parts = str(disp).splitlines()
+                    elif isinstance(disp, str):
+                        parts = disp.splitlines()
                         if parts:
                             ticker = parts[0]
                         if len(parts) > 1:
@@ -4498,8 +4499,8 @@ def process_telegram_command(update: dict):
                 except Exception:
                     pass
                 lines.append(f"{ticker} — {long_name}  `{_short_mint(mint)}`")
-            body = "👀 *Watchlist*\n" + "\n".join(lines)
-            return _reply(body)
+
+            return _reply("👀 *Watchlist*\n" + "\n".join(lines))
 
 
 
