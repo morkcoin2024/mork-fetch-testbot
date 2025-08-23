@@ -4474,22 +4474,18 @@ def process_telegram_command(update: dict):
             name_tuple = _display_name_for(mint)
             if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
                 ticker, long_name = name_tuple
-                name = f"{ticker} — {long_name}"
+                sym, name = ticker, long_name
             else:
-                name = str(name_tuple) if name_tuple else short
+                sym, name = str(name_tuple) if name_tuple else short, ""
             
-            # Use enhanced volume detection with Dexscreener fallback
             vol = _volume_24h_usd(mint)
-            
             vol_str = _fmt_usd(vol) if vol is not None else "?"
-            
-            lines = [
-                "📈 *24h Volume*",
-                f"{name}",
-                f"`{short}`",
+            return _reply(
+                "📈 *24h Volume*\n"
+                f"{sym} — {name}\n"
+                f"`{short}`\n"
                 f"24h Volume: {vol_str}"
-            ]
-            return _reply("\n".join(lines), "ok")
+            )
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
             if args:
