@@ -3754,6 +3754,20 @@ def process_telegram_command(update: dict):
             text = watch_tick_internal()
             return ok("Watch tick", text)
 
+        # --- alias: /alerts_auto_toggle -> /alerts_auto_on|off based on state ---
+        elif cmd == "/alerts_auto_toggle":
+            if _alerts_is_on():
+                alerts_auto_off()               # stops the ticker
+                return _reply("✅ *Auto alerts disabled*\n" + _render_auto_status_card())
+            else:
+                alerts_auto_on()                # starts the ticker
+                try:
+                    _alerts_mark_tick()         # stamp 'last run' immediately on enable
+                except Exception:
+                    pass
+                return _reply("✅ *Auto alerts enabled*\n" + _render_auto_status_card())
+        # --- end alias ---
+
         # --- automatic watch ticker controls ---
         elif cmd == "/alerts_auto_on":
             # optional interval value in seconds
