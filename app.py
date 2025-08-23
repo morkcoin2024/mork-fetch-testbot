@@ -321,38 +321,7 @@ def _render_watchlist_lines(mints: list) -> str:
     return "\n".join(lines)
 
 # Help and command discovery functions
-def _render_help_panel(is_admin: bool = False) -> str:
-    """Pretty help panel (Markdown-safe enough for our sender)."""
-    lines = [
-        "*F.E.T.C.H Bot — Commands*",
-        "",
-        "*General*",
-        "• `/price <mint|ticker>` — price snapshot",
-        "• `/about <mint>` — full card with timeframes",
-        "• `/fetch <mint>` — alias of /about",
-        "• `/alert <mint>` — manual snapshot (same format as /price)",
-        "",
-        "*Names*",
-        "• `/name <mint>` — show name status",
-        "• `/name_show <mint>` — show name status",
-        "• `/name_set <mint> <TICKER>|<Long Name>` — set override",
-        "• `/name_clear <mint>` — clear override & cache",
-        "",
-        "*Watchlist*",
-        "• `/watch <M1> <M2> ...` — add one or more",
-        "• `/unwatch <M1> <M2> ...` — remove one or more",
-        "• `/watchlist` — show list",
-        "• `/watch_clear` — clear all",
-        "",
-        "*Auto alerts*",
-        "• `/alerts_auto_on <sec>` — start the ticker (sec interval)",
-        "• `/alerts_auto_off` — stop the ticker",
-        "• `/alerts_auto_status` — status/interval",
-        "• `/alerts_auto_interval <secs>` — set interval (admin)",
-        "• `/alerts_eta` — show last/next tick timing",
-    ]
-    help_text = "\n".join(lines)
-    return _strip_admin_rows(help_text, is_admin)
+
 
 def _render_commands_list(is_admin: bool = False) -> str:
     cmds = [
@@ -426,30 +395,7 @@ def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     return "\n".join(out)
 # --- end helper ---
 
-def _help_text(is_admin: bool = False):
-    lines = [
-        "Mork F.E.T.C.H Bot — Commands",
-        "/price <MINT|TICKER>",
-        "/about <MINT>",
-        "/fetch <MINT> (alias of /about)",
-        "/status - Bot health: interval/ETA + watchlist size",
-        "/uptime - Process uptime (since start)",
-        "/version - Git SHA + built time",
-        "/watch <MINT ...>",
-        "/unwatch <MINT ...>",
-        "/watchlist",
-        "/watch_clear",
-        "/fetchnow [MINT ...]",
-        "/alerts_auto_status | /alerts_auto_on | /alerts_auto_off",
-        "/alerts_eta - Show last tick time and next ETA",
-        "/name <MINT>",
-        "/name_show <MINT>",
-        "/help",
-    ]
-    # --- ensure admin-only rows are hidden for non-admins ---
-    help_text = "\n".join(lines)
-    return _strip_admin_rows(help_text, is_admin)
-    # --- end patch ---
+
 
 # Dedicated watchlist command handlers
 def _cmd_watch(chat_id, args):
