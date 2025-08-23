@@ -466,18 +466,19 @@ def _cmd_watchlist(chat_id, args):
     state = _load_json_safe("scanner_state.json")
     chat_id_or_default = chat_id or 0
     bucket = _wl_bucket(state, chat_id_or_default)
-
+    
     if not bucket:
-        return {"status": "ok", "response": "*Watchlist*\n_(empty)_", "parse_mode": "Markdown"}
-
-    out = ["*Watchlist*"]
-    for i, m in enumerate(bucket, 1):
-        nm = _display_name_for(m)
-        # Render as: "1. TICKER" then "(mint_abbrev)"
-        ticker = nm.split("\n")[0] if "\n" in nm else _short_mint(m)
-        out.append(f"{i}. {ticker}")
-        out.append(f"({_short_mint(m)})")
-    return {"status": "ok", "response": "\n".join(out), "parse_mode": "Markdown"}
+        return {"status": "ok", "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`", "parse_mode": "Markdown"}
+    
+    lines = []
+    for mint in bucket:
+        try:
+            ticker, long_name = _display_name_for(mint)
+        except Exception:
+            ticker, long_name = ("?", "?")
+        lines.append(f"{ticker} — {long_name}  `{_short_mint(mint)}`")
+    body = "👀 *Watchlist*\n" + "\n".join(lines)
+    return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
 def _cmd_unwatch(chat_id, args):
     """Enhanced /unwatch handler with per-chat isolation"""
