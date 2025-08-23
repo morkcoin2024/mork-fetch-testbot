@@ -3596,7 +3596,8 @@ def process_telegram_command(update: dict):
                 newv = float(str(args[0]).strip())
             except Exception:
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
-            v = _alerts_interval_set(newv)
+            import sys as _sys
+            v = _sys.modules[__name__]._alerts_interval_set(newv)
             return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
         # --- end modify ---
 
