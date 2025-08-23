@@ -829,27 +829,51 @@ def _symbol_from_display_name(name) -> str:
         return name.split(" — ", 1)[0]
     return str(name or "").strip()
 
+from decimal import Decimal, InvalidOperation
+
 def _fmt_usd(v) -> str:
     try:
-        return f"${float(v):,.2f}"
-    except Exception:
+        # accept numbers or numeric strings; force two decimals
+        q = Decimal(str(v))
+        return f"${q:,.2f}"
+    except (InvalidOperation, Exception):
         return "?"
+
+def _num_or_none(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
 
 def _birdeye_token_overview(mint: str) -> dict:
     """
-    Get liquidity + 24h volume (+ optional market cap) for a token.
-    Uses the same Birdeye request helper used by price fetching.
+    Fetch liquidity, 24h volume, and market cap for a mint.
+    Returns numeric floats or None.
     """
     try:
-        # Reuse your existing Birdeye request helper (same one used for /price)
-        # If your helper is named differently, swap _birdeye_req for it.
         r = birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
         d = (r.get("data") or {})
-        # Field names vary across Birdeye responses; cover common aliases.
-        liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD")
-        v24 = d.get("v24") or d.get("volume24h") or d.get("volume24hUSD")
-        mc  = d.get("mc")  or d.get("marketcap") or d.get("marketCap")
-        return {"liquidity": liq, "v24": v24, "mc": mc}
+
+        # Liquidity variants
+        liq = (
+            d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
+        )
+        # 24h volume variants
+        v24 = (
+            d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or
+            d.get("volume24h_usd") or d.get("volume24h")
+        )
+        # Market cap variants
+        mc = (
+            d.get("mc") or d.get("marketcap") or d.get("marketCap") or
+            d.get("market_cap") or d.get("marketCapUsd")
+        )
+
+        return {
+            "liquidity": _num_or_none(liq),
+            "v24": _num_or_none(v24),
+            "mc": _num_or_none(mc),
+        }
     except Exception:
         return {"liquidity": None, "v24": None, "mc": None}
 
@@ -4321,6 +4345,7 @@ def process_telegram_command(update: dict):
             mint = _resolve_to_mint(target)
             if not mint:
                 return _reply("Usage: `/liquidity <MINT|TICKER>` — unknown token.", "error")
+
             short = _short_mint(mint)
             name_tuple = _display_name_for(mint)
             if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
@@ -4329,19 +4354,20 @@ def process_telegram_command(update: dict):
             else:
                 name = str(name_tuple) if name_tuple else short
             info  = _birdeye_token_overview(mint)
-            liq   = _fmt_usd(info.get("liquidity")) if info.get("liquidity") else "?"
-            v24   = _fmt_usd(info.get("v24")) if info.get("v24") else "?"
-            mc    = _fmt_usd(info.get("mc")) if info.get("mc") else None
+
+            liq_s = _fmt_usd(info.get("liquidity")) if info.get("liquidity") is not None else "?"
+            v24_s = _fmt_usd(info.get("v24")) if info.get("v24") is not None else "?"
+            mc_s  = _fmt_usd(info.get("mc")) if info.get("mc") is not None else None
 
             lines = [
                 "🌊 *Liquidity*",
                 f"{name}",
                 f"`{short}`",
-                f"Liquidity: {liq}",
-                f"24h Volume: {v24}",
+                f"Liquidity: {liq_s}",
+                f"24h Volume: {v24_s}",
             ]
-            if mc:
-                lines.append(f"Market Cap: {mc}")
+            if mc_s:
+                lines.append(f"Market Cap: {mc_s}")
             return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
             # /fetch - enforce MINT only

@@ -1,0 +1,81 @@
+File: app.py
+
+1) Add/replace the helpers near the tiny helpers block (with _short_mint):
+
+from decimal import Decimal, InvalidOperation
+
+def _fmt_usd(v) -> str:
+    try:
+        # accept numbers or numeric strings; force two decimals
+        q = Decimal(str(v))
+        return f"${q:,.2f}"
+    except (InvalidOperation, Exception):
+        return "?"
+
+def _num_or_none(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+def _birdeye_token_overview(mint: str) -> dict:
+    """
+    Fetch liquidity, 24h volume, and market cap for a mint.
+    Returns numeric floats or None.
+    """
+    try:
+        r = _birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
+        d = (r.get("data") or {})
+
+        # Liquidity variants
+        liq = (
+            d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
+        )
+        # 24h volume variants
+        v24 = (
+            d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or
+            d.get("volume24h_usd") or d.get("volume24h")
+        )
+        # Market cap variants
+        mc = (
+            d.get("mc") or d.get("marketcap") or d.get("marketCap") or
+            d.get("market_cap") or d.get("marketCapUsd")
+        )
+
+        return {
+            "liquidity": _num_or_none(liq),
+            "v24": _num_or_none(v24),
+            "mc": _num_or_none(mc),
+        }
+    except Exception:
+        return {"liquidity": None, "v24": None, "mc": None}
+
+2) In the /liquidity router branch, make sure formatting goes through _fmt_usd:
+
+elif cmd == "/liquidity":
+    target = args.split()[0] if args else ""
+    mint = _resolve_to_mint(target)
+    if not mint:
+        return _reply("Usage: `/liquidity <MINT|TICKER>` — unknown token.", "error")
+
+    short = _short_mint(mint)
+    name  = _display_name_for(mint) or short
+    info  = _birdeye_token_overview(mint)
+
+    liq_s = _fmt_usd(info.get("liquidity")) if info.get("liquidity") is not None else "?"
+    v24_s = _fmt_usd(info.get("v24")) if info.get("v24") is not None else "?"
+    mc_s  = _fmt_usd(info.get("mc")) if info.get("mc") is not None else None
+
+    lines = [
+        "🌊 *Liquidity*",
+        f"{name}",
+        f"`{short}`",
+        f"Liquidity: {liq_s}",
+        f"24h Volume: {v24_s}",
+    ]
+    if mc_s:
+        lines.append(f"Market Cap: {mc_s}")
+    return _reply("\n".join(lines), "ok")
+
+3) In _render_help(is_admin), keep the row:
+    "/liquidity <MINT|TICKER> - Liquidity & 24h volume"
