@@ -294,6 +294,7 @@ def _render_help_panel() -> str:
         "• `/alerts_auto_status` — status/interval",
         "• `/alerts_auto_interval <secs>` — set interval (admin)",
         "• `/alerts_eta` — show last/next tick timing",
+        "• `/alerts_force <secs>` — raw set (admin debug)",
     ]
     return "\n".join(lines)
 
@@ -3610,6 +3611,34 @@ def process_telegram_command(update: dict):
             ago = _time.time() - last
             nxt = max(0, int(interval - ago))
             return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
+        # --- end add ---
+
+        # --- add: /alerts_force <secs> (admin-only, raw set for debug) ---
+        elif cmd == "/alerts_force":
+            msg = update.get("message", {}) or {}
+            user_id = (msg.get("from") or {}).get("id")
+            if user_id != 1653046781:
+                return _reply("Admin only.", status="error")
+            if not args:
+                return _reply("Usage: /alerts_force <seconds>", status="error")
+            try:
+                raw = float(str(args[0]).strip())
+            except Exception:
+                return _reply("Invalid seconds. Example: /alerts_force 37", status="error")
+            # direct set with no clamp — debug only
+            global _ALERTS_TICK_INTERVAL
+            with _ALERTS_TICK_LOCK:
+                _ALERTS_TICK_INTERVAL = raw
+            try:
+                with open(_ALERTS_STATE_PATH, "w", encoding="utf-8") as f:
+                    json.dump({"interval": _ALERTS_TICK_INTERVAL}, f)
+            except Exception:
+                pass
+            try:
+                logger.info(f"ALERTS_TICK interval FORCE-SET to {raw}s")
+            except Exception:
+                pass
+            return _reply(f"Force-set alerts interval to {int(raw)}s (debug)")
         # --- end add ---
 
         # Router fallback (and only one in repo) 
