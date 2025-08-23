@@ -330,7 +330,7 @@ def _help_text():
         "/price <MINT|TICKER>",
         "/about <MINT>",
         "/fetch <MINT> (alias of /about)",
-        "/status - Bot health & chat status",
+        "/status - Bot health: interval/ETA + watchlist size",
         "/watch <MINT ...>",
         "/unwatch <MINT ...>",
         "/watchlist",
@@ -3677,7 +3677,7 @@ def process_telegram_command(update: dict):
                        "/about <mint> - snapshot: price, 5m/1h/6h/24h (providers) + 30m/12h (local) with trend arrows\n" + \
                        "/ping - Test connection\n" + \
                        "/test123 - Connection test\n" + \
-                       "/status - Bot health & chat status\n\n" + \
+                       "/status - Bot health: interval/ETA + watchlist size\n\n" + \
                        "💰 **Wallet Commands:**\n" + \
                        "/wallet - Wallet summary\n" + \
                        "/wallet_new - Create new wallet\n" + \
