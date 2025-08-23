@@ -4419,8 +4419,8 @@ def process_telegram_command(update: dict):
             mc  = info.get("mc")
 
             liq_s = _fmt_usd(liq) if liq is not None else "?"
-            v24_s = _fmt_usd(vol) if vol is not None else "?"
-            mc_s  = _fmt_usd(mc)  if mc  is not None else None
+            vol_s = _fmt_usd(vol) if vol is not None else "?"
+            mc_s  = _fmt_usd(mc)  if mc  is not None else "?"
 
             try:
                 logger.info("LIQ_V2: formatted with _fmt_usd")
@@ -4432,10 +4432,9 @@ def process_telegram_command(update: dict):
                 f"{name}",
                 f"`{short}`",
                 f"Liquidity: {liq_s}",
-                f"24h Volume: {v24_s}",
+                f"24h Volume: {vol_s}",
+                f"Market Cap: {mc_s}",
             ]
-            if mc_s:
-                lines.append(f"Market Cap: {mc_s}")
             return _reply("\n".join(lines), "ok")
         elif cmd == "/marketcap":
             target = (args or "").split()[0] if args else ""
