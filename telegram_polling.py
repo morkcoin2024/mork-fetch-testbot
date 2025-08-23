@@ -309,12 +309,10 @@ def stop_polling_service():
         _polling_service = None
         
         # Release singleton lock
-        try:
-            from poller_lock import release as _poller_release
-            _poller_release()
-            logger.info("Polling service stopped and singleton lock released")
-        except Exception as e:
-            logger.warning(f"Error releasing poller lock: {e}")
+        from poller_lock import release as _poller_release
+        try: _poller_release()
+        except Exception: pass
+        logger.info("Polling service stopped and singleton lock released")
 
 def get_polling_service() -> Optional[TelegramPollingService]:
     """Get the global polling service instance"""
