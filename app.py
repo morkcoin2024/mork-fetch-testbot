@@ -3622,19 +3622,17 @@ def process_telegram_command(update: dict):
             return _reply("\n".join(lines))
         # --- end replace ---
 
-        # --- replace: /uptime (fix _time shadow) ---
+        # --- fix: /uptime should persist start time ---
         elif cmd == "/uptime":
             import time as _t, os as _os
-            # ensure process start is set even on hot-reload
-            try:
-                _PROC_STARTED
-            except NameError:
+            global _PROC_STARTED
+            if "_PROC_STARTED" not in globals():
                 _PROC_STARTED = _t.time()
             up = _t.time() - _PROC_STARTED
             since = _t.strftime("%Y-%m-%d %H:%M:%S UTC", _t.gmtime(_PROC_STARTED))
             pid = _os.getpid()
             return _reply(f"Uptime: {_fmt_dhms(up)}\nSince: {since}\nPID: {pid}")
-        # --- end replace ---
+        # --- end fix ---
 
         # --- manual scan (one-shot) ---
         elif cmd == "/watch_tick":
