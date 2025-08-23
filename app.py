@@ -2186,6 +2186,7 @@ ALL_COMMANDS = [
     "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
     "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
     "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle",
+    "/scanners_status", "/scanners_on", "/scanners_off",
     "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
     "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear",
     "/watch", "/unwatch", "/watchlist", "/watch_clear"
@@ -3704,7 +3705,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle", "/scanners_status", "/scanners_on", "/scanners_off", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -3855,6 +3856,25 @@ def process_telegram_command(update: dict):
             v = _sys.modules[__name__]._alerts_interval_set(newv)
             return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
         # --- end replace ---
+
+        # --- scanner control commands ---
+        elif cmd == "/scanners_status":
+            return _reply(_scanners_status_card())
+
+        elif cmd == "/scanners_on":
+            if not _scanners_available():
+                return _reply("Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.", status="error")
+            _scanners_set_on(True)
+            try:
+                _ensure_scanners()
+            except Exception:
+                pass
+            return _reply("✅ Scanners enabled\n" + _scanners_status_card())
+
+        elif cmd == "/scanners_off":
+            _scanners_set_on(False)
+            return _reply("✅ Scanners disabled\n" + _scanners_status_card())
+        # --- end scanner commands ---
 
         # --- add: /alerts_eta (show last tick + next ETA) ---
         elif cmd == "/alerts_eta":
