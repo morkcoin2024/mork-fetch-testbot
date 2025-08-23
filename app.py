@@ -121,22 +121,21 @@ def _clamp_interval(v):
     return v
 # --- end add ---
 
-# --- add: watchlist size helper ---
-import os, json, time as _time
-_WATCHLIST_STATE_PATH = os.environ.get("SCANNER_STATE_PATH", "scanner_state.json")
-
-def _watchlist_len(chat_id):
-    try:
-        if not os.path.exists(_WATCHLIST_STATE_PATH):
+# --- add (idempotent): watchlist length helper ---
+if "_watchlist_len" not in globals():
+    import os, json
+    _WATCHLIST_STATE_PATH = os.environ.get("SCANNER_STATE_PATH", "scanner_state.json")
+    def _watchlist_len(chat_id):
+        try:
+            if not os.path.exists(_WATCHLIST_STATE_PATH):
+                return 0
+            with open(_WATCHLIST_STATE_PATH, "r", encoding="utf-8") as f:
+                st = json.load(f) or {}
+            m = st.get("watchlist_by_chat") or {}
+            wl = m.get(str(chat_id)) or m.get(chat_id) or []
+            return len(wl)
+        except Exception:
             return 0
-        with open(_WATCHLIST_STATE_PATH, "r", encoding="utf-8") as f:
-            st = json.load(f) or {}
-        m = st.get("watchlist_by_chat") or {}
-        # keys may be str or int depending on writer
-        wl = m.get(str(chat_id)) or m.get(chat_id) or []
-        return len(wl)
-    except Exception:
-        return 0
 # --- end add ---
 
 # try load persisted interval
@@ -3558,19 +3557,20 @@ def process_telegram_command(update: dict):
         # Define public commands that don't require admin access
         public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
-        # Lightweight /status for all users (place BEFORE unknown fallback)
+        # Bot health status with interval/ETA + watchlist size
         if cmd == "/status":
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-            mode = "Integrated Polling"
-            # keep this simple to avoid Markdown pitfalls; tg_send will escape anyway
-            lines = [
-                "✅ Bot Status: OPERATIONAL",
-                f"⚡ Mode: {mode}",
-                f"⏱ Time: {now}",
-                "🔒 Admin access"
-            ]
-            return _reply("\n".join(lines))
+            msg = update.get("message", {}) or {}
+            chat_id = (msg.get("chat") or {}).get("id")
+            interval = _alerts_interval_get()
+            last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
+            if last > 0:
+                ago = int(_time.time() - last)
+                nxt = max(0, int(interval - ( _time.time() - last )))
+                when = f"Last: {ago}s ago | Next ~ in {nxt}s"
+            else:
+                when = "Last: never | Next: unknown"
+            wl = _watchlist_len(chat_id)
+            return _reply(f"Up ✅ | Chat {chat_id} | Watchlist: {wl} | Interval: {int(interval)}s | {when}")
 
         # --- manual scan (one-shot) ---
         elif cmd == "/watch_tick":
@@ -3637,21 +3637,7 @@ def process_telegram_command(update: dict):
             return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
         # --- end add ---
 
-        # --- add: /status (bot health) ---
-        elif cmd == "/status":
-            msg = update.get("message", {}) or {}
-            chat_id = (msg.get("chat") or {}).get("id")
-            interval = _alerts_interval_get()
-            last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
-            if last > 0:
-                ago = int(_time.time() - last)
-                nxt = max(0, int(interval - ( _time.time() - last )))
-                when = f"Last: {ago}s ago | Next ~ in {nxt}s"
-            else:
-                when = "Last: never | Next: unknown"
-            wl = _watchlist_len(chat_id)
-            return _reply(f"Up ✅ | Chat {chat_id} | Watchlist: {wl} | Interval: {int(interval)}s | {when}")
-        # --- end add ---
+
 
 
 
