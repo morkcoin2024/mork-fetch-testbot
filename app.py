@@ -3553,30 +3553,42 @@ def process_telegram_command(update: dict):
         elif cmd == "/fetchnow":
             return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
-            # /about
-            arg = (args[0] if args else "").strip()
-            mint, name = _resolve_input_to_mint_and_name(arg)
-            if not mint:
-                return _reply(chat_id, "Usage: /about <mint|ticker>", handled=True)
-
+            # /about - ticker resolution right after args parsing
+            if not args:
+                return _reply("Unknown token. Try a mint or known ticker.", status="error")
+            _a0 = args.strip()
+            if len(_a0) not in (32, 43, 44):
+                _m = _resolve_target(_a0)
+                if not _m:
+                    return _reply("Unknown token. Try a mint or known ticker.", status="error")
+                args = _m  # Replace args with resolved mint
+                _a0 = _m   # Update local variable
+            
+            # Continue with existing About card code that expects args to be a mint
+            mint = _a0
+            name_display = _display_name_for(mint)
             pr = get_price(mint, 'birdeye')
             return _reply(
-                chat_id,
-                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name),
-                handled=True
+                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
             )
         elif cmd == "/fetch":
-            # /fetch
-            arg = (args[0] if args else "").strip()
-            mint, name = _resolve_input_to_mint_and_name(arg)
-            if not mint:
-                return _reply(chat_id, "Usage: /fetch <mint|ticker>", handled=True)
-
+            # /fetch - ticker resolution right after args parsing
+            if not args:
+                return _reply("Unknown token. Try a mint or known ticker.", status="error")
+            _a0 = args.strip()
+            if len(_a0) not in (32, 43, 44):
+                _m = _resolve_target(_a0)
+                if not _m:
+                    return _reply("Unknown token. Try a mint or known ticker.", status="error")
+                args = _m  # Replace args with resolved mint
+                _a0 = _m   # Update local variable
+            
+            # Continue with existing fetch card code that expects args to be a mint
+            mint = _a0
+            name_display = _display_name_for(mint)
             pr = get_price(mint, 'birdeye')
             return _reply(
-                chat_id,
-                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name),
-                handled=True
+                render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
             )
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
