@@ -126,9 +126,8 @@ try:
     if os.path.exists(_ALERTS_STATE_PATH):
         with open(_ALERTS_STATE_PATH, "r", encoding="utf-8") as f:
             _state = json.load(f) or {}
-        v = float(_state.get("interval", _ALERTS_TICK_INTERVAL))
-        if v:
-            _ALERTS_TICK_INTERVAL = _clamp_interval(v)
+        v = _state.get("interval", _ALERTS_TICK_INTERVAL)
+        _ALERTS_TICK_INTERVAL = _clamp_interval(v)
 except Exception:
     pass
 # --- end header ---
