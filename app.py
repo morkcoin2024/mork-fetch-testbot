@@ -3489,7 +3489,8 @@ def process_telegram_command(update: dict):
                        "/name_set <mint> <TICKER>|<Long Name> - Set name override\n" + \
                        "/name_show <mint> - Show name status & overrides\n" + \
                        "/name_clear <mint> - Clear name override & cache\n" + \
-                       "/mint_for <ticker|mint> - Convert ticker to mint or echo mint\n\n" + \
+                       "/mint_for <ticker|mint> - Convert ticker to mint or echo mint\n" + \
+                       "/whoami - Show your user/chat IDs\n\n" + \
                        "🔍 **Watchlist Commands:**\n" + \
                        "/watch <mint...> - Add token(s) to watchlist\n" + \
                        "/unwatch <mint...> - Remove token(s) from watchlist\n" + \
