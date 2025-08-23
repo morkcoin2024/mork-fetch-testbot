@@ -121,6 +121,24 @@ def _clamp_interval(v):
     return v
 # --- end add ---
 
+# --- add: watchlist size helper ---
+import os, json, time as _time
+_WATCHLIST_STATE_PATH = os.environ.get("SCANNER_STATE_PATH", "scanner_state.json")
+
+def _watchlist_len(chat_id):
+    try:
+        if not os.path.exists(_WATCHLIST_STATE_PATH):
+            return 0
+        with open(_WATCHLIST_STATE_PATH, "r", encoding="utf-8") as f:
+            st = json.load(f) or {}
+        m = st.get("watchlist_by_chat") or {}
+        # keys may be str or int depending on writer
+        wl = m.get(str(chat_id)) or m.get(chat_id) or []
+        return len(wl)
+    except Exception:
+        return 0
+# --- end add ---
+
 # try load persisted interval
 try:
     if os.path.exists(_ALERTS_STATE_PATH):
