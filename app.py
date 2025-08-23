@@ -3618,7 +3618,7 @@ def process_telegram_command(update: dict):
             return _reply(_render_help(is_admin))
         # --- end early return ---
         
-        # --- replace: /status (compact MDV2 card) ---
+        # --- replace: /status (show Auto on/off + sane ETA when off) ---
         elif cmd == "/status":
             msg = update.get("message", {}) or {}
             chat_id = (msg.get("chat") or {}).get("id")
@@ -3628,18 +3628,32 @@ def process_telegram_command(update: dict):
             import time as _t
             now = _t.strftime("%H:%M:%S UTC", _t.gmtime())
 
-            # metrics
+            # interval
             try:
                 interval = int(_alerts_interval_get())
             except Exception:
                 interval = 30
+
+            # auto state via thread liveness
+            thr = globals().get("_ALERTS_TICK_THREAD")
+            alive = False
+            try:
+                alive = bool(thr and thr.is_alive())
+            except Exception:
+                alive = False
+            auto_state = "on" if alive else "off"
+
+            # last/next
             last = globals().get("_ALERTS_TICK_LAST_RUN", 0.0) or 0.0
-            if last > 0:
-                ago = int(_t.time() - last)
-                nxt = max(0, interval - ago)
-                eta = f"{ago}s ago | ~{nxt}s"
+            if alive:
+                if last > 0:
+                    ago = int(_t.time() - last)
+                    nxt = max(0, interval - ago)
+                    eta = f"{ago}s ago | ~{nxt}s"
+                else:
+                    eta = f"0s ago | ~{interval}s"
             else:
-                eta = "never | unknown"
+                eta = "— | —"
 
             # watchlist size
             try:
@@ -3652,6 +3666,7 @@ def process_telegram_command(update: dict):
                 "🐕 *Mork F\\.E\\.T\\.C\\.H Status*",
                 f"⏱ `{now}`",
                 f"👤 {'Admin' if is_admin else 'User'}",
+                f"🧭 Auto: `{auto_state}`",
                 f"⏳ Interval: `{interval}s`",
                 f"🕒 Last | Next: `{eta}`",
                 f"👀 Watchlist: `{wl}`",
