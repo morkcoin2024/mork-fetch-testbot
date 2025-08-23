@@ -3572,19 +3572,11 @@ def process_telegram_command(update: dict):
         elif cmd == "/fetchnow":
             return _cmd_fetchnow(update, chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
         elif cmd == "/about":
-            # /about - ticker resolution right after args parsing
-            if not args:
-                return _reply("Unknown token. Try a mint or known ticker.", status="error")
-            _a0 = args.strip()
-            if len(_a0) not in (32, 43, 44):
-                _m = _resolve_target(_a0)
-                if not _m:
-                    return _reply("Unknown token. Try a mint or known ticker.", status="error")
-                args = _m  # Replace args with resolved mint
-                _a0 = _m   # Update local variable
-            
-            # Continue with existing About card code that expects args to be a mint
-            mint = _a0
+            # /about - enforce MINT only
+            if not args or len(args.strip()) not in (32, 43, 44):
+                return _reply("Please provide a mint address (32/44 chars). Example: /about <MINT>", status="error")
+            # Continue existing About card logic (expects args = mint)
+            mint = args.strip()
             name_display = _display_name_for(mint)
             pr = get_price(mint, 'birdeye')
             return _reply(
