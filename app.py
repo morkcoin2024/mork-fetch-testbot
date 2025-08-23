@@ -1512,6 +1512,7 @@ def alerts_auto_on(seconds: int | None = None):
     ALERTS_TICK_THREAD.start()
     logger.info(f"ALERTS_TICK started interval={_alerts_interval_get()}s")
     _alerts_mark_tick()
+    _alerts_set_on(True)  # update state flag
 
 def alerts_auto_off():
     import logging
@@ -1521,6 +1522,7 @@ def alerts_auto_off():
     if ALERTS_TICK_THREAD:
         logging.info("ALERTS_TICK stopping")
         ALERTS_TICK_THREAD = None
+    _alerts_set_on(False)  # update state flag
 
 def alerts_auto_status() -> dict:
     alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
@@ -2798,6 +2800,27 @@ def _resolve_input_to_mint_and_name(user_arg: str):
     name = resolve_token_name(mint)
     return (mint, name)
 
+# --- alerts auto state (runtime flag) ---
+try:
+    _ALERTS_AUTO_STATE
+except NameError:
+    _ALERTS_AUTO_STATE = False
+
+def _alerts_set_on(flag: bool):
+    global _ALERTS_AUTO_STATE
+    _ALERTS_AUTO_STATE = bool(flag)
+
+def _alerts_is_on() -> bool:
+    # prefer live thread if present, else fallback to flag
+    try:
+        thr = globals().get("_ALERTS_TICK_THREAD")
+        if thr and thr.is_alive():
+            return True
+    except Exception:
+        pass
+    return bool(globals().get("_ALERTS_AUTO_STATE", False))
+# --- end helpers ---
+
 # --- content-aware dedupe for tg_send ---------------------------------------
 # content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
 _LAST_SENT: dict[Tuple[int, str], float] = {}
@@ -3634,13 +3657,8 @@ def process_telegram_command(update: dict):
             except Exception:
                 interval = 30
 
-            # auto state via thread liveness
-            thr = globals().get("_ALERTS_TICK_THREAD")
-            alive = False
-            try:
-                alive = bool(thr and thr.is_alive())
-            except Exception:
-                alive = False
+            # auto state via helper
+            alive = _alerts_is_on()
             auto_state = "on" if alive else "off"
 
             # last/next
