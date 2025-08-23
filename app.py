@@ -93,15 +93,23 @@ def _alerts_last_tick() -> float:
     return _ALERTS_TICK_LAST_RUN
 # --- end add ---
 
-# --- replace interval globals with persisted version ---
+# --- sane bounds + defaults (defensive) ---
 import threading, os, json
-_ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
+# Allow env overrides; fall back to sane defaults
+try:
+    _ALERTS_MIN = float(os.getenv("ALERTS_MIN", "5"))
+    _ALERTS_MAX = float(os.getenv("ALERTS_MAX", "600"))
+except Exception:
+    _ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
+
+# ensure MIN <= MAX even if env is mis-set
+if _ALERTS_MAX < _ALERTS_MIN:
+    _ALERTS_MIN, _ALERTS_MAX = _ALERTS_MAX, _ALERTS_MIN
+
 _ALERTS_TICK_LOCK = threading.Lock()
-
 _ALERTS_STATE_PATH = os.environ.get("ALERTS_STATE_PATH", "alerts_state.json")
-
-# default from env or 30s
 _ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
+# --- end header ---
 
 # try load persisted interval
 try:
