@@ -3311,10 +3311,30 @@ def process_telegram_command(update: dict):
     # --- HOTFIX_EXT_ROUTES_END ---
 
     # Unified reply function - single source of truth for response format
-    def _reply(body: str, status: str = "ok"):
-        result = {"status": status, "response": body, "handled": True}
-        # Apply price alert hook before returning
-        return result
+    def _reply(text, status="ok"):
+        return {"text": str(text), "status": status, "response": str(text), "handled": True}
+
+    def _resolve_target(arg: str):
+        """
+        Accepts TICKER or MINT; returns mint or None.
+        Prefers explicit overrides/lookup used by /price if present.
+        """
+        s = (arg or "").strip()
+        if not s:
+            return None
+        if len(s) in (32, 44):  # mint already
+            return s
+        # Try known resolvers used in /price (keep order stable; first hit wins)
+        for name in ("resolve_input_to_mint", "resolve_ticker_to_mint", "resolve_symbol_to_mint", "resolve_token_to_mint"):
+            fn = globals().get(name)
+            if callable(fn):
+                try:
+                    mint = fn(s)
+                    if isinstance(mint, str) and len(mint) in (32, 44):
+                        return mint
+                except Exception:
+                    pass
+        return None
     
     # Helper function for structured responses with title and body
     def ok(title: str, body: str):
