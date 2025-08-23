@@ -138,6 +138,28 @@ if "_watchlist_len" not in globals():
             return 0
 # --- end add ---
 
+# --- uptime globals + formatter ---
+import time as _time, os as _os
+
+# record when this process started (first import)
+try:
+    _PROC_STARTED  # if already set (hot reload), keep it
+except NameError:
+    _PROC_STARTED = _time.time()
+
+def _fmt_dhms(sec: float) -> str:
+    s = int(sec)
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    parts = []
+    if d: parts.append(f"{d}d")
+    if h: parts.append(f"{h}h")
+    if m: parts.append(f"{m}m")
+    parts.append(f"{s}s")
+    return " ".join(parts)
+# --- end uptime helpers ---
+
 # try load persisted interval
 try:
     if os.path.exists(_ALERTS_STATE_PATH):
