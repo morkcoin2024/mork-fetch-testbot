@@ -87,6 +87,18 @@ _ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
 _ALERTS_TICK_LOCK = threading.Lock()
 _ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
 
+# --- add: alerts tick markers ---
+import time as _time
+_ALERTS_TICK_LAST_RUN = 0.0
+def _alerts_mark_tick():
+    global _ALERTS_TICK_LAST_RUN
+    _ALERTS_TICK_LAST_RUN = _time.time()
+
+def _alerts_last_tick() -> float:
+    """Get timestamp of last successful tick"""
+    return _ALERTS_TICK_LAST_RUN
+# --- end add ---
+
 def _alerts_interval_get() -> float:
     with _ALERTS_TICK_LOCK:
         return _ALERTS_TICK_INTERVAL
@@ -1357,6 +1369,7 @@ def _alerts_ticker_loop():
             if now - last >= intv:
                 try:
                     _ = watch_tick_internal()  # triggers alert hook
+                    _alerts_mark_tick()  # mark successful tick execution
                 except Exception:
                     logging.exception("alerts_ticker: watch_tick_internal failed")
                 last = now
@@ -1390,7 +1403,12 @@ def alerts_auto_off():
 
 def alerts_auto_status() -> dict:
     alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
-    return {"alive": alive, "interval_sec": int(_alerts_interval_get())}
+    last_tick_ts = _alerts_last_tick()
+    return {
+        "alive": alive, 
+        "interval_sec": int(_alerts_interval_get()),
+        "last_tick": last_tick_ts
+    }
 
 def _active_price_source():
     """Read what /source set; default to birdeye"""
