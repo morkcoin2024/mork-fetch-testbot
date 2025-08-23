@@ -1351,7 +1351,7 @@ def _alerts_ticker_loop():
     last = 0
     while not ALERTS_TICK_STOP.is_set():
         try:
-            intv = max(5, int(ALERTS_TICK_INTERVAL or 0))
+            intv = max(5, int(_alerts_interval_get()))
             now = time.time()
             if now - last >= intv:
                 try:
@@ -1376,7 +1376,7 @@ def alerts_auto_on(seconds: int | None = None):
     ALERTS_TICK_STOP.clear()
     ALERTS_TICK_THREAD = threading.Thread(target=_alerts_ticker_loop, daemon=True, name="alerts_ticker")
     ALERTS_TICK_THREAD.start()
-    logging.info("ALERTS_TICK started interval=%ss", ALERTS_TICK_INTERVAL)
+    logger.info(f"ALERTS_TICK started interval={_alerts_interval_get()}s")
 
 def alerts_auto_off():
     import logging
@@ -1389,7 +1389,7 @@ def alerts_auto_off():
 
 def alerts_auto_status() -> dict:
     alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
-    return {"alive": alive, "interval_sec": int(ALERTS_TICK_INTERVAL or 0)}
+    return {"alive": alive, "interval_sec": int(_alerts_interval_get())}
 
 def _active_price_source():
     """Read what /source set; default to birdeye"""
