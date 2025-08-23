@@ -4710,16 +4710,16 @@ def process_telegram_command(update: dict):
             if deny: return deny
             return _reply("⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning")
         
-        # --- /alerts_auto_interval <secs> (admin-only) ---
+        # --- add: /alerts_auto_interval (admin-only) ---
         elif cmd == "/alerts_auto_interval":
             msg = update.get("message", {}) or {}
             user_id = (msg.get("from") or {}).get("id")
             if user_id != 1653046781:
                 return _reply("Admin only.", status="error")
-            if not args.strip():
+            if not args:
                 return _reply("Usage: /alerts_auto_interval <seconds>", status="error")
             try:
-                newv = float(args.strip())
+                newv = float(args.split()[0].strip())
             except Exception:
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
             v = _alerts_interval_set(newv)
