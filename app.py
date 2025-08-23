@@ -4483,49 +4483,34 @@ def process_telegram_command(update: dict):
             if not wl:
                 return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
 
-            def _name_for_watchlist(mint: str) -> tuple[str, str]:
-                """Best-effort: accept tuple/list/str/dict from _display_name_for; fallback to optional globals."""
-                t, ln = "?", "?"
+            def _name_parts(mint: str) -> tuple[str, str]:
+                """Robustly derive (ticker, long_name) from _display_name_for output."""
                 try:
                     disp = _display_name_for(mint)
-                    # tuple/list: (ticker, long_name, ...)
+                    # tuple/list → (ticker, long)
                     if isinstance(disp, (tuple, list)):
-                        if len(disp) > 0 and isinstance(disp[0], str): t = disp[0]
-                        if len(disp) > 1 and isinstance(disp[1], str): ln = disp[1]
-                    # string: "TICKER\nLong Name"
-                    elif isinstance(disp, str):
+                        t = (disp[0] or "?").strip() if len(disp) > 0 else "?"
+                        ln = (disp[1] or "?").strip() if len(disp) > 1 else "?"
+                        return t or "?", ln or "?"
+                    # string → "TICKER\nLong Name"
+                    if isinstance(disp, str):
                         parts = [p.strip() for p in disp.splitlines() if p.strip()]
                         if parts:
                             t = parts[0]
-                            if len(parts) > 1: ln = parts[1]
-                    # dict: support common keys
-                    elif isinstance(disp, dict):
-                        t = disp.get("ticker") or disp.get("symbol") or t
-                        ln = disp.get("long_name") or disp.get("name") or ln
+                            ln = parts[1] if len(parts) > 1 else "?"
+                            return t or "?", ln or "?"
+                    # dict → common keys
+                    if isinstance(disp, dict):
+                        t = (disp.get("ticker") or disp.get("symbol") or "?").strip()
+                        ln = (disp.get("long_name") or disp.get("name") or "?").strip()
+                        return t or "?", ln or "?"
                 except Exception:
                     pass
-
-                # Optional global fallbacks (won't crash if missing)
-                if (not t or t == "?"):
-                    try:
-                        fn = globals().get("_ticker_for_mint")
-                        if callable(fn):
-                            t = fn(mint) or t
-                    except Exception:
-                        pass
-                if (not ln or ln == "?"):
-                    try:
-                        fn = globals().get("_long_name_for_mint")
-                        if callable(fn):
-                            ln = fn(mint) or ln
-                    except Exception:
-                        pass
-
-                return (t or "?"), (ln or "?")
+                return "?", "?"
 
             lines = []
             for mint in wl:
-                t, ln = _name_for_watchlist(mint)
+                t, ln = _name_parts(mint)
                 lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
 
             return _reply("👀 *Watchlist*\n" + "\n".join(lines))
