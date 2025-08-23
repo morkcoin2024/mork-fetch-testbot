@@ -2877,7 +2877,8 @@ def _ensure_scanners():
         if POLLING_MODE != 'ON':
             try:
                 from telegram_polling import start_polling_service
-                if start_polling_service():
+                ok = start_polling_service()
+                if ok:
                     logger.info("Telegram polling service started successfully")
                     
                     # Start digest scheduler thread
@@ -2894,7 +2895,7 @@ def _ensure_scanners():
                     except Exception:
                         logger.exception("Failed to start alerts auto ticker")
                 else:
-                    logger.warning("Failed to start telegram polling service")
+                    logger.info("Telegram polling service was skipped; another instance is active")
             except Exception as e:
                 logger.error("Error starting telegram polling service: %s", e)
         else:
