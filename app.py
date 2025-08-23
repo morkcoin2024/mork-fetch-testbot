@@ -350,7 +350,7 @@ def _render_help(is_admin: bool) -> str:
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
         "`/unwatch <MINT>`",
-        "`/watchlist`",
+        "`/watchlist [prices|caps]`",
         "`/watch_clear`",
         "`/fetchnow`",
         "`/scanonce` (alias of `/fetchnow`)",
@@ -472,14 +472,27 @@ def _cmd_watchlist(chat_id, args):
     if not bucket:
         return {"status": "ok", "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`", "parse_mode": "Markdown"}
     
-    # Parse optional price flag
-    with_prices = bool(args and args.strip().lower() in {"p","price","prices"})
+    # Parse optional display variants
+    show = (args or "").strip().lower()
+    with_prices = bool(show in {"p","price","prices"})
+    with_caps = bool(show in {"c","cap","caps","marketcap"})
     
     lines = []
     for mint in bucket:
         ticker, long_name = _display_name_for(mint)
-        price = _birdeye_price(mint) if with_prices else None
-        lines.append(_format_watch_row(mint, ticker, long_name, price, with_prices))
+        short = _short_mint(mint)
+        
+        if with_caps:
+            # Use same Birdeye API as /marketcap and /liquidity
+            info = _birdeye_token_overview(mint)
+            mc = info.get("mc")
+            cap_str = _fmt_usd(mc) if mc is not None else "?"
+            lines.append(f"{ticker} — {long_name}  {cap_str}  `{short}`")
+        elif with_prices:
+            price = _birdeye_price(mint)
+            lines.append(_format_watch_row(mint, ticker, long_name, price, with_prices))
+        else:
+            lines.append(f"{ticker} — {long_name}  `{short}`")
     body = "👀 *Watchlist*\n" + "\n".join(lines)
     return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
@@ -4812,25 +4825,11 @@ def process_telegram_command(update: dict):
         
         # --- Watchlist commands (lightweight v1) ---
         elif cmd == "/watch":
-            if not arg:
-                return {"status":"ok","response":"Usage: /watch <mint>"}
-            mint = arg.strip()
-            
-            # Validate and normalize mint
-            original_mint = mint
-            mint = normalize_mint(mint)
-            if not is_valid_mint(mint):
-                return {"status":"ok","response":f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`"}
-            
-            try:
-                wl = _load_watchlist()
-                if _watch_contains(wl, mint):
-                    return {"status":"ok","response":"(already watching)"}
-                wl.append({"mint": mint, "last": None, "delta_pct": None, "src": None})
-                _save_watchlist(wl)
-                return {"status":"ok","response":f"👁️ Watching\n`{mint}`","parse_mode":"Markdown"}
-            except Exception as e:
-                return {"status":"ok","response":f"Internal error: {e}"}
+            # Use enhanced _cmd_watch function with per-chat isolation
+            result = _cmd_watch(chat_id, args)
+            response_text = result.get("response", "No response")
+            parse_mode = result.get("parse_mode", "Markdown")
+            return {"text": response_text, "status": "ok", "response": response_text, "handled": True, "parse_mode": parse_mode}
 
         elif cmd == "/unwatch" and args:
             # Validate and normalize mint
@@ -4849,19 +4848,11 @@ def process_telegram_command(update: dict):
             return _reply("👁️ Unwatched")
 
         elif cmd == "/watchlist":
-            wl = (watchlist_by_chat.get(chat_id) or [])
-            if not wl:
-                return _reply("👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`")
-
-            lines = []
-            for mint in wl:
-                try:
-                    t, ln = _display_name_for(mint)
-                except Exception:
-                    t, ln = "?", "?"
-                lines.append(f"{t} — {ln}  `{_short_mint(mint)}`")
-
-            return _reply("👀 *Watchlist*\n" + "\n".join(lines))
+            # Use enhanced _cmd_watchlist function with caps variant support
+            result = _cmd_watchlist(chat_id, args)
+            response_text = result.get("response", "No response")
+            parse_mode = result.get("parse_mode", "Markdown")
+            return {"text": response_text, "status": "ok", "response": response_text, "handled": True, "parse_mode": parse_mode}
 
 
 
