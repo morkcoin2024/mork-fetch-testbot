@@ -3765,7 +3765,8 @@ def process_telegram_command(update: dict):
                     _alerts_mark_tick()         # stamp 'last run' immediately on enable
                 except Exception:
                     pass
-                return _reply("✅ *Auto alerts enabled*\n" + _render_auto_status_card())
+                ival = int(_alerts_interval_get() or 0)
+                return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
         # --- end alias ---
 
         # --- automatic watch ticker controls ---
@@ -3781,7 +3782,8 @@ def process_telegram_command(update: dict):
                 _alerts_mark_tick()  # stamp 'last run' immediately on enable
             except Exception:
                 pass
-            return _reply("✅ *Auto alerts enabled*\n" + _render_auto_status_card())
+            ival = int(_alerts_interval_get() or 0)
+            return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()               # stops the ticker
@@ -4506,7 +4508,8 @@ def process_telegram_command(update: dict):
             except: 
                 sec = None
             alerts_auto_on(sec)
-            return _reply("✅ *Auto alerts enabled*\n" + _render_auto_status_card())
+            ival = int(_alerts_interval_get() or 0)
+            return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
 
         elif cmd == "/alerts_auto_off":
             alerts_auto_off()
