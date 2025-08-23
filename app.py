@@ -3482,6 +3482,7 @@ def process_telegram_command(update: dict):
                        "/fetch - Basic token fetch\n" + \
                        "/fetch_now - Multi-source fetch\n" + \
                        "/fetchnow [n|mint...] - Smart fetch: n from watchlist or specific mints\n" + \
+                       "/mint_for <TICKER|MINT> - Resolve ticker to mint (for /about or /fetch)\n" + \
                        "/name <mint> - Show override/cache (alias of /name_show)\n" + \
                        "/name_refresh <mint> - Refresh token name cache\n" + \
                        "/name_refetch_jup - Refresh Jupiter catalog\n" + \
