@@ -2825,6 +2825,44 @@ def _alerts_is_on() -> bool:
     return bool(globals().get("_ALERTS_AUTO_STATE", False))
 # --- end helpers ---
 
+# --- scanners runtime state & card ---
+import os as _os
+
+try:
+    _SCANNERS_ON
+except NameError:
+    _SCANNERS_ON = bool(int((_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0")))
+
+def _scanners_available() -> bool:
+    try:
+        return bool(int((_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0")))
+    except Exception:
+        return False
+
+def _scanners_set_on(flag: bool):
+    global _SCANNERS_ON
+    _SCANNERS_ON = bool(flag)
+
+def _scanners_is_on() -> bool:
+    if not bool(globals().get("_SCANNERS_ON", False)):
+        return False
+    try:
+        reg = globals().get("SCANNERS", {}) or {}
+        return bool(reg)
+    except Exception:
+        return False
+
+def _scanners_status_card() -> str:
+    reg = globals().get("SCANNERS", {}) or {}
+    state = "on" if _scanners_is_on() else ("off" if _scanners_available() else "unavailable")
+    keys = ", ".join(sorted(reg.keys())) if reg else "—"
+    return "\n".join([
+        f"🛰 Scanners: `{state}`",
+        f"🔌 Sources: `{len(reg)}`",
+        f"🔑 Keys: `{keys}`",
+    ])
+# --- end scanners helpers ---
+
 # --- mini card for alerts auto status ---
 def _render_auto_status_card() -> str:
     import time as _t
