@@ -81,12 +81,6 @@ def _trade_log_export_csv(chat_id: int, rows: list):
         return None
 # --- end add ---
 
-# --- Alerts interval controller (live-tunable) ---
-import threading, os
-_ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
-_ALERTS_TICK_LOCK = threading.Lock()
-_ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
-
 # --- add: alerts tick markers ---
 import time as _time
 _ALERTS_TICK_LAST_RUN = 0.0
@@ -98,6 +92,27 @@ def _alerts_last_tick() -> float:
     """Get timestamp of last successful tick"""
     return _ALERTS_TICK_LAST_RUN
 # --- end add ---
+
+# --- replace interval globals with persisted version ---
+import threading, os, json
+_ALERTS_MIN, _ALERTS_MAX = 5.0, 600.0
+_ALERTS_TICK_LOCK = threading.Lock()
+
+_ALERTS_STATE_PATH = os.environ.get("ALERTS_STATE_PATH", "alerts_state.json")
+
+# default from env or 30s
+_ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
+
+# try load persisted interval
+try:
+    if os.path.exists(_ALERTS_STATE_PATH):
+        with open(_ALERTS_STATE_PATH, "r", encoding="utf-8") as f:
+            _state = json.load(f) or {}
+        v = float(_state.get("interval", _ALERTS_TICK_INTERVAL))
+        if v:
+            _ALERTS_TICK_INTERVAL = max(_ALERTS_MIN, min(_ALERTS_MAX, v))
+except Exception:
+    pass
 
 def _alerts_interval_get() -> float:
     with _ALERTS_TICK_LOCK:
@@ -112,12 +127,18 @@ def _alerts_interval_set(secs: float) -> float:
     v = max(_ALERTS_MIN, min(_ALERTS_MAX, v))
     with _ALERTS_TICK_LOCK:
         _ALERTS_TICK_INTERVAL = v
+    # persist
+    try:
+        with open(_ALERTS_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"interval": _ALERTS_TICK_INTERVAL}, f)
+    except Exception:
+        pass
     try:
         logger.info(f"ALERTS_TICK interval updated to {v}s")
     except Exception:
         pass
     return v
-# --- end add ---
+# --- end replacement ---
 
 def _trade_log_append(entry: dict):
     try:
