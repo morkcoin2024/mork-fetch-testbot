@@ -282,7 +282,7 @@ def start_polling_service(message_handler=None) -> bool:
     
     # Check singleton lock first
     if not _acquire_poller_lock():
-        logger.warning("Another poller instance is already running (lock file exists)")
+        logger.info("Polling already active; skipping start for this process")
         return False
     
     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
