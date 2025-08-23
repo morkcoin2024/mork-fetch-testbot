@@ -829,11 +829,11 @@ def _symbol_from_display_name(name) -> str:
         return name.split(" — ", 1)[0]
     return str(name or "").strip()
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 def _fmt_usd(v) -> str:
     try:
-        q = Decimal(str(v)).quantize(Decimal("0.01"))
+        q = Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return f"${q:,.2f}"
     except (InvalidOperation, Exception):
         return "?"
