@@ -52,6 +52,33 @@ def _tg_norm(text: str) -> str:
     """Normalize text to avoid duplicates differing only by whitespace."""
     return "\n".join([ln.rstrip() for ln in text.splitlines()]).strip()
 
+# --- add: minimal dry-run trade logger (per-chat) ---
+_TRADES_STATE_PATH = os.environ.get("TRADES_STATE_PATH", "dry_trades_log.json")
+
+def _trade_log_append(entry: dict):
+    try:
+        data = []
+        if os.path.exists(_TRADES_STATE_PATH):
+            with open(_TRADES_STATE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f) or []
+        data.append(entry)
+        with open(_TRADES_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass  # non-fatal for dry-run
+
+def _trade_log_latest(chat_id: int, limit: int = 5):
+    try:
+        if not os.path.exists(_TRADES_STATE_PATH):
+            return []
+        with open(_TRADES_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f) or []
+        rows = [e for e in data if e.get("chat_id") == chat_id]
+        return rows[-max(1, min(limit, 20)):]  # clamp 1..20
+    except Exception:
+        return []
+# --- end add ---
+
 def render_name_status(mint: str) -> str:
     """Render name status with robust file handling (safe with or without files)."""
     def _load(path):
@@ -1950,7 +1977,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -3390,7 +3417,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/mint_for", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # Lightweight /status for all users (place BEFORE unknown fallback)
         if cmd == "/status":
@@ -3715,6 +3742,17 @@ def process_telegram_command(update: dict):
             except Exception:
                 header = ""
             text = f"DRY-RUN BUY\n{header}\n{mint}\nAmount: {amt} SOL\n(No real trade executed)"
+            
+            # Log the trade
+            _trade_log_append({
+                "chat_id": chat_id,
+                "type": "buy",
+                "mint": mint,
+                "amount": amt,
+                "timestamp": int(time.time()),
+                "token_name": header
+            })
+            
             return _reply(text)
 
         # --- add: /sell (dry-run, mint-only) ---
@@ -3742,7 +3780,53 @@ def process_telegram_command(update: dict):
             except Exception:
                 header = ""
             text = f"DRY-RUN SELL\n{header}\n{mint}\nPercent: {pct}%\n(No real trade executed)"
+            
+            # Log the trade
+            _trade_log_append({
+                "chat_id": chat_id,
+                "type": "sell",
+                "mint": mint,
+                "percent": pct,
+                "timestamp": int(time.time()),
+                "token_name": header
+            })
+            
             return _reply(text)
+        
+        # --- add: /trades (view trade history) ---
+        elif cmd == "/trades":
+            limit = 5  # default
+            if args:
+                try:
+                    limit = int(args.strip())
+                    limit = max(1, min(limit, 20))  # clamp 1..20
+                except Exception:
+                    pass
+            
+            trades = _trade_log_latest(chat_id, limit)
+            if not trades:
+                return _reply("No dry-run trades recorded yet.\nUse /buy or /sell to start trading!")
+            
+            lines = [f"📊 Last {len(trades)} Dry-Run Trades:"]
+            for i, trade in enumerate(trades, 1):
+                ts = trade.get("timestamp", 0)
+                try:
+                    dt = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if ts else "??-??"
+                except:
+                    dt = "??-??"
+                trade_type = trade.get("type", "?").upper()
+                token_name = trade.get("token_name", "").split('\n')[0] if trade.get("token_name") else "?"
+                
+                if trade_type == "BUY":
+                    amount = trade.get("amount", 0)
+                    lines.append(f"{i}. {dt} {trade_type} {token_name} - {amount} SOL")
+                elif trade_type == "SELL":
+                    percent = trade.get("percent", 0)
+                    lines.append(f"{i}. {dt} {trade_type} {token_name} - {percent}%")
+                else:
+                    lines.append(f"{i}. {dt} {trade_type} {token_name}")
+            
+            return _reply("\n".join(lines))
         # --- end add ---
         
         elif cmd == "/test123":
@@ -3759,7 +3843,8 @@ def process_telegram_command(update: dict):
                           "  /alerts_auto_status – show auto-scan status & interval\n" + \
                           "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n" + \
                        "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
-                       "  /sell <mint> <percent|ALL> - Simulate sell order\n\n" + \
+                       "  /sell <mint> <percent|ALL> - Simulate sell order\n" + \
+                       "  /trades [limit] - View trade history (default: 5)\n\n" + \
                           "Use /help for detailed descriptions"
             return _reply(commands_text)
         elif cmd == "/debug_cmd":
