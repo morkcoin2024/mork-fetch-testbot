@@ -686,7 +686,43 @@ def name_override_set(mint: str, primary: str, secondary: str):
 def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
-# Moved _display_name_for to inside process_telegram_command for order-of-definition
+# === GLOBAL HELPER FUNCTIONS ===
+def _reply(text, status="ok"):
+    return {"text": str(text), "status": status, "response": str(text), "handled": True}
+
+def _short_mint(m: str) -> str:
+    return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
+
+def _display_name_for(mint: str):
+    """
+    Return a 2-tuple (ticker, long_name).
+    Use existing name cache / overrides used elsewhere in the file.
+    Must not raise; on failure return ("?", "?").
+    """
+    try:
+        ov = _name_overrides_get(mint)
+    except Exception:
+        ov = None
+    if ov:
+        p, s = ov
+        p = (p or "").strip()
+        s = (s or "").strip()
+        if p and s:
+            return p, s
+        if p:
+            return p, "?"
+        if s:
+            return "?", s
+    try:
+        nm = resolve_token_name(mint) or ""
+        if nm and "\n" in nm:
+            parts = nm.split("\n", 1)
+            return parts[0].strip(), parts[1].strip()
+        elif nm:
+            return nm.strip(), "?"
+    except Exception:
+        pass
+    return "?", "?"
 
 # ===== Heuristic primary extraction =====
 _STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
@@ -3501,44 +3537,7 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
 def process_telegram_command(update: dict):
 
-    # --- helpers (must be above all command branches) ---
-
-    def _reply(text, status="ok"):
-        return {"text": str(text), "status": status, "response": str(text), "handled": True}
-
-    def _short_mint(m: str) -> str:
-        return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
-
-    def _display_name_for(mint: str):
-        """
-        Return a 2-tuple (ticker, long_name).
-        Use existing name cache / overrides used elsewhere in the file.
-        Must not raise; on failure return ("?", "?").
-        """
-        try:
-            ov = _name_overrides_get(mint)
-        except Exception:
-            ov = None
-        if ov:
-            p, s = ov
-            p = (p or "").strip()
-            s = (s or "").strip()
-            if p and s:
-                return p, s
-            if p:
-                return p, "?"
-            if s:
-                return "?", s
-        try:
-            nm = resolve_token_name(mint) or ""
-            if nm and "\n" in nm:
-                parts = nm.split("\n", 1)
-                return parts[0].strip(), parts[1].strip()
-            elif nm:
-                return nm.strip(), "?"
-        except Exception:
-            pass
-        return "?", "?"
+    # (Helper functions moved to global scope above)
 
     # --- SCANNER_ALIAS_PATCH (rewrite scanner* to alerts_auto*) ---
     try:
