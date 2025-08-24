@@ -1,0 +1,123 @@
+# ---------- Watchlist robust fetchers ----------
+
+import logging
+
+def _try_helpers_for(mint: str, names: list[str], kind: str = ""):
+    """
+    Try a list of helper names; return the first usable numeric value.
+    Normalizes tuple/dict shapes used by various single-token commands.
+    kind: optional hint ("supply", "fdv", "volume", "price", "cap") to pick fields in dict/tuple.
+    """
+    log = logging.getLogger(__name__)
+
+    def _from_tuple(val):
+        # Common patterns:
+        # - supply: (circulating, total)
+        # - generic: (usd_value, something_else)
+        if not isinstance(val, tuple) or not val:
+            return None
+        if kind == "supply":
+            circ, total = (val + (None, None))[:2]
+            return circ if circ is not None else total
+        # Fall back: first numeric
+        for x in val:
+            if isinstance(x, (int, float)):
+                return float(x)
+        return None
+
+    def _from_dict(val):
+        if not isinstance(val, dict):
+            return None
+        # Supply fields
+        if kind == "supply":
+            for k in ("circulating", "circulating_supply", "circ", "supply", "total", "total_supply"):
+                if k in val and isinstance(val[k], (int, float)):
+                    # For supply we prefer circulating; if key is "total" it'll still work
+                    return float(val[k])
+        # Volume fields
+        if kind == "volume":
+            for k in ("usd24h", "volume_24h_usd", "volume_usd_24h", "volume24h_usd", "volume_usd"):
+                if k in val and isinstance(val[k], (int, float)):
+                    return float(val[k])
+        # FDV & market cap fields
+        if kind == "fdv":
+            for k in ("fdv", "fully_diluted_valuation", "fully_diluted_market_cap"):
+                if k in val and isinstance(val[k], (int, float)):
+                    return float(val[k])
+        if kind == "cap":
+            for k in ("market_cap", "marketcap", "mc_usd"):
+                if k in val and isinstance(val[k], (int, float)):
+                    return float(val[k])
+        # Price fields
+        if kind == "price":
+            for k in ("usd", "price_usd", "price"):
+                if k in val and isinstance(val[k], (int, float)):
+                    return float(val[k])
+        # Generic: first numeric
+        for v in val.values():
+            if isinstance(v, (int, float)):
+                return float(v)
+        return None
+
+    for name in names:
+        fn = globals().get(name)
+        if not callable(fn):
+            continue
+        try:
+            raw = fn(mint)
+        except Exception as e:
+            log.debug("WL helper %s(%s) raised: %s", name, mint, e)
+            continue
+        if raw is None:
+            continue
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        v = _from_tuple(raw)
+        if v is not None:
+            return v
+        v = _from_dict(raw)
+        if v is not None:
+            return v
+    return None
+
+def _wl_price_usd(mint: str):
+    return _try_helpers_for(mint, [
+        "_price_for_mint", "_price_usd_for_mint", "price_for_mint"
+    ], kind="price")
+
+def _wl_market_cap_usd(mint: str):
+    return _try_helpers_for(mint, [
+        "_marketcap_for_mint", "_market_cap_for_mint", "marketcap_for_mint"
+    ], kind="cap")
+
+def _wl_volume_24h_usd(mint: str):
+    return _try_helpers_for(mint, [
+        "_volume24h_for_mint", "_volume_24h_for_mint", "_volume_for_mint",
+        "_volume_usd_for_mint", "volume24h_for_mint"
+    ], kind="volume")
+
+def _wl_supply_units(mint: str):
+    # Prefer circulating, fallback to total
+    v = _try_helpers_for(mint, [
+        "_supply_for_mint", "_circulating_supply_for_mint", "_total_supply_for_mint",
+        "get_supply_for_mint", "supply_for_mint"
+    ], kind="supply")
+    return v
+
+def _wl_fdv_usd(mint: str):
+    v = _try_helpers_for(mint, [
+        "_fdv_for_mint", "_fully_diluted_valuation_for_mint", "fdv_for_mint"
+    ], kind="fdv")
+    if v is not None:
+        return v
+    # Fallback: price * total supply
+    price = _wl_price_usd(mint)
+    total = _try_helpers_for(mint, [
+        "_total_supply_for_mint", "_supply_for_mint", "get_supply_for_mint"
+    ], kind="supply")
+    if price is not None and total is not None:
+        try:
+            return float(price) * float(total)
+        except Exception:
+            return None
+    return None
