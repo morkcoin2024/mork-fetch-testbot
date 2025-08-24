@@ -4626,31 +4626,29 @@ def process_telegram_command(update: dict):
             )
             return _reply_ok_md(body)
         elif cmd == "/holders":
-            target = (args or "").split()[0] if args else ""
-            mint = _resolve_to_mint(target)
+            arg = _arg_after_cmd(text)
+            mint, sym, name, _price_usd = _resolve_token_any(arg)
             if not mint:
-                return _reply("Usage: `/holders <MINT|TICKER>` — unknown token.", "error")
+                return _reply_err("Usage: `/holders <MINT|TICKER>` — unknown token.")
 
-            short = _short_mint(mint)
-            name_tuple = _display_name_for(mint)
-            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
-                ticker, long_name = name_tuple
-                name = f"{ticker} — {long_name}"
-            else:
-                name = str(name_tuple) if name_tuple else short
-            
             ov = _get_token_overview(mint) or {}
             holders = _pick_holders_field(ov)
-            
-            holders_str = _fmt_qty(holders) if holders is not None else "?"
-            
-            lines = [
-                "👥 *Holders*",
-                f"{name}",
-                f"`{short}`",
-                f"Holders: {holders_str}"
-            ]
-            return _reply("\n".join(lines), "ok")
+
+            if holders is None:
+                # Optional Solscan fallback if available; ignore errors.
+                try:
+                    if 'SOLSCAN' in globals() and hasattr(SOLSCAN, "get_token_holders_count"):
+                        holders = SOLSCAN.get_token_holders_count(mint)
+                except Exception:
+                    pass
+
+            body = (
+                "👥 *Holders*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"Holders: {_fmt_qty(holders) if holders is not None else '?'}"
+            )
+            return _reply_ok_md(body)
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
             if args:
