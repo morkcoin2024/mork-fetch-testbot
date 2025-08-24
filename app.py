@@ -4789,28 +4789,22 @@ def process_telegram_command(update: dict):
             info  = _birdeye_token_overview(mint)
 
             liq = info.get("liquidity")
-            # Use enhanced volume detection with Dexscreener fallback
-            vol = _volume_24h_usd(mint)
+            # Use canonical volume getter for consistency
+            vol = _volume24h_value_for_mint(mint)
             mc  = info.get("mc")
 
-            liq_s = _fmt_usd(liq) if liq is not None else "?"
-            vol_s = _fmt_usd(vol) if vol is not None else "?"
-            mc_s  = _fmt_usd(mc)  if mc  is not None else "?"
+            liq_str = _fmt_usd(liq) if liq is not None else "?"
+            vol_str = _fmt_usd(vol) if vol is not None else "?"
+            cap_str = _fmt_usd(mc) if mc is not None else "?"
 
             try:
                 logger.info("LIQ_V2: formatted with _fmt_usd")
             except Exception:
                 pass
 
-            lines = [
-                "🌊 *Liquidity*",
-                f"{name}",
-                f"`{short}`",
-                f"Liquidity: {liq_s}",
-                f"24h Volume: {vol_s}",
-                f"Market Cap: {mc_s}",
-            ]
-            return _reply("\n".join(lines), "ok")
+            sym_line = name
+            line = f"🌊 *Liquidity*\n{sym_line}\n`{short}`\nLiquidity: {liq_str}\n24h Volume: {vol_str}\nMarket Cap: {cap_str}"
+            return _reply(line, "ok")
         elif cmd == "/marketcap":
             target = (args or "").split()[0] if args else ""
             mint = _resolve_to_mint(target)
@@ -4866,27 +4860,9 @@ def process_telegram_command(update: dict):
             if not mint:
                 return _reply_err("Usage: `/supply <MINT|TICKER>` — unknown token.")
 
-            ov = _overview_for(mint) or {}
-            circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) not in (None,"")), None)
-            total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) not in (None,"")), None)
-
-            label, value = "Circulating", circ
-            if value in (None, 0, "0", "0.0"):
-                mc = _get_marketcap_usd_for(mint)
-                px = _get_price_usd_for(mint)
-                if mc is not None and px and px > 0:
-                    value = mc / px
-                    label = "Circulating"
-            if value in (None, 0, "0", "0.0") and total not in (None, "", 0, "0"):
-                value = total
-                label = "Total"
-
-            body = (
-                "📦 *Supply*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"{label}: {_fmt_qty_2dp(value)}"
-            )
+            val = _supply_value_for_mint(mint)
+            sym_line = f"{sym} — {name}"
+            body = f"📦 *Supply*\n{sym_line}\n`{_short_mint(mint)}`\nCirculating: {(_fmt_qty_2dp(val) if val is not None else '?')}"
             return _reply_ok_md(body)
         elif cmd == "/fdv":
             arg = _arg_after_cmd(text)
@@ -4894,50 +4870,19 @@ def process_telegram_command(update: dict):
             if not mint:
                 return _reply_err("Usage: `/fdv <MINT|TICKER>` — unknown token.")
 
-            ov = _overview_for(mint) or {}
-            fdv = next((ov.get(k) for k in ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"] if ov.get(k) not in (None,"")), None)
-            if _safe_float(fdv) is None:
-                px = _get_price_usd_for(mint)
-                # Prefer max/total for FDV
-                maxs = next((ov.get(k) for k in ["max_supply","maxSupply"] if ov.get(k) not in (None,"")), None)
-                total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) not in (None,"")), None)
-                circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) not in (None,"")), None)
-                supply_for_fdv = next((v for v in [maxs, total, circ] if _safe_float(v) not in (None, 0.0)), None)
-                if supply_for_fdv is None:
-                    mc = _get_marketcap_usd_for(mint)
-                    if mc is not None and px and px > 0:
-                        supply_for_fdv = mc / px
-                if px and px > 0 and _safe_float(supply_for_fdv):
-                    fdv = px * float(supply_for_fdv)
-
-            body = (
-                "🏗 *FDV*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"FDV: {_fmt_usd(fdv) if _safe_float(fdv) is not None else '?'}"
-            )
+            val = _fdv_value_for_mint(mint)
+            sym_line = f"{sym} — {name}"
+            body = f"🏗 *FDV*\n{sym_line}\n`{_short_mint(mint)}`\nFDV: {(_fmt_usd(val) if val is not None else '?')}"
             return _reply_ok_md(body)
         elif cmd == "/holders":
             arg = _arg_after_cmd(text)
             mint, sym, name, _ = _resolve_token_any(arg)
             if not mint:
                 return _reply_err("Usage: `/holders <MINT|TICKER>` — unknown token.")
-            ov = _overview_for(mint) or {}
-            holders = next((ov.get(k) for k in ["holders","holders_count","holdersCount","holder_count"] if ov.get(k) not in (None,"")), None)
-            # Optional fallback via Solscan helper if present in this build
-            if holders in (None, "", 0, "0"):
-                try:
-                    if 'SOLSCAN' in globals() and hasattr(SOLSCAN, "get_token_holders_count"):
-                        holders = SOLSCAN.get_token_holders_count(mint)
-                except Exception:
-                    pass
-            disp_holders = _fmt_qty_2dp(holders)  # will become "?" if None/NaN
-            body = (
-                "👥 *Holders*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"Holders: {disp_holders}"
-            )
+
+            val = _holders_value_for_mint(mint)
+            sym_line = f"{sym} — {name}"
+            body = f"👥 *Holders*\n{sym_line}\n`{_short_mint(mint)}`\nHolders: {(_fmt_int_commas(val) if val is not None else '?')}"
             return _reply_ok_md(body)
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
