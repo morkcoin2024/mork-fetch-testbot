@@ -556,28 +556,29 @@ def _cmd_watchlist(chat_id, args):
         # Use existing helper that returns (symbol, name)
         sym, name = _display_name_for(mint)
         short = _short_mint(mint)
-        
-        # Parse numeric value for sorting
-        val_num = None
-        if stat_value != "?":
-            try:
-                # Extract numeric value from formatted string for sorting
-                clean_val = re.sub(r'[,$%\s]', '', stat_value)
-                val_num = float(clean_val) if clean_val else None
-            except Exception:
-                val_num = None
 
         line = f"{sym} — {name}  {stat_value}  `{short}`"
-        rows.append({"line": line, "sort_val": val_num})
+        rows.append({"line": line, "stat_value": stat_value})
 
-    # Sorting with sophisticated null handling (None values at end for both directions)
+    # Resilient sorting using already-computed formatted values
     if sort_dir:
         reverse = (sort_dir == "desc")
-        def sort_key(r):
-            v = r["sort_val"]
-            # None to the end for both orders
-            return (v is None, (-v if reverse and v is not None else (v if not reverse else 0.0)))
-        rows.sort(key=sort_key)
+        
+        def sort_key_numeric_qmark_last(text_value):
+            """Sort key that pushes ? to end and handles formatted numbers"""
+            if text_value == "?": 
+                return (1, float('inf'))
+            try:
+                # Strip $, commas, spaces, % etc. and convert to float
+                clean_val = re.sub(r'[$,%\s]', '', text_value)
+                v = float(clean_val) if clean_val else 0.0
+                return (0, v)
+            except (ValueError, TypeError):
+                # Fallback: treat as string or push to end
+                return (1, float('inf'))
+        
+        # Sort using the formatted stat values from parallel processing
+        rows.sort(key=lambda r: sort_key_numeric_qmark_last(r["stat_value"]), reverse=reverse)
     
     # Enhanced title formatting
     title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
