@@ -1,0 +1,100 @@
+python3 - <<'PY'
+import os, re, sys, multiprocessing as mp, app
+
+# --- Config ---------------------------------------------------------------
+CHAT = -1002782542798
+ADMIN = 1653046781
+SOL   = "So11111111111111111111111111111111111111112"  # SOL mint
+UNK   = "So11111111111111111111111111111111111111113"  # unknown mint
+
+TIMEOUT = float(os.getenv("TEST_TIMEOUT", "6"))
+STRICT  = os.getenv("STRICT", "0") == "1"  # require real values (no '?') when True
+
+# --- Patterns -------------------------------------------------------------
+usd2 = re.compile(r"\$\d[\d,]*\.\d{2}(?!\d)")
+num2 = re.compile(r"\b\d[\d,]*\.\d{2}(?!\d)\b")
+int_or_commas = re.compile(r"\b\d[\d,]*\b")
+
+# --- Telegram command runner (isolated with timeout) ----------------------
+def _worker(cmd, q):
+    upd = {"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
+                      "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":cmd}}
+    out = app.process_telegram_command(upd) or {}
+    q.put(out.get("text") or out.get("response") or "")
+
+def send(cmd, timeout=TIMEOUT):
+    q = mp.Queue()
+    p = mp.Process(target=_worker, args=(cmd, q), daemon=True)
+    p.start(); p.join(timeout)
+    if p.is_alive():
+        p.terminate(); p.join(1)
+        return f"__TIMEOUT__ {cmd}"
+    return q.get() if not q.empty() else ""
+
+# --- Helpers --------------------------------------------------------------
+def rows(txt):
+    # keep compact "data" lines only
+    return [ln for ln in txt.splitlines() if " `" in ln and "—" in ln]
+
+def pick(rs, pfx):
+    for ln in rs:
+        if ln.startswith(pfx): return ln
+    return ""
+
+def has_unknown_qmark(row):
+    return " ?  `" in row
+
+def value_ok(mode, row, strict=STRICT):
+    if not row:
+        return False
+    if has_unknown_qmark(row):
+        return not strict  # offline/unknown allowed only in lenient mode
+    if mode in ("prices","caps","fdv","volumes"): return bool(usd2.search(row))
+    if mode == "supply": return bool(num2.search(row))
+    if mode == "holders": return bool(int_or_commas.search(row))
+    return False
+
+fails = 0
+def check(cond, label):
+    global fails
+    if cond:
+        print("✅", label)
+    else:
+        print("❌", label)
+        fails += 1
+
+# --- Test sequence --------------------------------------------------------
+print(send("/watch_clear"))
+print(send(f"/watch {SOL}"))
+print(send(f"/watch {UNK}"))
+
+modes = ["supply","fdv","holders","prices","caps","volumes"]
+for mode in modes:
+    rsp = send(f"/watchlist {mode}")
+    check(not rsp.startswith("__TIMEOUT__"), f"{mode}: responded")
+    if rsp.startswith("__TIMEOUT__"):  # skip deeper checks on timeout
+        continue
+
+    rs  = rows(rsp)
+    sol = pick(rs, "SOL —")
+    unk = pick(rs, "So1111…111113 —")
+
+    check(bool(sol), f"{mode}: SOL row present")
+    check(bool(unk), f"{mode}: unknown row present")
+
+    if sol:
+        check(value_ok(mode, sol), f"{mode}: SOL value OK")
+    if unk:
+        check(has_unknown_qmark(unk), f"{mode}: unknown shows '?'")
+
+# Sorting checks
+hdr = send("/watchlist volumes desc")
+check(not hdr.startswith("__TIMEOUT__") and "(desc)" in (hdr.splitlines()[0] if hdr else ""), "sort: volumes desc header")
+
+hdr = send("/watchlist supply asc")
+check(not hdr.startswith("__TIMEOUT__") and "(asc)" in (hdr.splitlines()[0] if hdr else ""), "sort: supply asc header")
+
+# --- Result ---------------------------------------------------------------
+print("\n=== RESULT:", "PASS ✅" if fails == 0 else f"FAIL ❌ ({fails} problems)", "===")
+sys.exit(0 if fails == 0 else 1)
+PY
