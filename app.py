@@ -1096,7 +1096,7 @@ def _get_supply_val_raw(mint: str):
 
 def _get_supply_val(mint: str):
     """Supply value getter with watchdog timeout protection"""
-    return with_timeout(_get_supply_val_raw, mint, timeout=4, default=None)
+    return with_timeout(_get_supply_val_raw, mint, timeout=7, default=None)
 
 def _get_fdv_val_raw(mint: str):
     """Internal FDV getter without timeout protection"""
@@ -1142,7 +1142,7 @@ def _get_fdv_val_raw(mint: str):
 
 def _get_fdv_val(mint: str):
     """FDV value getter with watchdog timeout protection"""
-    return with_timeout(_get_fdv_val_raw, mint, timeout=4, default=None)
+    return with_timeout(_get_fdv_val_raw, mint, timeout=7, default=None)
 
 def _get_vol24_val_raw(mint: str):
     """Internal volume getter without timeout protection"""
@@ -1165,7 +1165,7 @@ def _get_vol24_val_raw(mint: str):
 
 def _get_vol24_val(mint: str):
     """Volume value getter with watchdog timeout protection"""
-    return with_timeout(_get_vol24_val_raw, mint, timeout=4, default=None)
+    return with_timeout(_get_vol24_val_raw, mint, timeout=7, default=None)
 
 def _get_holders_val_raw(mint: str):
     """Internal holders getter without timeout protection"""
@@ -1187,7 +1187,7 @@ def _get_holders_val_raw(mint: str):
 
 def _get_holders_val(mint: str):
     """Holders value getter with watchdog timeout protection"""
-    return with_timeout(_get_holders_val_raw, mint, timeout=4, default=None)
+    return with_timeout(_get_holders_val_raw, mint, timeout=7, default=None)
 
 # === TOKEN VALIDATION AND CACHED PRIMITIVE GETTERS ===
 def _is_known_token(mint: str) -> bool:
@@ -1236,31 +1236,33 @@ def stat_for(mode: str, mint: str) -> str:
     if not _is_known_token(mint):
         return "?"
     
+    # Increased timeouts to reduce false positives on slow links
     if mode == "supply":
-        val = with_timeout(_cached_supply_val, mint, timeout=4)
+        val = with_timeout(_cached_supply_val, mint, timeout=7)
         return _fmt_qty_2dp(val) if val is not None else "?"
     elif mode == "holders":
-        val = with_timeout(_cached_holders_val, mint, timeout=4)
+        val = with_timeout(_cached_holders_val, mint, timeout=7)
         return _fmt_int_commas(val) if val is not None else "?"
     elif mode == "prices":
-        val = with_timeout(_cached_price_usd, mint, timeout=4)
+        val = with_timeout(_cached_price_usd, mint, timeout=7)
         return _fmt_usd(val) if val is not None else "?"
     elif mode == "fdv":
         # Prefer direct FDV; otherwise fallback to cached price × cached supply
-        fdv = with_timeout(_cached_fdv_val, mint, timeout=4)
+        fdv = with_timeout(_cached_fdv_val, mint, timeout=7)
         if fdv is None:
-            px = with_timeout(_cached_price_usd, mint, timeout=3)
-            tot = with_timeout(_cached_supply_val, mint, timeout=3)
+            # Use shorter timeouts for fallback since these are cached
+            px = with_timeout(_cached_price_usd, mint, timeout=5)
+            tot = with_timeout(_cached_supply_val, mint, timeout=5)
             fdv = (px * tot) if (px is not None and tot is not None) else None
         return _fmt_usd(fdv) if fdv is not None else "?"
     elif mode == "caps":
         # Market cap = price × circulating supply (reuse cached values)
-        px = with_timeout(_cached_price_usd, mint, timeout=3)
-        circ = with_timeout(_cached_supply_val, mint, timeout=3)
+        px = with_timeout(_cached_price_usd, mint, timeout=5)
+        circ = with_timeout(_cached_supply_val, mint, timeout=5)
         val = (px * circ) if (px is not None and circ is not None) else None
         return _fmt_usd(val) if val is not None else "?"
     elif mode == "volumes":
-        val = with_timeout(_cached_volume_val, mint, timeout=4)
+        val = with_timeout(_cached_volume_val, mint, timeout=7)
         return _fmt_usd(val) if val is not None else "?"
     return "?"
 
