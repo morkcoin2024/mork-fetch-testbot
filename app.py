@@ -478,20 +478,8 @@ def _cmd_watchlist(chat_id, args):
     
     # Enhanced argument parsing for mode detection and sorting
     tokens = (args or "").strip().lower().split()
-    mode = None
-    sort_dir = None  # None | 'asc' | 'desc'
-
-    # Identify mode (keep existing default behavior if no mode)
-    for t in tokens:
-        if t in WATCHLIST_MODES:
-            mode = t
-            break
-
-    # Optional sorting keyword as the last token
-    if tokens:
-        last = tokens[-1]
-        if last in ("asc", "desc"):
-            sort_dir = last
+    mode = next((t for t in tokens if t in WATCHLIST_MODES), None)
+    sort_dir = tokens[-1] if tokens and tokens[-1] in ("asc", "desc") else None
 
     # Legacy mode support (backward compatibility)
     show = (args or "").strip().lower()
@@ -547,7 +535,8 @@ def _cmd_watchlist(chat_id, args):
         lines = [r["line"] for r in rows]
         
         # Enhanced title formatting
-        title = f"👀 *Watchlist · {label}*"
+        getter, fmt_value, label = WATCHLIST_MODES.get(mode, (None, None, None))
+        title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
         sort_suffix = f" ({sort_dir})" if sort_dir else ""
         body = f"{title}{sort_suffix}\n" + "\n".join(lines)
         
@@ -565,7 +554,7 @@ def _cmd_watchlist(chat_id, args):
             short = _short_mint(mint)
             lines.append(f"{ticker} — {long_name}  `{short}`")
         
-        # Enhanced title and mode guidance
+        # Enhanced title and mode guidance  
         title = "👀 *Watchlist*"
         modes = list(WATCHLIST_MODES.keys())
         body = f"{title}\n" + "\n".join(lines)
