@@ -4731,11 +4731,12 @@ def process_telegram_command(update: dict):
                         holders = SOLSCAN.get_token_holders_count(mint)
                 except Exception:
                     pass
+            disp_holders = _fmt_qty_2dp(holders)  # will become "?" if None/NaN
             body = (
                 "👥 *Holders*\n"
                 f"{sym} — {name}\n"
                 f"`{_short_mint(mint)}`\n"
-                f"Holders: {_fmt_qty(holders)}"
+                f"Holders: {disp_holders}"
             )
             return _reply_ok_md(body)
         elif cmd == "/fetch":
