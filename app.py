@@ -698,36 +698,84 @@ def _fmt_qty(x):
     s = f"{v:,.2f}".rstrip("0").rstrip(".")
     return s
 
-def _safe_float(x):
-    try:
-        return float(x)
-    except Exception:
-        return None
+def _call_first(names, *a, **kw):
+    for n in names:
+        f = globals().get(n)
+        if callable(f):
+            try:
+                return f(*a, **kw)
+            except Exception:
+                pass
+    return None
+
+def _birdeye_req_safe(path, params):
+    # Use existing birdeye request helper if present
+    for n in ["birdeye_req", "_birdeye_req", "birdeye_request"]:
+        f = globals().get(n)
+        if callable(f):
+            try:
+                return f(path, params) or {}
+            except Exception:
+                pass
+    # last resort: no request available here
+    return {}
+
+def _overview_for(mint: str):
+    # Try any overview providers; else query Birdeye overview
+    o = _call_first(
+        ["_birdeye_token_overview","birdeye_token_overview","_token_overview","get_token_overview"],
+        mint
+    )
+    if o:
+        return o or {}
+    # Birdeye fallback
+    data = _birdeye_req_safe("/defi/token_overview", {"chain":"solana","address": mint}) or {}
+    return (data.get("data") or {}) if isinstance(data, dict) else {}
 
 def _get_price_usd_for(mint: str):
-    # Reuse the exact function used by /price (don't duplicate HTTP)
+    # Try existing price helpers used by /price
+    v = _call_first(
+        ["_price_for_mint","price_for_mint","get_price_for_mint","_price_usd_for","price_usd_for"],
+        mint
+    )
+    if v is not None:
+        try: return float(v)
+        except: return None
+    # Birdeye fallback
+    d = _birdeye_req_safe("/defi/price", {"chain":"solana","address": mint}) or {}
     try:
-        return _price_for_mint(mint)  # returns float, same one /price uses
+        return float((d.get("data") or {}).get("value"))
     except Exception:
         return None
 
 def _get_marketcap_usd_for(mint: str):
-    # Reuse the exact function used by /marketcap
-    try:
-        return _marketcap_for_mint(mint)  # returns float, same one /marketcap uses
-    except Exception:
-        return None
+    # Try existing marketcap helper used by /marketcap
+    v = _call_first(
+        ["_marketcap_for_mint","marketcap_for_mint","get_marketcap_for_mint","_get_marketcap","get_marketcap"],
+        mint
+    )
+    if v is not None:
+        try: return float(v)
+        except: return None
+    # Birdeye overview fallback fields
+    ov = _overview_for(mint) or {}
+    for k in ["marketCap","market_cap","mc","usd_market_cap","market_cap_usd"]:
+        if k in ov and ov[k] not in (None, "", 0, "0"):
+            try: return float(ov[k])
+            except: pass
+    return None
 
-def _overview_for(mint: str):
-    # Optional: try whichever overview function exists; otherwise return {}
-    for fn in ["_birdeye_token_overview", "birdeye_token_overview", "_token_overview", "get_token_overview"]:
-        f = globals().get(fn)
-        if callable(f):
-            try:
-                return f(mint) or {}
-            except Exception:
-                pass
-    return {}
+def _safe_float(x):
+    try: return float(x)
+    except Exception: return None
+
+def _fmt_qty(x):
+    v = _safe_float(x)
+    if v is None: return "?"
+    if abs(v - int(v)) < 1e-9:
+        return f"{int(v):,}"
+    s = f"{v:,.2f}".rstrip("0").rstrip(".")
+    return s
 
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
