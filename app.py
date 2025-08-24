@@ -520,10 +520,15 @@ def _cmd_watchlist(chat_id, args):
                     raw_val = None
 
             disp = formatter(raw_val) if raw_val is not None else "?"
-            sort_val = _num_or_none(raw_val)
+            
+            val_num = None
+            try:
+                val_num = float(raw_val) if raw_val is not None else None
+            except Exception:
+                val_num = None
 
             line = f"{sym} — {name}  {disp}  `{short}`"
-            rows.append({"line": line, "sort_val": sort_val})
+            rows.append({"line": line, "sort_val": val_num})
 
         # Sorting only if requested; unknowns (None) always at bottom
         if sort_dir:
