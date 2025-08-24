@@ -704,6 +704,31 @@ def _safe_float(x):
     except Exception:
         return None
 
+def _get_price_usd_for(mint: str):
+    # Reuse the exact function used by /price (don't duplicate HTTP)
+    try:
+        return _price_for_mint(mint)  # returns float, same one /price uses
+    except Exception:
+        return None
+
+def _get_marketcap_usd_for(mint: str):
+    # Reuse the exact function used by /marketcap
+    try:
+        return _marketcap_for_mint(mint)  # returns float, same one /marketcap uses
+    except Exception:
+        return None
+
+def _overview_for(mint: str):
+    # Optional: try whichever overview function exists; otherwise return {}
+    for fn in ["_birdeye_token_overview", "birdeye_token_overview", "_token_overview", "get_token_overview"]:
+        f = globals().get(fn)
+        if callable(f):
+            try:
+                return f(mint) or {}
+            except Exception:
+                pass
+    return {}
+
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
     if not isinstance(ov, dict):
