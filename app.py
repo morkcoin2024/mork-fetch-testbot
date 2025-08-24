@@ -468,7 +468,7 @@ def _cmd_watch(chat_id, args):
     return {"status": "ok", "response": "\n".join(lines), "parse_mode": "Markdown"}
 
 def _cmd_watchlist(chat_id, args):
-    """Enhanced /watchlist handler with per-chat isolation"""
+    """Enhanced /watchlist handler with per-chat isolation and WATCHLIST_MODES support"""
     state = _load_json_safe("scanner_state.json")
     chat_id_or_default = chat_id or 0
     bucket = _wl_bucket(state, chat_id_or_default)
@@ -476,35 +476,104 @@ def _cmd_watchlist(chat_id, args):
     if not bucket:
         return {"status": "ok", "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`", "parse_mode": "Markdown"}
     
-    # Parse optional display variants
+    # Enhanced argument parsing for mode detection and sorting
+    tokens = (args or "").strip().lower().split()
+    mode = None
+    sort_dir = None  # None | 'asc' | 'desc'
+
+    # Identify mode (keep existing default behavior if no mode)
+    for t in tokens:
+        if t in WATCHLIST_MODES:
+            mode = t
+            break
+
+    # Optional sorting keyword as the last token
+    if tokens:
+        last = tokens[-1]
+        if last in ("asc", "desc"):
+            sort_dir = last
+
+    # Legacy mode support (backward compatibility)
     show = (args or "").strip().lower()
-    with_prices = bool(show in {"p","price","prices"})
-    with_caps = bool(show in {"c","cap","caps","marketcap"})
-    with_volumes = bool(show in {"v","vol","volume","volumes"})
-    
-    lines = []
-    for mint in bucket:
-        ticker, long_name = _display_name_for(mint)
-        short = _short_mint(mint)
+    if not mode:
+        if show in {"p","price","prices"}:
+            mode = "prices"
+        elif show in {"c","cap","caps","marketcap"}:
+            mode = "caps"
+        elif show in {"v","vol","volume","volumes"}:
+            mode = "volumes"
+
+    # Get configuration for the selected mode
+    if mode and mode in WATCHLIST_MODES:
+        getter_name, formatter_name, label = WATCHLIST_MODES[mode]
+        # Resolve functions by name at runtime
+        getter = globals().get(getter_name)
+        formatter = globals().get(formatter_name)
         
-        if with_caps:
-            # Use same Birdeye API as /marketcap and /liquidity
-            info = _birdeye_token_overview(mint)
-            mc = info.get("mc")
-            cap_str = _fmt_usd(mc) if mc is not None else "?"
-            lines.append(f"{ticker} — {long_name}  {cap_str}  `{short}`")
-        elif with_volumes:
-            # Use enhanced volume detection with Dexscreener fallback
-            vol = _volume_24h_usd(mint)
-            vol_str = _fmt_usd(vol) if vol is not None else "?"
-            lines.append(f"{ticker} — {long_name}  {vol_str}  `{short}`")
-        elif with_prices:
-            price = _birdeye_price(mint)
-            lines.append(_format_watch_row(mint, ticker, long_name, price, with_prices))
-        else:
+        if not getter or not formatter:
+            return {"status": "error", "response": f"⚠️ Mode '{mode}' not yet implemented"}
+        
+        # Fetch data for each mint
+        rows = []
+        for mint in bucket:
+            try:
+                ticker, long_name = _display_name_for(mint)
+                value = getter(mint)
+                formatted_value = formatter(value) if value is not None else "?"
+                rows.append((ticker, long_name, formatted_value, mint))
+            except Exception:
+                ticker = f"{mint[:4]}..{mint[-4:]}"
+                rows.append((ticker, "", "?", mint))
+        
+        # Apply sorting if specified
+        if sort_dir:
+            reverse = (sort_dir == "desc")
+            # Sort by formatted value (index 2), with error handling for "?" values
+            def sort_key(row):
+                val = row[2]
+                if val == "?":
+                    return float('inf') if not reverse else float('-inf')
+                try:
+                    # Extract numeric value for proper sorting
+                    clean_val = val.replace("$", "").replace(",", "")
+                    return float(clean_val)
+                except:
+                    return float('inf') if not reverse else float('-inf')
+            
+            rows.sort(key=sort_key, reverse=reverse)
+        
+        # Format output
+        lines = []
+        for ticker, long_name, formatted_value, mint in rows:
+            short = _short_mint(mint)
+            if long_name:
+                lines.append(f"{ticker} — {long_name}  {formatted_value}  `{short}`")
+            else:
+                lines.append(f"{ticker}  {formatted_value}  `{short}`")
+        
+        sort_suffix = f" ({sort_dir})" if sort_dir else ""
+        body = f"👀 *Watchlist {label}{sort_suffix}*\n" + "\n".join(lines)
+        
+        # Add usage hint
+        if not sort_dir and len(bucket) > 1:
+            body += f"\n\n_Tip: `/watchlist {mode} asc` or `/watchlist {mode} desc` to sort_"
+        
+        return {"status": "ok", "response": body, "parse_mode": "Markdown"}
+    
+    else:
+        # Default watchlist behavior (basic list)
+        lines = []
+        for mint in bucket:
+            ticker, long_name = _display_name_for(mint)
+            short = _short_mint(mint)
             lines.append(f"{ticker} — {long_name}  `{short}`")
-    body = "👀 *Watchlist*\n" + "\n".join(lines)
-    return {"status": "ok", "response": body, "parse_mode": "Markdown"}
+        
+        # Add mode options hint
+        modes = list(WATCHLIST_MODES.keys())
+        body = f"👀 *Watchlist*\n" + "\n".join(lines)
+        body += f"\n\n_Modes: {' | '.join(modes)}_"
+        
+        return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
 def _cmd_unwatch(chat_id, args):
     """Enhanced /unwatch handler with per-chat isolation"""
