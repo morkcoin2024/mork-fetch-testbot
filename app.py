@@ -689,46 +689,46 @@ def _volume_24h_usd(mint: str) -> float | None:
 # === Supply/FDV/Holders helpers ===
 
 def _fmt_qty(x):
-    """Human number with commas; keep up to 2 decimals when needed."""
+    """Comma-separated, up to 2 decimals; '?' if unknown."""
     try:
         xv = float(x)
     except Exception:
         return "?"
-    i, f = divmod(abs(xv), 1.0)
-    if f < 1e-9:
-        s = f"{xv:,.0f}"
-    else:
-        s = f"{xv:,.2f}".rstrip("0").rstrip(".")
+    if abs(xv - int(xv)) < 1e-9:
+        return f"{int(xv):,}"
+    s = f"{xv:,.2f}".rstrip("0").rstrip(".")
     return s
 
 def _pick_supply_fields(ov: dict):
-    """Return (circulating, total) from a Birdeye/other overview dict."""
+    """Return (circulating, total, max_supply, market_cap) from an overview dict."""
     if not isinstance(ov, dict):
-        return None, None
+        return None, None, None, None
     circ_keys = ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"]
-    total_keys = ["total_supply","totalSupply","supply","max_supply","maxSupply"]
+    total_keys = ["total_supply","totalSupply","supply"]
+    max_keys   = ["max_supply","maxSupply"]
+    mc_keys    = ["market_cap","marketCap","market_cap_fd","marketCapFullyDiluted"]  # keep wide
+
     circ = next((ov.get(k) for k in circ_keys if ov.get(k) is not None), None)
     total = next((ov.get(k) for k in total_keys if ov.get(k) is not None), None)
-    return circ, total
+    maxs  = next((ov.get(k) for k in max_keys   if ov.get(k) is not None), None)
+    mc    = next((ov.get(k) for k in mc_keys    if ov.get(k) is not None), None)
+    return circ, total, maxs, mc
 
 def _pick_fdv_field(ov: dict):
-    """Return FDV if present on overview dict."""
     if not isinstance(ov, dict):
         return None
     keys = ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"]
     return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
 
 def _pick_holders_field(ov: dict):
-    """Return holders if present; otherwise None."""
     if not isinstance(ov, dict):
         return None
     keys = ["holders","holders_count","holdersCount","holder_count"]
     return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
 
 def _get_token_overview(mint: str) -> dict | None:
-    """Fetch and normalize token overview; returns dict or None."""
+    """Use the same source as /liquidity & /marketcap."""
     try:
-        # Prefer the exact function used by /liquidity & /marketcap.
         return _birdeye_token_overview(mint) or {}
     except Exception:
         return {}
@@ -4583,7 +4583,7 @@ def process_telegram_command(update: dict):
                 name = str(name_tuple) if name_tuple else short
             
             ov = _get_token_overview(mint) or {}
-            circ, total = _pick_supply_fields(ov)
+            circ, total, maxs, mc = _pick_supply_fields(ov)
             
             # Prioritize circulating, fallback to total
             supply_val = circ if circ is not None else total
@@ -4615,7 +4615,7 @@ def process_telegram_command(update: dict):
             
             # Fallback calculation: price × total supply
             if not fdv:
-                _, total = _pick_supply_fields(ov)
+                _, total, maxs, mc = _pick_supply_fields(ov)
                 price_usd = _birdeye_price(mint)
                 if price_usd is not None and total is not None:
                     try:
