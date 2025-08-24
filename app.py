@@ -722,6 +722,14 @@ def _pick_holders_field(ov: dict):
     keys = ["holders","holders_count","holdersCount","holder_count"]
     return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
 
+def _get_token_overview(mint: str) -> dict | None:
+    """Fetch and normalize token overview; returns dict or None."""
+    try:
+        # Prefer the exact function used by /liquidity & /marketcap.
+        return _birdeye_token_overview(mint) or {}
+    except Exception:
+        return {}
+
 def _birdeye_headers():
     # Reuse your existing Birdeye header builder if present
     h = {"X-Chain": "solana"}

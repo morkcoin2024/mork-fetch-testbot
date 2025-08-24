@@ -52,6 +52,7 @@ The application uses Flask with a robust single-poller architecture for Telegram
 - **24h Volume Command System:** Dedicated `/volume <MINT|TICKER>` command that provides 24h trading volume data using the same Birdeye API integration as other token analysis commands. Features consistent precision formatting and unified data sources for comprehensive volume analysis.
 - **Enhanced Watchlist Display Variants:** Complete `/watchlist [prices|caps|volumes]` command system with per-chat isolation supporting multiple display modes including market capitalization and 24h volume variants that reuse the same Birdeye metrics as `/marketcap`, `/volume`, and `/liquidity` for unified data consistency across all token analysis features.
 - **Supply/FDV/Holders Analysis Helpers:** Comprehensive helper functions for advanced token metrics including `_fmt_qty()` for human-readable number formatting, `_pick_supply_fields()` for circulating/total supply extraction, `_pick_fdv_field()` for fully diluted valuation, and `_pick_holders_field()` for holder count analysis with robust field mapping across multiple API response formats.
+- **Unified Token Overview Fetcher:** Standardized `_get_token_overview()` function providing stable interface for all token analysis commands, ensuring consistent data sources across `/liquidity`, `/marketcap`, `/volume`, and future token metric commands through unified Birdeye API integration.
 
 ## External Dependencies
 - **Telegram Bot API**
