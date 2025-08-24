@@ -777,6 +777,20 @@ def _fmt_qty(x):
     s = f"{v:,.2f}".rstrip("0").rstrip(".")
     return s
 
+def _fmt_qty_2dp(x):
+    v = _safe_float(x)
+    if v is None:
+        return "?"
+    q = round(v, 2)
+    s = f"{q:,.2f}"
+    # Drop trailing .00 for whole numbers
+    if s.endswith(".00"):
+        return s[:-3]
+    # Drop trailing 0 for .10/.30 etc
+    if s[-1] == "0":
+        return s[:-1]
+    return s
+
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
     if not isinstance(ov, dict):
