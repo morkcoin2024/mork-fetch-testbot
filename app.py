@@ -546,8 +546,10 @@ def _cmd_watchlist(chat_id, args):
         # Format output
         lines = [r["line"] for r in rows]
         
+        # Enhanced title formatting
+        title = f"👀 *Watchlist · {label}*"
         sort_suffix = f" ({sort_dir})" if sort_dir else ""
-        body = f"👀 *Watchlist {label}{sort_suffix}*\n" + "\n".join(lines)
+        body = f"{title}{sort_suffix}\n" + "\n".join(lines)
         
         # Add usage hint
         if not sort_dir and len(bucket) > 1:
@@ -563,9 +565,10 @@ def _cmd_watchlist(chat_id, args):
             short = _short_mint(mint)
             lines.append(f"{ticker} — {long_name}  `{short}`")
         
-        # Add mode options hint and sorting guidance
+        # Enhanced title and mode guidance
+        title = "👀 *Watchlist*"
         modes = list(WATCHLIST_MODES.keys())
-        body = f"👀 *Watchlist*\n" + "\n".join(lines)
+        body = f"{title}\n" + "\n".join(lines)
         body += f"\n\n_Modes: {' | '.join(modes)}_"
         body += "\n_Add 'asc' or 'desc' to sort, e.g. `/watchlist volumes desc`_"
         
