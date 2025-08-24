@@ -11,6 +11,7 @@ import textwrap
 import math
 import sqlite3
 import concurrent.futures as cf
+from functools import lru_cache
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
@@ -50,6 +51,23 @@ def with_timeout(fn, /, *args, timeout=4, default=None, **kwargs):
             return fut.result(timeout=timeout)
         except Exception:
             return default
+
+# 3) TTL Cache decorator for primitive value caching
+def ttl_cache(ttl=60):
+    """Time-based cache decorator with configurable TTL"""
+    def deco(fn):
+        cache = {}
+        def wrapper(*a, **k):
+            key = (a, tuple(sorted(k.items())))
+            now = time.time()
+            val = cache.get(key)
+            if val and now - val[0] < ttl:
+                return val[1]
+            res = fn(*a, **k)
+            cache[key] = (now, res)
+            return res
+        return wrapper
+    return deco
 # === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
 _TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
@@ -1170,34 +1188,78 @@ def _get_holders_val(mint: str):
     """Holders value getter with watchdog timeout protection"""
     return with_timeout(_get_holders_val_raw, mint, timeout=4, default=None)
 
+# === TOKEN VALIDATION AND CACHED PRIMITIVE GETTERS ===
+def _is_known_token(mint: str) -> bool:
+    """Quick check if token/mint can be resolved - prevents unnecessary network calls"""
+    if not mint or len(mint) < 8:
+        return False
+    # Check if it's a valid base58-like string (Solana mint format)
+    if not re.match(r'^[A-HJ-NP-Z1-9]{32,44}$', mint):
+        # Try ticker resolution
+        try:
+            resolved = resolve_token_any(mint)
+            return resolved is not None and resolved != mint
+        except Exception:
+            return False
+    return True
+
+@ttl_cache(60)
+def _cached_price_usd(mint: str):
+    """Cached price getter with 60s TTL"""
+    return _to_float_any(_get_price_usd_for(mint))
+
+@ttl_cache(60) 
+def _cached_supply_val(mint: str):
+    """Cached supply getter with 60s TTL"""
+    return _get_supply_val_raw(mint)
+
+@ttl_cache(60)
+def _cached_holders_val(mint: str):
+    """Cached holders getter with 60s TTL"""
+    return _get_holders_val_raw(mint)
+
+@ttl_cache(60)
+def _cached_fdv_val(mint: str):
+    """Cached FDV getter with 60s TTL"""
+    return _get_fdv_val_raw(mint)
+
+@ttl_cache(60)
+def _cached_volume_val(mint: str):
+    """Cached volume getter with 60s TTL"""
+    return _get_vol24_val_raw(mint)
+
 # === PARALLEL WATCHLIST BUILDER ===
 def stat_for(mode: str, mint: str) -> str:
-    """Get formatted stat for a single token with timeout protection"""
+    """Get formatted stat for a single token with timeout protection and short-circuiting"""
+    # Short-circuit unknown tokens - don't hit network if can't resolve
+    if not _is_known_token(mint):
+        return "?"
+    
     if mode == "supply":
-        val = with_timeout(_get_supply_val_raw, mint, timeout=4)
+        val = with_timeout(_cached_supply_val, mint, timeout=4)
         return _fmt_qty_2dp(val) if val is not None else "?"
     elif mode == "holders":
-        val = with_timeout(_get_holders_val_raw, mint, timeout=4)
+        val = with_timeout(_cached_holders_val, mint, timeout=4)
         return _fmt_int_commas(val) if val is not None else "?"
     elif mode == "prices":
-        val = with_timeout(_get_price_usd_for, mint, timeout=4)
+        val = with_timeout(_cached_price_usd, mint, timeout=4)
         return _fmt_usd(val) if val is not None else "?"
     elif mode == "fdv":
-        # Prefer direct FDV; otherwise fallback to price × total_supply
-        fdv = with_timeout(_get_fdv_val_raw, mint, timeout=4)
+        # Prefer direct FDV; otherwise fallback to cached price × cached supply
+        fdv = with_timeout(_cached_fdv_val, mint, timeout=4)
         if fdv is None:
-            px = with_timeout(_get_price_usd_for, mint, timeout=3)
-            tot = with_timeout(_get_supply_val_raw, mint, timeout=3)
+            px = with_timeout(_cached_price_usd, mint, timeout=3)
+            tot = with_timeout(_cached_supply_val, mint, timeout=3)
             fdv = (px * tot) if (px is not None and tot is not None) else None
         return _fmt_usd(fdv) if fdv is not None else "?"
     elif mode == "caps":
-        # Use existing market cap getter from individual commands
-        val = with_timeout(lambda m: _to_float_any(_call_first([
-            "_get_marketcap_usd_for", "_marketcap_usd_for", "_get_market_cap"
-        ], m)), mint, timeout=4)
+        # Market cap = price × circulating supply (reuse cached values)
+        px = with_timeout(_cached_price_usd, mint, timeout=3)
+        circ = with_timeout(_cached_supply_val, mint, timeout=3)
+        val = (px * circ) if (px is not None and circ is not None) else None
         return _fmt_usd(val) if val is not None else "?"
     elif mode == "volumes":
-        val = with_timeout(_get_vol24_val_raw, mint, timeout=4)
+        val = with_timeout(_cached_volume_val, mint, timeout=4)
         return _fmt_usd(val) if val is not None else "?"
     return "?"
 
