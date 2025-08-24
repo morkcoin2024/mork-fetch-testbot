@@ -531,7 +531,7 @@ def _cmd_watchlist(chat_id, args):
             rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] if r["sort_val"] is not None else 0.0), reverse=reverse)
         
         # Enhanced title formatting
-        getter, fmt_value, label = WATCHLIST_MODES.get(mode, (None, None, None))
+        getter_name, formatter_name, label = WATCHLIST_MODES.get(mode, (None, None, None))
         title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
         
         if not rows:
@@ -955,14 +955,14 @@ def _watch_volume24h_value(mint):
     return v
 
 # Map: mode -> (getter_name, formatter_name, label_for_value)
-# Note: Functions will be resolved at runtime to avoid import order issues
+# Note: Functions will be resolved at runtime to avoid import order issues  
 WATCHLIST_MODES = {
     "prices":  ("_get_price_usd_for",       "_fmt_usd",        "Price"),
     "caps":    ("_get_marketcap_usd_for",   "_fmt_usd",        "Market Cap"),
-    "volumes": ("_get_volume_24h_for_mint",  "_fmt_usd",        "24h Volume"),
-    "supply":  ("_get_supply_for_mint",      "_fmt_qty_2dp",    "Circulating"),
-    "fdv":     ("_get_fdv_for_mint",         "_fmt_usd",        "FDV"),
-    "holders": ("_get_holders_for_mint",     "_fmt_int_commas", "Holders"),
+    "volumes": ("_watch_volume24h_value",    "_fmt_usd",        "24h Volume"),
+    "supply":  ("_watch_supply_value",       "_fmt_qty_2dp",    "Circulating"),
+    "fdv":     ("_watch_fdv_value",          "_fmt_usd",        "FDV"),
+    "holders": ("_watch_holders_value",      "_fmt_int_commas", "Holders"),
 }
 
 def _pick_supply_fields(ov: dict):
