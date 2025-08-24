@@ -355,6 +355,10 @@ def _render_help(is_admin: bool) -> str:
         "`/watch <MINT>`",
         "`/unwatch <MINT>`",
         "`/watchlist [prices|caps|volumes|supply|fdv|holders]` - Show your watchlist with data modes",
+        "`/watchlist supply` — show circulating supply",
+        "`/watchlist fdv` — show fully-diluted valuation", 
+        "`/watchlist holders` — show holder count",
+        "Add \"asc\" or \"desc\" to sort, e.g. `/watchlist volumes desc`",
         "`/watch_clear`",
         "`/fetchnow`",
         "`/scanonce` (alias of `/fetchnow`)",
@@ -5106,6 +5110,10 @@ def process_telegram_command(update: dict):
                           "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
                           "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
                           "  /watchlist [mode] – show saved mints (modes: prices|caps|volumes|supply|fdv|holders)\n" + \
+                          "    /watchlist supply — show circulating supply\n" + \
+                          "    /watchlist fdv — show fully-diluted valuation\n" + \
+                          "    /watchlist holders — show holder count\n" + \
+                          "    Add \"asc\" or \"desc\" to sort, e.g. /watchlist volumes desc\n" + \
                           "  /watch_tick – run one scan now\n" + \
                           "  /alerts_auto_on [sec] – enable continuous scanning at optional interval\n" + \
                           "  /alerts_auto_off – disable continuous scanning\n" + \
