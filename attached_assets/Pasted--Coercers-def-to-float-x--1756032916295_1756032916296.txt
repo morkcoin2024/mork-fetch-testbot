@@ -1,0 +1,90 @@
+# --- Coercers ---------------------------------------------------------------
+def _to_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+def _to_int(x):
+    try:
+        return int(x)
+    except Exception:
+        return None
+
+# --- Numeric getters used by /watchlist ------------------------------------
+# IMPORTANT: these MUST call the SAME underlying fetchers as the single-command
+# handlers (/supply, /fdv, /volume, /holders), returning numbers (not strings).
+
+def _get_supply_val(mint: str):
+    # Circulating preferred, fallback to total
+    try:
+        # Use the exact helper your /supply command uses. If that helper returns
+        # a dict, extract the numeric field here.
+        circ = _supply_for_mint(mint)          # float|int|dict|None (your impl)
+        if isinstance(circ, dict):
+            circ = circ.get("circulating") or circ.get("circulatingSupply") \
+                   or circ.get("circulating_supply")
+        v = _to_float(circ)
+        if v is not None:
+            return v
+
+        # Fallback to total supply if available
+        tot = None
+        try:
+            tot = _total_supply_for_mint(mint)   # float|int|None if you have it
+        except Exception:
+            pass
+        return _to_float(tot)
+    except Exception:
+        return None
+
+def _get_fdv_val(mint: str):
+    # Try API FDV, fallback price * total supply
+    try:
+        fdv = _fdv_for_mint(mint)               # float|int|dict|None
+        if isinstance(fdv, dict):
+            fdv = fdv.get("fdv") or fdv.get("fully_diluted_valuation")
+        v = _to_float(fdv)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+
+    # Fallback compute: price * total supply
+    try:
+        px  = _to_float(_price_for_mint(mint))
+        tot = None
+        try:
+            tot = _total_supply_for_mint(mint)
+        except Exception:
+            # If no total helper, last-ditch: use circulating as a rough fallback
+            tot = _supply_for_mint(mint)
+            if isinstance(tot, dict):
+                tot = tot.get("circulating") or tot.get("circulatingSupply") \
+                      or tot.get("circulating_supply")
+        tot = _to_float(tot)
+        if px is not None and tot is not None:
+            return px * tot
+    except Exception:
+        pass
+    return None
+
+def _get_vol24_val(mint: str):
+    # Same source as /volume (24h)
+    try:
+        vol = _volume24h_for_mint(mint)         # float|int|dict|None
+        if isinstance(vol, dict):
+            vol = vol.get("volume24h") or vol.get("vol24h") or vol.get("volume_24h")
+        return _to_float(vol)
+    except Exception:
+        return None
+
+def _get_holders_val(mint: str):
+    # Same source as /holders
+    try:
+        h = _holders_for_mint(mint)             # int|dict|None
+        if isinstance(h, dict):
+            h = h.get("holders") or h.get("holder_count")
+        return _to_int(h)
+    except Exception:
+        return None
