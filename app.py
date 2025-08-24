@@ -857,14 +857,73 @@ def _num_or_none(x):
     try: return float(x)
     except Exception: return None
 
-# Map: mode -> (getter, formatter, label_for_value)
-# Note: Functions will be resolved at runtime, some may not exist yet
+def _get_volume_24h_for_mint(mint):
+    """Get 24h volume for mint using existing overview system"""
+    try:
+        ov = _overview_for(mint) or {}
+        vol = ov.get("v24") or ov.get("volume24h") or ov.get("volume_24h") or ov.get("volume24hUSD")
+        return _num_or_none(vol)
+    except Exception:
+        return None
+
+def _get_supply_for_mint(mint):
+    """Get circulating supply for mint using existing supply system"""
+    try:
+        ov = _overview_for(mint) or {}
+        circ, total, maxs, mc = _pick_supply_fields(ov)
+        
+        # Prefer circulating, fallback to total, then max
+        supply = circ or total or maxs
+        if supply:
+            return _num_or_none(supply)
+        
+        # Fallback: calculate from market cap / price if available
+        price = _get_price_usd_for(mint)
+        if mc and price and price > 0:
+            return _num_or_none(float(mc) / float(price))
+        
+        return None
+    except Exception:
+        return None
+
+def _get_fdv_for_mint(mint):
+    """Get fully diluted valuation for mint using existing FDV system"""
+    try:
+        ov = _overview_for(mint) or {}
+        fdv = _pick_fdv_field(ov)
+        if fdv:
+            return _num_or_none(fdv)
+        
+        # Fallback: calculate FDV from price * max/total/circulating supply
+        price = _get_price_usd_for(mint)
+        if price and price > 0:
+            circ, total, maxs, mc = _pick_supply_fields(ov)
+            # Use max supply first (true FDV), then total, then circulating
+            supply = maxs or total or circ
+            if supply:
+                return _num_or_none(float(price) * float(supply))
+        
+        return None
+    except Exception:
+        return None
+
+def _get_holders_for_mint(mint):
+    """Get holder count for mint using existing overview system"""
+    try:
+        ov = _overview_for(mint) or {}
+        holders = _pick_holders_field(ov)
+        return _num_or_none(holders)
+    except Exception:
+        return None
+
+# Map: mode -> (getter_name, formatter_name, label_for_value)
+# Note: Functions will be resolved at runtime to avoid import order issues
 WATCHLIST_MODES = {
     "prices":  ("_get_price_usd_for",       "_fmt_usd",        "Price"),
     "caps":    ("_get_marketcap_usd_for",   "_fmt_usd",        "Market Cap"),
     "volumes": ("_get_volume_24h_for_mint",  "_fmt_usd",        "24h Volume"),
-    "supply":  ("_get_supply_for_mint",      "_fmt_qty_2dp",    "Circulating"),   # falls back internally as you implemented
-    "fdv":     ("_get_fdv_for_mint",         "_fmt_usd",        "FDV"),           # falls back: price * total supply
+    "supply":  ("_get_supply_for_mint",      "_fmt_qty_2dp",    "Circulating"),
+    "fdv":     ("_get_fdv_for_mint",         "_fmt_usd",        "FDV"),
     "holders": ("_get_holders_for_mint",     "_fmt_int_commas", "Holders"),
 }
 
