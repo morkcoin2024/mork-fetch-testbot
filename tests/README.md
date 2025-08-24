@@ -25,7 +25,7 @@ This test suite validates the enterprise-grade watchlist optimization system wit
 #### Quick Test
 ```bash
 cd /path/to/workspace
-FETCH_ENABLE_SCANNERS=1 PYTHONPATH=. python tests/test_watchlist.py
+FETCH_ENABLE_SCANNERS=1 python tests/test_watchlist.py
 ```
 
 #### Full Test Suite
@@ -37,6 +37,8 @@ FETCH_ENABLE_SCANNERS=1 PYTHONPATH=. python tests/test_watchlist.py
 - `FETCH_ENABLE_SCANNERS=1`: Enable live data sources
 - `TEST_TIMEOUT=8`: Set command timeout in seconds
 - `STRICT=1`: Require real values (no "?" allowed)
+
+**Note:** Tests include automatic path resolution, eliminating the need for manual PYTHONPATH configuration.
 
 ### Test Results Interpretation
 
