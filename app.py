@@ -689,15 +689,20 @@ def _volume_24h_usd(mint: str) -> float | None:
 # === Supply/FDV/Holders helpers ===
 
 def _fmt_qty(x):
-    """Comma-separated, up to 2 decimals; '?' if unknown."""
     try:
-        xv = float(x)
+        v = float(x)
     except Exception:
         return "?"
-    if abs(xv - int(xv)) < 1e-9:
-        return f"{int(xv):,}"
-    s = f"{xv:,.2f}".rstrip("0").rstrip(".")
+    if abs(v - int(v)) < 1e-9:
+        return f"{int(v):,}"
+    s = f"{v:,.2f}".rstrip("0").rstrip(".")
     return s
+
+def _safe_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
 
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
