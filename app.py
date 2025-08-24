@@ -1003,8 +1003,18 @@ def _fmt_int(v):
 def _get_supply_val(mint: str):
     try:
         s = _supply_value_for_mint(mint)  # same source as /supply
-        raw = _pick(s, "circulating", "circulatingSupply", "circulating_supply", 
-                    "circ", "supply_circ", "value") if isinstance(s, dict) else s
+        # Comprehensive field mapping for circulating supply
+        raw = _pick(s, 
+            # Birdeye API variants
+            "circulating", "circulatingSupply", "circulating_supply", "supplyCirculating",
+            # Dexscreener API variants
+            "circ", "supply_circ", "circSupply", "circulatingTokens",
+            # Solscan API variants  
+            "circulatingSupply", "supply_circulating", "tokens_circulating",
+            # Generic/fallback variants
+            "current_supply", "available_supply", "liquid_supply", "floating_supply",
+            "value"
+        ) if isinstance(s, dict) else s
         v = _to_float_any(raw)
         if v is not None:
             return v
@@ -1012,11 +1022,18 @@ def _get_supply_val(mint: str):
         try:
             t = _call_first([
                 "_get_total_supply_for_mint",
-                "_get_total_supply_for",
+                "_get_total_supply_for", 
                 "_total_supply_for",
             ], mint)
-            t = _pick(t, "total", "totalSupply", "total_supply",
-                      "supply_total", "value") if isinstance(t, dict) else t
+            # Comprehensive field mapping for total supply
+            t = _pick(t, 
+                # Standard total supply variants
+                "total", "totalSupply", "total_supply", "supply_total",
+                "maxSupply", "max_supply", "totalTokens", "supply_max",
+                # Additional variants
+                "issued_supply", "minted_supply", "total_minted",
+                "value"
+            ) if isinstance(t, dict) else t
             return _to_float_any(t)
         except Exception:
             return None
@@ -1027,8 +1044,19 @@ def _get_fdv_val(mint: str):
     # try explicit fdv fields first
     try:
         fdv = _fdv_value_for_mint(mint)  # same as /fdv
-        raw = _pick(fdv, "fdv", "fdv_usd", "fully_diluted_valuation", 
-                    "fullyDilutedValuation", "value") if isinstance(fdv, dict) else fdv
+        # Comprehensive field mapping for FDV across all major APIs
+        raw = _pick(fdv, 
+            # Birdeye API variants
+            "fdv", "fdv_usd", "fullyDilutedValuation", "fdvUsd",
+            # Dexscreener API variants  
+            "fully_diluted_valuation", "fullyDilutedMarketCap", "fdmc",
+            # Solscan API variants
+            "market_cap_fully_diluted", "fully_diluted_market_cap", "fdv_market_cap",
+            # Generic/fallback variants
+            "total_market_cap", "max_market_cap", "diluted_market_cap", 
+            "theoretical_market_cap", "potential_market_cap",
+            "value"
+        ) if isinstance(fdv, dict) else fdv
         v = _to_float_any(raw)
         if v is not None:
             return v
@@ -1045,8 +1073,13 @@ def _get_fdv_val(mint: str):
             ], mint)
         except Exception:
             total = _supply_value_for_mint(mint)
-        total = _pick(total, "total", "totalSupply", "total_supply",
-                      "supply_total", "value") if isinstance(total, dict) else total
+        # Use comprehensive field mapping for total supply fallback
+        total = _pick(total, 
+            "total", "totalSupply", "total_supply", "supply_total",
+            "maxSupply", "max_supply", "totalTokens", "supply_max",
+            "issued_supply", "minted_supply", "total_minted",
+            "value"
+        ) if isinstance(total, dict) else total
         total = _to_float_any(total)
         if price is not None and total is not None:
             return price * total
@@ -1057,12 +1090,19 @@ def _get_fdv_val(mint: str):
 def _get_vol24_val(mint: str):
     try:
         v = _volume_24h_usd(mint)  # same as /volume
-        # include many common key variants
+        # Comprehensive field mapping for all major APIs
         raw = _pick(
             v,
-            "volume24h", "volume_24h", "vol24h", "vol_24h",
-            "volumeUsd24h", "volume_usd_24h", "usd24h", "v24hUSD",
-            "h24Usd", "h24_usd", "value"
+            # Birdeye API variants
+            "v24hUSD", "v24hUsd", "v24h", "volumeUsd24h", "volume24hUsd",
+            # Dexscreener API variants  
+            "volume24h", "volume_24h", "vol24h", "vol_24h", "volume24h_usd",
+            # Solscan API variants
+            "usdVolume24h", "usd_24h", "daily_volume_usd", "volumeUsd",
+            # Generic/fallback variants
+            "volume_usd_24h", "h24Usd", "h24_usd", "usd24h", "dailyVolumeUsd",
+            "vol24hUsd", "volUSD24h", "volume_24h_usd", "twentyFourHourVolume",
+            "value"
         ) if isinstance(v, dict) else v
         return _to_float_any(raw)
     except Exception:
@@ -1071,7 +1111,19 @@ def _get_vol24_val(mint: str):
 def _get_holders_val(mint: str):
     try:
         h = _holders_value_for_mint(mint)  # same as /holders
-        raw = _pick(h, "holders", "holder_count", "holderCount", "value") if isinstance(h, dict) else h
+        # Comprehensive field mapping for holders across all major APIs
+        raw = _pick(h, 
+            # Birdeye API variants
+            "holders", "holder_count", "holderCount", "holdersCount",
+            # Dexscreener API variants
+            "holders_total", "total_holders", "unique_holders", "wallets",
+            # Solscan API variants  
+            "holder_count", "holders_count", "wallet_count", "addresses",
+            # Generic/fallback variants
+            "owner_count", "address_count", "accounts", "unique_addresses",
+            "participants", "token_holders", "active_holders",
+            "value"
+        ) if isinstance(h, dict) else h
         return _to_int_any(raw)
     except Exception:
         return None
