@@ -482,89 +482,65 @@ def _cmd_watchlist(chat_id, args):
     
     # Enhanced argument parsing for mode detection and sorting
     tokens = (args or "").strip().lower().split()
-    mode = next((t for t in tokens if t in WATCHLIST_MODES), None)
+    mode = tokens[0] if tokens else None
     sort_dir = tokens[-1] if tokens and tokens[-1] in ("asc", "desc") else None
-
-    # Legacy mode support (backward compatibility)
-    show = (args or "").strip().lower()
-    if not mode:
-        if show in {"p","price","prices"}:
-            mode = "prices"
-        elif show in {"c","cap","caps","marketcap"}:
-            mode = "caps"
-        elif show in {"v","vol","volume","volumes"}:
-            mode = "volumes"
-
-    # Get configuration for the selected mode
-    if mode and mode in WATCHLIST_MODES:
-        getter_name, formatter_name, label = WATCHLIST_MODES[mode]
-        # Resolve functions by name at runtime
-        getter = globals().get(getter_name)
-        formatter = globals().get(formatter_name)
-        
-        if not getter or not formatter:
-            return {"status": "error", "response": f"⚠️ Mode '{mode}' not yet implemented"}
-        
-        # Fetch data for each mint with improved sorting logic
-        rows = []
-        for mint in bucket:
-            # Use existing helper that returns (symbol, name)
-            sym, name = _display_name_for(mint)
-            short = _short_mint(mint)
-
-            raw_val = None
-            if getter:
-                try:
-                    raw_val = getter(mint)   # may be None
-                except Exception:
-                    raw_val = None
-
-            disp = formatter(raw_val) if raw_val is not None else "?"
-            
-            val_num = None
-            try:
-                val_num = float(raw_val) if raw_val is not None else None
-            except Exception:
-                val_num = None
-
-            line = f"{sym} — {name}  {disp}  `{short}`"
-            rows.append({"line": line, "sort_val": val_num})
-
-        # Sorting only if requested; unknowns (None) always at bottom
-        if sort_dir:
-            reverse = (sort_dir == "desc")
-            rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] or 0.0), reverse=reverse)
-        
-        # Enhanced title formatting
-        getter_name, formatter_name, label = WATCHLIST_MODES.get(mode, (None, None, None))
-        title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
-        
-        if not rows:
-            body = "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`"
-        else:
-            sort_suffix = f" ({sort_dir})" if sort_dir else ""
-            body = f"{title}{sort_suffix}\n" + "\n".join(r["line"] for r in rows)
-            if mode in WATCHLIST_MODES and not sort_dir and len(bucket) > 1:
-                body += f"\n\n_Tip: `/watchlist {mode} asc` or `/watchlist {mode} desc` to sort_"
-        
-        return {"status": "ok", "response": body, "parse_mode": "Markdown"}
     
+    # If last token is sort direction, adjust mode selection
+    if sort_dir and len(tokens) > 1:
+        mode = tokens[0]  # First token is mode when sorting is specified
+
+    # Get configuration for the selected mode using enhanced function
+    label, getter, formatter = _watchlist_mode_parts(mode)
+    
+    # Fetch data for each mint with improved sorting logic
+    rows = []
+    for mint in bucket:
+        # Use existing helper that returns (symbol, name)
+        sym, name = _display_name_for(mint)
+        short = _short_mint(mint)
+
+        raw_val = None
+        if getter:
+            try:
+                raw_val = getter(mint)   # may be None
+            except Exception:
+                raw_val = None
+
+        disp = formatter(raw_val) if raw_val is not None else "?"
+        
+        val_num = None
+        try:
+            val_num = float(raw_val) if raw_val is not None else None
+        except Exception:
+            val_num = None
+
+        line = f"{sym} — {name}  {disp}  `{short}`"
+        rows.append({"line": line, "sort_val": val_num})
+
+    # Sorting with sophisticated null handling (None values at end for both directions)
+    if sort_dir:
+        reverse = (sort_dir == "desc")
+        def sort_key(r):
+            v = r["sort_val"]
+            # None to the end for both orders
+            return (v is None, (-v if reverse and v is not None else (v if not reverse else 0.0)))
+        rows.sort(key=sort_key)
+    
+    # Enhanced title formatting
+    title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
+    
+    if not rows:
+        body = "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`"
     else:
-        # Default watchlist behavior (basic list)
-        lines = []
-        for mint in bucket:
-            ticker, long_name = _display_name_for(mint)
-            short = _short_mint(mint)
-            lines.append(f"{ticker} — {long_name}  `{short}`")
+        sort_suffix = f" ({sort_dir})" if sort_dir else ""
+        body = f"{title}{sort_suffix}\n" + "\n".join(r["line"] for r in rows)
         
-        # Enhanced title and mode guidance  
-        title = "👀 *Watchlist*"
-        modes = list(WATCHLIST_MODES.keys())
-        body = f"{title}\n" + "\n".join(lines)
-        body += f"\n\n_Modes: {' | '.join(modes)}_"
-        body += "\n_Add 'asc' or 'desc' to sort, e.g. `/watchlist volumes desc`_"
-        
-        return {"status": "ok", "response": body, "parse_mode": "Markdown"}
+        # Add helpful sorting tip if not already sorting
+        if not sort_dir and len(rows) > 1:
+            mode_name = (mode or "prices")
+            body += f"\n\n_Tip: `/watchlist {mode_name} asc` or `/watchlist {mode_name} desc` to sort_"
+    
+    return {"status": "ok", "response": body, "parse_mode": "Markdown"}
 
 def _cmd_unwatch(chat_id, args):
     """Enhanced /unwatch handler with per-chat isolation"""
@@ -986,17 +962,129 @@ def _volume24h_value_for_mint(mint: str):
                 pass
     return None
 
+# === TOLERANT PARSING/FORMATTING (ENTERPRISE-GRADE) ===
+import re
+_NUM_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+def _to_float_any(x):
+    if x is None: return None
+    if isinstance(x, (int, float)): return float(x)
+    s = str(x).strip()
+    if not s: return None
+    s = s.replace(",", "")
+    m = _NUM_RE.search(s)
+    try: return float(m.group(0)) if m else None
+    except Exception: return None
+
+def _to_int_any(x):
+    v = _to_float_any(x)
+    return None if v is None else int(v)
+
+def _pick(d, *keys):
+    if not isinstance(d, dict): return None
+    for k in keys:
+        if k in d and d[k] not in (None, "", "?"):
+            return d[k]
+    return None
+
+def _fmt_usd(v):
+    try: return f"${float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_qty(v):
+    try: return f"{float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_int(v):
+    try: return f"{int(v):,}"
+    except Exception: return "?"
+
+# === ROBUST WATCHLIST VALUE GETTERS ===
+def _get_supply_val(mint: str):
+    try:
+        s = _supply_value_for_mint(mint)  # same source as /supply
+        raw = _pick(s, "circulating", "circulatingSupply", "circulating_supply", 
+                    "circ", "supply_circ", "value") if isinstance(s, dict) else s
+        v = _to_float_any(raw)
+        if v is not None:
+            return v
+        # fallback to total if circulating missing
+        try:
+            t = _call_first([
+                "_get_total_supply_for_mint",
+                "_get_total_supply_for",
+                "_total_supply_for",
+            ], mint)
+            t = _pick(t, "total", "totalSupply", "total_supply",
+                      "supply_total", "value") if isinstance(t, dict) else t
+            return _to_float_any(t)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+def _get_fdv_val(mint: str):
+    # try explicit fdv fields first
+    try:
+        fdv = _fdv_value_for_mint(mint)  # same as /fdv
+        raw = _pick(fdv, "fdv", "fdv_usd", "fully_diluted_valuation", 
+                    "fullyDilutedValuation", "value") if isinstance(fdv, dict) else fdv
+        v = _to_float_any(raw)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    # fallback: price * total supply
+    try:
+        price = _to_float_any(_get_price_usd_for(mint))
+        try:
+            total = _call_first([
+                "_get_total_supply_for_mint",
+                "_get_total_supply_for",
+                "_total_supply_for",
+            ], mint)
+        except Exception:
+            total = _supply_value_for_mint(mint)
+        total = _pick(total, "total", "totalSupply", "total_supply",
+                      "supply_total", "value") if isinstance(total, dict) else total
+        total = _to_float_any(total)
+        if price is not None and total is not None:
+            return price * total
+    except Exception:
+        pass
+    return None
+
+def _get_vol24_val(mint: str):
+    try:
+        v = _volume_24h_usd(mint)  # same as /volume
+        # include many common key variants
+        raw = _pick(
+            v,
+            "volume24h", "volume_24h", "vol24h", "vol_24h",
+            "volumeUsd24h", "volume_usd_24h", "usd24h", "v24hUSD",
+            "h24Usd", "h24_usd", "value"
+        ) if isinstance(v, dict) else v
+        return _to_float_any(raw)
+    except Exception:
+        return None
+
+def _get_holders_val(mint: str):
+    try:
+        h = _holders_value_for_mint(mint)  # same as /holders
+        raw = _pick(h, "holders", "holder_count", "holderCount", "value") if isinstance(h, dict) else h
+        return _to_int_any(raw)
+    except Exception:
+        return None
+
 # === WATCHLIST INTEGRATION SHIMS ===
 # Ensure watchlist uses the EXACT same data sources as individual token commands
 
-# Shims to call the same functions as individual commands
 def _supply_for_mint(mint: str):
     """Shim: calls the same function as /supply command"""
     return _supply_value_for_mint(mint)
 
 def _total_supply_for_mint(mint: str):
     """Shim: fallback supply data for watchlist consistency"""
-    # Try existing total supply helpers used by the canonical getters
     v = _call_first([
         "_get_total_supply_for_mint",
         "_get_total_supply_for",
@@ -1027,8 +1115,25 @@ def _market_cap_for_mint(mint: str):
     """Shim: calls the same function as /marketcap command"""
     return _get_marketcap_usd_for(mint)
 
-# Map: mode -> (getter_name, formatter_name, label_for_value)
-# String references resolved at runtime to avoid definition order issues
+# === ENHANCED WATCHLIST MODE CONFIGURATION ===
+def _watchlist_mode_parts(mode: str):
+    m = (mode or "").lower()
+    return {
+        "prices":  ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "price":   ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "caps":    ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "cap":     ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "marketcap": ("Market Cap", lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "volumes": ("24h Volume",  _get_vol24_val,  _fmt_usd),
+        "volume":  ("24h Volume",  _get_vol24_val,  _fmt_usd),
+        "supply":  ("Circulating", _get_supply_val, _fmt_qty),
+        "circulating": ("Circulating", _get_supply_val, _fmt_qty),
+        "fdv":     ("FDV",         _get_fdv_val,    _fmt_usd),
+        "holders": ("Holders",     _get_holders_val, _fmt_int),
+        "holder":  ("Holders",     _get_holders_val, _fmt_int),
+    }.get(m, ("Price", lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd))
+
+# Legacy WATCHLIST_MODES for backward compatibility
 WATCHLIST_MODES = {
     "prices":  ("_price_for_mint",        "_fmt_usd",        "Price"),
     "caps":    ("_market_cap_for_mint",   "_fmt_usd",        "Market Cap"),
