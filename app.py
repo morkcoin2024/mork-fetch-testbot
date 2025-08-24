@@ -986,15 +986,56 @@ def _volume24h_value_for_mint(mint: str):
                 pass
     return None
 
+# === WATCHLIST INTEGRATION SHIMS ===
+# Ensure watchlist uses the EXACT same data sources as individual token commands
+
+# Shims to call the same functions as individual commands
+def _supply_for_mint(mint: str):
+    """Shim: calls the same function as /supply command"""
+    return _supply_value_for_mint(mint)
+
+def _total_supply_for_mint(mint: str):
+    """Shim: fallback supply data for watchlist consistency"""
+    # Try existing total supply helpers used by the canonical getters
+    v = _call_first([
+        "_get_total_supply_for_mint",
+        "_get_total_supply_for",
+        "_total_supply_for",
+    ], mint)
+    if v is not None:
+        try: return float(v)
+        except: return None
+    return None
+
+def _fdv_for_mint(mint: str):
+    """Shim: calls the same function as /fdv command"""
+    return _fdv_value_for_mint(mint)
+
+def _volume24h_for_mint(mint: str):
+    """Shim: calls the same function as /volume command"""
+    return _volume_24h_usd(mint)
+
+def _holders_for_mint(mint: str):
+    """Shim: calls the same function as /holders command"""
+    return _holders_value_for_mint(mint)
+
+def _price_for_mint(mint: str):
+    """Shim: calls the same function as /price command"""
+    return _get_price_usd_for(mint)
+
+def _market_cap_for_mint(mint: str):
+    """Shim: calls the same function as /marketcap command"""
+    return _get_marketcap_usd_for(mint)
+
 # Map: mode -> (getter_name, formatter_name, label_for_value)
 # String references resolved at runtime to avoid definition order issues
 WATCHLIST_MODES = {
-    "prices":  ("_get_price_usd_for",        "_fmt_usd",        "Price"),
-    "caps":    ("_get_marketcap_usd_for",    "_fmt_usd",        "Market Cap"),
-    "volumes": ("_volume24h_value_for_mint", "_fmt_usd",        "24h Volume"),
-    "supply":  ("_supply_value_for_mint",    "_fmt_qty_2dp",    "Circulating"),
-    "fdv":     ("_fdv_value_for_mint",       "_fmt_usd",        "FDV"),
-    "holders": ("_holders_value_for_mint",   "_fmt_int_commas", "Holders"),
+    "prices":  ("_price_for_mint",        "_fmt_usd",        "Price"),
+    "caps":    ("_market_cap_for_mint",   "_fmt_usd",        "Market Cap"),
+    "volumes": ("_volume24h_for_mint",    "_fmt_usd",        "24h Volume"),
+    "supply":  ("_supply_for_mint",       "_fmt_qty_2dp",    "Circulating"),
+    "fdv":     ("_fdv_for_mint",          "_fmt_usd",        "FDV"),
+    "holders": ("_holders_for_mint",      "_fmt_int_commas", "Holders"),
 }
 
 def _pick_supply_fields(ov: dict):
