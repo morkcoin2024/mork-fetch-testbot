@@ -908,66 +908,93 @@ def _get_holders_for_mint(mint):
     except Exception:
         return None
 
-# -- WATCHLIST VALUE ADAPTERS -----------------------------------------------
+# --- Canonical numeric getters used by both single-token commands and watchlist ---
 
-def _try_funcs_mint(mint, *names):
-    """Try each named function with (mint) and return the first non-None result."""
-    for name in names:
+def _supply_value_for_mint(mint: str):
+    # Prefer circulating; fallback to total
+    for name in (
+        "_get_circulating_supply_for_mint",
+        "_get_supply_for_mint",
+        "_get_supply_for",
+        "_get_total_supply_for_mint",
+        "_get_total_supply_for",
+    ):
         fn = globals().get(name)
         if callable(fn):
             try:
                 v = fn(mint)
                 if v is not None:
-                    return v
+                    return float(v)
             except Exception:
                 pass
     return None
 
-def _watch_supply_value(mint):
-    # Use your supply getter(s). Circulating first; fallback to total.
-    v = _try_funcs_mint(mint,
-        "_get_supply_for_mint",
-        "_get_circulating_supply_for_mint",
-        "_get_supply_for",
-        "_fetch_supply_for_mint",
-    )
-    if v is None:
-        v = _try_funcs_mint(mint, "_get_total_supply_for_mint", "_get_total_supply_for")
-    return v
-
-def _watch_fdv_value(mint):
-    # Native FDV if available, else price * total_supply.
-    v = _try_funcs_mint(mint, "_get_fdv_for_mint", "_fdv_for_mint")
-    if v is None:
-        price = _try_funcs_mint(mint, "_get_price_for_mint", "_price_for_mint")
-        total = _try_funcs_mint(mint, "_get_total_supply_for_mint", "_get_supply_for_mint", "_get_supply_for")
-        if price is not None and total is not None:
+def _fdv_value_for_mint(mint: str):
+    # Native FDV; fallback to price * total supply
+    for name in ("_get_fdv_for_mint", "_fdv_for_mint"):
+        fn = globals().get(name)
+        if callable(fn):
             try:
-                v = float(price) * float(total)
+                v = fn(mint)
+                if v is not None:
+                    return float(v)
             except Exception:
-                v = None
-    return v
+                pass
+    # fallback
+    price = None
+    total = None
+    for name in ("_get_price_for_mint", "_price_for_mint"):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                price = fn(mint); 
+                if price is not None: price = float(price)
+            except Exception:
+                price = None
+    for name in ("_get_total_supply_for_mint", "_get_supply_for_mint", "_get_supply_for"):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                total = fn(mint); 
+                if total is not None: total = float(total)
+            except Exception:
+                total = None
+    return (price * total) if (price is not None and total is not None) else None
 
-def _watch_holders_value(mint):
-    v = _try_funcs_mint(mint, "_get_holders_for_mint", "_holders_for_mint", "_get_holders_for")
-    return v
+def _holders_value_for_mint(mint: str):
+    for name in ("_get_holders_for_mint", "_holders_for_mint", "_get_holders_for"):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                v = fn(mint)
+                if v is not None:
+                    return int(float(v))
+            except Exception:
+                pass
+    return None
 
-def _watch_volume24h_value(mint):
-    # Prefer a dedicated 24h volume getter; fall back to the one used by /liquidity.
-    v = _try_funcs_mint(mint, "_get_volume_24h_for_mint", "_volume_24h_for_mint", "_get_24h_volume_for_mint")
-    if v is None:
-        v = _try_funcs_mint(mint, "_get_liquidity_volume_24h_for_mint")  # if your /liquidity uses this
-    return v
+def _volume24h_value_for_mint(mint: str):
+    for name in ("_get_volume_24h_for_mint", "_volume_24h_for_mint", "_get_24h_volume_for_mint",
+                 "_get_liquidity_volume_24h_for_mint"):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                v = fn(mint)
+                if v is not None:
+                    return float(v)
+            except Exception:
+                pass
+    return None
 
 # Map: mode -> (getter_name, formatter_name, label_for_value)
 # Note: Functions will be resolved at runtime to avoid import order issues  
 WATCHLIST_MODES = {
-    "prices":  ("_get_price_usd_for",       "_fmt_usd",        "Price"),
-    "caps":    ("_get_marketcap_usd_for",   "_fmt_usd",        "Market Cap"),
-    "volumes": ("_watch_volume24h_value",    "_fmt_usd",        "24h Volume"),
-    "supply":  ("_watch_supply_value",       "_fmt_qty_2dp",    "Circulating"),
-    "fdv":     ("_watch_fdv_value",          "_fmt_usd",        "FDV"),
-    "holders": ("_watch_holders_value",      "_fmt_int_commas", "Holders"),
+    "prices":  ("_get_price_usd_for",          "_fmt_usd",        "Price"),
+    "caps":    ("_get_marketcap_usd_for",      "_fmt_usd",        "Market Cap"),
+    "volumes": ("_volume24h_value_for_mint",   "_fmt_usd",        "24h Volume"),
+    "supply":  ("_supply_value_for_mint",      "_fmt_qty_2dp",    "Circulating"),
+    "fdv":     ("_fdv_value_for_mint",         "_fmt_usd",        "FDV"),
+    "holders": ("_holders_value_for_mint",     "_fmt_int_commas", "Holders"),
 }
 
 def _pick_supply_fields(ov: dict):
