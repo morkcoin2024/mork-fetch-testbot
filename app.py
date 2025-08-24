@@ -4653,19 +4653,17 @@ def process_telegram_command(update: dict):
                 return _reply_err("Usage: `/supply <MINT|TICKER>` — unknown token.")
 
             ov = _overview_for(mint) or {}
-            circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) is not None), None)
-            total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) is not None), None)
+            circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) not in (None,"")), None)
+            total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) not in (None,"")), None)
 
-            label = "Circulating"
-            value = circ
-
+            label, value = "Circulating", circ
             if value in (None, 0, "0", "0.0"):
                 mc = _get_marketcap_usd_for(mint)
                 px = _get_price_usd_for(mint)
                 if mc is not None and px and px > 0:
                     value = mc / px
                     label = "Circulating"
-            if value in (None, 0, "0", "0.0") and total not in (None, 0, "0", "0.0"):
+            if value in (None, 0, "0", "0.0") and total not in (None, "", 0, "0"):
                 value = total
                 label = "Total"
 
@@ -4673,7 +4671,7 @@ def process_telegram_command(update: dict):
                 "📦 *Supply*\n"
                 f"{sym} — {name}\n"
                 f"`{_short_mint(mint)}`\n"
-                f"{label}: {_fmt_qty(value) if value not in (None, '') else '?'}"
+                f"{label}: {_fmt_qty(value)}"
             )
             return _reply_ok_md(body)
         elif cmd == "/fdv":
@@ -4683,21 +4681,18 @@ def process_telegram_command(update: dict):
                 return _reply_err("Usage: `/fdv <MINT|TICKER>` — unknown token.")
 
             ov = _overview_for(mint) or {}
-            fdv = next((ov.get(k) for k in ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"] if ov.get(k) is not None), None)
-
-            if fdv is None:
+            fdv = next((ov.get(k) for k in ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"] if ov.get(k) not in (None,"")), None)
+            if _safe_float(fdv) is None:
                 px = _get_price_usd_for(mint)
-                circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) is not None), None)
-                total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) is not None), None)
-                maxs  = next((ov.get(k) for k in ["max_supply","maxSupply"] if ov.get(k) is not None), None)
-
-                supply_for_fdv = next((v for v in [maxs, total, circ] if _safe_float(v)), None)
+                # Prefer max/total for FDV
+                maxs = next((ov.get(k) for k in ["max_supply","maxSupply"] if ov.get(k) not in (None,"")), None)
+                total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) not in (None,"")), None)
+                circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) not in (None,"")), None)
+                supply_for_fdv = next((v for v in [maxs, total, circ] if _safe_float(v) not in (None, 0.0)), None)
                 if supply_for_fdv is None:
-                    # as a last resort, estimate circulating via marketcap/price
                     mc = _get_marketcap_usd_for(mint)
                     if mc is not None and px and px > 0:
                         supply_for_fdv = mc / px
-
                 if px and px > 0 and _safe_float(supply_for_fdv):
                     fdv = px * float(supply_for_fdv)
 
@@ -4705,7 +4700,7 @@ def process_telegram_command(update: dict):
                 "🏗 *FDV*\n"
                 f"{sym} — {name}\n"
                 f"`{_short_mint(mint)}`\n"
-                f"FDV: {_fmt_usd(fdv) if fdv is not None else '?'}"
+                f"FDV: {_fmt_usd(fdv) if _safe_float(fdv) is not None else '?'}"
             )
             return _reply_ok_md(body)
         elif cmd == "/holders":
@@ -4713,23 +4708,20 @@ def process_telegram_command(update: dict):
             mint, sym, name, _ = _resolve_token_any(arg)
             if not mint:
                 return _reply_err("Usage: `/holders <MINT|TICKER>` — unknown token.")
-
             ov = _overview_for(mint) or {}
-            holders = next((ov.get(k) for k in ["holders","holders_count","holdersCount","holder_count"] if ov.get(k) is not None), None)
-
-            if holders is None:
-                # optional: Solscan fallback if available in this build
+            holders = next((ov.get(k) for k in ["holders","holders_count","holdersCount","holder_count"] if ov.get(k) not in (None,"")), None)
+            # Optional fallback via Solscan helper if present in this build
+            if holders in (None, "", 0, "0"):
                 try:
                     if 'SOLSCAN' in globals() and hasattr(SOLSCAN, "get_token_holders_count"):
                         holders = SOLSCAN.get_token_holders_count(mint)
                 except Exception:
                     pass
-
             body = (
                 "👥 *Holders*\n"
                 f"{sym} — {name}\n"
                 f"`{_short_mint(mint)}`\n"
-                f"Holders: {_fmt_qty(holders) if holders is not None else '?'}"
+                f"Holders: {_fmt_qty(holders)}"
             )
             return _reply_ok_md(body)
         elif cmd == "/fetch":
