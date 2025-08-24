@@ -22,21 +22,44 @@ This test suite validates the enterprise-grade watchlist optimization system wit
 
 ### Running Tests
 
-#### Quick Test
+#### Using Makefile (Recommended)
 ```bash
-cd /path/to/workspace
-FETCH_ENABLE_SCANNERS=1 python tests/test_watchlist.py
+# Show available targets
+make help
+
+# Run enterprise watchlist tests (default: strict mode)
+make test-watchlist
+
+# Run strict mode tests (requires real data)
+make test-watchlist-strict
+
+# Run lenient mode tests (allows "?" values)
+make test-watchlist-lenient
+
+# Run both test modes
+make test-all
 ```
 
-#### Full Test Suite
+#### Direct Execution
 ```bash
+# Quick test with scanners enabled
+FETCH_ENABLE_SCANNERS=1 python tests/test_watchlist.py
+
+# Full test suite
 ./tests/run_tests.sh
+```
+
+#### CI/CD Integration
+```bash
+# GitHub Actions compatible
+STRICT=1 TEST_TIMEOUT=8 python3 tests/test_watchlist.py
 ```
 
 #### Configuration Options
 - `FETCH_ENABLE_SCANNERS=1`: Enable live data sources
 - `TEST_TIMEOUT=8`: Set command timeout in seconds
 - `STRICT=1`: Require real values (no "?" allowed)
+- `STRICT=0`: Allow graceful degradation with "?" values
 
 **Note:** Tests include automatic path resolution, eliminating the need for manual PYTHONPATH configuration.
 
