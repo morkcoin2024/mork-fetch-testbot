@@ -795,6 +795,17 @@ def _num_or_none(x):
     except Exception:
         return None
 
+# Map: mode -> (getter, formatter, label_for_value)
+# Note: Functions will be resolved at runtime, some may not exist yet
+WATCHLIST_MODES = {
+    "prices":  ("_get_price_usd_for",       "_fmt_usd",        "Price"),
+    "caps":    ("_get_marketcap_usd_for",   "_fmt_usd",        "Market Cap"),
+    "volumes": ("_get_volume_24h_for_mint",  "_fmt_usd",        "24h Volume"),
+    "supply":  ("_get_supply_for_mint",      "_fmt_qty_2dp",    "Circulating"),   # falls back internally as you implemented
+    "fdv":     ("_get_fdv_for_mint",         "_fmt_usd",        "FDV"),           # falls back: price * total supply
+    "holders": ("_get_holders_for_mint",     "_fmt_int_commas", "Holders"),
+}
+
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
     if not isinstance(ov, dict):
