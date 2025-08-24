@@ -4685,7 +4685,7 @@ def process_telegram_command(update: dict):
                 "📦 *Supply*\n"
                 f"{sym} — {name}\n"
                 f"`{_short_mint(mint)}`\n"
-                f"{label}: {_fmt_qty(value)}"
+                f"{label}: {_fmt_qty_2dp(value)}"
             )
             return _reply_ok_md(body)
         elif cmd == "/fdv":
