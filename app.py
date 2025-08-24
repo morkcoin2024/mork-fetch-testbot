@@ -846,22 +846,16 @@ def _fmt_qty(x):
     return s
 
 def _fmt_int_commas(x):
-    try:
-        return f"{int(x):,}"
-    except Exception:
-        return "?"
+    try: return f"{int(float(x)):,}"
+    except Exception: return "?"
 
 def _fmt_qty_2dp(x):
-    try:
-        return f"{float(x):,.2f}"
-    except Exception:
-        return "?"
+    try: return f"{float(x):,.2f}"
+    except Exception: return "?"
 
 def _num_or_none(x):
-    try:
-        return float(x)
-    except Exception:
-        return None
+    try: return float(x)
+    except Exception: return None
 
 # Map: mode -> (getter, formatter, label_for_value)
 # Note: Functions will be resolved at runtime, some may not exist yet
@@ -1177,12 +1171,6 @@ def _fmt_usd(v) -> str:
         return f"${q:,.2f}"
     except (InvalidOperation, Exception):
         return "?"
-
-def _num_or_none(x):
-    try:
-        return float(x)
-    except Exception:
-        return None
 
 def _birdeye_token_overview(mint: str) -> dict:
     try:
