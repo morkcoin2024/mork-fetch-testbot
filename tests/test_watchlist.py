@@ -1,14 +1,12 @@
-# --- add these lines at the very top ---
 import sys, pathlib
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-# Fallback for src/ layout (if you use it)
 SRC = ROOT / "src"
 if SRC.exists() and str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
-# --- then import app as usual ---
-import os, re, multiprocessing as mp, app
+
+import os, re, sys as _sys, multiprocessing as mp, app
 
 # Chat + user IDs used by the bot
 CHAT = -1002782542798
@@ -43,10 +41,8 @@ def send(cmd, timeout=TIMEOUT):
     return q.get() if not q.empty() else ""
 
 def row_for(text, short_mint):
-    # Pull the single row that contains the short mint (tolerates one-line pipe layout)
     m = re.search(rf"(?:^|\n)([^\n]*`{re.escape(short_mint)}`[^\n]*)", text)
     if m: return m.group(1).strip()
-    # Fallback: if ellipsis rendering changes
     head = short_mint.split('…')[0]
     m2 = re.search(rf"(?:^|\n)([^\n]*{re.escape(head)}…[^\n]*)", text)
     return m2.group(1).strip() if m2 else ""
@@ -54,8 +50,7 @@ def row_for(text, short_mint):
 def ok_value(mode, row):
     if not row:
         return False
-    # Allow '?' values unless STRICT=1 (useful when data sources are offline)
-    if " ?  `" in row:
+    if " ?  `" in row:  # unknown/offline allowed unless STRICT=1
         return not STRICT
     if mode in ("prices","caps","fdv","volumes"):
         return bool(USD2.search(row))
@@ -71,7 +66,6 @@ def ck(passed, msg):
 
 def main():
     fails = 0
-
     # Reset & seed
     ack = send("/watch_clear")
     fails += ck(bool(ack) and ("cleared" in ack.lower()), "watch_clear")
@@ -84,14 +78,11 @@ def main():
         ok_resp = bool(resp) and "Watchlist" in resp
         fails += ck(ok_resp, f"resp {mode}")
         if not ok_resp:
-            # Skip deeper checks for this mode if the response was bad
             continue
-
         sol_row = row_for(resp, SOL_S)
         unk_row = row_for(resp, UNK_S)
         fails += ck(bool(sol_row), f"SOL row {mode}")
         fails += ck(bool(unk_row), f"UNK row {mode}")
-
         if sol_row:
             fails += ck(ok_value(mode, sol_row), f"{mode} SOL value")
         if unk_row:
@@ -107,7 +98,7 @@ def main():
     fails += ck(hdr_ok, "sort supply asc")
 
     print("\nPASS" if fails == 0 else f"FAIL({fails})")
-    sys.exit(0 if fails == 0 else 1)
+    _sys.exit(0 if fails == 0 else 1)
 
 if __name__ == "__main__":
     main()
