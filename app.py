@@ -533,7 +533,7 @@ def _cmd_watchlist(chat_id, args):
         # Sorting only if requested; unknowns (None) always at bottom
         if sort_dir:
             reverse = (sort_dir == "desc")
-            rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] if r["sort_val"] is not None else 0.0), reverse=reverse)
+            rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] or 0.0), reverse=reverse)
         
         # Enhanced title formatting
         getter_name, formatter_name, label = WATCHLIST_MODES.get(mode, (None, None, None))
