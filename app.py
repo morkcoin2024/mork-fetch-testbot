@@ -4569,33 +4569,36 @@ def process_telegram_command(update: dict):
                 f"24h Volume: {vol_str}"
             )
         elif cmd == "/supply":
-            target = (args or "").split()[0] if args else ""
-            mint = _resolve_to_mint(target)
+            arg = _arg_after_cmd(text)
+            mint, sym, name, price_usd = _resolve_token_any(arg)  # same as /price,/liquidity
             if not mint:
-                return _reply("Usage: `/supply <MINT|TICKER>` — unknown token.", "error")
-
-            short = _short_mint(mint)
-            name_tuple = _display_name_for(mint)
-            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
-                ticker, long_name = name_tuple
-                name = f"{ticker} — {long_name}"
-            else:
-                name = str(name_tuple) if name_tuple else short
-            
+                return _reply_err("Usage: `/supply <MINT|TICKER>` — unknown token.")
             ov = _get_token_overview(mint) or {}
             circ, total, maxs, mc = _pick_supply_fields(ov)
-            
-            # Prioritize circulating, fallback to total
-            supply_val = circ if circ is not None else total
-            supply_str = _fmt_qty(supply_val) if supply_val is not None else "?"
-            
-            lines = [
-                "📦 *Supply*",
-                f"{name}",
-                f"`{short}`",
-                f"Supply: {supply_str}"
-            ]
-            return _reply("\n".join(lines), "ok")
+
+            label = "Circulating"
+            value = circ
+
+            if value in (None, 0, "0", "0.0"):
+                # fallback 1: market cap / price
+                try:
+                    if (mc is not None) and (price_usd is not None) and float(price_usd) > 0:
+                        value = float(mc) / float(price_usd)
+                        label = "Circulating"
+                except Exception:
+                    pass
+
+            if value in (None, 0, "0", "0.0") and total not in (None, 0, "0", "0.0"):
+                value = total
+                label = "Total"
+
+            body = (
+                "📦 *Supply*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"{label}: {_fmt_qty(value) if value not in (None, '') else '?'}"
+            )
+            return _reply_ok_md(body)
         elif cmd == "/fdv":
             target = (args or "").split()[0] if args else ""
             mint = _resolve_to_mint(target)
