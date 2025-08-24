@@ -10,11 +10,12 @@ import inspect
 import textwrap
 import math
 import sqlite3
+import concurrent.futures as cf
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
 
-# === STRICT HTTP TIMEOUT PROTECTION ===
-# Never call requests without timeout to prevent hanging requests
+# === COMPREHENSIVE TIMEOUT PROTECTION SYSTEM ===
+# 1) HTTP-level timeout protection for all requests
 def _get(url, **kw):
     """requests.get with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
@@ -39,6 +40,16 @@ def _delete(url, **kw):
     """requests.delete with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.delete(url, **kw)
+
+# 2) Local watchdog timeout protection for stat fetches
+def with_timeout(fn, /, *args, timeout=4, default=None, **kwargs):
+    """Execute function with thread-based watchdog timeout protection"""
+    with cf.ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(fn, *args, **kwargs)
+        try:
+            return fut.result(timeout=timeout)
+        except Exception:
+            return default
 # === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
 _TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
@@ -1026,134 +1037,136 @@ def _fmt_int(v):
     try: return f"{int(v):,}"
     except Exception: return "?"
 
-# === ROBUST WATCHLIST VALUE GETTERS ===
-def _get_supply_val(mint: str):
-    try:
-        s = _supply_value_for_mint(mint)  # same source as /supply
-        # Comprehensive field mapping for circulating supply
-        raw = _pick(s, 
-            # Birdeye API variants
-            "circulating", "circulatingSupply", "circulating_supply", "supplyCirculating",
-            # Dexscreener API variants
-            "circ", "supply_circ", "circSupply", "circulatingTokens",
-            # Solscan API variants  
-            "circulatingSupply", "supply_circulating", "tokens_circulating",
-            # Generic/fallback variants
-            "current_supply", "available_supply", "liquid_supply", "floating_supply",
-            "value"
-        ) if isinstance(s, dict) else s
-        v = _to_float_any(raw)
-        if v is not None:
-            return v
-        # fallback to total if circulating missing
-        try:
-            t = _call_first([
-                "_get_total_supply_for_mint",
-                "_get_total_supply_for", 
-                "_total_supply_for",
-            ], mint)
-            # Comprehensive field mapping for total supply
-            t = _pick(t, 
-                # Standard total supply variants
-                "total", "totalSupply", "total_supply", "supply_total",
-                "maxSupply", "max_supply", "totalTokens", "supply_max",
-                # Additional variants
-                "issued_supply", "minted_supply", "total_minted",
-                "value"
-            ) if isinstance(t, dict) else t
-            return _to_float_any(t)
-        except Exception:
-            return None
-    except Exception:
-        return None
+# === ROBUST WATCHLIST VALUE GETTERS WITH TIMEOUT PROTECTION ===
+def _get_supply_val_raw(mint: str):
+    """Internal supply getter without timeout protection"""
+    s = _supply_value_for_mint(mint)  # same source as /supply
+    # Comprehensive field mapping for circulating supply
+    raw = _pick(s, 
+        # Birdeye API variants
+        "circulating", "circulatingSupply", "circulating_supply", "supplyCirculating",
+        # Dexscreener API variants
+        "circ", "supply_circ", "circSupply", "circulatingTokens",
+        # Solscan API variants  
+        "circulatingSupply", "supply_circulating", "tokens_circulating",
+        # Generic/fallback variants
+        "current_supply", "available_supply", "liquid_supply", "floating_supply",
+        "value"
+    ) if isinstance(s, dict) else s
+    v = _to_float_any(raw)
+    if v is not None:
+        return v
+    # fallback to total if circulating missing
+    t = _call_first([
+        "_get_total_supply_for_mint",
+        "_get_total_supply_for", 
+        "_total_supply_for",
+    ], mint)
+    # Comprehensive field mapping for total supply
+    t = _pick(t, 
+        # Standard total supply variants
+        "total", "totalSupply", "total_supply", "supply_total",
+        "maxSupply", "max_supply", "totalTokens", "supply_max",
+        # Additional variants
+        "issued_supply", "minted_supply", "total_minted",
+        "value"
+    ) if isinstance(t, dict) else t
+    return _to_float_any(t)
 
-def _get_fdv_val(mint: str):
+def _get_supply_val(mint: str):
+    """Supply value getter with watchdog timeout protection"""
+    return with_timeout(_get_supply_val_raw, mint, timeout=4, default=None)
+
+def _get_fdv_val_raw(mint: str):
+    """Internal FDV getter without timeout protection"""
     # try explicit fdv fields first
-    try:
-        fdv = _fdv_value_for_mint(mint)  # same as /fdv
-        # Comprehensive field mapping for FDV across all major APIs
-        raw = _pick(fdv, 
-            # Birdeye API variants
-            "fdv", "fdv_usd", "fullyDilutedValuation", "fdvUsd",
-            # Dexscreener API variants  
-            "fully_diluted_valuation", "fullyDilutedMarketCap", "fdmc",
-            # Solscan API variants
-            "market_cap_fully_diluted", "fully_diluted_market_cap", "fdv_market_cap",
-            # Generic/fallback variants
-            "total_market_cap", "max_market_cap", "diluted_market_cap", 
-            "theoretical_market_cap", "potential_market_cap",
-            "value"
-        ) if isinstance(fdv, dict) else fdv
-        v = _to_float_any(raw)
-        if v is not None:
-            return v
-    except Exception:
-        pass
+    fdv = _fdv_value_for_mint(mint)  # same as /fdv
+    # Comprehensive field mapping for FDV across all major APIs
+    raw = _pick(fdv, 
+        # Birdeye API variants
+        "fdv", "fdv_usd", "fullyDilutedValuation", "fdvUsd",
+        # Dexscreener API variants  
+        "fully_diluted_valuation", "fullyDilutedMarketCap", "fdmc",
+        # Solscan API variants
+        "market_cap_fully_diluted", "fully_diluted_market_cap", "fdv_market_cap",
+        # Generic/fallback variants
+        "total_market_cap", "max_market_cap", "diluted_market_cap", 
+        "theoretical_market_cap", "potential_market_cap",
+        "value"
+    ) if isinstance(fdv, dict) else fdv
+    v = _to_float_any(raw)
+    if v is not None:
+        return v
     # fallback: price * total supply
+    price = _to_float_any(_get_price_usd_for(mint))
     try:
-        price = _to_float_any(_get_price_usd_for(mint))
-        try:
-            total = _call_first([
-                "_get_total_supply_for_mint",
-                "_get_total_supply_for",
-                "_total_supply_for",
-            ], mint)
-        except Exception:
-            total = _supply_value_for_mint(mint)
-        # Use comprehensive field mapping for total supply fallback
-        total = _pick(total, 
-            "total", "totalSupply", "total_supply", "supply_total",
-            "maxSupply", "max_supply", "totalTokens", "supply_max",
-            "issued_supply", "minted_supply", "total_minted",
-            "value"
-        ) if isinstance(total, dict) else total
-        total = _to_float_any(total)
-        if price is not None and total is not None:
-            return price * total
+        total = _call_first([
+            "_get_total_supply_for_mint",
+            "_get_total_supply_for",
+            "_total_supply_for",
+        ], mint)
     except Exception:
-        pass
+        total = _supply_value_for_mint(mint)
+    # Use comprehensive field mapping for total supply fallback
+    total = _pick(total, 
+        "total", "totalSupply", "total_supply", "supply_total",
+        "maxSupply", "max_supply", "totalTokens", "supply_max",
+        "issued_supply", "minted_supply", "total_minted",
+        "value"
+    ) if isinstance(total, dict) else total
+    total = _to_float_any(total)
+    if price is not None and total is not None:
+        return price * total
     return None
 
+def _get_fdv_val(mint: str):
+    """FDV value getter with watchdog timeout protection"""
+    return with_timeout(_get_fdv_val_raw, mint, timeout=4, default=None)
+
+def _get_vol24_val_raw(mint: str):
+    """Internal volume getter without timeout protection"""
+    v = _volume_24h_usd(mint)  # same as /volume
+    # Comprehensive field mapping for all major APIs
+    raw = _pick(
+        v,
+        # Birdeye API variants
+        "v24hUSD", "v24hUsd", "v24h", "volumeUsd24h", "volume24hUsd",
+        # Dexscreener API variants  
+        "volume24h", "volume_24h", "vol24h", "vol_24h", "volume24h_usd",
+        # Solscan API variants
+        "usdVolume24h", "usd_24h", "daily_volume_usd", "volumeUsd",
+        # Generic/fallback variants
+        "volume_usd_24h", "h24Usd", "h24_usd", "usd24h", "dailyVolumeUsd",
+        "vol24hUsd", "volUSD24h", "volume_24h_usd", "twentyFourHourVolume",
+        "value"
+    ) if isinstance(v, dict) else v
+    return _to_float_any(raw)
+
 def _get_vol24_val(mint: str):
-    try:
-        v = _volume_24h_usd(mint)  # same as /volume
-        # Comprehensive field mapping for all major APIs
-        raw = _pick(
-            v,
-            # Birdeye API variants
-            "v24hUSD", "v24hUsd", "v24h", "volumeUsd24h", "volume24hUsd",
-            # Dexscreener API variants  
-            "volume24h", "volume_24h", "vol24h", "vol_24h", "volume24h_usd",
-            # Solscan API variants
-            "usdVolume24h", "usd_24h", "daily_volume_usd", "volumeUsd",
-            # Generic/fallback variants
-            "volume_usd_24h", "h24Usd", "h24_usd", "usd24h", "dailyVolumeUsd",
-            "vol24hUsd", "volUSD24h", "volume_24h_usd", "twentyFourHourVolume",
-            "value"
-        ) if isinstance(v, dict) else v
-        return _to_float_any(raw)
-    except Exception:
-        return None
+    """Volume value getter with watchdog timeout protection"""
+    return with_timeout(_get_vol24_val_raw, mint, timeout=4, default=None)
+
+def _get_holders_val_raw(mint: str):
+    """Internal holders getter without timeout protection"""
+    h = _holders_value_for_mint(mint)  # same as /holders
+    # Comprehensive field mapping for holders across all major APIs
+    raw = _pick(h, 
+        # Birdeye API variants
+        "holders", "holder_count", "holderCount", "holdersCount",
+        # Dexscreener API variants
+        "holders_total", "total_holders", "unique_holders", "wallets",
+        # Solscan API variants  
+        "holder_count", "holders_count", "wallet_count", "addresses",
+        # Generic/fallback variants
+        "owner_count", "address_count", "accounts", "unique_addresses",
+        "participants", "token_holders", "active_holders",
+        "value"
+    ) if isinstance(h, dict) else h
+    return _to_int_any(raw)
 
 def _get_holders_val(mint: str):
-    try:
-        h = _holders_value_for_mint(mint)  # same as /holders
-        # Comprehensive field mapping for holders across all major APIs
-        raw = _pick(h, 
-            # Birdeye API variants
-            "holders", "holder_count", "holderCount", "holdersCount",
-            # Dexscreener API variants
-            "holders_total", "total_holders", "unique_holders", "wallets",
-            # Solscan API variants  
-            "holder_count", "holders_count", "wallet_count", "addresses",
-            # Generic/fallback variants
-            "owner_count", "address_count", "accounts", "unique_addresses",
-            "participants", "token_holders", "active_holders",
-            "value"
-        ) if isinstance(h, dict) else h
-        return _to_int_any(raw)
-    except Exception:
-        return None
+    """Holders value getter with watchdog timeout protection"""
+    return with_timeout(_get_holders_val_raw, mint, timeout=4, default=None)
 
 # === WATCHLIST INTEGRATION SHIMS ===
 # Ensure watchlist uses the EXACT same data sources as individual token commands
