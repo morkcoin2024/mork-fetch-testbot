@@ -4667,10 +4667,10 @@ def process_telegram_command(update: dict):
                 return _reply_err("Usage: `/holders <MINT|TICKER>` — unknown token.")
 
             ov = _overview_for(mint) or {}
-            holders = next((ov.get(k) for k in ["holders","holdersCount","holder_count","num_holders","holders_count"] if ov.get(k) is not None), None)
+            holders = next((ov.get(k) for k in ["holders","holders_count","holdersCount","holder_count"] if ov.get(k) is not None), None)
 
             if holders is None:
-                # Optional Solscan fallback if available; ignore errors.
+                # optional: Solscan fallback if available in this build
                 try:
                     if 'SOLSCAN' in globals() and hasattr(SOLSCAN, "get_token_holders_count"):
                         holders = SOLSCAN.get_token_holders_count(mint)
