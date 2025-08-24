@@ -1,0 +1,162 @@
+# --- tolerant parsing/formatting (safe if duplicated) ---
+import re
+_NUM_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+def _to_float_any(x):
+    if x is None: return None
+    if isinstance(x, (int, float)): return float(x)
+    s = str(x).strip()
+    if not s: return None
+    s = s.replace(",", "")
+    m = _NUM_RE.search(s)
+    try: return float(m.group(0)) if m else None
+    except Exception: return None
+
+def _to_int_any(x):
+    v = _to_float_any(x)
+    return None if v is None else int(v)
+
+def _pick(d, *keys):
+    if not isinstance(d, dict): return None
+    for k in keys:
+        if k in d and d[k] not in (None, "", "?"):
+            return d[k]
+    return None
+
+def _fmt_usd(v):
+    try: return f"${float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_qty(v):
+    try: return f"{float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_int(v):
+    try: return f"{int(v):,}"
+    except Exception: return "?"
+
+# --- robust value getters used by /watchlist ---
+def _get_supply_val(mint: str):
+    try:
+        s = _supply_for_mint(mint)
+        raw = _pick(s, "circulating", "circulatingSupply", "circulating_supply",
+                    "circ", "supply_circ", "value") if isinstance(s, dict) else s
+        v = _to_float_any(raw)
+        if v is not None:
+            return v
+        t = _total_supply_for_mint(mint)
+        t = _pick(t, "total", "totalSupply", "total_supply",
+                  "supply_total", "value") if isinstance(t, dict) else t
+        return _to_float_any(t)
+    except Exception:
+        return None
+
+def _get_fdv_val(mint: str):
+    try:
+        fdv = _fdv_for_mint(mint)
+        raw = _pick(fdv, "fdv", "fdv_usd", "fully_diluted_valuation",
+                    "fullyDilutedValuation", "value") if isinstance(fdv, dict) else fdv
+        v = _to_float_any(raw)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    # fallback: price * totalSupply
+    try:
+        px = _to_float_any(_price_for_mint(mint))
+        tot = _total_supply_for_mint(mint)
+        tot = _pick(tot, "total", "totalSupply", "total_supply",
+                    "supply_total", "value") if isinstance(tot, dict) else tot
+        tot = _to_float_any(tot)
+        return None if (px is None or tot is None) else px * tot
+    except Exception:
+        return None
+
+def _get_vol24_val(mint: str):
+    try:
+        v = _volume24h_for_mint(mint)
+        raw = _pick(v, "volume24h", "volume_24h", "vol24h", "vol_24h",
+                    "volumeUsd24h", "volume_usd_24h", "usd24h", "v24hUSD",
+                    "h24Usd", "h24_usd", "value") if isinstance(v, dict) else v
+        return _to_float_any(raw)
+    except Exception:
+        return None
+
+def _get_holders_val(mint: str):
+    try:
+        h = _holders_for_mint(mint)
+        raw = _pick(h, "holders", "holder_count", "holderCount", "value") if isinstance(h, dict) else h
+        return _to_int_any(raw)
+    except Exception:
+        return None
+
+# Map watchlist modes -> (label, numeric getter, formatter)
+def _watchlist_mode_parts(mode: str):
+    m = (mode or "").lower()
+    return {
+        "prices":  ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "price":   ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "caps":    ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "cap":     ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "volumes": ("24h Volume",  _get_vol24_val,  _fmt_usd),
+        "volume":  ("24h Volume",  _get_vol24_val,  _fmt_usd),
+        "supply":  ("Circulating", _get_supply_val, _fmt_qty),
+        "fdv":     ("FDV",         _get_fdv_val,    _fmt_usd),
+        "holders": ("Holders",     _get_holders_val,_fmt_int),
+    }.get(m, ("Price", lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd))
+
+# --- core renderer for /watchlist ---
+def _render_watchlist(mode: str, order: str = None):
+    label, getter, fmt = _watchlist_mode_parts(mode)
+    mints = list(WATCHLIST_MINTS())  # whatever you use to enumerate the stored mints
+    rows = []
+    for mint in mints:
+        sym = _symbol_for_mint(mint) or _short_mint(mint)
+        name = _name_for_mint(mint) or sym
+        val = getter(mint)  # numeric or None
+        rows.append({
+            "mint": mint,
+            "name": name,
+            "sym": sym,
+            "val": val,
+            "disp": fmt(val) if val is not None else "?"
+        })
+
+    # sorting that handles None
+    if order in ("asc", "desc"):
+        rev = (order == "desc")
+        def sort_key(r):
+            v = r["val"]
+            # None to the end for both orders
+            return (v is None, (-v if rev and v is not None else (v if not rev else 0.0)))
+        rows.sort(key=sort_key)
+
+    # header
+    hdr = f"👀 *Watchlist · {label}*"
+    if order in ("asc", "desc"):
+        hdr += f" ({order})"
+
+    # lines: "Name — Symbol  $/qty  `shortmint`"
+    lines = [hdr]
+    for r in rows:
+        sm = _short_mint(r["mint"])
+        lines.append(f"{r['sym']} — {r['name']}  {r['disp']}  `{sm}`")
+
+    # tip with sorting hint
+    if order not in ("asc", "desc"):
+        hint = ("prices" if label == "Price" else
+                "caps"   if label == "Market Cap" else
+                "volumes" if label == "24h Volume" else
+                "supply" if label == "Circulating" else
+                "fdv"    if label == "FDV" else
+                "holders")
+        lines.append(f"\n_Tip: `/watchlist {hint} asc` or `/watchlist {hint} desc` to sort_")
+    return "\n".join(lines)
+
+# --- handler (keeps your existing command shape) ---
+def handle_watchlist(update, ctx):
+    args = (ctx.args or [])
+    mode = args[0] if args else "prices"
+    order = args[1].lower() if len(args) > 1 and args[1].lower() in ("asc", "desc") else None
+    txt = _render_watchlist(mode, order)
+    return _reply_md(update, txt)
