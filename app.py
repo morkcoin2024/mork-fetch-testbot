@@ -12,6 +12,33 @@ import math
 import sqlite3
 from datetime import datetime, timedelta, time as dtime, timezone
 from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+
+# === STRICT HTTP TIMEOUT PROTECTION ===
+# Never call requests without timeout to prevent hanging requests
+def _get(url, **kw):
+    """requests.get with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))  # connect, read
+    return requests.get(url, **kw)
+
+def _post(url, **kw):
+    """requests.post with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))  # connect, read
+    return requests.post(url, **kw)
+
+def _put(url, **kw):
+    """requests.put with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))  # connect, read
+    return requests.put(url, **kw)
+
+def _patch(url, **kw):
+    """requests.patch with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))  # connect, read
+    return requests.patch(url, **kw)
+
+def _delete(url, **kw):
+    """requests.delete with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))  # connect, read
+    return requests.delete(url, **kw)
 # === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
 _TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
@@ -655,8 +682,8 @@ def _short_mint(mint: str) -> str:
 
 # --- Individual source probes (wrap your existing HTTP helper(s)) ---
 def _http_get_json(url, headers=None, params=None, timeout=8):
-    # Reuse your project's HTTP getter if you have one; otherwise keep this thin
-    r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+    # Use timeout-protected HTTP getter
+    r = _get(url, headers=headers or {}, params=params or {}, timeout=timeout)
     if r.status_code == 200:
         return r.json()
     return None
@@ -1612,7 +1639,7 @@ def _choose_name(candidates: list[tuple[str|None, str|None]]):
 
 def _http_get_json_original(url, headers=None, params=None, timeout=8):
     try:
-        r = requests.get(url, headers=headers or {}, params=params or {}, timeout=timeout)
+        r = _get(url, headers=headers or {}, params=params or {}, timeout=timeout)
         if r.status_code == 200:
             return r.json()
     except Exception:
@@ -1786,7 +1813,7 @@ def _tf_merge(*dicts):
 
 def fetch_timeframes_dex(mint:str):
     try:
-        r = requests.get(DEXS_URL + mint, timeout=6)
+        r = _get(DEXS_URL + mint, timeout=6)
         if r.status_code != 200: return {}
         j = r.json()
         # pick best pair (highest liquidity) if many
@@ -1809,7 +1836,7 @@ def fetch_timeframes_dex(mint:str):
 
 def fetch_timeframes_jup(mint:str):
     try:
-        r = requests.get(JUP_URL + mint, timeout=6)
+        r = _get(JUP_URL + mint, timeout=6)
         if r.status_code != 200: return {}
         j = r.json()
         data = (j.get("data") or {}).get(mint) or {}
@@ -2129,7 +2156,7 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
         if api:
             h = {"X-API-KEY": api, "X-Chain": "solana"}
             url = "https://public-api.birdeye.so/defi/v3/token/market-data"
-            r = requests.get(url, params={"address": mint, "chain":"solana"}, headers=h, timeout=(5,10))
+            r = _get(url, params={"address": mint, "chain":"solana"}, headers=h, timeout=(5,10))
             if r.status_code == 200:
                 data = r.json().get("data") or {}
                 ti = data.get("token_info") or {}
@@ -2141,7 +2168,7 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     # Dexscreener
     if not primary or not secondary:
         try:
-            r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
+            r = _get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
             if r.status_code == 200:
                 js = r.json() or {}
                 pairs = js.get("pairs") or []
@@ -2276,7 +2303,7 @@ def _alerts_send_html(chat_id: int, text: str):
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
-        r = requests.post(url, json=payload, timeout=10)
+        r = _post(url, json=payload, timeout=10)
         success = r.ok
         # Log result (status + first bytes of body)
         with open(ALERTS_API_LOG, "a") as f:
@@ -2944,7 +2971,7 @@ def alerts_send(text, force=False):
     
     try:
         import requests
-        response = requests.post(url, json=payload, timeout=10)
+        response = _post(url, json=payload, timeout=10)
         return response.json() if response.status_code == 200 else {"ok": False, "description": f"HTTP {response.status_code}"}
     except Exception as e:
         return {"ok": False, "description": str(e)}
@@ -3829,7 +3856,7 @@ def tg_send(chat_id: int, text: str, parse_mode="MarkdownV2", preview=True, no_p
             p = {"chat_id": chat_id, "text": body, "disable_web_page_preview": no_preview or not preview}
             if mode:
                 p["parse_mode"] = mode
-            r = requests.post(url, json=p, timeout=15)
+            r = _post(url, json=p, timeout=15)
             try:
                 j = r.json() if r.headers.get("content-type","").startswith("application/json") else {"ok":False}
             except Exception:

@@ -35,11 +35,14 @@ except ImportError:
         return {"error": "probe_helpers not available", "sources": [], "rpc": {}}
 
 def _get_json_retry(url, params=None, headers=None, retries=3, backoff=1.5, timeout=10):
-    """Enhanced JSON fetcher with intelligent retry logic and httpx."""
+    """Enhanced JSON fetcher with intelligent retry logic and httpx with strict timeout protection."""
     global LAST_JSON_URL, LAST_JSON_STATUS
     ua = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
     if headers: ua.update(headers)
     last_exc = None
+    # Ensure timeout is always set - default to 10s if None
+    if timeout is None:
+        timeout = 10
     for attempt in range(retries):
         try:
             LAST_JSON_URL = url

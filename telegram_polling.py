@@ -5,6 +5,17 @@ Runs as a background thread within the Flask process
 import requests, logging, os, time, json, random, signal
 import threading
 from typing import Optional
+
+# Timeout-protected HTTP helpers to prevent hanging requests
+def _get(url, **kw):
+    """requests.get with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))
+    return requests.get(url, **kw)
+
+def _post(url, **kw):
+    """requests.post with strict timeout protection"""
+    kw.setdefault("timeout", (3.05, 5))
+    return requests.post(url, **kw)
 try:
     import fcntl
 except Exception:  # windows safety; replit is linux so fine
@@ -88,7 +99,7 @@ class TelegramPollingService:
     def get_updates(self, timeout=25):
         """Get updates from Telegram API"""
         try:
-            response = requests.get(
+            response = _get(
                 f"{self.base_url}/getUpdates",
                 params={
                     "timeout": timeout,
@@ -180,12 +191,12 @@ class TelegramPollingService:
         """Clear any pending Telegram updates"""
         try:
             logger.info("Clearing pending updates...")
-            response = requests.get(f"{self.base_url}/getUpdates", timeout=10)
+            response = _get(f"{self.base_url}/getUpdates", timeout=10)
             if response.ok:
                 updates = response.json().get('result', [])
                 if updates:
                     last_update_id = max(update.get('update_id', 0) for update in updates)
-                    requests.get(f"{self.base_url}/getUpdates", 
+                    _get(f"{self.base_url}/getUpdates", 
                                params={'offset': last_update_id + 1}, timeout=10)
                     logger.info(f"Cleared {len(updates)} pending updates")
                 else:
