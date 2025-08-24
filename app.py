@@ -4569,60 +4569,95 @@ def process_telegram_command(update: dict):
                 f"24h Volume: {vol_str}"
             )
         elif cmd == "/supply":
-            arg = _arg_after_cmd(text)
-            mint, sym, name, price_usd = _resolve_token_any(arg)
+            target = (args or "").split()[0] if args else ""
+            mint = _resolve_to_mint(target)
             if not mint:
-                return _reply_err(f"Usage: `/supply <MINT|TICKER>` — unknown token.")
+                return _reply("Usage: `/supply <MINT|TICKER>` — unknown token.", "error")
+
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else short
+            
             ov = _get_token_overview(mint) or {}
             circ, total = _pick_supply_fields(ov)
-            line_label = "Circulating" if circ else "Total"
-            val = circ if circ else total
-            extra = f"\nTotal: {_fmt_qty(total)}" if (circ and total and str(circ) != str(total)) else ""
-            body = (
-                "📦 *Supply*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"{line_label}: {_fmt_qty(val)}{extra}"
-            )
-            return _reply_ok_md(body)
+            
+            # Prioritize circulating, fallback to total
+            supply_val = circ if circ is not None else total
+            supply_str = _fmt_qty(supply_val) if supply_val is not None else "?"
+            
+            lines = [
+                "📦 *Supply*",
+                f"{name}",
+                f"`{short}`",
+                f"Supply: {supply_str}"
+            ]
+            return _reply("\n".join(lines), "ok")
         elif cmd == "/fdv":
-            arg = _arg_after_cmd(text)
-            mint, sym, name, price_usd = _resolve_token_any(arg)
+            target = (args or "").split()[0] if args else ""
+            mint = _resolve_to_mint(target)
             if not mint:
-                return _reply_err(f"Usage: `/fdv <MINT|TICKER>` — unknown token.")
+                return _reply("Usage: `/fdv <MINT|TICKER>` — unknown token.", "error")
+
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else short
+            
             ov = _get_token_overview(mint) or {}
             fdv = _pick_fdv_field(ov)
+            
+            # Fallback calculation: price × total supply
             if not fdv:
-                # Fallback: price × total supply
                 _, total = _pick_supply_fields(ov)
-                if (not fdv) and (price_usd is not None) and total:
+                price_usd = _birdeye_price(mint)
+                if price_usd is not None and total is not None:
                     try:
                         fdv = float(price_usd) * float(total)
                     except Exception:
                         fdv = None
-            usd = _fmt_usd(fdv) if fdv is not None else "?"
-            body = (
-                "🏗 *FDV*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"FDV: {usd}"
-            )
-            return _reply_ok_md(body)
+            
+            fdv_str = _fmt_usd(fdv) if fdv is not None else "?"
+            
+            lines = [
+                "🏗 *FDV*",
+                f"{name}",
+                f"`{short}`",
+                f"FDV: {fdv_str}"
+            ]
+            return _reply("\n".join(lines), "ok")
         elif cmd == "/holders":
-            arg = _arg_after_cmd(text)
-            mint, sym, name, price_usd = _resolve_token_any(arg)
+            target = (args or "").split()[0] if args else ""
+            mint = _resolve_to_mint(target)
             if not mint:
-                return _reply_err(f"Usage: `/holders <MINT|TICKER>` — unknown token.")
+                return _reply("Usage: `/holders <MINT|TICKER>` — unknown token.", "error")
+
+            short = _short_mint(mint)
+            name_tuple = _display_name_for(mint)
+            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+                ticker, long_name = name_tuple
+                name = f"{ticker} — {long_name}"
+            else:
+                name = str(name_tuple) if name_tuple else short
+            
             ov = _get_token_overview(mint) or {}
             holders = _pick_holders_field(ov)
-
-            body = (
-                "👥 *Holders*\n"
-                f"{sym} — {name}\n"
-                f"`{_short_mint(mint)}`\n"
-                f"Holders: {_fmt_qty(holders) if holders is not None else '?'}"
-            )
-            return _reply_ok_md(body)
+            
+            holders_str = _fmt_qty(holders) if holders is not None else "?"
+            
+            lines = [
+                "👥 *Holders*",
+                f"{name}",
+                f"`{short}`",
+                f"Holders: {holders_str}"
+            ]
+            return _reply("\n".join(lines), "ok")
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
             if args:
