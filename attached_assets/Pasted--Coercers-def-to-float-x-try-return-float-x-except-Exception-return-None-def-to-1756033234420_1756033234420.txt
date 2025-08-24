@@ -1,0 +1,75 @@
+# --- Coercers
+def _to_float(x):
+    try: return float(x)
+    except Exception: return None
+
+def _to_int(x):
+    try: return int(x)
+    except Exception: return None
+
+# --- Watchlist numeric getters (must call SAME helpers as single-command handlers)
+
+def _get_supply_val(mint: str):
+    # Prefer circulating, fallback to total
+    try:
+        circ = _supply_for_mint(mint)  # same helper used by /supply
+        if isinstance(circ, dict):
+            circ = (circ.get("circulating") or circ.get("circulatingSupply")
+                    or circ.get("circulating_supply"))
+        v = _to_float(circ)
+        if v is not None:
+            return v
+        try:
+            tot = _total_supply_for_mint(mint)  # if available
+        except Exception:
+            tot = None
+        return _to_float(tot)
+    except Exception:
+        return None
+
+def _get_fdv_val(mint: str):
+    # Prefer API FDV, fallback price * total (or circulating)
+    try:
+        fdv = _fdv_for_mint(mint)  # same helper used by /fdv
+        if isinstance(fdv, dict):
+            fdv = fdv.get("fdv") or fdv.get("fully_diluted_valuation")
+        v = _to_float(fdv)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    try:
+        px = _to_float(_price_for_mint(mint))
+        try:
+            tot = _total_supply_for_mint(mint)
+        except Exception:
+            tot = _supply_for_mint(mint)
+            if isinstance(tot, dict):
+                tot = (tot.get("circulating") or tot.get("circulatingSupply")
+                       or tot.get("circulating_supply"))
+        tot = _to_float(tot)
+        if px is not None and tot is not None:
+            return px * tot
+    except Exception:
+        pass
+    return None
+
+def _get_vol24_val(mint: str):
+    # Same source as /volume (24h)
+    try:
+        v = _volume24h_for_mint(mint)  # same helper used by /volume
+        if isinstance(v, dict):
+            v = v.get("volume24h") or v.get("vol24h") or v.get("volume_24h")
+        return _to_float(v)
+    except Exception:
+        return None
+
+def _get_holders_val(mint: str):
+    # Same source as /holders
+    try:
+        h = _holders_for_mint(mint)
+        if isinstance(h, dict):
+            h = h.get("holders") or h.get("holder_count")
+        return _to_int(h)
+    except Exception:
+        return None
