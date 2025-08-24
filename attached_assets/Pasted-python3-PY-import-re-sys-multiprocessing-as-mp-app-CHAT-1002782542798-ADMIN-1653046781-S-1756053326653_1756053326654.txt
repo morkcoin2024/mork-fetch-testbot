@@ -1,0 +1,57 @@
+python3 - <<'PY'
+import re, sys, multiprocessing as mp, app
+
+CHAT=-1002782542798; ADMIN=1653046781
+SOL="So11111111111111111111111111111111111111112"
+UNK="So11111111111111111111111111111111111111113"
+
+usd2 = re.compile(r"\$\d[\d,]*\.\d{2}(?!\d)")
+num2 = re.compile(r"\b\d[\d,]*\.\d{2}(?!\d)\b")
+
+def _worker(cmd, q):
+    upd={"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
+                    "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":cmd}}
+    out = app.process_telegram_command(upd) or {}
+    q.put(out.get("text") or out.get("response") or "")
+
+def send(cmd, timeout=5):
+    q=mp.Queue(); p=mp.Process(target=_worker, args=(cmd,q), daemon=True)
+    p.start(); p.join(timeout)
+    if p.is_alive():
+        p.terminate(); p.join(1)
+        return f"__TIMEOUT__ {cmd}"
+    return q.get() if not q.empty() else ""
+
+def rows(txt): return [ln for ln in txt.splitlines() if " `" in ln and "—" in ln]
+def pick(rs,pfx):
+    for ln in rs:
+        if ln.startswith(pfx): return ln
+    return ""
+
+def ok_value(mode, sol_row):
+    # offline/disabled sources are allowed to be '?'
+    if " ?  `" in sol_row: return True
+    if mode in ("prices","caps","fdv","volumes"): return bool(usd2.search(sol_row))
+    if mode == "supply": return bool(num2.search(sol_row))
+    if mode == "holders": return bool(re.search(r"\b\d[\d,]*\b", sol_row))
+    return False
+
+print(send("/watch_clear"))
+print(send(f"/watch {SOL}"))
+print(send(f"/watch {UNK}"))
+
+modes = ["supply","fdv","holders","prices","caps","volumes"]
+for mode in modes:
+    wl = send(f"/watchlist {mode}")
+    if wl.startswith("__TIMEOUT__"):
+        print(f"{mode}: TIMEOUT"); continue
+    rs = rows(wl); sol = pick(rs,"SOL —"); unk = pick(rs,"So1111…111113 —")
+    if not sol or not unk:
+        print(f"{mode}: FAIL rows"); continue
+    print(f"{mode}: {'OK' if ok_value(mode, sol) else 'FAIL'} | SOL=<{sol.split('`')[0].strip()}> | UNK={'OK' if ' ?  `' in unk else 'FAIL'}")
+
+hdr = send("/watchlist volumes desc").splitlines()[0]
+print("sort volumes desc ->", hdr if "(desc)" in hdr else "FAIL")
+hdr = send("/watchlist supply asc").splitlines()[0]
+print("sort supply asc  ->", hdr if "(asc)" in hdr else "FAIL")
+PY
