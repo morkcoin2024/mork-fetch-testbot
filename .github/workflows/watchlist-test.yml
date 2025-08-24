@@ -1,0 +1,36 @@
+name: Enterprise Watchlist Tests
+on: [push, pull_request]
+
+jobs:
+  test-watchlist:
+    name: Enterprise Watchlist Optimization Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+        test-mode: ['strict', 'lenient']
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e .
+      
+      - name: Run enterprise watchlist tests (${{ matrix.test-mode }})
+        env:
+          TEST_TIMEOUT: 8
+          STRICT: ${{ matrix.test-mode == 'strict' && '1' || '0' }}
+        run: python3 tests/test_watchlist.py
+      
+      - name: Validate test runner script
+        run: |
+          chmod +x tests/run_tests.sh
+          echo "✅ Test runner script is executable"
