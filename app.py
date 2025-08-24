@@ -4600,41 +4600,31 @@ def process_telegram_command(update: dict):
             )
             return _reply_ok_md(body)
         elif cmd == "/fdv":
-            target = (args or "").split()[0] if args else ""
-            mint = _resolve_to_mint(target)
+            arg = _arg_after_cmd(text)
+            mint, sym, name, price_usd = _resolve_token_any(arg)
             if not mint:
-                return _reply("Usage: `/fdv <MINT|TICKER>` — unknown token.", "error")
+                return _reply_err("Usage: `/fdv <MINT|TICKER>` — unknown token.")
 
-            short = _short_mint(mint)
-            name_tuple = _display_name_for(mint)
-            if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
-                ticker, long_name = name_tuple
-                name = f"{ticker} — {long_name}"
-            else:
-                name = str(name_tuple) if name_tuple else short
-            
             ov = _get_token_overview(mint) or {}
             fdv = _pick_fdv_field(ov)
-            
-            # Fallback calculation: price × total supply
-            if not fdv:
-                _, total, maxs, mc = _pick_supply_fields(ov)
-                price_usd = _birdeye_price(mint)
-                if price_usd is not None and total is not None:
-                    try:
-                        fdv = float(price_usd) * float(total)
-                    except Exception:
-                        fdv = None
-            
-            fdv_str = _fmt_usd(fdv) if fdv is not None else "?"
-            
-            lines = [
-                "🏗 *FDV*",
-                f"{name}",
-                f"`{short}`",
-                f"FDV: {fdv_str}"
-            ]
-            return _reply("\n".join(lines), "ok")
+
+            if fdv is None:
+                circ, total, maxs, _mc = _pick_supply_fields(ov)
+                # preference: max -> total -> supply(circ) -> finally '?'
+                fallback_supply = next((v for v in [maxs, total, circ] if v not in (None, 0, "0", "0.0")), None)
+                try:
+                    if (fallback_supply is not None) and (price_usd is not None):
+                        fdv = float(price_usd) * float(fallback_supply)
+                except Exception:
+                    fdv = None
+
+            body = (
+                "🏗 *FDV*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"FDV: {_fmt_usd(fdv) if fdv is not None else '?'}"
+            )
+            return _reply_ok_md(body)
         elif cmd == "/holders":
             target = (args or "").split()[0] if args else ""
             mint = _resolve_to_mint(target)
