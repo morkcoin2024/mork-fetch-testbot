@@ -503,46 +503,40 @@ def _cmd_watchlist(chat_id, args):
         
         # Fetch data for each mint with improved sorting logic
         rows = []
-        for m in bucket:
-            ticker, long_name = _display_name_for(m)
-            short = _short_mint(m)
+        for mint in bucket:
+            # Use existing helper that returns (symbol, name)
+            sym, name = _display_name_for(mint)
+            short = _short_mint(mint)
 
             raw_val = None
-            disp = "?"
             if getter:
                 try:
-                    raw_val = getter(m)           # may return None
+                    raw_val = getter(mint)   # may be None
                 except Exception:
                     raw_val = None
 
-            # Format display value
             disp = formatter(raw_val) if raw_val is not None else "?"
-
-            # Keep a numeric version for sorting; None -> bottom
             sort_val = _num_or_none(raw_val)
 
-            # Build the display line (keep existing style)
-            line = f"{ticker} — {long_name}  {disp}  `{short}`" if long_name else f"{ticker}  {disp}  `{short}`"
+            line = f"{sym} — {name}  {disp}  `{short}`"
             rows.append({"line": line, "sort_val": sort_val})
 
-        # Apply sorting only if requested
-        if sort_dir in ("asc", "desc"):
+        # Sorting only if requested; unknowns (None) always at bottom
+        if sort_dir:
             reverse = (sort_dir == "desc")
-            # Unknowns (None) always to the bottom, regardless of asc/desc
             rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] if r["sort_val"] is not None else 0.0), reverse=reverse)
-        
-        # Format output
-        lines = [r["line"] for r in rows]
         
         # Enhanced title formatting
         getter, fmt_value, label = WATCHLIST_MODES.get(mode, (None, None, None))
         title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
-        sort_suffix = f" ({sort_dir})" if sort_dir else ""
-        body = f"{title}{sort_suffix}\n" + "\n".join(lines)
         
-        # Add usage hint
-        if not sort_dir and len(bucket) > 1:
-            body += f"\n\n_Tip: `/watchlist {mode} asc` or `/watchlist {mode} desc` to sort_"
+        if not rows:
+            body = "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`"
+        else:
+            sort_suffix = f" ({sort_dir})" if sort_dir else ""
+            body = f"{title}{sort_suffix}\n" + "\n".join(r["line"] for r in rows)
+            if mode in WATCHLIST_MODES and not sort_dir and len(bucket) > 1:
+                body += f"\n\n_Tip: `/watchlist {mode} asc` or `/watchlist {mode} desc` to sort_"
         
         return {"status": "ok", "response": body, "parse_mode": "Markdown"}
     
