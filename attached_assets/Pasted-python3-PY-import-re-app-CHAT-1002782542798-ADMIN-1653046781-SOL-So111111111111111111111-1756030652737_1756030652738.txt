@@ -1,0 +1,69 @@
+python3 - <<'PY'
+import re, app
+
+CHAT=-1002782542798
+ADMIN=1653046781
+SOL = "So11111111111111111111111111111111111111112"
+UNK = "So11111111111111111111111111111111111111113"
+
+usd2 = re.compile(r"\$\d[\d,]*\.\d{2}(?!\d)")
+num2 = re.compile(r"\b\d[\d,]*\.\d{2}(?!\d)\b")  # e.g., 540,490,593.73
+
+def send(t: str) -> str:
+    upd={"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
+                    "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":t}}
+    out = app.process_telegram_command(upd) or {}
+    return (out.get("text") or out.get("response") or "")
+
+def extract_lines(wl_text: str):
+    # Return only the data rows (skip header/tip)
+    return [ln for ln in wl_text.splitlines() if " `" in ln and "—" in ln]
+
+def get_row(lines, startswith: str):
+    for ln in lines:
+        if ln.startswith(startswith):
+            return ln
+    return ""
+
+print(send("/watch_clear"))
+print(send(f"/watch {SOL}"))
+print(send(f"/watch {UNK}"))
+
+modes = ["supply","fdv","holders","prices","caps","volumes"]
+
+for mode in modes:
+    print(f"\n== {mode} ==")
+    wl = send(f"/watchlist {mode}")
+    print(wl.replace("\n"," | "))
+
+    rows = extract_lines(wl)
+    sol_row = get_row(rows, "SOL —")
+    unk_row = get_row(rows, "So1111…111113 —")
+
+    # Basic presence checks
+    if not sol_row:
+        print("-> FAIL: SOL row missing"); continue
+    if not unk_row:
+        print("-> FAIL: unknown-mint row missing"); continue
+
+    # Mode-specific assertions for SOL row
+    if mode in ("prices","caps","fdv","volumes"):
+        ok = bool(usd2.search(sol_row))
+        print("-> SOL has USD 2dp:", "OK" if ok else f"FAIL [{sol_row}]")
+    elif mode == "supply":
+        ok = bool(num2.search(sol_row))
+        print("-> SOL has qty 2dp:", "OK" if ok else f"FAIL [{sol_row}]")
+    elif mode == "holders":
+        ok = ("?" in sol_row) or bool(re.search(r"\b\d[\d,]*\b", sol_row))
+        print("-> SOL holders present:", "OK" if ok else f"FAIL [{sol_row}]")
+
+    # Unknown mint should show '?'
+    unk_ok = " ?  `" in unk_row
+    print("-> Unknown shows '?':", "OK" if unk_ok else f"FAIL [{unk_row}]")
+
+print("\n== sort desc volumes ==")
+print(send("/watchlist volumes desc").replace("\n"," | "))
+
+print("\n== sort asc supply ==")
+print(send("/watchlist supply asc").replace("\n"," | "))
+PY
