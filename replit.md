@@ -52,7 +52,7 @@ The application uses Flask with a robust single-poller architecture for Telegram
 - **Advanced Token Analysis Commands:** Suite of advanced token metrics including `/supply`, `/fdv`, and `/holders`.
 - **Enhanced Data Access Utilities:** Comprehensive utility system with intelligent fallback chains and graceful error handling.
 - **Enterprise-Grade Unified Watchlist System with Tolerant Data Processing:** Production-ready watchlist system with six display modes, canonical numeric getters, sophisticated sorting, and robust error handling.
-- **Comprehensive HTTP Timeout Protection System:** Production-grade timeout implemented across all HTTP requests using protected helper functions.
+- **Comprehensive HTTP Timeout Protection System with Parallel Watchlist Processing:** Production-grade multi-layer timeout protection featuring dual-layer defense with HTTP-level timeouts and thread-based watchdog protection. System includes strict timeout-protected helper functions `_get()`, `_post()`, `_put()`, `_patch()`, `_delete()` with default (3.05s connect, 5s read) timeouts, enhanced httpx.Timeout configurations, and thread-based watchdog protection using `with_timeout()` function with ThreadPoolExecutor. Individual watchlist value getters wrapped with 4-second watchdog timeouts and parallel watchlist builder using `build_watchlist_parallel()` with `stat_for()` function preventing any single slow token from blocking entire watchlist operations. Critical dual-layer protection ensures maximum production reliability.
 
 ## External Dependencies
 - **Telegram Bot API**

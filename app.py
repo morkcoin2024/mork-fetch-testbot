@@ -530,29 +530,26 @@ def _cmd_watchlist(chat_id, args):
     # Get configuration for the selected mode using enhanced function
     label, getter, formatter = _watchlist_mode_parts(mode)
     
-    # Fetch data for each mint with improved sorting logic
+    # Parallel data processing to prevent blocking on slow tokens
+    parallel_results = build_watchlist_parallel(mode or "prices", bucket)
+    
     rows = []
-    for mint in bucket:
+    for mint, stat_value in parallel_results:
         # Use existing helper that returns (symbol, name)
         sym, name = _display_name_for(mint)
         short = _short_mint(mint)
-
-        raw_val = None
-        if getter:
-            try:
-                raw_val = getter(mint)   # may be None
-            except Exception:
-                raw_val = None
-
-        disp = formatter(raw_val) if raw_val is not None else "?"
         
+        # Parse numeric value for sorting
         val_num = None
-        try:
-            val_num = float(raw_val) if raw_val is not None else None
-        except Exception:
-            val_num = None
+        if stat_value != "?":
+            try:
+                # Extract numeric value from formatted string for sorting
+                clean_val = re.sub(r'[,$%\s]', '', stat_value)
+                val_num = float(clean_val) if clean_val else None
+            except Exception:
+                val_num = None
 
-        line = f"{sym} — {name}  {disp}  `{short}`"
+        line = f"{sym} — {name}  {stat_value}  `{short}`"
         rows.append({"line": line, "sort_val": val_num})
 
     # Sorting with sophisticated null handling (None values at end for both directions)
@@ -1037,6 +1034,11 @@ def _fmt_int(v):
     try: return f"{int(v):,}"
     except Exception: return "?"
 
+def _fmt_int_commas(v):
+    """Format integer with comma separators"""
+    try: return f"{int(v):,}"
+    except Exception: return "?"
+
 # === ROBUST WATCHLIST VALUE GETTERS WITH TIMEOUT PROTECTION ===
 def _get_supply_val_raw(mint: str):
     """Internal supply getter without timeout protection"""
@@ -1167,6 +1169,57 @@ def _get_holders_val_raw(mint: str):
 def _get_holders_val(mint: str):
     """Holders value getter with watchdog timeout protection"""
     return with_timeout(_get_holders_val_raw, mint, timeout=4, default=None)
+
+# === PARALLEL WATCHLIST BUILDER ===
+def stat_for(mode: str, mint: str) -> str:
+    """Get formatted stat for a single token with timeout protection"""
+    if mode == "supply":
+        val = with_timeout(_get_supply_val_raw, mint, timeout=4)
+        return _fmt_qty_2dp(val) if val is not None else "?"
+    elif mode == "holders":
+        val = with_timeout(_get_holders_val_raw, mint, timeout=4)
+        return _fmt_int_commas(val) if val is not None else "?"
+    elif mode == "prices":
+        val = with_timeout(_get_price_usd_for, mint, timeout=4)
+        return _fmt_usd(val) if val is not None else "?"
+    elif mode == "fdv":
+        # Prefer direct FDV; otherwise fallback to price × total_supply
+        fdv = with_timeout(_get_fdv_val_raw, mint, timeout=4)
+        if fdv is None:
+            px = with_timeout(_get_price_usd_for, mint, timeout=3)
+            tot = with_timeout(_get_supply_val_raw, mint, timeout=3)
+            fdv = (px * tot) if (px is not None and tot is not None) else None
+        return _fmt_usd(fdv) if fdv is not None else "?"
+    elif mode == "caps":
+        # Use existing market cap getter from individual commands
+        val = with_timeout(lambda m: _to_float_any(_call_first([
+            "_get_marketcap_usd_for", "_marketcap_usd_for", "_get_market_cap"
+        ], m)), mint, timeout=4)
+        return _fmt_usd(val) if val is not None else "?"
+    elif mode == "volumes":
+        val = with_timeout(_get_vol24_val_raw, mint, timeout=4)
+        return _fmt_usd(val) if val is not None else "?"
+    return "?"
+
+def build_watchlist_parallel(mode: str, tokens: list[str]) -> list[tuple[str, str]]:
+    """Build watchlist in parallel to prevent blocking on slow tokens"""
+    if not tokens:
+        return []
+    
+    with cf.ThreadPoolExecutor(max_workers=min(8, len(tokens))) as ex:
+        futs = {ex.submit(stat_for, mode, mint): mint for mint in tokens}
+        results = {}
+        
+        for fut in cf.as_completed(futs):
+            mint = futs[fut]
+            try:
+                stat = fut.result()
+            except Exception:
+                stat = "?"
+            results[mint] = stat
+    
+    # Preserve original order
+    return [(mint, results.get(mint, "?")) for mint in tokens]
 
 # === WATCHLIST INTEGRATION SHIMS ===
 # Ensure watchlist uses the EXACT same data sources as individual token commands
