@@ -987,14 +987,14 @@ def _volume24h_value_for_mint(mint: str):
     return None
 
 # Map: mode -> (getter_name, formatter_name, label_for_value)
-# Note: Functions will be resolved at runtime to avoid import order issues  
+# String references resolved at runtime to avoid definition order issues
 WATCHLIST_MODES = {
-    "prices":  ("_get_price_usd_for",          "_fmt_usd",        "Price"),
-    "caps":    ("_get_marketcap_usd_for",      "_fmt_usd",        "Market Cap"),
-    "volumes": ("_volume24h_value_for_mint",   "_fmt_usd",        "24h Volume"),
-    "supply":  ("_supply_value_for_mint",      "_fmt_qty_2dp",    "Circulating"),
-    "fdv":     ("_fdv_value_for_mint",         "_fmt_usd",        "FDV"),
-    "holders": ("_holders_value_for_mint",     "_fmt_int_commas", "Holders"),
+    "prices":  ("_get_price_usd_for",        "_fmt_usd",        "Price"),
+    "caps":    ("_get_marketcap_usd_for",    "_fmt_usd",        "Market Cap"),
+    "volumes": ("_volume24h_value_for_mint", "_fmt_usd",        "24h Volume"),
+    "supply":  ("_supply_value_for_mint",    "_fmt_qty_2dp",    "Circulating"),
+    "fdv":     ("_fdv_value_for_mint",       "_fmt_usd",        "FDV"),
+    "holders": ("_holders_value_for_mint",   "_fmt_int_commas", "Holders"),
 }
 
 def _pick_supply_fields(ov: dict):
