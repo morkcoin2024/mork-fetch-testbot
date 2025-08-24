@@ -1,0 +1,117 @@
+# --- helpers (keep your existing _fmt_usd if you already have it 2dp) ---
+def _fmt_usd(v):
+    try: return f"${float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_qty(v):
+    try: return f"{float(v):,.2f}"
+    except Exception: return "?"
+
+def _fmt_int(v):
+    try: return f"{int(v):,}"
+    except Exception: return "?"
+
+def _to_float(x):
+    try: return float(x)
+    except Exception: return None
+
+def _to_int(x):
+    try: return int(x)
+    except Exception: return None
+
+# --- call-through getters used by /watchlist ---
+def _get_supply_val(mint: str):
+    try:
+        s = _supply_for_mint(mint)  # same source as /supply
+        if isinstance(s, dict):
+            s = s.get("circulating") or s.get("circulatingSupply") or s.get("circulating_supply")
+        v = _to_float(s)
+        if v is not None:
+            return v
+        t = None
+        try: t = _total_supply_for_mint(mint)
+        except Exception: pass
+        return _to_float(t)
+    except Exception:
+        return None
+
+def _get_fdv_val(mint: str):
+    try:
+        fdv = _fdv_for_mint(mint)  # same as /fdv
+        if isinstance(fdv, dict):
+            fdv = fdv.get("fdv") or fdv.get("fully_diluted_valuation")
+        v = _to_float(fdv)
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    try:
+        px = _to_float(_price_for_mint(mint))
+        tot = None
+        try:
+            tot = _total_supply_for_mint(mint)
+        except Exception:
+            tot = _supply_for_mint(mint)
+            if isinstance(tot, dict):
+                tot = tot.get("circulating") or tot.get("circulatingSupply") or tot.get("circulating_supply")
+        tot = _to_float(tot)
+        if px is not None and tot is not None:
+            return px * tot
+    except Exception:
+        pass
+    return None
+
+def _get_vol24_val(mint: str):
+    try:
+        v = _volume24h_for_mint(mint)  # same as /volume
+        if isinstance(v, dict):
+            v = v.get("volume24h") or v.get("vol24h") or v.get("volume_24h")
+        return _to_float(v)
+    except Exception:
+        return None
+
+def _get_holders_val(mint: str):
+    try:
+        h = _holders_for_mint(mint)  # same as /holders
+        if isinstance(h, dict):
+            h = h.get("holders") or h.get("holder_count")
+        return _to_int(h)
+    except Exception:
+        return None
+
+# --- mode map & renderer ---
+def _watchlist_mode_parts(mode: str):
+    m = (mode or "").lower()
+    return {
+        "prices":  ("Price",       _price_for_mint,      _fmt_usd),
+        "price":   ("Price",       _price_for_mint,      _fmt_usd),
+        "caps":    ("Market Cap",  _market_cap_for_mint, _fmt_usd),
+        "cap":     ("Market Cap",  _market_cap_for_mint, _fmt_usd),
+        "volumes": ("24h Volume",  _get_vol24_val,       _fmt_usd),
+        "volume":  ("24h Volume",  _get_vol24_val,       _fmt_usd),
+        "supply":  ("Circulating", _get_supply_val,      _fmt_qty),
+        "fdv":     ("FDV",         _get_fdv_val,         _fmt_usd),
+        "holders": ("Holders",     _get_holders_val,     _fmt_int),
+    }.get(m, ("Price", _price_for_mint, _fmt_usd))
+
+def _render_watchlist(mode=None, sort_order=None):
+    title, getter, fmt = _watchlist_mode_parts(mode)
+    mints = _load_watchlist_mints()
+    rows = []
+    for mint in mints:
+        sym  = _symbol_for(mint)
+        name = _name_for(mint)
+        try:
+            raw = getter(mint)  # <-- critical: call the getter here
+        except Exception:
+            raw = None
+        shown = fmt(raw) if raw is not None else "?"
+        rows.append((raw, f"{sym} — {name}  {shown}  `{_short_mint(mint)}`"))
+
+    if sort_order in ("asc", "desc"):
+        rows.sort(key=lambda r: (float("inf") if r[0] is None else r[0]),
+                  reverse=(sort_order == "desc"))
+
+    hdr = f"👀 *Watchlist · {title}*" + (f" ({sort_order})" if sort_order else "")
+    tip = f"\n\n_Tip: `/watchlist {(mode or 'prices')} asc` or `/watchlist {(mode or 'prices')} desc` to sort_"
+    return hdr + "\n" + "\n".join(r[1] for r in rows) + tip
