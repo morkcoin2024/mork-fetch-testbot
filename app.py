@@ -903,6 +903,57 @@ def _get_holders_for_mint(mint):
     except Exception:
         return None
 
+# -- WATCHLIST VALUE ADAPTERS -----------------------------------------------
+
+def _try_funcs_mint(mint, *names):
+    """Try each named function with (mint) and return the first non-None result."""
+    for name in names:
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                v = fn(mint)
+                if v is not None:
+                    return v
+            except Exception:
+                pass
+    return None
+
+def _watch_supply_value(mint):
+    # Use your supply getter(s). Circulating first; fallback to total.
+    v = _try_funcs_mint(mint,
+        "_get_supply_for_mint",
+        "_get_circulating_supply_for_mint",
+        "_get_supply_for",
+        "_fetch_supply_for_mint",
+    )
+    if v is None:
+        v = _try_funcs_mint(mint, "_get_total_supply_for_mint", "_get_total_supply_for")
+    return v
+
+def _watch_fdv_value(mint):
+    # Native FDV if available, else price * total_supply.
+    v = _try_funcs_mint(mint, "_get_fdv_for_mint", "_fdv_for_mint")
+    if v is None:
+        price = _try_funcs_mint(mint, "_get_price_for_mint", "_price_for_mint")
+        total = _try_funcs_mint(mint, "_get_total_supply_for_mint", "_get_supply_for_mint", "_get_supply_for")
+        if price is not None and total is not None:
+            try:
+                v = float(price) * float(total)
+            except Exception:
+                v = None
+    return v
+
+def _watch_holders_value(mint):
+    v = _try_funcs_mint(mint, "_get_holders_for_mint", "_holders_for_mint", "_get_holders_for")
+    return v
+
+def _watch_volume24h_value(mint):
+    # Prefer a dedicated 24h volume getter; fall back to the one used by /liquidity.
+    v = _try_funcs_mint(mint, "_get_volume_24h_for_mint", "_volume_24h_for_mint", "_get_24h_volume_for_mint")
+    if v is None:
+        v = _try_funcs_mint(mint, "_get_liquidity_volume_24h_for_mint")  # if your /liquidity uses this
+    return v
+
 # Map: mode -> (getter_name, formatter_name, label_for_value)
 # Note: Functions will be resolved at runtime to avoid import order issues
 WATCHLIST_MODES = {
