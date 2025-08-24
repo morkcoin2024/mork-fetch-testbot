@@ -4600,24 +4600,23 @@ def process_telegram_command(update: dict):
             )
         elif cmd == "/supply":
             arg = _arg_after_cmd(text)
-            mint, sym, name, price_usd = _resolve_token_any(arg)  # same as /price,/liquidity
+            mint, sym, name, _ = _resolve_token_any(arg)
             if not mint:
                 return _reply_err("Usage: `/supply <MINT|TICKER>` — unknown token.")
-            ov = _get_token_overview(mint) or {}
-            circ, total, maxs, mc = _pick_supply_fields(ov)
+
+            ov = _overview_for(mint) or {}
+            circ = next((ov.get(k) for k in ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"] if ov.get(k) is not None), None)
+            total = next((ov.get(k) for k in ["total_supply","totalSupply","supply"] if ov.get(k) is not None), None)
 
             label = "Circulating"
             value = circ
 
             if value in (None, 0, "0", "0.0"):
-                # fallback 1: market cap / price
-                try:
-                    if (mc is not None) and (price_usd is not None) and float(price_usd) > 0:
-                        value = float(mc) / float(price_usd)
-                        label = "Circulating"
-                except Exception:
-                    pass
-
+                mc = _get_marketcap_usd_for(mint)
+                px = _get_price_usd_for(mint)
+                if mc is not None and px and px > 0:
+                    value = mc / px
+                    label = "Circulating"
             if value in (None, 0, "0", "0.0") and total not in (None, 0, "0", "0.0"):
                 value = total
                 label = "Total"
