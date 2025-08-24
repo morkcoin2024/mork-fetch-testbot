@@ -347,6 +347,9 @@ def _render_help(is_admin: bool) -> str:
         "`/liquidity <MINT|TICKER>` - Liquidity & 24h volume",
         "`/marketcap <MINT|TICKER>` - Market capitalization",
         "`/volume <MINT|TICKER>` - Show 24h trading volume",
+        "`/supply <MINT|TICKER>` - Token supply metrics",
+        "`/fdv <MINT|TICKER>` - Fully diluted valuation",
+        "`/holders <MINT|TICKER>` - Holder count",
         "`/about <MINT|TICKER>` - Token card (name/price/mint)",
         "`/fetch <MINT>` (alias of `/about`)",
         "`/watch <MINT>`",
@@ -729,6 +732,39 @@ def _get_token_overview(mint: str) -> dict | None:
         return _birdeye_token_overview(mint) or {}
     except Exception:
         return {}
+
+def _arg_after_cmd(text: str) -> str:
+    """Extract argument after command from message text."""
+    parts = text.strip().split(None, 1)
+    return parts[1] if len(parts) > 1 else ""
+
+def _resolve_token_any(arg: str):
+    """Resolve token and return (mint, sym, name, price_usd)."""
+    if not arg:
+        return None, None, None, None
+    
+    mint = _resolve_to_mint(arg)
+    if not mint:
+        return None, None, None, None
+    
+    name_tuple = _display_name_for(mint)
+    if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
+        sym, name = name_tuple
+    else:
+        sym, name = str(name_tuple) if name_tuple else _short_mint(mint), ""
+    
+    # Get price from Birdeye
+    price_usd = _birdeye_price(mint)
+    
+    return mint, sym, name, price_usd
+
+def _reply_err(msg: str):
+    """Helper for error replies."""
+    return _reply(msg, "error")
+
+def _reply_ok_md(msg: str):
+    """Helper for successful markdown replies."""
+    return _reply(msg, "ok")
 
 def _birdeye_headers():
     # Reuse your existing Birdeye header builder if present
@@ -2528,7 +2564,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
 
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
+    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/supply", "/fdv", "/holders", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
     "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
     "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
     "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
@@ -4055,7 +4091,7 @@ def process_telegram_command(update: dict):
             return _reply("Not a command", "ignored")
         
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
+        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/supply", "/fdv", "/holders", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
         
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
@@ -4532,6 +4568,61 @@ def process_telegram_command(update: dict):
                 f"`{short}`\n"
                 f"24h Volume: {vol_str}"
             )
+        elif cmd == "/supply":
+            arg = _arg_after_cmd(text)
+            mint, sym, name, price_usd = _resolve_token_any(arg)
+            if not mint:
+                return _reply_err(f"Usage: `/supply <MINT|TICKER>` — unknown token.")
+            ov = _get_token_overview(mint) or {}
+            circ, total = _pick_supply_fields(ov)
+            line_label = "Circulating" if circ else "Total"
+            val = circ if circ else total
+            extra = f"\nTotal: {_fmt_qty(total)}" if (circ and total and str(circ) != str(total)) else ""
+            body = (
+                "📦 *Supply*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"{line_label}: {_fmt_qty(val)}{extra}"
+            )
+            return _reply_ok_md(body)
+        elif cmd == "/fdv":
+            arg = _arg_after_cmd(text)
+            mint, sym, name, price_usd = _resolve_token_any(arg)
+            if not mint:
+                return _reply_err(f"Usage: `/fdv <MINT|TICKER>` — unknown token.")
+            ov = _get_token_overview(mint) or {}
+            fdv = _pick_fdv_field(ov)
+            if not fdv:
+                # Fallback: price × total supply
+                _, total = _pick_supply_fields(ov)
+                if (not fdv) and (price_usd is not None) and total:
+                    try:
+                        fdv = float(price_usd) * float(total)
+                    except Exception:
+                        fdv = None
+            usd = _fmt_usd(fdv) if fdv is not None else "?"
+            body = (
+                "🏗 *FDV*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"FDV: {usd}"
+            )
+            return _reply_ok_md(body)
+        elif cmd == "/holders":
+            arg = _arg_after_cmd(text)
+            mint, sym, name, price_usd = _resolve_token_any(arg)
+            if not mint:
+                return _reply_err(f"Usage: `/holders <MINT|TICKER>` — unknown token.")
+            ov = _get_token_overview(mint) or {}
+            holders = _pick_holders_field(ov)
+
+            body = (
+                "👥 *Holders*\n"
+                f"{sym} — {name}\n"
+                f"`{_short_mint(mint)}`\n"
+                f"Holders: {_fmt_qty(holders) if holders is not None else '?'}"
+            )
+            return _reply_ok_md(body)
         elif cmd == "/fetch":
             # /fetch - enforce MINT only
             if args:
