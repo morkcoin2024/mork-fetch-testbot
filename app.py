@@ -513,43 +513,38 @@ def _cmd_watchlist(chat_id, args):
         if not getter or not formatter:
             return {"status": "error", "response": f"⚠️ Mode '{mode}' not yet implemented"}
         
-        # Fetch data for each mint
+        # Fetch data for each mint with improved sorting logic
         rows = []
-        for mint in bucket:
-            try:
-                ticker, long_name = _display_name_for(mint)
-                value = getter(mint)
-                formatted_value = formatter(value) if value is not None else "?"
-                rows.append((ticker, long_name, formatted_value, mint))
-            except Exception:
-                ticker = f"{mint[:4]}..{mint[-4:]}"
-                rows.append((ticker, "", "?", mint))
-        
-        # Apply sorting if specified
-        if sort_dir:
-            reverse = (sort_dir == "desc")
-            # Sort by formatted value (index 2), with error handling for "?" values
-            def sort_key(row):
-                val = row[2]
-                if val == "?":
-                    return float('inf') if not reverse else float('-inf')
+        for m in bucket:
+            ticker, long_name = _display_name_for(m)
+            short = _short_mint(m)
+
+            raw_val = None
+            disp = "?"
+            if getter:
                 try:
-                    # Extract numeric value for proper sorting
-                    clean_val = val.replace("$", "").replace(",", "")
-                    return float(clean_val)
-                except:
-                    return float('inf') if not reverse else float('-inf')
-            
-            rows.sort(key=sort_key, reverse=reverse)
+                    raw_val = getter(m)           # may return None
+                except Exception:
+                    raw_val = None
+
+            # Format display value
+            disp = formatter(raw_val) if raw_val is not None else "?"
+
+            # Keep a numeric version for sorting; None -> bottom
+            sort_val = _num_or_none(raw_val)
+
+            # Build the display line (keep existing style)
+            line = f"{ticker} — {long_name}  {disp}  `{short}`" if long_name else f"{ticker}  {disp}  `{short}`"
+            rows.append({"line": line, "sort_val": sort_val})
+
+        # Apply sorting only if requested
+        if sort_dir in ("asc", "desc"):
+            reverse = (sort_dir == "desc")
+            # Unknowns (None) always to the bottom, regardless of asc/desc
+            rows.sort(key=lambda r: (r["sort_val"] is None, r["sort_val"] if r["sort_val"] is not None else 0.0), reverse=reverse)
         
         # Format output
-        lines = []
-        for ticker, long_name, formatted_value, mint in rows:
-            short = _short_mint(mint)
-            if long_name:
-                lines.append(f"{ticker} — {long_name}  {formatted_value}  `{short}`")
-            else:
-                lines.append(f"{ticker}  {formatted_value}  `{short}`")
+        lines = [r["line"] for r in rows]
         
         sort_suffix = f" ({sort_dir})" if sort_dir else ""
         body = f"👀 *Watchlist {label}{sort_suffix}*\n" + "\n".join(lines)
