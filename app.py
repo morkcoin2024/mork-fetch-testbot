@@ -683,6 +683,45 @@ def _volume_24h_usd(mint: str) -> float | None:
     vol = _sum_pairs_volume_24h_usd(ds.get("pairs"))
     return vol
 
+# === Supply/FDV/Holders helpers ===
+
+def _fmt_qty(x):
+    """Human number with commas; keep up to 2 decimals when needed."""
+    try:
+        xv = float(x)
+    except Exception:
+        return "?"
+    i, f = divmod(abs(xv), 1.0)
+    if f < 1e-9:
+        s = f"{xv:,.0f}"
+    else:
+        s = f"{xv:,.2f}".rstrip("0").rstrip(".")
+    return s
+
+def _pick_supply_fields(ov: dict):
+    """Return (circulating, total) from a Birdeye/other overview dict."""
+    if not isinstance(ov, dict):
+        return None, None
+    circ_keys = ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"]
+    total_keys = ["total_supply","totalSupply","supply","max_supply","maxSupply"]
+    circ = next((ov.get(k) for k in circ_keys if ov.get(k) is not None), None)
+    total = next((ov.get(k) for k in total_keys if ov.get(k) is not None), None)
+    return circ, total
+
+def _pick_fdv_field(ov: dict):
+    """Return FDV if present on overview dict."""
+    if not isinstance(ov, dict):
+        return None
+    keys = ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"]
+    return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
+
+def _pick_holders_field(ov: dict):
+    """Return holders if present; otherwise None."""
+    if not isinstance(ov, dict):
+        return None
+    keys = ["holders","holders_count","holdersCount","holder_count"]
+    return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
+
 def _birdeye_headers():
     # Reuse your existing Birdeye header builder if present
     h = {"X-Chain": "solana"}

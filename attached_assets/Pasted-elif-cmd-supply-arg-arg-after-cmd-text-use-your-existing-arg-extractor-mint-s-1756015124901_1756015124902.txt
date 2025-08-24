@@ -1,0 +1,64 @@
+elif cmd == "/supply":
+    arg = _arg_after_cmd(text)  # use your existing arg extractor
+    mint, sym, name, price_usd = _resolve_token_any(arg)  # REUSE resolver from /price/liquidity
+    if not mint:
+        return _reply_err(f"Usage: `/supply <MINT|TICKER>` — unknown token.")
+    ov = _get_token_overview(mint) or {}
+    circ, total = _pick_supply_fields(ov)
+    line_label = "Circulating" if circ else "Total"
+    val = circ if circ else total
+    extra = f"\nTotal: {_fmt_qty(total)}" if (circ and total and str(circ) != str(total)) else ""
+    body = (
+        "📦 *Supply*\n"
+        f"{sym} — {name}\n"
+        f"`{_short_mint(mint)}`\n"
+        f"{line_label}: {_fmt_qty(val)}{extra}"
+    )
+    return _reply_ok_md(body)
+
+elif cmd == "/fdv":
+    arg = _arg_after_cmd(text)
+    mint, sym, name, price_usd = _resolve_token_any(arg)  # REUSE resolver
+    if not mint:
+        return _reply_err(f"Usage: `/fdv <MINT|TICKER>` — unknown token.")
+    ov = _get_token_overview(mint) or {}
+    fdv = _pick_fdv_field(ov)
+    if not fdv:
+        # Fallback: price × total supply
+        _, total = _pick_supply_fields(ov)
+        if (not fdv) and (price_usd is not None) and total:
+            try:
+                fdv = float(price_usd) * float(total)
+            except Exception:
+                fdv = None
+    usd = _fmt_usd(fdv) if fdv is not None else "?"
+    body = (
+        "🏗 *FDV*\n"
+        f"{sym} — {name}\n"
+        f"`{_short_mint(mint)}`\n"
+        f"FDV: {usd}"
+    )
+    return _reply_ok_md(body)
+
+elif cmd == "/holders":
+    arg = _arg_after_cmd(text)
+    mint, sym, name, price_usd = _resolve_token_any(arg)  # REUSE resolver
+    if not mint:
+        return _reply_err(f"Usage: `/holders <MINT|TICKER>` — unknown token.")
+    ov = _get_token_overview(mint) or {}
+    holders = _pick_holders_field(ov)
+
+    if holders is None:
+        # Optional fallback via solscan client if available in this codebase.
+        try:
+            holders = SOLSCAN.get_token_holders_count(mint)  # if you have such helper; otherwise skip.
+        except Exception:
+            pass
+
+    body = (
+        "👥 *Holders*\n"
+        f"{sym} — {name}\n"
+        f"`{_short_mint(mint)}`\n"
+        f"Holders: {_fmt_qty(holders) if holders is not None else '?'}"
+    )
+    return _reply_ok_md(body)
