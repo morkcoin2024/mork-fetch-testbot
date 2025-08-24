@@ -1,0 +1,103 @@
+import os, re, sys, multiprocessing as mp, app
+
+# Chat + user IDs used by the bot
+CHAT = -1002782542798
+ADMIN = 1653046781
+
+# Long mints to add, and short mints as rendered in watchlist rows
+SOL_L = "So11111111111111111111111111111111111111112"
+UNK_L = "So11111111111111111111111111111111111111113"
+SOL_S = "So1111…111112"
+UNK_S = "So1111…111113"
+
+# Matchers
+USD2   = re.compile(r"\$\d[\d,]*\.\d{2}(?!\d)")   # $123.45
+QTY2   = re.compile(r"\b\d[\d,]*\.\d{2}(?!\d)\b") # 123,456.78
+INTC   = re.compile(r"\b\d[\d,]*\b")              # 123,456
+STRICT = os.getenv("STRICT", "0") == "1"
+TIMEOUT = float(os.getenv("TEST_TIMEOUT", "6"))
+
+def _worker(cmd, q):
+    upd = {"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
+                      "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":cmd}}
+    out = app.process_telegram_command(upd) or {}
+    q.put(out.get("text") or out.get("response") or "")
+
+def send(cmd, timeout=TIMEOUT):
+    q = mp.Queue()
+    p = mp.Process(target=_worker, args=(cmd, q), daemon=True)
+    p.start(); p.join(timeout)
+    if p.is_alive():
+        p.terminate(); p.join(1)
+        return "__TIMEOUT__"
+    return q.get() if not q.empty() else ""
+
+def row_for(text, short_mint):
+    # Pull the single row that contains the short mint (tolerates one-line pipe layout)
+    m = re.search(rf"(?:^|\n)([^\n]*`{re.escape(short_mint)}`[^\n]*)", text)
+    if m: return m.group(1).strip()
+    # Fallback: if ellipsis rendering changes
+    head = short_mint.split('…')[0]
+    m2 = re.search(rf"(?:^|\n)([^\n]*{re.escape(head)}…[^\n]*)", text)
+    return m2.group(1).strip() if m2 else ""
+
+def ok_value(mode, row):
+    if not row:
+        return False
+    # Allow '?' values unless STRICT=1 (useful when data sources are offline)
+    if " ?  `" in row:
+        return not STRICT
+    if mode in ("prices","caps","fdv","volumes"):
+        return bool(USD2.search(row))
+    if mode == "supply":
+        return bool(QTY2.search(row))
+    if mode == "holders":
+        return bool(INTC.search(row))
+    return False
+
+def ck(passed, msg):
+    print(("✅" if passed else "❌"), msg)
+    return 0 if passed else 1
+
+def main():
+    fails = 0
+
+    # Reset & seed
+    ack = send("/watch_clear")
+    fails += ck(bool(ack) and ("cleared" in ack.lower()), "watch_clear")
+    send(f"/watch {SOL_L}")
+    send(f"/watch {UNK_L}")
+
+    # Validate each watchlist mode
+    for mode in ["supply","fdv","holders","prices","caps","volumes"]:
+        resp = send(f"/watchlist {mode}")
+        ok_resp = bool(resp) and "Watchlist" in resp
+        fails += ck(ok_resp, f"resp {mode}")
+        if not ok_resp:
+            # Skip deeper checks for this mode if the response was bad
+            continue
+
+        sol_row = row_for(resp, SOL_S)
+        unk_row = row_for(resp, UNK_S)
+        fails += ck(bool(sol_row), f"SOL row {mode}")
+        fails += ck(bool(unk_row), f"UNK row {mode}")
+
+        if sol_row:
+            fails += ck(ok_value(mode, sol_row), f"{mode} SOL value")
+        if unk_row:
+            fails += ck((" ?  `" in unk_row), f"{mode} UNK '?'")
+
+    # Sorting headers
+    resp = send("/watchlist volumes desc")
+    hdr_ok = bool(resp) and "(desc)" in (resp.splitlines()[0] if resp else "")
+    fails += ck(hdr_ok, "sort volumes desc")
+
+    resp = send("/watchlist supply asc")
+    hdr_ok = bool(resp) and "(asc)" in (resp.splitlines()[0] if resp else "")
+    fails += ck(hdr_ok, "sort supply asc")
+
+    print("\nPASS" if fails == 0 else f"FAIL({fails})")
+    sys.exit(0 if fails == 0 else 1)
+
+if __name__ == "__main__":
+    main()
