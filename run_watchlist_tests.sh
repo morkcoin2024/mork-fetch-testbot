@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-export PYTHONPATH="$PWD:${PYTHONPATH:-}"
-export PYTHONPATH="$PWD:${PYTHONPATH:-}"
 set -euo pipefail
+export PYTHONPATH="${PYTHONPATH:-.}"
 
 echo "== Smoke (scanners OFF) =="
 python3 tests/test_watch_remove.py
