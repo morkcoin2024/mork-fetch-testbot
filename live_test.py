@@ -116,7 +116,7 @@ def main():
     total = len(tests)
 
     for name, test_func in tests:
-        print(f"\n{'='*20} {name} {'='*20}")
+        print(f"\n{'=' * 20} {name} {'=' * 20}")
         try:
             if test_func():
                 passed += 1

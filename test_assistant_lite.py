@@ -49,7 +49,6 @@ def test_assistant_integration():
     # Test dry-run functionality
     print("5. Testing dry-run mode...")
     try:
-
         # Simulate a simple diff application in dry-run mode
         test_diffs = []
         result = apply_unified_diffs(test_diffs)

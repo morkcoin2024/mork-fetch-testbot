@@ -27,7 +27,7 @@ def test_backup_workflow():
         backups = list_backups(3)
         print(f"   ✅ Found {len(backups)} backups")
         for i, backup in enumerate(backups[:3]):
-            print(f"     {i+1}. {backup}")
+            print(f"     {i + 1}. {backup}")
     except Exception as e:
         print(f"   ❌ Listing failed: {e}")
 

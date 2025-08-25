@@ -176,8 +176,7 @@ class TelegramPollingService:
 
             # Admin check
             ADMIN_ID = int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "1653046781"))
-            is_admin = user_id == ADMIN_ID
-
+            _ = user_id == ADMIN_ID
             # Use comprehensive process_telegram_command router
             if text.startswith("/"):
                 if process_telegram_command:

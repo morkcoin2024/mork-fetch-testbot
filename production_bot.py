@@ -3,6 +3,7 @@
 Production-ready polling bot for Telegram
 Bypasses external domain routing issues
 """
+
 import logging
 import os
 import sys
@@ -65,7 +66,7 @@ class ProductionBot:
             
 **Mode**: Production Polling  
 **Status**: Operational  
-**Time**: {datetime.now().strftime('%H:%M:%S UTC')}  
+**Time**: {datetime.now().strftime("%H:%M:%S UTC")}  
 **Version**: 1.0
 
 Ready for trading commands!"""

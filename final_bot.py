@@ -52,8 +52,8 @@ Running: Yes
 Mode: Polling
 Admin ID: {ADMIN_ID}
 Your ID: {user.id}
-Admin Access: {'Yes' if user.id == ADMIN_ID else 'No'}
-Time: {time.strftime('%Y-%m-%d %H:%M:%S')}"""
+Admin Access: {"Yes" if user.id == ADMIN_ID else "No"}
+Time: {time.strftime("%Y-%m-%d %H:%M:%S")}"""
 
         await update.message.reply_text(status_text)
         logger.info("Status sent successfully")

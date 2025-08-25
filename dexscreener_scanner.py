@@ -105,7 +105,7 @@ class DexScreenerScanner:
                 continue
 
             base = p.get("baseToken") or {}
-            quote = p.get("quoteToken") or {}
+            _ = p.get("quoteToken") or {}
             base_mint = base.get("address") or ""
             # Prefer mint over pair address for dedupe
             key = base_mint or p.get("pairAddress") or p.get("url", "")

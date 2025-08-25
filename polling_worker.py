@@ -2,6 +2,7 @@
 """
 Robust polling worker that integrates with the main app
 """
+
 import logging
 import os
 import sys
@@ -40,7 +41,7 @@ class RobustPollingWorker:
     def clear_webhook(self):
         """Clear any existing webhook"""
         try:
-            resp = requests.post(f"{self.base_url}/deleteWebhook", timeout=5)
+            _ = requests.post(f"{self.base_url}/deleteWebhook", timeout=5)
             logger.info("Webhook cleared")
             return True
         except Exception as e:

@@ -23,13 +23,11 @@ def check_assistant_status():
     # Check imports
     print("\n📦 Import Tests:")
     try:
-
         print("   ✅ assistant_dev_lite imports")
     except Exception as e:
         print(f"   ❌ assistant_dev_lite error: {e}")
 
     try:
-
         print("   ✅ cmd_assistant handler")
     except Exception as e:
         print(f"   ❌ cmd_assistant error: {e}")

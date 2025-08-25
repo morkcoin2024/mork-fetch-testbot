@@ -2,6 +2,7 @@
 """
 Test script to verify scanner state in webhook process
 """
+
 import time
 
 import requests

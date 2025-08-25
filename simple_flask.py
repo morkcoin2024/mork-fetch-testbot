@@ -2,6 +2,7 @@
 """
 Ultra-minimal Flask app for webhook testing
 """
+
 import logging
 import os
 

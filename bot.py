@@ -42,7 +42,7 @@ class MorkFetchBot:
             token = os.environ.get("TELEGRAM_BOT_TOKEN")
             if token:
                 # Try to create application to test functionality
-                test_app = ApplicationBuilder().token(token).build()
+                _ = ApplicationBuilder().token(token).build()
                 self.telegram_available = True
                 print("✅ Telegram bot enabled successfully")
                 logger.info("Telegram bot enabled and operational")
@@ -204,7 +204,7 @@ Ready to fetch some profits? 🚀"""
 **MORK Holdings:** {mork_msg}
 
 **Trading Status:**
-{'✅ Eligible for all trading' if mork_ok else '⚠️ Need more MORK for full access'}"""
+{"✅ Eligible for all trading" if mork_ok else "⚠️ Need more MORK for full access"}"""
 
             await update.message.reply_text(message, parse_mode="Markdown")
 
@@ -307,8 +307,8 @@ Ready to fetch some profits? 🚀"""
 
                 message = f"""🎉 **Snipe Successful!**
 
-**Transaction:** `{result['signature']}`
-**Tokens Received:** {result['delta_raw']:,}
+**Transaction:** `{result["signature"]}`
+**Tokens Received:** {result["delta_raw"]:,}
 **Status:** Trade completed and verified
 
 Your tokens are now in your wallet! 🚀"""
@@ -357,7 +357,7 @@ Your tokens are now in your wallet! 🚀"""
 
         status_message = f"""📊 **Mork F.E.T.C.H System Status**
 
-🚨 **Emergency Stop:** {'Normal' if emergency_ok else 'ACTIVE'}
+🚨 **Emergency Stop:** {"Normal" if emergency_ok else "ACTIVE"}
 🛡️ **Safe Mode:** {safe_mode_status}
 ⚡ **Max Trade:** {safety.max_trade_sol} SOL
 📊 **Daily Limit:** {safety.daily_spend_limit} SOL
@@ -385,12 +385,12 @@ Your tokens are now in your wallet! 🚀"""
         action = context.args[0].lower()
 
         if action in ["stop", "activate"]:
-            result = safety.set_emergency_stop(True, user_id)
+            safety.set_emergency_stop(True, user_id)
             await update.message.reply_text(
                 "🚨 **Emergency Stop Activated**\n\nAll trading disabled until manually resumed."
             )
         elif action in ["start", "resume"]:
-            result = safety.set_emergency_stop(False, user_id)
+            safety.set_emergency_stop(False, user_id)
             await update.message.reply_text(
                 "✅ **Emergency Stop Deactivated**\n\nTrading resumed with normal safety checks."
             )
@@ -639,7 +639,7 @@ Use your User ID ({user_id}) for ASSISTANT_ADMIN_TELEGRAM_ID""",
                 await update.message.reply_text("📦 No backups available")
                 return
 
-            backup_list = "\n".join(f"{i+1}. {backup}" for i, backup in enumerate(backups))
+            backup_list = "\n".join(f"{i + 1}. {backup}" for i, backup in enumerate(backups))
             await update.message.reply_text(
                 f"📦 **Available Backups:**\n\n```\n{backup_list}\n```\n\nUse: `/assistant_backup restore <name>`",
                 parse_mode="Markdown",
@@ -703,20 +703,20 @@ Use your User ID ({user_id}) for ASSISTANT_ADMIN_TELEGRAM_ID""",
 
             summary = f"""📋 **Rules Configuration**
 
-**Version:** {rules.meta.get('version', 'unknown')}
+**Version:** {rules.meta.get("version", "unknown")}
 **Active Profile:** {current_profile}
 
 **Output Limits:**
-• Top N: {rules.output.get('top_n', 10)}
-• Min Score: {rules.output.get('min_score', 70)}
+• Top N: {rules.output.get("top_n", 10)}
+• Min Score: {rules.output.get("min_score", 70)}
 
 **Key Filters ({current_profile}):**
-• Min Liquidity: ${profile_data.get('filters', {}).get('min_liquidity_usd', 0):,}
-• Min Holders: {profile_data.get('filters', {}).get('min_holders', 0)}
-• Max Dev Holdings: {profile_data.get('filters', {}).get('max_dev_holdings_pct', 0)}%
-• Age Range: {profile_data.get('filters', {}).get('min_age_minutes', 0)}-{profile_data.get('filters', {}).get('max_age_minutes', 1440)} min
+• Min Liquidity: ${profile_data.get("filters", {}).get("min_liquidity_usd", 0):,}
+• Min Holders: {profile_data.get("filters", {}).get("min_holders", 0)}
+• Max Dev Holdings: {profile_data.get("filters", {}).get("max_dev_holdings_pct", 0)}%
+• Age Range: {profile_data.get("filters", {}).get("min_age_minutes", 0)}-{profile_data.get("filters", {}).get("max_age_minutes", 1440)} min
 
-**Available Profiles:** {', '.join(rules.profiles.keys())}
+**Available Profiles:** {", ".join(rules.profiles.keys())}
 
 Use /rules_profile <name> to switch profiles."""
 

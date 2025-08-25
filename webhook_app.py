@@ -2,6 +2,7 @@
 """
 Minimal webhook-only Flask app for Telegram bot
 """
+
 import logging
 import os
 import sys

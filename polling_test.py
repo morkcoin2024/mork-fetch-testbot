@@ -2,6 +2,7 @@
 """
 Emergency polling mode to bypass webhook delivery issues
 """
+
 import logging
 import os
 import time

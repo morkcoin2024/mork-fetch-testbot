@@ -116,7 +116,9 @@ async def send_fetch_summary(context, all_items, filtered_items, **failure_flags
             "efficiency_grade": (
                 "A"
                 if stats["filter_efficiency"] > 25
-                else "B" if stats["filter_efficiency"] > 15 else "C"
+                else "B"
+                if stats["filter_efficiency"] > 15
+                else "C"
             ),
         },
     )

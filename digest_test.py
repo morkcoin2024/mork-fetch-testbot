@@ -2,6 +2,7 @@
 """
 Daily Digest Test Script - Verify Digest Functionality
 """
+
 import sys
 
 sys.path.insert(0, "/home/runner/workspace")

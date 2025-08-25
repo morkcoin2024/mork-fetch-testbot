@@ -47,7 +47,7 @@ def test_complete_backup_system():
     backups = list_backups(5)
     print(f"Available backups: {len(backups)}")
     for i, backup in enumerate(backups[:3]):
-        print(f"  {i+1}. {backup}")
+        print(f"  {i + 1}. {backup}")
 
     print()
     print("🎉 COMPLETE BACKUP SYSTEM READY:")

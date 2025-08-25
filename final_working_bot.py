@@ -3,6 +3,7 @@
 Final working polling bot - bypasses Flask webhook issues
 Sets POLLING_MODE to prevent Flask bot interference
 """
+
 import logging
 import os
 import time
@@ -39,9 +40,9 @@ async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Bot Status**: ✅ Operational
 **Mode**: Polling (Flask webhook disabled)
-**Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}
+**Time**: {time.strftime("%Y-%m-%d %H:%M:%S")}
 **Your ID**: {user_id}
-**Admin Access**: {'✅ Yes' if is_admin else '❌ No'}
+**Admin Access**: {"✅ Yes" if is_admin else "❌ No"}
 **Response Delay**: < 1 second
 
 Bot is working perfectly! 🎉"""
@@ -64,9 +65,9 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚡ **Response Time**: < 1 second
 🛡️ **Admin ID**: {ADMIN_ID}
 👤 **Your ID**: {user_id}
-🔑 **Admin Access**: {'Yes ✅' if user_id == ADMIN_ID else 'No ❌'}
+🔑 **Admin Access**: {"Yes ✅" if user_id == ADMIN_ID else "No ❌"}
 
-⏰ **Uptime**: {time.strftime('%H:%M:%S')} today
+⏰ **Uptime**: {time.strftime("%H:%M:%S")} today
 🚀 **Version**: Final Working Bot v1.0
 
 **Available Commands:**

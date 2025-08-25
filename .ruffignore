@@ -1,0 +1,3 @@
+# ignore attic and any *_backup.py anywhere
+attic/
+**/*_backup.py

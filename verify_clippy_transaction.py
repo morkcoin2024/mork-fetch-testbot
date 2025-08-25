@@ -3,6 +3,7 @@
 Verify CLIPPY transaction to confirm tokens were actually received
 Transaction: 2HzjGQbYE3uPtFMXwkbjrcUvhzkGibptqRMfRcD6oMnyFA2qaahMXfXrvDk66m9VMdf1shVm1mTbUxbBfrAswTNg
 """
+
 from solana.rpc.api import Client
 from solders.pubkey import Pubkey as PublicKey
 

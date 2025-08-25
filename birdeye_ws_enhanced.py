@@ -163,7 +163,7 @@ class BirdeyeWS:
         link_pf = f"https://pump.fun/{mint}"
         msg = (
             f"🚀 *New Launchpad token*  _(via {topic})_\n"
-            f"*{it.get('name','?')}* ({it.get('symbol','?')})\n"
+            f"*{it.get('name', '?')}* ({it.get('symbol', '?')})\n"
             f"`{mint}`\n"
             f"[Birdeye]({link_be}) • [Pump.fun]({link_pf})"
         )

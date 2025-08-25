@@ -2,6 +2,7 @@
 """
 DIRECT POLLING BOT - Minimal, bulletproof implementation
 """
+
 import logging
 import os
 import sys

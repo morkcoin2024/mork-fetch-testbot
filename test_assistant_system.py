@@ -38,7 +38,6 @@ def test_assistant_import():
     """Test that assistant modules can be imported"""
     print("\nTesting module imports...")
     try:
-
         print("✓ assistant_dev_lite imported successfully")
 
         print("✓ telegram handlers imported successfully")

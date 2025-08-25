@@ -151,12 +151,11 @@ def apply_unified_diffs(diffs: list[str]) -> ApplyResult:
     diffs = filtered_diffs
 
     # Create backup before writing any files (only in live mode with diffs)
-    backup_created = False
+
     if ASSISTANT_WRITE_GUARD.upper() == "ON" and diffs:
         backup_name = create_backup("prepatch")
         stdout_lines.append(f"Created backup: {backup_name}")
         prune_backups(20)
-        backup_created = True
 
     for idx, diff in enumerate(diffs):
         try:

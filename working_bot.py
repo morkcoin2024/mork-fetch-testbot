@@ -2,6 +2,7 @@
 """
 Working bot with Flask app in polling mode
 """
+
 import logging
 import os
 import time
@@ -36,8 +37,8 @@ Running: Yes
 Mode: Polling (Flask bot disabled)
 Admin ID: {ADMIN_ID}
 Your ID: {user_id}
-Admin Access: {'Yes' if user_id == ADMIN_ID else 'No'}
-Time: {time.strftime('%Y-%m-%d %H:%M:%S')}"""
+Admin Access: {"Yes" if user_id == ADMIN_ID else "No"}
+Time: {time.strftime("%Y-%m-%d %H:%M:%S")}"""
 
     await update.message.reply_text(status_msg)
     logger.info("Status response sent")

@@ -200,8 +200,7 @@ def cmd_wallet_balance(user_id) -> str:
 
                     # Get human-readable amount
                     amount = float(token_amount["uiAmount"] or 0)
-                    decimals = token_amount["decimals"]
-
+                    _ = token_amount["decimals"]
                     if amount > 0:
                         # Try to get token metadata
                         metadata = asyncio.run(get_token_metadata(mint))

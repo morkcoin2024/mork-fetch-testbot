@@ -3,6 +3,7 @@
 SIMPLE POLLING BOT - Runs as primary process for Replit deployment
 This bot runs in the foreground to avoid process termination issues
 """
+
 import os
 import sys
 import time

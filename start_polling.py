@@ -2,6 +2,7 @@
 """
 Standalone polling bot starter that runs alongside the web app
 """
+
 import os
 import subprocess
 import sys

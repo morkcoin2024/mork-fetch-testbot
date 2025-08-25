@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Quick polling bot without filelock dependency"""
+
 import logging
 import os
 import time

@@ -100,7 +100,7 @@ def test_enrichment(limit: int = 5) -> dict[str, Any]:
             "total_tokens": len(sample_tokens),
             "enriched_tokens": enriched_count,
             "enrichment_rate": (
-                f"{(enriched_count/len(sample_tokens)*100):.1f}%" if sample_tokens else "0%"
+                f"{(enriched_count / len(sample_tokens) * 100):.1f}%" if sample_tokens else "0%"
             ),
             "sample_enriched": [],
         }

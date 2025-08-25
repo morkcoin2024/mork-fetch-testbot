@@ -3,6 +3,7 @@
 Setup script to configure the Mork F.E.T.C.H Bot webhook
 Run this script after setting the BOT_TOKEN environment variable
 """
+
 import logging
 import os
 

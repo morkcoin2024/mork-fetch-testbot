@@ -3,6 +3,7 @@
 Live trading integration for Telegram bot
 Integrates the working PumpPortal API with bot commands
 """
+
 import logging
 
 import base58
@@ -138,12 +139,12 @@ def format_trade_success_message(result):
     """Format success message for Telegram"""
     return f"""🎉 **TRADE SUCCESSFUL!**
 
-💰 **Tokens Purchased:** {result['tokens_purchased']:,}
-🪙 **Token:** {result['token_address'][:8]}...
-📊 **Transaction Hash:** `{result['transaction_hash']}`
+💰 **Tokens Purchased:** {result["tokens_purchased"]:,}
+🪙 **Token:** {result["token_address"][:8]}...
+📊 **Transaction Hash:** `{result["transaction_hash"]}`
 
 🔍 **View on Explorer:**
-https://solscan.io/tx/{result['transaction_hash']}
+https://solscan.io/tx/{result["transaction_hash"]}
 
 ✅ Your tokens have been added to your wallet!"""
 

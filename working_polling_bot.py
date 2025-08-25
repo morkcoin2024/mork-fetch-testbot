@@ -2,6 +2,7 @@
 """
 WORKING POLLING BOT - Uses existing app infrastructure
 """
+
 import logging
 import os
 import sys

@@ -2,6 +2,7 @@
 """
 Direct polling bot - simplified version that just works
 """
+
 import logging
 import os
 import time

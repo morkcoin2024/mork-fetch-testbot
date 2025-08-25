@@ -16,7 +16,7 @@ class EventBus:
         mint = (payload.get("mint") or payload.get("address") or "").lower()
         src = payload.get("source", "").lower()
         t = int(payload.get("ts") or time.time())
-        s = f"{topic}:{mint}:{src}:{t//self._dedup_sec}"
+        s = f"{topic}:{mint}:{src}:{t // self._dedup_sec}"
         return hashlib.sha1(s.encode()).hexdigest()
 
     def publish(self, topic: str, payload: dict):

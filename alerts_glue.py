@@ -48,7 +48,7 @@ def format_price_alert(
     direction = "▲" if move_pct >= 0 else "▼"
     pct = f"{move_pct:+.2f}%"
     pstr = f"${price:,.6f}" if price < 1 else f"${price:,.4f}" if price < 10 else f"${price:,.2f}"
-    return f"[ALERT] {symbol or mint} {direction}{pct} price={pstr} src={src} {('('+reason+')' if reason else '')}".strip()
+    return f"[ALERT] {symbol or mint} {direction}{pct} price={pstr} src={src} {('(' + reason + ')' if reason else '')}".strip()
 
 
 def try_send_alert(text: str, preview: bool = False) -> bool:

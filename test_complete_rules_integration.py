@@ -150,13 +150,13 @@ def test_complete_integration():
         f"   • Qualified: {conservative_results['returned_count']}/{conservative_results['input_count']}"
     )
     print(
-        f"   • Filter Pass Rate: {conservative_results['passed_filters']}/{conservative_results['input_count']} ({conservative_results['passed_filters']/conservative_results['input_count']*100:.1f}%)"
+        f"   • Filter Pass Rate: {conservative_results['passed_filters']}/{conservative_results['input_count']} ({conservative_results['passed_filters'] / conservative_results['input_count'] * 100:.1f}%)"
     )
 
     print("   DEGEN RESULTS:")
     print(f"   • Qualified: {degen_results['returned_count']}/{degen_results['input_count']}")
     print(
-        f"   • Filter Pass Rate: {degen_results['passed_filters']}/{degen_results['input_count']} ({degen_results['passed_filters']/degen_results['input_count']*100:.1f}%)"
+        f"   • Filter Pass Rate: {degen_results['passed_filters']}/{degen_results['input_count']} ({degen_results['passed_filters'] / degen_results['input_count'] * 100:.1f}%)"
     )
     print()
 

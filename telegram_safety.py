@@ -67,9 +67,9 @@ def send_telegram_safe(token: str, chat_id: int, text: str, disable_preview: boo
             logging.exception("telegram_send_exception")
             return False, {"ok": False, "exception": str(e)}
 
-    tried_md = False
+    _ = False
     if looks_like_markdown(text) and balanced_md(text):
-        tried_md = True
+        _ = True
         md_text = escape_markdown_v2(text)
         ok, js = _post(
             {

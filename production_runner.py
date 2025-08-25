@@ -2,6 +2,7 @@
 """
 Production runner for Replit Deploy - runs both web app and polling bot
 """
+
 import logging
 import os
 import signal
