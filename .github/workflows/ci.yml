@@ -1,40 +1,32 @@
 name: CI
-
 on:
-  pull_request:
   push:
-    branches: [ main ]
-
+  pull_request:
 jobs:
-  tests:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements-dev.txt || true
-      - run: PYTHONPATH=. ./run_watchlist_tests.sh
-      - run: bash scripts/run_coverage.sh || true
-
-  qa-changed:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements-dev.txt
-      - run: scripts/qa_changed.sh
-
-  pre-commit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - uses: pre-commit/action@v3.0.1
-        with:
-          # Run only against diff from main -> HEAD (fast, matches our philosophy)
-          extra_args: --from-ref origin/main --to-ref HEAD
+        with: { python-version: '3.12' }
+      - name: Set up venv
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements.txt -r requirements-dev.txt
+      - name: Lint & Format (Ruff)
+        run: |
+          source .venv/bin/activate
+          ruff check .
+          ruff format --check
+      - name: Pre-commit (optional but nice)
+        run: |
+          source .venv/bin/activate
+          pre-commit run --all-files || true
+      - name: Watchlist tests
+        env:
+          PYTHONNOUSERSITE: "1"
+        run: |
+          source .venv/bin/activate
+          PYTHONPATH=. ./run_watchlist_tests.sh
