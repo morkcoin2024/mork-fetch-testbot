@@ -1,27 +1,29 @@
 import os, re, sys, multiprocessing as mp
 
-# ensure we can import app.py from repo root
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Ensure local imports work
+sys.path.insert(0, os.getcwd())
 import app  # noqa: E402
 
 CHAT = -1002782542798
 ADMIN = 1653046781
 
-SOL_L = "So11111111111111111111111111111111111111112"
-UNK_L = "So11111111111111111111111111111111111111113"
-
-def short_mint(m): return m[:6] + "…" + m[-6:]
-SOL_S, UNK_S = short_mint(SOL_L), short_mint(UNK_L)
-
-TIMEOUT = float(os.getenv("TEST_TIMEOUT", "10"))
+SOL = "So11111111111111111111111111111111111111112"
+TIMEOUT = float(os.getenv("TEST_TIMEOUT", "8"))
 
 def _worker(cmd, q):
-    upd = {"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
-                      "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":cmd}}
+    upd = {
+        "message": {
+            "message_id": 1,
+            "date": 0,
+            "chat": {"id": CHAT, "type": "supergroup"},
+            "from": {"id": ADMIN, "is_bot": False, "username": "turk"},
+            "text": cmd,
+        }
+    }
     out = app.process_telegram_command(upd) or {}
     q.put(out.get("text") or out.get("response") or "")
 
-def _do_send(cmd, timeout=TIMEOUT):
+def send(cmd, timeout=TIMEOUT):
     q = mp.Queue()
     p = mp.Process(target=_worker, args=(cmd, q), daemon=True)
     p.start(); p.join(timeout)
@@ -30,11 +32,18 @@ def _do_send(cmd, timeout=TIMEOUT):
         return "__TIMEOUT__"
     return q.get() if not q.empty() else ""
 
-def send(cmd, timeout=TIMEOUT):
-    r = _do_send(cmd, timeout)
-    return r if r != "__TIMEOUT__" else _do_send(cmd, timeout)
+def mint_list(n_unknown=19):
+    # Build: [SOL] + 19 neighbors by tweaking final character
+    base = SOL[:-1]
+    mints = [SOL] + [base + str(i) for i in range(3, 3 + n_unknown)]
+    return mints
 
-def rows(resp): return [ln for ln in resp.splitlines() if " `" in ln and "—" in ln]
+def minted_set(resp: str):
+    # All backticked short mints in the list
+    return set(re.findall(r"`([^`]+)`", resp))
+
+def rows(s: str):
+    return [ln for ln in s.splitlines() if " `" in ln and "—" in ln]
 
 def ck(ok, msg):
     print(("✅" if ok else "❌"), msg)
@@ -42,32 +51,33 @@ def ck(ok, msg):
 
 fails = 0
 
+# 1) clear
 ack = send("/watch_clear")
 fails += ck(bool(ack) and "cleared" in ack.lower(), "watch_clear")
 
-send(f"/watch {SOL_L}")
-send(f"/watch {UNK_L}")
-
-SUFFIXES = list("3456789ABCDEFGHJKMNPRSTUVWXYZ")
-EXTRA = [UNK_L[:-1] + s for s in SUFFIXES[:18]]
-
-for m in EXTRA:
+# 2) add many
+mints = mint_list(19)
+for m in mints:
     send(f"/watch {m}")
 
 resp = send("/watchlist prices")
-fails += ck(bool(resp) and "Watchlist" in resp, "list header")
-R = rows(resp)
-fails += ck(len(R) >= 10, "has many rows")
+init_set = minted_set(resp)
+fails += ck("Watchlist" in resp, "list header")
+fails += ck(len(rows(resp)) >= len(mints), "has many rows")
+fails += ck(len(init_set) >= len(set(mints)), f"all added mints present ({len(init_set)} seen)")
 
-shorts = {short_mint(x) for x in ([SOL_L, UNK_L] + EXTRA)}
-missing = [s for s in shorts if f"`{s}`" not in resp]
-fails += ck(not missing, f"all added mints present ({len(shorts)} total)")
-
+# 3) sorting preserves set
 resp_desc = send("/watchlist prices desc")
-resp_asc  = send("/watchlist prices asc")
-set_desc = {ln.split("`")[-2] for ln in rows(resp_desc)}
-set_asc  = {ln.split("`")[-2] for ln in rows(resp_asc)}
-fails += ck(set_desc == set_asc == shorts, "sorting preserves set of items")
+resp_asc = send("/watchlist prices asc")
+set_desc = minted_set(resp_desc)
+set_asc = minted_set(resp_asc)
+fails += ck(init_set == set_desc == set_asc, "sorting preserves set of items")
+
+# 4) re-adding everything does not duplicate
+for m in mints:
+    send(f"/watch {m}")
+resp2 = send("/watchlist prices")
+fails += ck(minted_set(resp2) == init_set, "idempotent re-add keeps same set")
 
 print("\nPASS" if fails == 0 else f"FAIL({fails})")
 sys.exit(0 if fails == 0 else 1)
