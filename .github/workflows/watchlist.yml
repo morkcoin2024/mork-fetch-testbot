@@ -37,10 +37,8 @@ jobs:
           python -m pip install -U pip
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
-          else
-            # minimal deps used by the tests/app with version constraints
-            python -m pip install "httpx>=0.26" "python-telegram-bot>=20" "websockets>=10"
           fi
+          python -m pip install -r requirements-test.txt
 
       - name: Run smoke tests (direct)
         run: |
@@ -82,9 +80,8 @@ jobs:
           python -m pip install -U pip
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
-          else
-            python -m pip install "httpx>=0.26" "python-telegram-bot>=20" "websockets>=10"
           fi
+          python -m pip install -r requirements-test.txt
 
       - name: Run online tests (scanners ON)
         run: |

@@ -1,0 +1,3 @@
+httpx>=0.26
+python-telegram-bot>=20
+websockets>=10
