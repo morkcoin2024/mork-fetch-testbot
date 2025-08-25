@@ -38,8 +38,8 @@ jobs:
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
           else
-            # minimal deps used by the tests/app; safe, unpinned to avoid lock-in
-            python -m pip install httpx python-telegram-bot websockets
+            # minimal deps used by the tests/app with version constraints
+            python -m pip install "httpx>=0.26" "python-telegram-bot>=20" "websockets>=10"
           fi
 
       - name: Run smoke tests (direct)
@@ -83,7 +83,7 @@ jobs:
           if [ -f requirements.txt ]; then
             python -m pip install -r requirements.txt
           else
-            python -m pip install httpx python-telegram-bot websockets
+            python -m pip install "httpx>=0.26" "python-telegram-bot>=20" "websockets>=10"
           fi
 
       - name: Run online tests (scanners ON)
