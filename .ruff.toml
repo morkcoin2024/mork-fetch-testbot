@@ -2,23 +2,12 @@ line-length = 100
 target-version = "py311"
 extend-exclude = [
   "birdeye_ws_backup.py",
-  "final_*.py",
-  "simple_*.py",
-  "demo_*.py",
-  "live_*.py",
-  "*_example.py",
-  "*_demo.py",
-  "standalone_*.py",
-  "production_*.py",
-  "direct_*.py",
-  "working_*.py",
+  "final_*.py", "simple_*.py", "demo_*.py", "live_*.py",
+  "*_example.py", "*_demo.py",
+  "standalone_*.py", "production_*.py", "direct_*.py", "working_*.py",
   "scripts/*",
 ]
-
 [lint]
-# Keep correctness-focused rules only for now.
 select = ["E", "F"]
-# Let Black handle long lines.
 ignore = ["E501"]
-# Quiet known noisy file
 per-file-ignores = { "app.py" = ["E402", "F401", "F403", "E722"] }
