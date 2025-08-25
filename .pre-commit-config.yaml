@@ -1,15 +1,41 @@
+# Pre-commit checks run on STAGED files by default — so legacy files won't block you
+# If you run `pre-commit run -a`, we exclude the known-bad backup file.
+exclude: |
+  (?x)^(
+    birdeye_ws_backup\.py
+  )$
+
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.7
-    hooks:
-      - id: ruff
-        args: [--fix]
-  - repo: https://github.com/psf/black
-    rev: 24.8.0
-    hooks:
-      - id: black
+  # Small hygiene wins
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=auto]
+
+  # Ruff (lint)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.7
+    hooks:
+      - id: ruff
+        args: [--fix]  # auto-fix trivial issues
+        additional_dependencies: []  # uses the hook's pinned ruff
+
+  # Black (format)
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        args: [--config=pyproject.toml]
+
+  # Mypy (types) – stays gentle via mypy.ini
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-requests==2.32.0.20240712
+          - types-python-dateutil==2.9.0.20240316
+        args: [--config-file=mypy.ini, --pretty]
