@@ -1,46 +1,32 @@
 name: tests
-
-on:
-  push:
-  pull_request:
-
+on: [push, pull_request]
 jobs:
   smoke:
-    name: Smoke (scanners off)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: { python-version: '3.11' }
       - run: pip install -r requirements.txt
-      - name: Run smoke tests
-        env:
-          TEST_TIMEOUT: '8'
+      - env: { TEST_TIMEOUT: '8' }
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
 
   scanners:
-    name: Scanners (opt-in)
-    # Only runs if you set this repo secret to "true"
     if: ${{ secrets.ENABLE_SCANNERS == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: { python-version: '3.11' }
       - run: pip install -r requirements.txt
-      - name: Run tests with scanners enabled
-        env:
+      - env:
           FETCH_ENABLE_SCANNERS: '1'
           FEATURE_WS: 'on'
           TEST_TIMEOUT: '12'
-          # Add any scanner/API keys you use:
           SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
           BIRDEYE_API_KEY: ${{ secrets.BIRDEYE_API_KEY }}
-          # etc...
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
