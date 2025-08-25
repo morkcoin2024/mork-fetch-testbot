@@ -36,38 +36,31 @@ dev = [
 [tool.black]
 line-length = 100
 target-version = ["py310"]
-extend-exclude = "(^|/)(attic/|.*_backup\\.py)"
+extend-exclude = "^(attic/|scripts/venv/)$"
 
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = ["attic", "*_backup.py", ".venv", "venv"]
-
-[tool.ruff.lint]
-select = ["E","F","I","UP","B"]
-ignore = [
-    "E501",    # let black handle line-length
-    "E722",    # bare except (common in production telegram bots)
-    "E402",    # module import not at top (needed for sys.path modifications)
-    "PLR2004", # magic values (status codes are self-documenting)
-    "PLR0912", # too many branches (complex bot logic)
-    "PLR0915", # too many statements (complex bot methods)
-    "SIM105",  # contextlib.suppress (explicit try/except is clearer)
-    "SIM115",  # context manager (file locking requires manual control)
-    "B904",    # raise from err (not critical for telegram bots)
-    "B018",    # useless expression (pattern for checking var existence)
-    "F841",    # unused variable (development/debugging artifacts)
-    "F401",    # unused import (conditional imports for testing)
-    "UP038",   # isinstance syntax (backwards compatibility)
-    "F821",    # undefined name (missing functions - will be addressed separately)
-    "F811",    # redefinition (duplicate function definitions)
-]
+extend-exclude = ["attic", "scripts/venv"]
+# Keep the rule set light to start; we can ratchet up later
+lint.select = ["E", "F", "I"]
 
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_unreachable = true
-no_implicit_optional = true
-exclude = '(^|/)(attic/|.*_backup\\.py)'
+warn_unused_ignores = false
+disallow_untyped_defs = false
+exclude = "(^attic/|^scripts/venv/)"
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = [
+  "attic/*",
+  "tests/*",
+  "scripts/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
