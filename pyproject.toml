@@ -1,3 +1,36 @@
+[project]
+name = "mork-fetch-bot"
+version = "1.0.0"
+requires-python = ">=3.10"
+dependencies = [
+    "base58>=2.1.1",
+    "cryptography>=45.0.6",
+    "flask>=3.1.1",
+    "httpx>=0.25.2",
+    "openai>=1.99.9",
+    "pre-commit>=3.7.1",
+    "pynacl>=1.5.0",
+    "pyyaml>=6.0.2",
+    "requests>=2.32.4",
+    "solana>=0.36.7",
+    "solders>=0.26.0",
+    "sqlalchemy>=2.0.42",
+    "telegram>=0.0.1",
+    "unidiff>=0.7.5",
+    "websocket>=0.2.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black==24.8.0",
+    "ruff==0.5.6", 
+    "mypy==1.10.0",
+    "pytest==8.3.2",
+    "coverage==7.6.1",
+    "pre-commit==3.7.1",
+    "types-requests==2.32.0.20240712"
+]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]

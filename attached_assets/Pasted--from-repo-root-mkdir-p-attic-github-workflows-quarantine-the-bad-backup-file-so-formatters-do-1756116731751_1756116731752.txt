@@ -1,0 +1,134 @@
+# from repo root
+mkdir -p attic .github/workflows
+
+# quarantine the bad backup file so formatters don’t choke
+git mv birdeye_ws_backup.py attic/ 2>/dev/null || mv birdeye_ws_backup.py attic/
+
+# pyproject: tool config + excludes
+cat > pyproject.toml <<'EOF'
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+extend-exclude = "(^|/)(attic/|.*_backup\\.py)"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["attic", "*_backup.py", ".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["E","F","I","UP","B","SIM","PL","RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+exclude = '(^|/)(attic/|.*_backup\\.py)'
+EOF
+
+# pre-commit hooks
+cat > .pre-commit-config.yaml <<'EOF'
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      - id: debug-statements
+      - id: check-merge-conflict
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies: []
+EOF
+
+# Makefile for local DX
+cat > Makefile <<'EOF'
+PY=python
+PIP=$(PY) -m pip
+.PHONY: setup format lint type test smoke online coverage quality all
+setup:
+	$(PIP) install -U pip
+	$(PIP) install pre-commit black==24.8.0 ruff==0.5.6 mypy==1.10.0 coverage==7.6.1 pytest==8.3.2
+	pre-commit install
+format:
+	$(PY) -m black .
+lint:
+	$(PY) -m ruff check . --fix
+type:
+	$(PY) -m mypy .
+smoke:
+	PYTHONPATH=. ./run_watchlist_tests.sh
+online:
+	FETCH_ENABLE_SCANNERS=1 FEATURE_WS=on TEST_TIMEOUT=12 PYTHONPATH=. python -m pytest -q || true
+coverage:
+	bash scripts/run_coverage.sh
+quality: format lint type
+all: quality smoke coverage
+EOF
+
+# .gitignore
+cat > .gitignore <<'EOF'
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+coverage.xml
+attic/
+EOF
+
+# quality CI (runs on PRs and main pushes)
+cat > .github/workflows/quality.yml <<'EOF'
+name: Quality
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install tools
+        run: |
+          python -m pip install -U pip
+          python -m pip install pre-commit==3.7.1 black==24.8.0 ruff==0.5.6 mypy==1.10.0
+      - name: Pre-commit (Black, Ruff, Mypy)
+        run: python -m pre_commit run --all-files
+EOF
+
+# install hooks locally
+make setup
+
+# do the one-time auto-fix locally so CI won’t complain
+python -m black .
+python -m ruff check . --fix
+python -m mypy .  # should pass now that attic/* is excluded
+
+# prove tests still pass
+PYTHONPATH=. ./run_watchlist_tests.sh
+
+git add -A
+git commit -m "chore(devex): add tooling (black/ruff/mypy+pre-commit), quarantine backups, reformat repo"
+git push
