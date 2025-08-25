@@ -152,7 +152,9 @@ def maybe_run_commands(commands: list[str]) -> str:
     results = []
     for cmd in commands[:3]:  # Max 3 commands
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, check=False)
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=30, check=False
+            )
             results.append(f"{cmd}: exit={result.returncode}")
         except Exception as e:
             results.append(f"{cmd}: error={e}")

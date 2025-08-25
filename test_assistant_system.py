@@ -41,9 +41,7 @@ def test_assistant_import():
 
         print("✓ assistant_dev_lite imported successfully")
 
-
         print("✓ telegram handlers imported successfully")
-
 
         print("✓ config variables imported successfully")
 

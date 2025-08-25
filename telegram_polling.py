@@ -205,9 +205,7 @@ class TelegramPollingService:
                     self.send_message(chat_id, response)
                 else:
                     cmd = text.split()[0]
-                    self.send_message(
-                        chat_id, f"Command `{cmd}` not available - router loading."
-                    )
+                    self.send_message(chat_id, f"Command `{cmd}` not available - router loading.")
 
         except Exception as e:
             logger.error(f"Error processing update: {e}")

@@ -4,7 +4,6 @@ Verifies that assistant commands are properly blocked when failsafe is enabled
 """
 
 
-
 def test_failsafe_protection():
     """Test failsafe protection functionality"""
     print("🛡️ ASSISTANT_FAILSAFE PROTECTION TEST")

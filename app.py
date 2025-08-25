@@ -2860,7 +2860,6 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     import os
     import time
 
-
     now = int(time.time())
     cache = _load_token_cache()
     ent = _coerce_cache_entry(cache.get(mint) or {})
@@ -6619,10 +6618,7 @@ def process_telegram_command(update: dict):
                 return _reply(f"debug_cmd error: {e}", status="error")
             # Show repr to reveal hidden newlines / zero-width chars
             return _reply(
-                "🔎 debug_cmd\n"
-                f"raw: {raw!r}\n"
-                f"cmd: {cmd_debug!r}\n"
-                f"args: {args_debug!r}"
+                "🔎 debug_cmd\n" f"raw: {raw!r}\n" f"cmd: {cmd_debug!r}\n" f"args: {args_debug!r}"
             )
 
         elif cmd == "/version":

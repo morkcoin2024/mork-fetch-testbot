@@ -256,7 +256,10 @@ def git_stage_changes(files: list[str], branch: str) -> bool:
 
         # Create and checkout branch if it doesn't exist
         subprocess.run(["git", "checkout", "-b", branch], capture_output=True, check=False)
-        if subprocess.run(["git", "checkout", branch], capture_output=True, check=False).returncode != 0:
+        if (
+            subprocess.run(["git", "checkout", branch], capture_output=True, check=False).returncode
+            != 0
+        ):
             audit_log(f"GIT_ERROR: Could not checkout branch {branch}")
             return False
 
@@ -266,7 +269,9 @@ def git_stage_changes(files: list[str], branch: str) -> bool:
 
         # Commit changes
         commit_msg = "Assistant: staged changes for review"
-        proc = subprocess.run(["git", "commit", "-m", commit_msg], capture_output=True, text=True, check=False)
+        proc = subprocess.run(
+            ["git", "commit", "-m", commit_msg], capture_output=True, text=True, check=False
+        )
 
         if proc.returncode == 0:
             audit_log(f"GIT_STAGED: {len(files)} files staged on branch {branch}")

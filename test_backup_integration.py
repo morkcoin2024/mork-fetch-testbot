@@ -3,7 +3,6 @@ Test Backup Integration with Assistant System
 Verifies automatic backup functionality
 """
 
-
 from assistant_dev import apply_unified_diffs, audit_log, revert_to_backup
 from backup_manager import create_backup, list_backups
 from config import ASSISTANT_WRITE_GUARD

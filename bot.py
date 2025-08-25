@@ -112,7 +112,6 @@ class MorkFetchBot:
         if not self.telegram_available:
             return
 
-
         user_id = str(update.effective_user.id)
 
         welcome_message = """🐕 **Mork F.E.T.C.H Bot** - The Degens' Best Friend
