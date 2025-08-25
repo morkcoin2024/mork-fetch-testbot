@@ -1,0 +1,133 @@
+# --- pyproject.toml: Black + Ruff (only changed files via pre-commit) ---
+cat > pyproject.toml <<'EOF'
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["birdeye_ws_backup.py"]
+
+[tool.ruff.lint]
+select = ["F","E","W","B","I","UP","N","C4"]
+ignore = ["E501"]  # line length handled by Black
+
+[tool.ruff.lint.per-file-ignores]
+"birdeye_ws_backup.py" = ["ALL"]
+EOF
+
+# --- mypy.ini: gentle defaults; skip the bad backup file ---
+cat > mypy.ini <<'EOF'
+[mypy]
+python_version = 3.11
+warn_unused_configs = True
+ignore_missing_imports = True
+namespace_packages = True
+explicit_package_bases = True
+no_implicit_optional = True
+exclude = (?x)(
+  ^tests/.*$|
+  ^birdeye_ws_backup\.py$
+)
+EOF
+
+# --- .editorconfig: baseline editor hygiene ---
+cat > .editorconfig <<'EOF'
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{yml,yaml}]
+indent_size = 2
+EOF
+
+# --- Makefile: quick local tasks (tabs are intentional) ---
+cat > Makefile <<'EOF'
+.PHONY: init lint fmt typecheck precommit smoke
+
+init:
+	python3 -m pip install -U pip
+	test -f requirements-dev.txt || printf "black==24.8.0\nruff==0.5.7\nmypy==1.10.0\npre-commit==3.7.1\n" > requirements-dev.txt
+	pip install -r requirements-dev.txt
+	pre-commit install
+
+lint:
+	ruff check .
+
+fmt:
+	black .
+
+typecheck:
+	mypy .
+
+precommit:
+	pre-commit run --all-files || true
+
+smoke:
+	PYTHONPATH=. ./run_watchlist_tests.sh ; \
+	bash scripts/run_coverage.sh || true
+EOF
+
+# --- CI (separate workflow to avoid clobbering existing) ---
+mkdir -p .github/workflows
+cat > .github/workflows/quality.yml <<'EOF'
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --from-ref origin/main --to-ref HEAD
+
+  smoke:
+    if: ${{ hashFiles('./run_watchlist_tests.sh') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install runtime deps (best-effort)
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+      - name: Run watchlist smoke + coverage (offline)
+        env:
+          PYTHONPATH: .
+          FETCH_ENABLE_SCANNERS: "0"
+          FEATURE_WS: "off"
+        run: |
+          chmod +x run_watchlist_tests.sh || true
+          ./run_watchlist_tests.sh
+          bash scripts/run_coverage.sh || true
+      - name: Upload coverage xml
+        if: ${{ hashFiles('coverage.xml') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+EOF
+
+# dev deps (idempotent)
+make init
+
+git add pyproject.toml mypy.ini .editorconfig Makefile .github/workflows/quality.yml requirements-dev.txt || true
+git commit -m "chore: add base quality config + smoke CI"
