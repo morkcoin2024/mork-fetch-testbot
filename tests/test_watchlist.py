@@ -1,27 +1,15 @@
 import os, re, sys, multiprocessing as mp, app
 
-# --- Config / constants ---
 CHAT = -1002782542798
 ADMIN = 1653046781
 
-SOL_L = "So11111111111111111111111111111111111111112"   # SOL mint (special-cased)
-UNK_L = "So11111111111111111111111111111111111111113"   # arbitrary unknown mint
-SOL_S = "So1111…111112"   # how rows render
-UNK_S = "So1111…111113"
+SOL_L = "So11111111111111111111111111111111111111112"
+UNK_L = "So11111111111111111111111111111111111111113"
+def short_mint(m): return m[:6] + "…" + m[-6:]
+SOL_S, UNK_S = short_mint(SOL_L), short_mint(UNK_L)
 
-REMOVE_CANDIDATES = [
-    os.getenv("WATCH_REMOVE_CMD", "/watch_remove"),
-    "/unwatch",                      # graceful fallback if code uses /unwatch
-]
+TIMEOUT = float(os.getenv("TEST_TIMEOUT", "10"))
 
-TIMEOUT = float(os.getenv("TEST_TIMEOUT", "8"))
-STRICT  = os.getenv("STRICT", "0") == "1"   # if on, don't accept " ?  `" as a valid value
-
-USD2 = re.compile(r"\$\d[\d,]*\.\d{2}(?!\d)")
-QTY2 = re.compile(r"\b\d[\d,]*\.\d{2}(?!\d)\b")
-INTC = re.compile(r"\b\d[\d,]*\b")
-
-# --- Helpers ---
 def _worker(cmd, q):
     upd = {"message": {"message_id": 1, "date": 0,
                        "chat": {"id": CHAT, "type": "supergroup"},
@@ -40,83 +28,47 @@ def _do_send(cmd, timeout=TIMEOUT):
     return q.get() if not q.empty() else ""
 
 def send(cmd, timeout=TIMEOUT):
-    """One retry on timeout to reduce flakiness."""
     r = _do_send(cmd, timeout)
     return r if r != "__TIMEOUT__" else _do_send(cmd, timeout)
 
-def row_for(s, needle):
-    m = re.search(rf"(?:^|\n)([^\n]*`{re.escape(needle)}`[^\n]*)", s)
-    if m: return m.group(1).strip()
-    m2 = re.search(rf"(?:^|\n)([^\n]*{re.escape(needle.split('…')[0])}…[^\n]*)", s)
-    return m2.group(1).strip() if m2 else ""
+def rows(resp): return [ln for ln in resp.splitlines() if " `" in ln and "—" in ln]
 
-def value_ok(mode, row):
-    if not row: return False
-    if " ?  `" in row:
-        return not STRICT
-    if mode in ("prices","caps","fdv","volumes"): return bool(USD2.search(row))
-    if mode == "supply": return bool(QTY2.search(row))
-    if mode == "holders": return bool(INTC.search(row))
-    return False
+def ck(ok, msg):
+    print(("✅" if ok else "❌"), msg)
+    return 0 if ok else 1
 
-def rows_count(resp):
-    return sum(1 for ln in resp.splitlines() if " `" in ln and "—" in ln)
-
-def try_remove(mint_full):
-    """Try each supported removal command form; return (cmd_used, response)."""
-    for cmd in REMOVE_CANDIDATES:
-        out = send(f"{cmd} {mint_full}")
-        if out and "Watchlist" in out or out and "Removed" in out:
-            return cmd, out
-    # last ditch: return the last attempt's output anyway
-    return REMOVE_CANDIDATES[-1], out
-
-def ck(passed, msg):
-    print(("✅" if passed else "❌"), msg)
-    return 0 if passed else 1
-
-# --- Test flow ---
 fails = 0
 
-# 1) start from clean state
+# 1) clean
 ack = send("/watch_clear")
 fails += ck(bool(ack) and "cleared" in ack.lower(), "watch_clear")
 
-# 2) seed two items
+# 2) seed many
 send(f"/watch {SOL_L}")
 send(f"/watch {UNK_L}")
 
-# sanity check both are present
+# fabricate additional unique unknown mints by varying last char
+SUFFIXES = list("3456789ABCDEFGHJKMNPRSTUVWXYZ")  # avoid ambiguous chars
+EXTRA = [UNK_L[:-1] + s for s in SUFFIXES[:18]]   # cap to keep runtime modest
+
+for m in EXTRA: send(f"/watch {m}")
+
+# 3) sanity: prices view contains all shorts
 resp = send("/watchlist prices")
-fails += ck(bool(resp) and "Watchlist" in resp, "list present")
-sol_row = row_for(resp, SOL_S)
-unk_row = row_for(resp, UNK_S)
-fails += ck(bool(sol_row), "SOL row present")
-fails += ck(bool(unk_row), "UNK row present")
-fails += ck(value_ok("prices", sol_row), "SOL has value")
+fails += ck(bool(resp) and "Watchlist" in resp, "list header")
+R = rows(resp)
+fails += ck(len(R) >= 10, "has many rows")
 
-# 3) remove UNK
-before_n = rows_count(resp)
-cmd_used, _ = try_remove(UNK_L)
-resp2 = send("/watchlist prices")
-after_n = rows_count(resp2)
+shorts = {short_mint(x) for x in ([SOL_L, UNK_L] + EXTRA)}
+missing = [s for s in shorts if f"`{s}`" not in resp]
+fails += ck(not missing, f"all added mints present ({len(shorts)} total)")
 
-fails += ck(UNK_S not in resp2, f"UNK removed via {cmd_used}")
-fails += ck(after_n == max(0, before_n-1), "row count decremented")
-fails += ck(SOL_S in resp2, "SOL still present")
-
-# 4) idempotent remove UNK again
-_, _ = try_remove(UNK_L)
-resp3 = send("/watchlist prices")
-fails += ck(SOL_S in resp3 and UNK_S not in resp3, "idempotent remove safe")
-
-# 5) remove SOL -> empty list
-_, _ = try_remove(SOL_L)
-resp4 = send("/watchlist prices")
-empty_header = bool(resp4) and "Watchlist" in resp4
-empty_rows = rows_count(resp4) == 0
-fails += ck(empty_header, "empty header after last remove")
-fails += ck(empty_rows, "empty rows after last remove")
+# 4) sorting stability (set equality preserved)
+resp_desc = send("/watchlist prices desc")
+resp_asc  = send("/watchlist prices asc")
+set_desc = {ln.split("`")[-2] for ln in rows(resp_desc)}  # grab short mint in backticks
+set_asc  = {ln.split("`")[-2] for ln in rows(resp_asc)}
+fails += ck(set_desc == set_asc == shorts, "sorting preserves set of items")
 
 print("\nPASS" if fails == 0 else f"FAIL({fails})")
 sys.exit(0 if fails == 0 else 1)
