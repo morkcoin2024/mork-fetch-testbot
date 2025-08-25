@@ -5,6 +5,7 @@ This shows the pattern requested by the user
 
 # Example main.py or dispatcher setup
 from telegram.ext import CommandHandler
+
 from alerts.telegram import cmd_assistant  # adjust import path
 
 # In your dispatcher setup:
@@ -13,23 +14,28 @@ from alerts.telegram import cmd_assistant  # adjust import path
 # Or if using Application (modern python-telegram-bot):
 # app.add_handler(CommandHandler("assistant", cmd_assistant))
 
+
 # Complete example:
 def setup_dispatcher_example():
     """Example of how to set up the dispatcher with assistant command"""
-    from telegram.ext import Application, CommandHandler
-    from config import TELEGRAM_BOT_TOKEN
+    from telegram.ext import Application
+
     from alerts.telegram import (
-        cmd_assistant, cmd_assistant_backup_standalone, cmd_assistant_list_backups, 
-        cmd_assistant_revert, cmd_assistant_diff, cmd_assistant_toggle
+        cmd_assistant_backup_standalone,
+        cmd_assistant_diff,
+        cmd_assistant_list_backups,
+        cmd_assistant_revert,
+        cmd_assistant_toggle,
     )
-    
+    from config import TELEGRAM_BOT_TOKEN
+
     if not TELEGRAM_BOT_TOKEN:
         print("TELEGRAM_BOT_TOKEN required")
         return None
-    
+
     # Create application
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
+
     # Add assistant handlers as requested
     app.add_handler(CommandHandler("assistant", cmd_assistant))
     app.add_handler(CommandHandler("assistant_backup", cmd_assistant_backup_standalone))
@@ -37,12 +43,13 @@ def setup_dispatcher_example():
     app.add_handler(CommandHandler("assistant_revert", cmd_assistant_revert))
     app.add_handler(CommandHandler("assistant_diff", cmd_assistant_diff))
     app.add_handler(CommandHandler("assistant_toggle", cmd_assistant_toggle))
-    
+
     # Add other handlers...
     # app.add_handler(CommandHandler("start", start_command))
     # app.add_handler(CommandHandler("help", help_command))
-    
+
     return app
+
 
 # Note: The current bot.py already includes this integration
 # This file is just an example of the pattern you requested

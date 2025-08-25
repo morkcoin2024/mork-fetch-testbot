@@ -1,8 +1,10 @@
 # poller_lock.py
-import os, atexit
+import atexit
+import os
 
 _PLOCK_PATH = os.environ.get("MORK_POLLER_LOCK", "/tmp/mork_poller.lock")
 _FD = None
+
 
 def acquire() -> bool:
     """Return True if we create the lock (we are the poller), else False."""
@@ -14,6 +16,7 @@ def acquire() -> bool:
         return True
     except FileExistsError:
         return False
+
 
 def release():
     """Best-effort release."""

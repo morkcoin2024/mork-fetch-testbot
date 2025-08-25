@@ -1,7 +1,11 @@
 # dexscreener_scanner.py
-import os, time, logging, httpx, threading
+import logging
+import os
+import threading
+import time
 from collections import deque
-from datetime import datetime, timezone
+
+import httpx
 
 # DexScreener API - Using a working endpoint for Solana token data
 # Note: The old /latest/dex/pairs/solana endpoint is deprecated
@@ -11,14 +15,17 @@ SCAN_INTERVAL = int(os.getenv("DS_SCAN_INTERVAL_SEC", "15"))
 UA = "Mozilla/5.0 (X11; Linux x86_64) MorkFetchBot/1.0"
 HEADERS = {"accept": "application/json", "user-agent": UA}
 
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
 
 class DexScreenerScanner:
     """
     Polls Dexscreener Solana pairs. We alert on pairs created in the last window
     (default 2 minutes) and dedupe by mint.
     """
+
     def __init__(self, interval_sec=None, publish=None, recent_window_sec=180):
         self.interval = max(10, int(interval_sec or SCAN_INTERVAL))
         self.publish = publish or (lambda *_: None)
@@ -40,7 +47,8 @@ class DexScreenerScanner:
         return True
 
     def start(self):
-        if self.running: return
+        if self.running:
+            return
         self.running = True
         self._stop.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -49,7 +57,8 @@ class DexScreenerScanner:
         logging.info("[DS] Dexscreener scanner started (every %ss)", self.interval)
 
     def stop(self):
-        if not self.running: return
+        if not self.running:
+            return
         self.running = False
         self._stop.set()
         if self._thread and self._thread.is_alive():
@@ -95,8 +104,8 @@ class DexScreenerScanner:
             if not created or (now - created) > self.window_ms:
                 continue
 
-            base = (p.get("baseToken") or {})
-            quote = (p.get("quoteToken") or {})
+            base = p.get("baseToken") or {}
+            quote = p.get("quoteToken") or {}
             base_mint = base.get("address") or ""
             # Prefer mint over pair address for dedupe
             key = base_mint or p.get("pairAddress") or p.get("url", "")
@@ -112,27 +121,25 @@ class DexScreenerScanner:
                 "created_ms": created,
             }
             new_items.append(item)
-            
+
             # Publish NEW_TOKEN event for each new item
             try:
                 from app import _normalize_token
+
                 ev = _normalize_token(p, "dexscreener")
                 self.publish("NEW_TOKEN", ev)
             except Exception as norm_e:
                 logging.warning("[DS] NEW_TOKEN publish failed: %s", norm_e)
 
         if new_items:
-            self.publish("scan.dexscreener.new", {
-                "count": len(new_items),
-                "items": new_items[:10]
-            })
-            logging.info("[DS] new pairs: %d (window %ss)", len(new_items), self.window_ms//1000)
-            
+            self.publish("scan.dexscreener.new", {"count": len(new_items), "items": new_items[:10]})
+            logging.info("[DS] new pairs: %d (window %ss)", len(new_items), self.window_ms // 1000)
+
             # Send alerts for each new token
             for item in new_items:
                 self._send_alert(item)
         else:
-            logging.info("[DS] no new pairs in last %ss", self.window_ms//1000)
+            logging.info("[DS] no new pairs in last %ss", self.window_ms // 1000)
 
     def _send_alert(self, item):
         """Send Telegram alert for new DexScreener token"""
@@ -141,11 +148,11 @@ class DexScreenerScanner:
         symbol = item.get("symbol", "?")
         price = item.get("price", 0)
         liq = item.get("liq", 0)
-        
+
         # Format liquidity
         liq_str = f"${liq:,.0f}" if liq and liq > 0 else "N/A"
         price_str = f"${price:.8f}" if price and price > 0 else "N/A"
-        
+
         text = (
             f"🔍 *DexScreener — New Pair*\n"
             f"*{name}* ({symbol})\n"
@@ -154,31 +161,39 @@ class DexScreenerScanner:
             f"`{mint}`\n"
             f"[DexScreener](https://dexscreener.com/solana/{mint}) • [Pump.fun](https://pump.fun/{mint})"
         )
-        
+
         try:
             # Import and use the notification system
             from app import send_admin_md
+
             send_admin_md(text)
             logging.info("[DS] Alert sent: %s (%s) %s", name, symbol, mint)
         except Exception as e:
             logging.warning("[DS] Alert send failed: %s", e)
 
+
 _scanner_singleton = None
+
+
 def get_scanner(publish=None):
     global _scanner_singleton
     if _scanner_singleton is None:
         _scanner_singleton = DexScreenerScanner(publish=publish)
     return _scanner_singleton
 
+
 # Direct singleton for immediate use
 ds_client = None
+
 
 def get_ds_client():
     global ds_client
     if ds_client is None:
         from eventbus import publish
+
         ds_client = DexScreenerScanner(publish=publish)
     return ds_client
+
 
 # Initialize client
 ds_client = get_ds_client()

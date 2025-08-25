@@ -7,16 +7,17 @@ Verifies all components are working properly
 import os
 import sys
 
+
 def test_environment_variables():
     """Test that all required environment variables are set"""
     required_vars = [
         "ASSISTANT_ADMIN_TELEGRAM_ID",
-        "ASSISTANT_WRITE_GUARD", 
+        "ASSISTANT_WRITE_GUARD",
         "ASSISTANT_FAILSAFE",
         "ASSISTANT_MODEL",
-        "OPENAI_API_KEY"
+        "OPENAI_API_KEY",
     ]
-    
+
     print("Testing environment variables...")
     missing = []
     for var in required_vars:
@@ -24,7 +25,7 @@ def test_environment_variables():
             missing.append(var)
         else:
             print(f"✓ {var}: {'*' * min(len(os.environ[var]), 8)}")
-    
+
     if missing:
         print(f"❌ Missing variables: {missing}")
         return False
@@ -32,79 +33,83 @@ def test_environment_variables():
         print("✅ All environment variables set")
         return True
 
+
 def test_assistant_import():
     """Test that assistant modules can be imported"""
     print("\nTesting module imports...")
     try:
-        from assistant_dev_lite import assistant_codegen, apply_unified_diffs, audit_log
+
         print("✓ assistant_dev_lite imported successfully")
-        
-        from alerts.telegram import cmd_assistant, cmd_assistant_toggle, cmd_whoami
+
+
         print("✓ telegram handlers imported successfully")
-        
-        from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_WRITE_GUARD, ASSISTANT_FAILSAFE
+
+
         print("✓ config variables imported successfully")
-        
+
         print("✅ All modules imported successfully")
         return True
-        
+
     except Exception as e:
         print(f"❌ Import failed: {e}")
         return False
+
 
 def test_assistant_config():
     """Test assistant configuration values"""
     print("\nTesting configuration...")
     try:
-        from config import ASSISTANT_ADMIN_TELEGRAM_ID, ASSISTANT_WRITE_GUARD, ASSISTANT_FAILSAFE, ASSISTANT_MODEL
-        
+        from config import (
+            ASSISTANT_ADMIN_TELEGRAM_ID,
+            ASSISTANT_FAILSAFE,
+            ASSISTANT_MODEL,
+            ASSISTANT_WRITE_GUARD,
+        )
+
         print(f"Admin ID: {ASSISTANT_ADMIN_TELEGRAM_ID}")
         print(f"Write Guard: {ASSISTANT_WRITE_GUARD}")
         print(f"Failsafe: {ASSISTANT_FAILSAFE}")
         print(f"Model: {ASSISTANT_MODEL}")
-        
+
         # Basic validation
         if not ASSISTANT_ADMIN_TELEGRAM_ID or not str(ASSISTANT_ADMIN_TELEGRAM_ID).isdigit():
             print("❌ Invalid admin ID")
             return False
-            
+
         if ASSISTANT_WRITE_GUARD not in ["ON", "OFF"]:
             print("❌ Invalid write guard value")
             return False
-            
+
         if ASSISTANT_FAILSAFE not in ["ON", "OFF"]:
             print("❌ Invalid failsafe value")
             return False
-        
+
         print("✅ Configuration valid")
         return True
-        
+
     except Exception as e:
         print(f"❌ Configuration test failed: {e}")
         return False
+
 
 def main():
     """Run all tests"""
     print("LIGHTWEIGHT ASSISTANT SYSTEM - TEST SUITE")
     print("=" * 50)
-    
-    tests = [
-        test_environment_variables,
-        test_assistant_import,
-        test_assistant_config
-    ]
-    
+
+    tests = [test_environment_variables, test_assistant_import, test_assistant_config]
+
     passed = 0
     total = len(tests)
-    
+
     for test in tests:
         if test():
             passed += 1
         print()
-    
+
     print("=" * 50)
     print(f"RESULTS: {passed}/{total} tests passed")
-    
+
     if passed == total:
         print("🚀 LIGHTWEIGHT ASSISTANT SYSTEM READY FOR PRODUCTION")
         print("\nNext steps:")
@@ -115,6 +120,7 @@ def main():
     else:
         print("❌ Some tests failed - check configuration")
         return False
+
 
 if __name__ == "__main__":
     success = main()

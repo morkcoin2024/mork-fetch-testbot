@@ -3,17 +3,22 @@ Flask Web Application for Mork F.E.T.C.H Bot
 Handles Telegram webhooks and provides web interface
 """
 
-import os, time, json, logging, re, requests
-import threading
-import hashlib
-import inspect
-import textwrap
-import math
-import sqlite3
 import concurrent.futures as cf
-from functools import lru_cache
-from datetime import datetime, timedelta, time as dtime, timezone
-from flask import Flask, request, jsonify, Response, stream_with_context, render_template_string
+import hashlib
+import json
+import logging
+import math
+import os
+import re
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta, timezone
+from datetime import time as dtime
+
+import requests
+from flask import Flask, Response, jsonify, render_template_string, request
+
 
 # === COMPREHENSIVE TIMEOUT PROTECTION SYSTEM ===
 # 1) HTTP-level timeout protection for all requests
@@ -22,25 +27,30 @@ def _get(url, **kw):
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.get(url, **kw)
 
+
 def _post(url, **kw):
     """requests.post with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.post(url, **kw)
+
 
 def _put(url, **kw):
     """requests.put with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.put(url, **kw)
 
+
 def _patch(url, **kw):
     """requests.patch with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.patch(url, **kw)
 
+
 def _delete(url, **kw):
     """requests.delete with strict timeout protection"""
     kw.setdefault("timeout", (3.05, 5))  # connect, read
     return requests.delete(url, **kw)
+
 
 # 2) Local watchdog timeout protection for stat fetches
 def with_timeout(fn, /, *args, timeout=4, default=None, **kwargs):
@@ -52,11 +62,14 @@ def with_timeout(fn, /, *args, timeout=4, default=None, **kwargs):
         except Exception:
             return default
 
+
 # 3) TTL Cache decorator for primitive value caching
 def ttl_cache(ttl=60):
     """Time-based cache decorator with configurable TTL"""
+
     def deco(fn):
         cache = {}
+
         def wrapper(*a, **k):
             key = (a, tuple(sorted(k.items())))
             now = time.time()
@@ -66,28 +79,36 @@ def ttl_cache(ttl=60):
             res = fn(*a, **k)
             cache[key] = (now, res)
             return res
+
         return wrapper
+
     return deco
+
+
 # === CROSS-PROCESS TELEGRAM DEDUPE SYSTEM ===
 TG_DEDUP_WINDOW_SEC = int(os.getenv("TG_DEDUP_WINDOW_SEC", "3"))
 _TG_DEDUP_DB = os.getenv("TG_DEDUP_DB", "/tmp/tg_dedup.sqlite")
 _tg_db_local = threading.local()
+
 
 def _tg_dedup_conn():
     conn = getattr(_tg_db_local, "conn", None)
     if conn is None:
         conn = sqlite3.connect(_TG_DEDUP_DB, timeout=5, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("""
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS msgs(
                 chat_id INTEGER NOT NULL,
                 hash TEXT NOT NULL,
                 ts INTEGER NOT NULL,
                 PRIMARY KEY(chat_id, hash)
             )
-        """)
+        """
+        )
         _tg_db_local.conn = conn
     return conn
+
 
 def _tg_dedup_hit_and_mark(chat_id: int, text: str, window: int = TG_DEDUP_WINDOW_SEC) -> bool:
     """Return True if this message is a duplicate within `window` seconds; otherwise mark it and return False."""
@@ -95,7 +116,9 @@ def _tg_dedup_hit_and_mark(chat_id: int, text: str, window: int = TG_DEDUP_WINDO
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
     conn = _tg_dedup_conn()
     with conn:  # atomic
-        row = conn.execute("SELECT ts FROM msgs WHERE chat_id=? AND hash=?", (int(chat_id), h)).fetchone()
+        row = conn.execute(
+            "SELECT ts FROM msgs WHERE chat_id=? AND hash=?", (int(chat_id), h)
+        ).fetchone()
         if row and (now - int(row[0])) < window:
             return True
         conn.execute("REPLACE INTO msgs(chat_id, hash, ts) VALUES (?,?,?)", (int(chat_id), h, now))
@@ -104,53 +127,72 @@ def _tg_dedup_hit_and_mark(chat_id: int, text: str, window: int = TG_DEDUP_WINDO
             conn.execute("DELETE FROM msgs WHERE ts < ?", (now - 3600,))  # 1h TTL
     return False
 
+
 def _tg_norm(text: str) -> str:
     """Normalize text to avoid duplicates differing only by whitespace."""
     return "\n".join([ln.rstrip() for ln in text.splitlines()]).strip()
+
 
 # --- add: minimal dry-run trade logger (per-chat) ---
 _TRADES_STATE_PATH = os.environ.get("TRADES_STATE_PATH", "dry_trades_log.json")
 
 # --- add: CSV export helper ---
 import csv
+
 _TRADES_EXPORT_DIR = os.environ.get("TRADES_EXPORT_DIR", ".")
+
+
 def _trade_log_export_csv(chat_id: int, rows: list):
     fn = os.path.join(_TRADES_EXPORT_DIR, f"trades_{chat_id}.csv")
     try:
         with open(fn, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["ts", "ts_iso", "kind", "mint", "amount_sol", "percent", "user_id", "chat_id"])
+            w.writerow(
+                ["ts", "ts_iso", "kind", "mint", "amount_sol", "percent", "user_id", "chat_id"]
+            )
             for e in rows:
                 ts = int(e.get("ts", 0))
-                w.writerow([
-                    ts,
-                    time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts)),
-                    e.get("kind"),
-                    e.get("mint"),
-                    e.get("amount_sol", ""),
-                    e.get("percent", ""),
-                    e.get("user_id"),
-                    e.get("chat_id"),
-                ])
+                w.writerow(
+                    [
+                        ts,
+                        time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(ts)),
+                        e.get("kind"),
+                        e.get("mint"),
+                        e.get("amount_sol", ""),
+                        e.get("percent", ""),
+                        e.get("user_id"),
+                        e.get("chat_id"),
+                    ]
+                )
         return fn
     except Exception:
         return None
+
+
 # --- end add ---
 
 # --- add: alerts tick markers ---
 import time as _time
+
 _ALERTS_TICK_LAST_RUN = 0.0
+
+
 def _alerts_mark_tick():
     global _ALERTS_TICK_LAST_RUN
     _ALERTS_TICK_LAST_RUN = _time.time()
 
+
 def _alerts_last_tick() -> float:
     """Get timestamp of last successful tick"""
     return _ALERTS_TICK_LAST_RUN
+
+
 # --- end add ---
 
 # --- sane bounds + defaults (defensive) ---
-import threading, os, json
+import os
+import threading
+
 # Allow env overrides; fall back to sane defaults
 try:
     _ALERTS_MIN = float(os.getenv("ALERTS_MIN", "5"))
@@ -166,36 +208,46 @@ _ALERTS_TICK_LOCK = threading.Lock()
 _ALERTS_STATE_PATH = os.environ.get("ALERTS_STATE_PATH", "alerts_state.json")
 _ALERTS_TICK_INTERVAL = float(os.getenv("ALERTS_TICK_INTERVAL", "30"))
 
+
 # --- add: single source of truth for clamping ---
 def _clamp_interval(v):
     try:
         v = float(v)
     except Exception:
         return _ALERTS_TICK_INTERVAL
-    if v < _ALERTS_MIN: return _ALERTS_MIN
-    if v > _ALERTS_MAX: return _ALERTS_MAX
+    if v < _ALERTS_MIN:
+        return _ALERTS_MIN
+    if v > _ALERTS_MAX:
+        return _ALERTS_MAX
     return v
+
+
 # --- end add ---
 
 # --- add (idempotent): watchlist length helper ---
 if "_watchlist_len" not in globals():
-    import os, json
+    import json
+    import os
+
     _WATCHLIST_STATE_PATH = os.environ.get("SCANNER_STATE_PATH", "scanner_state.json")
+
     def _watchlist_len(chat_id):
         try:
             if not os.path.exists(_WATCHLIST_STATE_PATH):
                 return 0
-            with open(_WATCHLIST_STATE_PATH, "r", encoding="utf-8") as f:
+            with open(_WATCHLIST_STATE_PATH, encoding="utf-8") as f:
                 st = json.load(f) or {}
             m = st.get("watchlist_by_chat") or {}
             wl = m.get(str(chat_id)) or m.get(chat_id) or []
             return len(wl)
         except Exception:
             return 0
+
+
 # --- end add ---
 
 # --- uptime globals + formatter ---
-import time as _time, os as _os
+import os as _os
 
 # record when this process started (first import)
 try:
@@ -203,30 +255,39 @@ try:
 except NameError:
     _PROC_STARTED = _time.time()
 
+
 def _fmt_dhms(sec: float) -> str:
     s = int(sec)
     d, s = divmod(s, 86400)
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
     parts = []
-    if d: parts.append(f"{d}d")
-    if h: parts.append(f"{h}h")
-    if m: parts.append(f"{m}m")
+    if d:
+        parts.append(f"{d}d")
+    if h:
+        parts.append(f"{h}h")
+    if m:
+        parts.append(f"{m}m")
     parts.append(f"{s}s")
     return " ".join(parts)
+
+
 # --- end uptime helpers ---
 
 # --- version info globals ---
-import os as _os, time as _t
+import time as _t
+
 _GIT_SHA = _os.getenv("GIT_SHA")
 _BUILD_TIME = _os.getenv("BUILD_TIME")
 if not _GIT_SHA:
     try:
         import subprocess as _sp
-        _GIT_SHA = _sp.check_output(
-            ["git", "rev-parse", "--short=8", "HEAD"],
-            stderr=_sp.DEVNULL
-        ).decode().strip()
+
+        _GIT_SHA = (
+            _sp.check_output(["git", "rev-parse", "--short=8", "HEAD"], stderr=_sp.DEVNULL)
+            .decode()
+            .strip()
+        )
     except Exception:
         _GIT_SHA = "unknown"
 if not _BUILD_TIME:
@@ -236,7 +297,7 @@ if not _BUILD_TIME:
 # try load persisted interval
 try:
     if os.path.exists(_ALERTS_STATE_PATH):
-        with open(_ALERTS_STATE_PATH, "r", encoding="utf-8") as f:
+        with open(_ALERTS_STATE_PATH, encoding="utf-8") as f:
             _state = json.load(f) or {}
         v = _state.get("interval", _ALERTS_TICK_INTERVAL)
         _ALERTS_TICK_INTERVAL = _clamp_interval(v)
@@ -244,9 +305,11 @@ except Exception:
     pass
 # --- end header ---
 
+
 def _alerts_interval_get() -> float:
     with _ALERTS_TICK_LOCK:
         return _ALERTS_TICK_INTERVAL
+
 
 # --- replace: _alerts_interval_set (force-correct clamp) ---
 def _alerts_interval_set(secs: float) -> float:
@@ -275,18 +338,23 @@ def _alerts_interval_set(secs: float) -> float:
         pass
 
     try:
-        logger.info(f"ALERTS_TICK interval updated to {v}s (bounds {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)")
+        logger.info(
+            f"ALERTS_TICK interval updated to {v}s (bounds {int(_ALERTS_MIN)}–{int(_ALERTS_MAX)}s)"
+        )
     except Exception:
         pass
     return v
+
+
 # --- end replace ---
 # --- end replacement ---
+
 
 def _trade_log_append(entry: dict):
     try:
         data = []
         if os.path.exists(_TRADES_STATE_PATH):
-            with open(_TRADES_STATE_PATH, "r", encoding="utf-8") as f:
+            with open(_TRADES_STATE_PATH, encoding="utf-8") as f:
                 data = json.load(f) or []
         data.append(entry)
         with open(_TRADES_STATE_PATH, "w", encoding="utf-8") as f:
@@ -294,27 +362,33 @@ def _trade_log_append(entry: dict):
     except Exception:
         pass  # non-fatal for dry-run
 
+
 def _trade_log_latest(chat_id: int, limit: int = 5):
     try:
         if not os.path.exists(_TRADES_STATE_PATH):
             return []
-        with open(_TRADES_STATE_PATH, "r", encoding="utf-8") as f:
+        with open(_TRADES_STATE_PATH, encoding="utf-8") as f:
             data = json.load(f) or []
         rows = [e for e in data if e.get("chat_id") == chat_id]
-        return rows[-max(1, min(limit, 20)):]  # clamp 1..20
+        return rows[-max(1, min(limit, 20)) :]  # clamp 1..20
     except Exception:
         return []
+
+
 # --- end add ---
+
 
 def render_name_status(mint: str) -> str:
     """Render name status with robust file handling (safe with or without files)."""
+
     def _load(path):
         try:
             return json.load(open(path))
         except Exception:
             return {}
+
     overrides = _load("token_name_overrides.json")
-    cache     = _load("token_names.json")
+    cache = _load("token_names.json")
 
     def _fmt_pair(obj):
         if not isinstance(obj, dict):
@@ -326,13 +400,8 @@ def render_name_status(mint: str) -> str:
     o_pair = _fmt_pair(overrides.get(mint))
     c_pair = _fmt_pair(cache.get(mint))
 
-    return (
-        "*Name status*\n"
-        "Mint:\n"
-        f"`{mint}`\n"
-        f"Override: {o_pair}\n"
-        f"Cache: {c_pair}"
-    )
+    return "*Name status*\n" "Mint:\n" f"`{mint}`\n" f"Override: {o_pair}\n" f"Cache: {c_pair}"
+
 
 # Enhanced per-chat watchlist management helpers
 def _short_mint(m: str) -> str:
@@ -340,11 +409,13 @@ def _short_mint(m: str) -> str:
         return m or "?"
     return f"{m[:4]}..{m[-4:]}"
 
+
 def _mint_match(user_supplied: str, full_mint: str) -> bool:
     u = (user_supplied or "").strip()
     if not u:
         return False
     return u == full_mint or u == _short_mint(full_mint)
+
 
 def _wl_bucket(state, chat_id):
     """
@@ -352,7 +423,7 @@ def _wl_bucket(state, chat_id):
     Keys are str(chat_id). Performs a one-time migration from legacy
     state["watchlist"] into this chat's bucket if present and bucket empty.
     """
-    wl_by = state.setdefault("watchlist_by_chat", {})         # {str(chat_id): [mints]}
+    wl_by = state.setdefault("watchlist_by_chat", {})  # {str(chat_id): [mints]}
     key = str(chat_id)
     bucket = wl_by.setdefault(key, [])
     # one-time migration from legacy global list
@@ -362,11 +433,13 @@ def _wl_bucket(state, chat_id):
         state["watchlist"] = []
     return bucket
 
+
 def _render_name_block(mint: str) -> str:
     disp = resolve_token_name(mint)  # usually "TICKER\nLong Name"
     if not disp:
         disp = _short_mint(mint)
     return f"{disp}\n({_short_mint(mint)})"
+
 
 def _render_watchlist_lines(mints: list) -> str:
     if not mints:
@@ -376,21 +449,40 @@ def _render_watchlist_lines(mints: list) -> str:
         lines.append(f"{i}. {_render_name_block(m)}")
     return "\n".join(lines)
 
+
 # Help and command discovery functions
 
 
 def _render_commands_list(is_admin: bool = False) -> str:
     cmds = [
-        "/price <mint|ticker>", "/about <mint>", "/fetch <mint>", "/alert <mint>", "/status", "/uptime", "/version",
-        "/name <mint>", "/name_show <mint>", "/name_set <mint> <TICKER>|<Long Name>", "/name_clear <mint>",
-        "/watch <MINT...>", "/unwatch <MINT...>", "/watchlist", "/watch_clear",
-        "/fetchnow <n|MINT...>", "/scanonce (alias of /fetchnow)",
-        "/alerts_auto_on <sec>", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_interval <secs> (admin)", "/alerts_eta",
+        "/price <mint|ticker>",
+        "/about <mint>",
+        "/fetch <mint>",
+        "/alert <mint>",
+        "/status",
+        "/uptime",
+        "/version",
+        "/name <mint>",
+        "/name_show <mint>",
+        "/name_set <mint> <TICKER>|<Long Name>",
+        "/name_clear <mint>",
+        "/watch <MINT...>",
+        "/unwatch <MINT...>",
+        "/watchlist",
+        "/watch_clear",
+        "/fetchnow <n|MINT...>",
+        "/scanonce (alias of /fetchnow)",
+        "/alerts_auto_on <sec>",
+        "/alerts_auto_off",
+        "/alerts_auto_status",
+        "/alerts_auto_interval <secs> (admin)",
+        "/alerts_eta",
     ]
     # --- add: hide (admin) rows for non-admins ---
     help_text = "*Commands:*\n" + "\n".join(f"• `{c}`" for c in cmds)
     return _strip_admin_rows(help_text, is_admin)
     # --- end add ---
+
 
 # --- HELP RENDERER (compact MDV2, admin-aware) ---
 def _render_help(is_admin: bool) -> str:
@@ -412,9 +504,9 @@ def _render_help(is_admin: bool) -> str:
         "`/unwatch <MINT>`",
         "`/watchlist [prices|caps|volumes|supply|fdv|holders]` - Show your watchlist with data modes",
         "`/watchlist supply` — show circulating supply",
-        "`/watchlist fdv` — show fully-diluted valuation", 
+        "`/watchlist fdv` — show fully-diluted valuation",
         "`/watchlist holders` — show holder count",
-        "Add \"asc\" or \"desc\" to sort, e.g. `/watchlist volumes desc`",
+        'Add "asc" or "desc" to sort, e.g. `/watchlist volumes desc`',
         "`/watch_clear`",
         "`/fetchnow`",
         "`/scanonce` (alias of `/fetchnow`)",
@@ -452,6 +544,7 @@ def _render_help(is_admin: bool) -> str:
     else:
         # strip any line marked (admin) defensively
         import re
+
         filtered = []
         for ln in lines:
             if re.search(r"\(admin\)\s*$", ln):
@@ -461,10 +554,23 @@ def _render_help(is_admin: bool) -> str:
 
     # Join – sender is MDV2-safe
     return "\n".join(lines).strip()
+
+
 # --- END HELP RENDERER ---
 
 # --- helper: strip admin-only rows from /help for non-admins ---
-_ADMIN_HELP_PATTERNS = {"/alerts_auto_status", "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_toggle", "/alerts_auto_interval", "/scanners_status", "/scanners_on", "/scanners_off", "/scanners_reload"}  # extend if you add more admin-only commands
+_ADMIN_HELP_PATTERNS = {
+    "/alerts_auto_status",
+    "/alerts_auto_on",
+    "/alerts_auto_off",
+    "/alerts_auto_toggle",
+    "/alerts_auto_interval",
+    "/scanners_status",
+    "/scanners_on",
+    "/scanners_off",
+    "/scanners_reload",
+}  # extend if you add more admin-only commands
+
 
 def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
     if is_admin:
@@ -477,15 +583,20 @@ def _strip_admin_rows(help_text: str, is_admin: bool) -> str:
             continue
         out.append(ln)
     return "\n".join(out)
-# --- end helper ---
 
+
+# --- end helper ---
 
 
 # Dedicated watchlist command handlers
 def _cmd_watch(chat_id, args):
     """Enhanced /watch handler with per-chat isolation"""
     if not args:
-        return {"status": "ok", "response": "*Watchlist*\nUsage: `/watch <MINT...>`", "parse_mode": "Markdown"}
+        return {
+            "status": "ok",
+            "response": "*Watchlist*\nUsage: `/watch <MINT...>`",
+            "parse_mode": "Markdown",
+        }
 
     state = _load_json_safe("scanner_state.json")
     chat_id_or_default = chat_id or 0
@@ -527,30 +638,35 @@ def _cmd_watch(chat_id, args):
     lines.append(f"Total: {len(bucket)}")
     return {"status": "ok", "response": "\n".join(lines), "parse_mode": "Markdown"}
 
+
 def _cmd_watchlist(chat_id, args):
     """Enhanced /watchlist handler with per-chat isolation and WATCHLIST_MODES support"""
     state = _load_json_safe("scanner_state.json")
     chat_id_or_default = chat_id or 0
     bucket = _wl_bucket(state, chat_id_or_default)
-    
+
     if not bucket:
-        return {"status": "ok", "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`", "parse_mode": "Markdown"}
-    
+        return {
+            "status": "ok",
+            "response": "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`",
+            "parse_mode": "Markdown",
+        }
+
     # Enhanced argument parsing for mode detection and sorting
     tokens = (args or "").strip().lower().split()
     mode = tokens[0] if tokens else None
     sort_dir = tokens[-1] if tokens and tokens[-1] in ("asc", "desc") else None
-    
+
     # If last token is sort direction, adjust mode selection
     if sort_dir and len(tokens) > 1:
         mode = tokens[0]  # First token is mode when sorting is specified
 
     # Get configuration for the selected mode using enhanced function
     label, getter, formatter = _watchlist_mode_parts(mode)
-    
+
     # Parallel data processing to prevent blocking on slow tokens
     parallel_results = build_watchlist_parallel(mode or "prices", bucket)
-    
+
     rows = []
     for mint, stat_value in parallel_results:
         # Use existing helper that returns (symbol, name)
@@ -562,44 +678,51 @@ def _cmd_watchlist(chat_id, args):
 
     # Resilient sorting using already-computed formatted values
     if sort_dir:
-        reverse = (sort_dir == "desc")
-        
+        reverse = sort_dir == "desc"
+
         def sort_key_numeric_qmark_last(text_value):
             """Sort key that pushes ? to end and handles formatted numbers"""
-            if text_value == "?": 
-                return (1, float('inf'))
+            if text_value == "?":
+                return (1, float("inf"))
             try:
                 # Strip $, commas, spaces, % etc. and convert to float
-                clean_val = re.sub(r'[$,%\s]', '', text_value)
+                clean_val = re.sub(r"[$,%\s]", "", text_value)
                 v = float(clean_val) if clean_val else 0.0
                 return (0, v)
             except (ValueError, TypeError):
                 # Fallback: treat as string or push to end
-                return (1, float('inf'))
-        
+                return (1, float("inf"))
+
         # Sort using the formatted stat values from parallel processing
         rows.sort(key=lambda r: sort_key_numeric_qmark_last(r["stat_value"]), reverse=reverse)
-    
+
     # Enhanced title formatting
     title = "👀 *Watchlist*" if not label else f"👀 *Watchlist · {label}*"
-    
+
     if not rows:
         body = "👀 Watchlist: `0`\n💡 Tip: `/watch <MINT>`"
     else:
         sort_suffix = f" ({sort_dir})" if sort_dir else ""
         body = f"{title}{sort_suffix}\n" + "\n".join(r["line"] for r in rows)
-        
+
         # Add helpful sorting tip if not already sorting
         if not sort_dir and len(rows) > 1:
-            mode_name = (mode or "prices")
-            body += f"\n\n_Tip: `/watchlist {mode_name} asc` or `/watchlist {mode_name} desc` to sort_"
-    
+            mode_name = mode or "prices"
+            body += (
+                f"\n\n_Tip: `/watchlist {mode_name} asc` or `/watchlist {mode_name} desc` to sort_"
+            )
+
     return {"status": "ok", "response": body, "parse_mode": "Markdown"}
+
 
 def _cmd_unwatch(chat_id, args):
     """Enhanced /unwatch handler with per-chat isolation"""
     if not args:
-        return {"status": "ok", "response": "*Watchlist*\nUsage: `/unwatch <MINT...>`", "parse_mode": "Markdown"}
+        return {
+            "status": "ok",
+            "response": "*Watchlist*\nUsage: `/unwatch <MINT...>`",
+            "parse_mode": "Markdown",
+        }
 
     state = _load_json_safe("scanner_state.json")
     chat_id_or_default = chat_id or 0
@@ -625,6 +748,7 @@ def _cmd_unwatch(chat_id, args):
     lines.append(f"Total: {len(bucket)}")
     return {"status": "ok", "response": "\n".join(lines), "parse_mode": "Markdown"}
 
+
 def _cmd_watch_clear(chat_id, args):
     """Enhanced /watch_clear handler with per-chat isolation"""
     state = _load_json_safe("scanner_state.json")
@@ -634,15 +758,21 @@ def _cmd_watch_clear(chat_id, args):
     _save_json_safe("scanner_state.json", state)
     return {"status": "ok", "response": "🧹 *Watchlist cleared.*", "parse_mode": "Markdown"}
 
+
 # --- ROUTER TRACE BEGIN ---
 import time as _rt_time
+
 _ROUTER_TRACE = "/tmp/router_trace.log"
+
+
 def _rt_log(msg: str):
     try:
         with open(_ROUTER_TRACE, "a") as _f:
             _f.write(f"{int(_rt_time.time())} {msg}\n")
     except Exception:
         pass
+
+
 # --- ROUTER TRACE END ---
 
 # ---- Alerts auto-ticker globals ----
@@ -661,6 +791,7 @@ BIRDEYE_MINT_ALIASES = {
 }
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
+
 def normalize_mint(m: str) -> str:
     m = (m or "").strip()
     up = m.upper()
@@ -668,17 +799,20 @@ def normalize_mint(m: str) -> str:
         return BIRDEYE_MINT_ALIASES[up]
     return m
 
+
 def is_valid_mint(m: str) -> bool:
     return bool(_BASE58_RE.match(m))
+
 
 # Baseline and configuration helpers
 BASELINE_PATH = "alerts_price_baseline.json"
 NAME_CACHE_PATH = "token_names.json"
-JUP_CACHE_PATH  = "jup_tokens.json"
+JUP_CACHE_PATH = "jup_tokens.json"
 NAME_CACHE_FILE = "token_names.json"
 JUP_CATALOG_FILE = "jupiter_tokens.json"
 JUP_CATALOG_TTL = 24 * 60 * 60  # 24h
 OVERRIDES_FILE = "token_overrides.json"
+
 
 def _load_json_safe(path):
     try:
@@ -688,12 +822,14 @@ def _load_json_safe(path):
     except Exception:
         return {}
 
+
 def _save_json_safe(path, data):
     try:
         with open(path, "w") as f:
             json.dump(data, f)
     except Exception:
         pass
+
 
 def _normalize_symbol(sym: str | None) -> str | None:
     """Clean a ticker-like symbol. Prefer 2–12 alnum chars, uppercased."""
@@ -704,8 +840,10 @@ def _normalize_symbol(sym: str | None) -> str | None:
         return s
     return None
 
+
 def _short_mint(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}"
+
 
 # --- Individual source probes (wrap your existing HTTP helper(s)) ---
 def _http_get_json(url, headers=None, params=None, timeout=8):
@@ -715,6 +853,7 @@ def _http_get_json(url, headers=None, params=None, timeout=8):
         return r.json()
     return None
 
+
 def _dexscreener_token_pairs(mint: str) -> dict:
     # Light, unauthenticated; returns {"pairs":[ ... ]}
     try:
@@ -722,6 +861,7 @@ def _dexscreener_token_pairs(mint: str) -> dict:
         return _http_get_json(url, headers=None, params=None, timeout=6) or {}
     except Exception:
         return {}
+
 
 def _sum_pairs_volume_24h_usd(pairs: list) -> float | None:
     total = 0.0
@@ -745,9 +885,11 @@ def _sum_pairs_volume_24h_usd(pairs: list) -> float | None:
             pass
     return total if seen and total > 0 else None
 
+
 def _token_metrics(mint: str) -> dict:
     """Placeholder for token metrics - returns Birdeye data for now"""
     return _birdeye_token_overview(mint)
+
 
 def _volume_24h_usd(mint: str) -> float | None:
     """
@@ -757,10 +899,17 @@ def _volume_24h_usd(mint: str) -> float | None:
 
     # Expand key sweep for 24h volume in USD
     for k in (
-        "v24hUSD", "v24hUsd", "v24h",
-        "volumeUsd24h", "volume_usd_24h",
-        "volume24hUsd", "volume24h_usd", "volume24h",
-        "vol24hUsd", "vol24h", "volUSD24h",
+        "v24hUSD",
+        "v24hUsd",
+        "v24h",
+        "volumeUsd24h",
+        "volume_usd_24h",
+        "volume24hUsd",
+        "volume24h_usd",
+        "volume24h",
+        "vol24hUsd",
+        "vol24h",
+        "volUSD24h",
     ):
         v = mt.get(k)
         try:
@@ -776,7 +925,9 @@ def _volume_24h_usd(mint: str) -> float | None:
     vol = _sum_pairs_volume_24h_usd(ds.get("pairs"))
     return vol
 
+
 # === Supply/FDV/Holders helpers ===
+
 
 def _fmt_qty(x):
     try:
@@ -788,6 +939,7 @@ def _fmt_qty(x):
     s = f"{v:,.2f}".rstrip("0").rstrip(".")
     return s
 
+
 def _call_first(names, *a, **kw):
     for n in names:
         f = globals().get(n)
@@ -797,6 +949,7 @@ def _call_first(names, *a, **kw):
             except Exception:
                 pass
     return None
+
 
 def _birdeye_req_safe(path, params):
     # Use existing birdeye request helper if present
@@ -810,74 +963,115 @@ def _birdeye_req_safe(path, params):
     # last resort: no request available here
     return {}
 
+
 def _overview_for(mint: str):
     # Try any overview providers; else query Birdeye overview
     o = _call_first(
-        ["_birdeye_token_overview","birdeye_token_overview","_token_overview","get_token_overview"],
-        mint
+        [
+            "_birdeye_token_overview",
+            "birdeye_token_overview",
+            "_token_overview",
+            "get_token_overview",
+        ],
+        mint,
     )
     if o:
         return o or {}
     # Birdeye fallback
-    data = _birdeye_req_safe("/defi/token_overview", {"chain":"solana","address": mint}) or {}
+    data = _birdeye_req_safe("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
     return (data.get("data") or {}) if isinstance(data, dict) else {}
+
 
 def _get_price_usd_for(mint: str):
     # Try existing price helpers used by /price
     v = _call_first(
-        ["_price_for_mint","price_for_mint","get_price_for_mint","_price_usd_for","price_usd_for"],
-        mint
+        [
+            "_price_for_mint",
+            "price_for_mint",
+            "get_price_for_mint",
+            "_price_usd_for",
+            "price_usd_for",
+        ],
+        mint,
     )
     if v is not None:
-        try: return float(v)
-        except: return None
+        try:
+            return float(v)
+        except:
+            return None
     # Birdeye fallback
-    d = _birdeye_req_safe("/defi/price", {"chain":"solana","address": mint}) or {}
+    d = _birdeye_req_safe("/defi/price", {"chain": "solana", "address": mint}) or {}
     try:
         return float((d.get("data") or {}).get("value"))
     except Exception:
         return None
 
+
 def _get_marketcap_usd_for(mint: str):
     # Try existing marketcap helper used by /marketcap
     v = _call_first(
-        ["_marketcap_for_mint","marketcap_for_mint","get_marketcap_for_mint","_get_marketcap","get_marketcap"],
-        mint
+        [
+            "_marketcap_for_mint",
+            "marketcap_for_mint",
+            "get_marketcap_for_mint",
+            "_get_marketcap",
+            "get_marketcap",
+        ],
+        mint,
     )
     if v is not None:
-        try: return float(v)
-        except: return None
+        try:
+            return float(v)
+        except:
+            return None
     # Birdeye overview fallback fields
     ov = _overview_for(mint) or {}
-    for k in ["marketCap","market_cap","mc","usd_market_cap","market_cap_usd"]:
+    for k in ["marketCap", "market_cap", "mc", "usd_market_cap", "market_cap_usd"]:
         if k in ov and ov[k] not in (None, "", 0, "0"):
-            try: return float(ov[k])
-            except: pass
+            try:
+                return float(ov[k])
+            except:
+                pass
     return None
 
+
 def _safe_float(x):
-    try: return float(x)
-    except Exception: return None
+    try:
+        return float(x)
+    except Exception:
+        return None
+
 
 def _fmt_qty(x):
     v = _safe_float(x)
-    if v is None: return "?"
+    if v is None:
+        return "?"
     if abs(v - int(v)) < 1e-9:
         return f"{int(v):,}"
     s = f"{v:,.2f}".rstrip("0").rstrip(".")
     return s
 
+
 def _fmt_int_commas(x):
-    try: return f"{int(float(x)):,}"
-    except Exception: return "?"
+    try:
+        return f"{int(float(x)):,}"
+    except Exception:
+        return "?"
+
 
 def _fmt_qty_2dp(x):
-    try: return f"{float(x):,.2f}"
-    except Exception: return "?"
+    try:
+        return f"{float(x):,.2f}"
+    except Exception:
+        return "?"
+
 
 def _num_or_none(x):
-    try: return float(x)
-    except Exception: return None
+    try:
+        return float(x)
+    except Exception:
+        return None
+
 
 def _get_volume_24h_for_mint(mint):
     """Get 24h volume for mint using existing overview system"""
@@ -888,25 +1082,27 @@ def _get_volume_24h_for_mint(mint):
     except Exception:
         return None
 
+
 def _get_supply_for_mint(mint):
     """Get circulating supply for mint using existing supply system"""
     try:
         ov = _overview_for(mint) or {}
         circ, total, maxs, mc = _pick_supply_fields(ov)
-        
+
         # Prefer circulating, fallback to total, then max
         supply = circ or total or maxs
         if supply:
             return _num_or_none(supply)
-        
+
         # Fallback: calculate from market cap / price if available
         price = _get_price_usd_for(mint)
         if mc and price and price > 0:
             return _num_or_none(float(mc) / float(price))
-        
+
         return None
     except Exception:
         return None
+
 
 def _get_fdv_for_mint(mint):
     """Get fully diluted valuation for mint using existing FDV system"""
@@ -915,7 +1111,7 @@ def _get_fdv_for_mint(mint):
         fdv = _pick_fdv_field(ov)
         if fdv:
             return _num_or_none(fdv)
-        
+
         # Fallback: calculate FDV from price * max/total/circulating supply
         price = _get_price_usd_for(mint)
         if price and price > 0:
@@ -924,10 +1120,11 @@ def _get_fdv_for_mint(mint):
             supply = maxs or total or circ
             if supply:
                 return _num_or_none(float(price) * float(supply))
-        
+
         return None
     except Exception:
         return None
+
 
 def _get_holders_for_mint(mint):
     """Get holder count for mint using existing overview system"""
@@ -938,7 +1135,9 @@ def _get_holders_for_mint(mint):
     except Exception:
         return None
 
+
 # --- Canonical numeric getters used by both single-token commands and watchlist ---
+
 
 def _supply_value_for_mint(mint: str):
     # Prefer circulating; fallback to total
@@ -959,6 +1158,7 @@ def _supply_value_for_mint(mint: str):
                 pass
     return None
 
+
 def _fdv_value_for_mint(mint: str):
     # Native FDV; fallback to price * total supply
     for name in ("_get_fdv_for_mint", "_fdv_for_mint"):
@@ -977,19 +1177,22 @@ def _fdv_value_for_mint(mint: str):
         fn = globals().get(name)
         if callable(fn):
             try:
-                price = fn(mint); 
-                if price is not None: price = float(price)
+                price = fn(mint)
+                if price is not None:
+                    price = float(price)
             except Exception:
                 price = None
     for name in ("_get_total_supply_for_mint", "_get_supply_for_mint", "_get_supply_for"):
         fn = globals().get(name)
         if callable(fn):
             try:
-                total = fn(mint); 
-                if total is not None: total = float(total)
+                total = fn(mint)
+                if total is not None:
+                    total = float(total)
             except Exception:
                 total = None
     return (price * total) if (price is not None and total is not None) else None
+
 
 def _holders_value_for_mint(mint: str):
     for name in ("_get_holders_for_mint", "_holders_for_mint", "_get_holders_for"):
@@ -1003,9 +1206,14 @@ def _holders_value_for_mint(mint: str):
                 pass
     return None
 
+
 def _volume24h_value_for_mint(mint: str):
-    for name in ("_get_volume_24h_for_mint", "_volume_24h_for_mint", "_get_24h_volume_for_mint",
-                 "_get_liquidity_volume_24h_for_mint"):
+    for name in (
+        "_get_volume_24h_for_mint",
+        "_volume_24h_for_mint",
+        "_get_24h_volume_for_mint",
+        "_get_liquidity_volume_24h_for_mint",
+    ):
         fn = globals().get(name)
         if callable(fn):
             try:
@@ -1016,178 +1224,314 @@ def _volume24h_value_for_mint(mint: str):
                 pass
     return None
 
+
 # === TOLERANT PARSING/FORMATTING (ENTERPRISE-GRADE) ===
 import re
+
 _NUM_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
+
 def _to_float_any(x):
-    if x is None: return None
-    if isinstance(x, (int, float)): return float(x)
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
     s = str(x).strip()
-    if not s: return None
+    if not s:
+        return None
     s = s.replace(",", "")
     m = _NUM_RE.search(s)
-    try: return float(m.group(0)) if m else None
-    except Exception: return None
+    try:
+        return float(m.group(0)) if m else None
+    except Exception:
+        return None
+
 
 def _to_int_any(x):
     v = _to_float_any(x)
     return None if v is None else int(v)
 
+
 def _pick(d, *keys):
-    if not isinstance(d, dict): return None
+    if not isinstance(d, dict):
+        return None
     for k in keys:
         if k in d and d[k] not in (None, "", "?"):
             return d[k]
     return None
 
+
 def _fmt_usd(v):
-    try: return f"${float(v):,.2f}"
-    except Exception: return "?"
+    try:
+        return f"${float(v):,.2f}"
+    except Exception:
+        return "?"
+
 
 def _fmt_qty(v):
-    try: return f"{float(v):,.2f}"
-    except Exception: return "?"
+    try:
+        return f"{float(v):,.2f}"
+    except Exception:
+        return "?"
+
 
 def _fmt_int(v):
-    try: return f"{int(v):,}"
-    except Exception: return "?"
+    try:
+        return f"{int(v):,}"
+    except Exception:
+        return "?"
+
 
 def _fmt_int_commas(v):
     """Format integer with comma separators"""
-    try: return f"{int(v):,}"
-    except Exception: return "?"
+    try:
+        return f"{int(v):,}"
+    except Exception:
+        return "?"
+
 
 # === ROBUST WATCHLIST VALUE GETTERS WITH TIMEOUT PROTECTION ===
 def _get_supply_val_raw(mint: str):
     """Internal supply getter without timeout protection"""
     s = _supply_value_for_mint(mint)  # same source as /supply
     # Comprehensive field mapping for circulating supply
-    raw = _pick(s, 
-        # Birdeye API variants
-        "circulating", "circulatingSupply", "circulating_supply", "supplyCirculating",
-        # Dexscreener API variants
-        "circ", "supply_circ", "circSupply", "circulatingTokens",
-        # Solscan API variants  
-        "circulatingSupply", "supply_circulating", "tokens_circulating",
-        # Generic/fallback variants
-        "current_supply", "available_supply", "liquid_supply", "floating_supply",
-        "value"
-    ) if isinstance(s, dict) else s
+    raw = (
+        _pick(
+            s,
+            # Birdeye API variants
+            "circulating",
+            "circulatingSupply",
+            "circulating_supply",
+            "supplyCirculating",
+            # Dexscreener API variants
+            "circ",
+            "supply_circ",
+            "circSupply",
+            "circulatingTokens",
+            # Solscan API variants
+            "circulatingSupply",
+            "supply_circulating",
+            "tokens_circulating",
+            # Generic/fallback variants
+            "current_supply",
+            "available_supply",
+            "liquid_supply",
+            "floating_supply",
+            "value",
+        )
+        if isinstance(s, dict)
+        else s
+    )
     v = _to_float_any(raw)
     if v is not None:
         return v
     # fallback to total if circulating missing
-    t = _call_first([
-        "_get_total_supply_for_mint",
-        "_get_total_supply_for", 
-        "_total_supply_for",
-    ], mint)
+    t = _call_first(
+        [
+            "_get_total_supply_for_mint",
+            "_get_total_supply_for",
+            "_total_supply_for",
+        ],
+        mint,
+    )
     # Comprehensive field mapping for total supply
-    t = _pick(t, 
-        # Standard total supply variants
-        "total", "totalSupply", "total_supply", "supply_total",
-        "maxSupply", "max_supply", "totalTokens", "supply_max",
-        # Additional variants
-        "issued_supply", "minted_supply", "total_minted",
-        "value"
-    ) if isinstance(t, dict) else t
+    t = (
+        _pick(
+            t,
+            # Standard total supply variants
+            "total",
+            "totalSupply",
+            "total_supply",
+            "supply_total",
+            "maxSupply",
+            "max_supply",
+            "totalTokens",
+            "supply_max",
+            # Additional variants
+            "issued_supply",
+            "minted_supply",
+            "total_minted",
+            "value",
+        )
+        if isinstance(t, dict)
+        else t
+    )
     return _to_float_any(t)
+
 
 def _get_supply_val(mint: str):
     """Supply value getter with watchdog timeout protection"""
     return with_timeout(_get_supply_val_raw, mint, timeout=7, default=None)
+
 
 def _get_fdv_val_raw(mint: str):
     """Internal FDV getter without timeout protection"""
     # try explicit fdv fields first
     fdv = _fdv_value_for_mint(mint)  # same as /fdv
     # Comprehensive field mapping for FDV across all major APIs
-    raw = _pick(fdv, 
-        # Birdeye API variants
-        "fdv", "fdv_usd", "fullyDilutedValuation", "fdvUsd",
-        # Dexscreener API variants  
-        "fully_diluted_valuation", "fullyDilutedMarketCap", "fdmc",
-        # Solscan API variants
-        "market_cap_fully_diluted", "fully_diluted_market_cap", "fdv_market_cap",
-        # Generic/fallback variants
-        "total_market_cap", "max_market_cap", "diluted_market_cap", 
-        "theoretical_market_cap", "potential_market_cap",
-        "value"
-    ) if isinstance(fdv, dict) else fdv
+    raw = (
+        _pick(
+            fdv,
+            # Birdeye API variants
+            "fdv",
+            "fdv_usd",
+            "fullyDilutedValuation",
+            "fdvUsd",
+            # Dexscreener API variants
+            "fully_diluted_valuation",
+            "fullyDilutedMarketCap",
+            "fdmc",
+            # Solscan API variants
+            "market_cap_fully_diluted",
+            "fully_diluted_market_cap",
+            "fdv_market_cap",
+            # Generic/fallback variants
+            "total_market_cap",
+            "max_market_cap",
+            "diluted_market_cap",
+            "theoretical_market_cap",
+            "potential_market_cap",
+            "value",
+        )
+        if isinstance(fdv, dict)
+        else fdv
+    )
     v = _to_float_any(raw)
     if v is not None:
         return v
     # fallback: price * total supply
     price = _to_float_any(_get_price_usd_for(mint))
     try:
-        total = _call_first([
-            "_get_total_supply_for_mint",
-            "_get_total_supply_for",
-            "_total_supply_for",
-        ], mint)
+        total = _call_first(
+            [
+                "_get_total_supply_for_mint",
+                "_get_total_supply_for",
+                "_total_supply_for",
+            ],
+            mint,
+        )
     except Exception:
         total = _supply_value_for_mint(mint)
     # Use comprehensive field mapping for total supply fallback
-    total = _pick(total, 
-        "total", "totalSupply", "total_supply", "supply_total",
-        "maxSupply", "max_supply", "totalTokens", "supply_max",
-        "issued_supply", "minted_supply", "total_minted",
-        "value"
-    ) if isinstance(total, dict) else total
+    total = (
+        _pick(
+            total,
+            "total",
+            "totalSupply",
+            "total_supply",
+            "supply_total",
+            "maxSupply",
+            "max_supply",
+            "totalTokens",
+            "supply_max",
+            "issued_supply",
+            "minted_supply",
+            "total_minted",
+            "value",
+        )
+        if isinstance(total, dict)
+        else total
+    )
     total = _to_float_any(total)
     if price is not None and total is not None:
         return price * total
     return None
 
+
 def _get_fdv_val(mint: str):
     """FDV value getter with watchdog timeout protection"""
     return with_timeout(_get_fdv_val_raw, mint, timeout=7, default=None)
+
 
 def _get_vol24_val_raw(mint: str):
     """Internal volume getter without timeout protection"""
     v = _volume_24h_usd(mint)  # same as /volume
     # Comprehensive field mapping for all major APIs
-    raw = _pick(
-        v,
-        # Birdeye API variants
-        "v24hUSD", "v24hUsd", "v24h", "volumeUsd24h", "volume24hUsd",
-        # Dexscreener API variants  
-        "volume24h", "volume_24h", "vol24h", "vol_24h", "volume24h_usd",
-        # Solscan API variants
-        "usdVolume24h", "usd_24h", "daily_volume_usd", "volumeUsd",
-        # Generic/fallback variants
-        "volume_usd_24h", "h24Usd", "h24_usd", "usd24h", "dailyVolumeUsd",
-        "vol24hUsd", "volUSD24h", "volume_24h_usd", "twentyFourHourVolume",
-        "value"
-    ) if isinstance(v, dict) else v
+    raw = (
+        _pick(
+            v,
+            # Birdeye API variants
+            "v24hUSD",
+            "v24hUsd",
+            "v24h",
+            "volumeUsd24h",
+            "volume24hUsd",
+            # Dexscreener API variants
+            "volume24h",
+            "volume_24h",
+            "vol24h",
+            "vol_24h",
+            "volume24h_usd",
+            # Solscan API variants
+            "usdVolume24h",
+            "usd_24h",
+            "daily_volume_usd",
+            "volumeUsd",
+            # Generic/fallback variants
+            "volume_usd_24h",
+            "h24Usd",
+            "h24_usd",
+            "usd24h",
+            "dailyVolumeUsd",
+            "vol24hUsd",
+            "volUSD24h",
+            "volume_24h_usd",
+            "twentyFourHourVolume",
+            "value",
+        )
+        if isinstance(v, dict)
+        else v
+    )
     return _to_float_any(raw)
+
 
 def _get_vol24_val(mint: str):
     """Volume value getter with watchdog timeout protection"""
     return with_timeout(_get_vol24_val_raw, mint, timeout=7, default=None)
 
+
 def _get_holders_val_raw(mint: str):
     """Internal holders getter without timeout protection"""
     h = _holders_value_for_mint(mint)  # same as /holders
     # Comprehensive field mapping for holders across all major APIs
-    raw = _pick(h, 
-        # Birdeye API variants
-        "holders", "holder_count", "holderCount", "holdersCount",
-        # Dexscreener API variants
-        "holders_total", "total_holders", "unique_holders", "wallets",
-        # Solscan API variants  
-        "holder_count", "holders_count", "wallet_count", "addresses",
-        # Generic/fallback variants
-        "owner_count", "address_count", "accounts", "unique_addresses",
-        "participants", "token_holders", "active_holders",
-        "value"
-    ) if isinstance(h, dict) else h
+    raw = (
+        _pick(
+            h,
+            # Birdeye API variants
+            "holders",
+            "holder_count",
+            "holderCount",
+            "holdersCount",
+            # Dexscreener API variants
+            "holders_total",
+            "total_holders",
+            "unique_holders",
+            "wallets",
+            # Solscan API variants
+            "holder_count",
+            "holders_count",
+            "wallet_count",
+            "addresses",
+            # Generic/fallback variants
+            "owner_count",
+            "address_count",
+            "accounts",
+            "unique_addresses",
+            "participants",
+            "token_holders",
+            "active_holders",
+            "value",
+        )
+        if isinstance(h, dict)
+        else h
+    )
     return _to_int_any(raw)
+
 
 def _get_holders_val(mint: str):
     """Holders value getter with watchdog timeout protection"""
     return with_timeout(_get_holders_val_raw, mint, timeout=7, default=None)
+
 
 # === TOKEN VALIDATION AND CACHED PRIMITIVE GETTERS ===
 def _is_known_token(mint: str) -> bool:
@@ -1195,7 +1539,7 @@ def _is_known_token(mint: str) -> bool:
     if not mint or len(mint) < 8:
         return False
     # Check if it's a valid base58-like string (Solana mint format)
-    if not re.match(r'^[A-HJ-NP-Z1-9]{32,44}$', mint):
+    if not re.match(r"^[A-HJ-NP-Z1-9]{32,44}$", mint):
         # Try ticker resolution
         try:
             resolved = resolve_token_any(mint)
@@ -1204,30 +1548,36 @@ def _is_known_token(mint: str) -> bool:
             return False
     return True
 
+
 @ttl_cache(60)
 def _cached_price_usd(mint: str):
     """Cached price getter with 60s TTL"""
     return _to_float_any(_get_price_usd_for(mint))
 
-@ttl_cache(60) 
+
+@ttl_cache(60)
 def _cached_supply_val(mint: str):
     """Cached supply getter with 60s TTL"""
     return _get_supply_val_raw(mint)
+
 
 @ttl_cache(60)
 def _cached_holders_val(mint: str):
     """Cached holders getter with 60s TTL"""
     return _get_holders_val_raw(mint)
 
+
 @ttl_cache(60)
 def _cached_fdv_val(mint: str):
     """Cached FDV getter with 60s TTL"""
     return _get_fdv_val_raw(mint)
 
+
 @ttl_cache(60)
 def _cached_volume_val(mint: str):
     """Cached volume getter with 60s TTL"""
     return _get_vol24_val_raw(mint)
+
 
 # === PARALLEL WATCHLIST BUILDER ===
 def stat_for(mode: str, mint: str) -> str:
@@ -1235,7 +1585,7 @@ def stat_for(mode: str, mint: str) -> str:
     # Short-circuit unknown tokens - don't hit network if can't resolve
     if not _is_known_token(mint):
         return "?"
-    
+
     # Increased timeouts to reduce false positives on slow links
     if mode == "supply":
         val = with_timeout(_cached_supply_val, mint, timeout=7)
@@ -1266,15 +1616,16 @@ def stat_for(mode: str, mint: str) -> str:
         return _fmt_usd(val) if val is not None else "?"
     return "?"
 
+
 def build_watchlist_parallel(mode: str, tokens: list[str]) -> list[tuple[str, str]]:
     """Build watchlist in parallel to prevent blocking on slow tokens"""
     if not tokens:
         return []
-    
+
     with cf.ThreadPoolExecutor(max_workers=min(8, len(tokens))) as ex:
         futs = {ex.submit(stat_for, mode, mint): mint for mint in tokens}
         results = {}
-        
+
         for fut in cf.as_completed(futs):
             mint = futs[fut]
             try:
@@ -1282,103 +1633,134 @@ def build_watchlist_parallel(mode: str, tokens: list[str]) -> list[tuple[str, st
             except Exception:
                 stat = "?"
             results[mint] = stat
-    
+
     # Preserve original order
     return [(mint, results.get(mint, "?")) for mint in tokens]
 
+
 # === WATCHLIST INTEGRATION SHIMS ===
 # Ensure watchlist uses the EXACT same data sources as individual token commands
+
 
 def _supply_for_mint(mint: str):
     """Shim: calls the same function as /supply command"""
     return _supply_value_for_mint(mint)
 
+
 def _total_supply_for_mint(mint: str):
     """Shim: fallback supply data for watchlist consistency"""
-    v = _call_first([
-        "_get_total_supply_for_mint",
-        "_get_total_supply_for",
-        "_total_supply_for",
-    ], mint)
+    v = _call_first(
+        [
+            "_get_total_supply_for_mint",
+            "_get_total_supply_for",
+            "_total_supply_for",
+        ],
+        mint,
+    )
     if v is not None:
-        try: return float(v)
-        except: return None
+        try:
+            return float(v)
+        except:
+            return None
     return None
+
 
 def _fdv_for_mint(mint: str):
     """Shim: calls the same function as /fdv command"""
     return _fdv_value_for_mint(mint)
 
+
 def _volume24h_for_mint(mint: str):
     """Shim: calls the same function as /volume command"""
     return _volume_24h_usd(mint)
+
 
 def _holders_for_mint(mint: str):
     """Shim: calls the same function as /holders command"""
     return _holders_value_for_mint(mint)
 
+
 def _price_for_mint(mint: str):
     """Shim: calls the same function as /price command"""
     return _get_price_usd_for(mint)
+
 
 def _market_cap_for_mint(mint: str):
     """Shim: calls the same function as /marketcap command"""
     return _get_marketcap_usd_for(mint)
 
+
 # === ENHANCED WATCHLIST MODE CONFIGURATION ===
 def _watchlist_mode_parts(mode: str):
     m = (mode or "").lower()
     return {
-        "prices":  ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
-        "price":   ("Price",       lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
-        "caps":    ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
-        "cap":     ("Market Cap",  lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "prices": ("Price", lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "price": ("Price", lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd),
+        "caps": ("Market Cap", lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
+        "cap": ("Market Cap", lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
         "marketcap": ("Market Cap", lambda mn: _to_float_any(_market_cap_for_mint(mn)), _fmt_usd),
-        "volumes": ("24h Volume",  _get_vol24_val,  _fmt_usd),
-        "volume":  ("24h Volume",  _get_vol24_val,  _fmt_usd),
-        "supply":  ("Circulating", _get_supply_val, _fmt_qty),
+        "volumes": ("24h Volume", _get_vol24_val, _fmt_usd),
+        "volume": ("24h Volume", _get_vol24_val, _fmt_usd),
+        "supply": ("Circulating", _get_supply_val, _fmt_qty),
         "circulating": ("Circulating", _get_supply_val, _fmt_qty),
-        "fdv":     ("FDV",         _get_fdv_val,    _fmt_usd),
-        "holders": ("Holders",     _get_holders_val, _fmt_int),
-        "holder":  ("Holders",     _get_holders_val, _fmt_int),
+        "fdv": ("FDV", _get_fdv_val, _fmt_usd),
+        "holders": ("Holders", _get_holders_val, _fmt_int),
+        "holder": ("Holders", _get_holders_val, _fmt_int),
     }.get(m, ("Price", lambda mn: _to_float_any(_price_for_mint(mn)), _fmt_usd))
+
 
 # Legacy WATCHLIST_MODES for backward compatibility
 WATCHLIST_MODES = {
-    "prices":  ("_price_for_mint",        "_fmt_usd",        "Price"),
-    "caps":    ("_market_cap_for_mint",   "_fmt_usd",        "Market Cap"),
-    "volumes": ("_volume24h_for_mint",    "_fmt_usd",        "24h Volume"),
-    "supply":  ("_supply_for_mint",       "_fmt_qty_2dp",    "Circulating"),
-    "fdv":     ("_fdv_for_mint",          "_fmt_usd",        "FDV"),
-    "holders": ("_holders_for_mint",      "_fmt_int_commas", "Holders"),
+    "prices": ("_price_for_mint", "_fmt_usd", "Price"),
+    "caps": ("_market_cap_for_mint", "_fmt_usd", "Market Cap"),
+    "volumes": ("_volume24h_for_mint", "_fmt_usd", "24h Volume"),
+    "supply": ("_supply_for_mint", "_fmt_qty_2dp", "Circulating"),
+    "fdv": ("_fdv_for_mint", "_fmt_usd", "FDV"),
+    "holders": ("_holders_for_mint", "_fmt_int_commas", "Holders"),
 }
+
 
 def _pick_supply_fields(ov: dict):
     """Return (circulating, total, max_supply, market_cap) from an overview dict."""
     if not isinstance(ov, dict):
         return None, None, None, None
-    circ_keys = ["circulating_supply","circulatingSupply","circulating","supplyCirculating","circSupply"]
-    total_keys = ["total_supply","totalSupply","supply"]
-    max_keys   = ["max_supply","maxSupply"]
-    mc_keys    = ["market_cap","marketCap","market_cap_fd","marketCapFullyDiluted"]  # keep wide
+    circ_keys = [
+        "circulating_supply",
+        "circulatingSupply",
+        "circulating",
+        "supplyCirculating",
+        "circSupply",
+    ]
+    total_keys = ["total_supply", "totalSupply", "supply"]
+    max_keys = ["max_supply", "maxSupply"]
+    mc_keys = ["market_cap", "marketCap", "market_cap_fd", "marketCapFullyDiluted"]  # keep wide
 
     circ = next((ov.get(k) for k in circ_keys if ov.get(k) is not None), None)
     total = next((ov.get(k) for k in total_keys if ov.get(k) is not None), None)
-    maxs  = next((ov.get(k) for k in max_keys   if ov.get(k) is not None), None)
-    mc    = next((ov.get(k) for k in mc_keys    if ov.get(k) is not None), None)
+    maxs = next((ov.get(k) for k in max_keys if ov.get(k) is not None), None)
+    mc = next((ov.get(k) for k in mc_keys if ov.get(k) is not None), None)
     return circ, total, maxs, mc
+
 
 def _pick_fdv_field(ov: dict):
     if not isinstance(ov, dict):
         return None
-    keys = ["fdv","fully_diluted_valuation","fullyDilutedValuation","fully_diluted_market_cap","fullyDilutedMarketCap"]
+    keys = [
+        "fdv",
+        "fully_diluted_valuation",
+        "fullyDilutedValuation",
+        "fully_diluted_market_cap",
+        "fullyDilutedMarketCap",
+    ]
     return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
+
 
 def _pick_holders_field(ov: dict):
     if not isinstance(ov, dict):
         return None
-    keys = ["holders","holders_count","holdersCount","holder_count"]
+    keys = ["holders", "holders_count", "holdersCount", "holder_count"]
     return next((ov.get(k) for k in keys if ov.get(k) is not None), None)
+
 
 def _get_token_overview(mint: str) -> dict | None:
     """Use the same source as /liquidity & /marketcap."""
@@ -1387,38 +1769,43 @@ def _get_token_overview(mint: str) -> dict | None:
     except Exception:
         return {}
 
+
 def _arg_after_cmd(text: str) -> str:
     """Extract argument after command from message text."""
     parts = text.strip().split(None, 1)
     return parts[1] if len(parts) > 1 else ""
 
+
 def _resolve_token_any(arg: str):
     """Resolve token and return (mint, sym, name, price_usd)."""
     if not arg:
         return None, None, None, None
-    
+
     mint = _resolve_to_mint(arg)
     if not mint:
         return None, None, None, None
-    
+
     name_tuple = _display_name_for(mint)
     if isinstance(name_tuple, tuple) and len(name_tuple) == 2:
         sym, name = name_tuple
     else:
         sym, name = str(name_tuple) if name_tuple else _short_mint(mint), ""
-    
+
     # Get price from Birdeye
     price_usd = _birdeye_price(mint)
-    
+
     return mint, sym, name, price_usd
+
 
 def _reply_err(msg: str):
     """Helper for error replies."""
     return _reply(msg, "error")
 
+
 def _reply_ok_md(msg: str):
     """Helper for successful markdown replies."""
     return _reply(msg, "ok")
+
 
 def _birdeye_headers():
     # Reuse your existing Birdeye header builder if present
@@ -1431,21 +1818,27 @@ def _birdeye_headers():
         pass
     return h
 
-def _name_from_birdeye(mint: str) -> tuple[str|None, str|None]:
+
+def _name_from_birdeye(mint: str) -> tuple[str | None, str | None]:
     # Try the v3 market-data endpoint which includes symbol/name when available
     url = "https://public-api.birdeye.so/defi/v3/token/market-data"
-    d = _http_get_json(url, headers=_birdeye_headers(), params={"address": mint, "chain": "solana"}) or {}
+    d = (
+        _http_get_json(url, headers=_birdeye_headers(), params={"address": mint, "chain": "solana"})
+        or {}
+    )
     dd = d.get("data") or {}
     sym = _normalize_symbol(dd.get("symbol") or dd.get("tokenSymbol"))
     sec = dd.get("name") or dd.get("tokenName")
     return sym, sec
 
-def _name_from_jupiter(mint: str) -> tuple[str|None, str|None]:
+
+def _name_from_jupiter(mint: str) -> tuple[str | None, str | None]:
     # Jupiter token info has symbol/name
     d = _http_get_json(f"https://tokens.jup.ag/token/{mint}") or {}
     return _normalize_symbol(d.get("symbol")), d.get("name")
 
-def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
+
+def _name_from_dexscreener(mint: str) -> tuple[str | None, str | None]:
     d = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}") or {}
     pairs = d.get("pairs") or []
     if not pairs:
@@ -1453,9 +1846,11 @@ def _name_from_dexscreener(mint: str) -> tuple[str|None, str|None]:
     bt = pairs[0].get("baseToken") or {}
     return _normalize_symbol(bt.get("symbol")), bt.get("name")
 
-def _name_from_solscan(mint: str) -> tuple[str|None, str|None]:
+
+def _name_from_solscan(mint: str) -> tuple[str | None, str | None]:
     d = _http_get_json("https://api.solscan.io/token/meta", params={"tokenAddress": mint}) or {}
     return _normalize_symbol(d.get("symbol")), d.get("name")
+
 
 # ===== Jupiter catalog (bulk) =====
 def _ensure_jup_catalog(force: bool = False):
@@ -1477,21 +1872,25 @@ def _ensure_jup_catalog(force: bool = False):
         _save_json_safe(JUP_CATALOG_FILE, cat)
     return cat
 
-def _name_from_jup_catalog(mint: str) -> tuple[str|None, str|None]:
+
+def _name_from_jup_catalog(mint: str) -> tuple[str | None, str | None]:
     cat = _ensure_jup_catalog()
     d = (cat.get("by_mint") or {}).get(mint) or {}
     return _normalize_symbol(d.get("symbol")), d.get("name")
 
+
 # ===== Name overrides system =====
-def _name_overrides_get(mint: str) -> tuple[str|None, str|None]:
+def _name_overrides_get(mint: str) -> tuple[str | None, str | None]:
     o = _load_json_safe(OVERRIDES_FILE)
     d = o.get(mint) or {}
     return d.get("primary"), d.get("secondary")
 
-def _name_overrides_set(mint: str, primary: str|None, secondary: str|None):
+
+def _name_overrides_set(mint: str, primary: str | None, secondary: str | None):
     o = _load_json_safe(OVERRIDES_FILE)
     o[mint] = {"primary": primary, "secondary": secondary, "ts": time.time()}
     _save_json_safe(OVERRIDES_FILE, o)
+
 
 def _name_overrides_clear(mint: str):
     o = _load_json_safe(OVERRIDES_FILE)
@@ -1499,38 +1898,48 @@ def _name_overrides_clear(mint: str):
         o.pop(mint, None)
         _save_json_safe(OVERRIDES_FILE, o)
 
+
 # Public aliases for external use
 def name_override_get(mint: str):
     d = _load_json_safe(OVERRIDES_FILE).get(mint) or {}
     return d if d else None
 
+
 def name_override_set(mint: str, primary: str, secondary: str):
     return _name_overrides_set(mint, primary.strip(), secondary.strip())
+
 
 def name_override_clear(mint: str):
     return _name_overrides_clear(mint)
 
+
 # === PRICE CACHE ===
 _PRICE_CACHE = {}  # key -> (value, expiry_ts)
 
+
 def _cache_get(key: str, now: float, default=None):
     v = _PRICE_CACHE.get(key)
-    if not v: return default
+    if not v:
+        return default
     val, exp = v
     if now >= exp:
         _PRICE_CACHE.pop(key, None)
         return default
     return val
 
+
 def _cache_set(key: str, val, now: float, ttl: float):
     _PRICE_CACHE[key] = (val, now + ttl)
+
 
 # === GLOBAL HELPER FUNCTIONS ===
 def _reply(text, status="ok"):
     return {"text": str(text), "status": status, "response": str(text), "handled": True}
 
+
 def _short_mint(m: str) -> str:
     return f"{m[:6]}…{m[-6:]}" if isinstance(m, str) and len(m) > 14 else m
+
 
 def _display_name_for(mint: str):
     """
@@ -1563,20 +1972,23 @@ def _display_name_for(mint: str):
         pass
     return "?", "?"
 
+
 def _fmt_price(v):
     try:
         return f"${v:,.6f}" if v < 1 else f"${v:,.4f}" if v < 10 else f"${v:,.2f}"
     except Exception:
         return "?"
 
+
 def _fmt_qty(x):
     try:
         if x >= 1:
-            return f"{x:,.4f}".rstrip('0').rstrip('.')
+            return f"{x:,.4f}".rstrip("0").rstrip(".")
         else:
-            return f"{x:,.8f}".rstrip('0').rstrip('.')
+            return f"{x:,.8f}".rstrip("0").rstrip(".")
     except Exception:
         return str(x)
+
 
 def _parse_amount(s: str):
     s = (s or "").strip().replace(",", "")
@@ -1595,15 +2007,17 @@ def _parse_amount(s: str):
         return None, None
     return v, is_usd
 
+
 def _birdeye_price(mint: str, ttl: float = 30.0):
     import time
+
     now = time.time()
     ck = f"price:{mint}"
     cached = _cache_get(ck, now)
     if cached is not None:
         return cached
     try:
-        r = birdeye_req("/defi/price", {"chain":"solana","address":mint}) or {}
+        r = birdeye_req("/defi/price", {"chain": "solana", "address": mint}) or {}
         v = (r.get("data") or {}).get("value")
         out = float(v) if v is not None else None
     except Exception:
@@ -1611,17 +2025,21 @@ def _birdeye_price(mint: str, ttl: float = 30.0):
     _cache_set(ck, out, now, ttl)
     return out
 
+
 # Known tickers (extend later)
 TICKER_MINTS = {
     "SOL": "So11111111111111111111111111111111111111112",
 }
 
+
 def _is_mint_like(s: str) -> bool:
     return isinstance(s, str) and len(s) in (32, 43, 44) and s.isalnum()
+
 
 def _mint_for_symbol(sym: str) -> str | None:
     sym = (sym or "").strip().upper()
     return TICKER_MINTS.get(sym)
+
 
 def _resolve_to_mint(arg: str) -> str | None:
     if not arg:
@@ -1631,14 +2049,16 @@ def _resolve_to_mint(arg: str) -> str | None:
         return a
     return _mint_for_symbol(a)
 
+
 def _links_for_mint(mint: str) -> dict:
     base = mint
     return {
         "Dexscreener": f"https://dexscreener.com/solana/{base}",
-        "Birdeye":     f"https://birdeye.so/token/{base}?chain=solana",
-        "Solscan":     f"https://solscan.io/token/{base}",
-        "Jupiter":     f"https://jup.ag/swap/SOL-{base}",
+        "Birdeye": f"https://birdeye.so/token/{base}?chain=solana",
+        "Solscan": f"https://solscan.io/token/{base}",
+        "Jupiter": f"https://jup.ag/swap/SOL-{base}",
     }
+
 
 def _symbol_from_display_name(name) -> str:
     # _display_name_for returns a tuple (ticker, long_name)
@@ -1648,7 +2068,9 @@ def _symbol_from_display_name(name) -> str:
         return name.split(" — ", 1)[0]
     return str(name or "").strip()
 
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+
 
 def _fmt_usd(v) -> str:
     try:
@@ -1657,18 +2079,37 @@ def _fmt_usd(v) -> str:
     except (InvalidOperation, Exception):
         return "?"
 
+
 def _birdeye_token_overview(mint: str) -> dict:
     try:
         r = birdeye_req("/defi/token_overview", {"chain": "solana", "address": mint}) or {}
-        d = (r.get("data") or {})
+        d = r.get("data") or {}
 
-        liq = d.get("liquidity") or d.get("liquidity_usd") or d.get("liquidityUSD") or d.get("liquidityUsd")
-        v24 = d.get("v24") or d.get("v24USD") or d.get("volume24hUSD") or d.get("volume24h_usd") or d.get("volume24h")
-        mc  = d.get("mc")  or d.get("marketcap") or d.get("marketCap") or d.get("market_cap") or d.get("marketCapUsd")
+        liq = (
+            d.get("liquidity")
+            or d.get("liquidity_usd")
+            or d.get("liquidityUSD")
+            or d.get("liquidityUsd")
+        )
+        v24 = (
+            d.get("v24")
+            or d.get("v24USD")
+            or d.get("volume24hUSD")
+            or d.get("volume24h_usd")
+            or d.get("volume24h")
+        )
+        mc = (
+            d.get("mc")
+            or d.get("marketcap")
+            or d.get("marketCap")
+            or d.get("market_cap")
+            or d.get("marketCapUsd")
+        )
 
         return {"liquidity": _num_or_none(liq), "v24": _num_or_none(v24), "mc": _num_or_none(mc)}
     except Exception:
         return {"liquidity": None, "v24": None, "mc": None}
+
 
 def _resolve_token_or_mint(arg: str):
     """
@@ -1676,13 +2117,13 @@ def _resolve_token_or_mint(arg: str):
     Return (mint, symbol, name) or (None, None, None) on failure.
     """
     arg = arg.strip()
-    
+
     # If it looks like a mint address (32-44 chars, alphanumeric)
     if len(arg) >= 32 and len(arg) <= 44 and arg.isalnum():
         mint = arg
         ticker, long_name = _display_name_for(mint)
         return mint, ticker, long_name
-    
+
     # Check BIRDEYE_MINT_ALIASES first (SOL, WSOL, etc.)
     try:
         mint = BIRDEYE_MINT_ALIASES.get(arg.upper())
@@ -1691,7 +2132,7 @@ def _resolve_token_or_mint(arg: str):
             return mint, ticker, long_name
     except (NameError, AttributeError):
         pass
-    
+
     # Try ticker lookup using existing name overrides and cache
     try:
         # Check name overrides first (reverse lookup)
@@ -1701,11 +2142,12 @@ def _resolve_token_or_mint(arg: str):
                 return mint, primary, secondary
             if secondary and secondary.upper() == arg.upper():
                 return mint, primary, secondary
-        
+
         # Check token name cache (reverse lookup)
         try:
             import json
-            with open("token_names.json", "r") as f:
+
+            with open("token_names.json") as f:
                 cache = json.load(f)
             for mint, name_data in cache.items():
                 if "\n" in name_data:
@@ -1713,18 +2155,25 @@ def _resolve_token_or_mint(arg: str):
                     ticker, long_name = parts[0].strip(), parts[1].strip()
                 else:
                     ticker, long_name = name_data.strip(), ""
-                
+
                 if ticker.upper() == arg.upper():
                     return mint, ticker, long_name
         except Exception:
             pass
-            
+
     except Exception:
         pass
-    
+
     return None, None, None
 
-def _format_watch_row(mint: str, symbol: str|None, name: str|None, price: float|None=None, with_prices: bool=False) -> str:
+
+def _format_watch_row(
+    mint: str,
+    symbol: str | None,
+    name: str | None,
+    price: float | None = None,
+    with_prices: bool = False,
+) -> str:
     sym = symbol or "—"
     nam = name or "—"
     base = f"{sym} — {nam}"
@@ -1733,9 +2182,25 @@ def _format_watch_row(mint: str, symbol: str|None, name: str|None, price: float|
         base = f"{base}  {pr}"
     return f"{base}  `{_short_mint(mint)}`"
 
+
 # ===== Heuristic primary extraction =====
-_STOPWORDS = {"THE","COIN","TOKEN","INU","PROTOCOL","AI","ON","CHAIN","CO","DAO","CAT","DOG"}
-def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
+_STOPWORDS = {
+    "THE",
+    "COIN",
+    "TOKEN",
+    "INU",
+    "PROTOCOL",
+    "AI",
+    "ON",
+    "CHAIN",
+    "CO",
+    "DAO",
+    "CAT",
+    "DOG",
+}
+
+
+def _heuristic_primary_from_secondary(sec: str | None) -> str | None:
     if not sec:
         return None
     # Split by non-letters, choose a decent "brand" word
@@ -1750,12 +2215,13 @@ def _heuristic_primary_from_secondary(sec: str|None) -> str|None:
     sym = re.sub(r"[^A-Za-z0-9]", "", pick).upper()
     return sym if 2 <= len(sym) <= 12 else None
 
-def _choose_name(candidates: list[tuple[str|None, str|None]]):
+
+def _choose_name(candidates: list[tuple[str | None, str | None]]):
     # Filter out None candidates and handle safely
     valid_candidates = [c for c in candidates if c is not None and isinstance(c, tuple)]
     if not valid_candidates:
         return None, None
-    
+
     # primary = first good ticker; secondary = first descriptive name
     primary = next((p for p, s in valid_candidates if p), None)
     secondary = next((s for p, s in valid_candidates if s), None)
@@ -1768,6 +2234,7 @@ def _choose_name(candidates: list[tuple[str|None, str|None]]):
     # ensure we always have something
     return primary, secondary
 
+
 def _http_get_json_original(url, headers=None, params=None, timeout=8):
     try:
         r = _get(url, headers=headers or {}, params=params or {}, timeout=timeout)
@@ -1777,11 +2244,13 @@ def _http_get_json_original(url, headers=None, params=None, timeout=8):
         pass
     return None
 
+
 def _name_cache_load():
     try:
         return json.load(open(NAME_CACHE_PATH))
     except Exception:
         return {}
+
 
 def _name_cache_save(d):
     try:
@@ -1789,9 +2258,10 @@ def _name_cache_save(d):
     except Exception:
         pass
 
+
 def _name_from_solscan(mint: str):
     # Pro key first (optional), then public
-    key = os.getenv("SOLSCAN_API_KEY","").strip()
+    key = os.getenv("SOLSCAN_API_KEY", "").strip()
     if key:
         url = "https://pro-api.solscan.io/v1.0/market/token/meta"
         out = _http_get_json(url, headers={"token": key}, params={"address": mint})
@@ -1802,8 +2272,10 @@ def _name_from_solscan(mint: str):
                 return {"symbol": sym, "name": name, "src": "solscan-pro"}
     # Public
     out = _http_get_json("https://api.solscan.io/token/meta", params={"address": mint})
-    if not out or not isinstance(out, dict): 
-        out = _http_get_json("https://public-api.solscan.io/token/meta", params={"tokenAddress": mint})
+    if not out or not isinstance(out, dict):
+        out = _http_get_json(
+            "https://public-api.solscan.io/token/meta", params={"tokenAddress": mint}
+        )
     if out and isinstance(out, dict):
         # public returns { "symbol": "...", "tokenName": "..." }
         sym = (out.get("symbol") or "").strip()
@@ -1812,38 +2284,42 @@ def _name_from_solscan(mint: str):
             return {"symbol": sym, "name": name, "src": "solscan"}
     return None
 
+
 def _name_from_dexscreener(mint: str):
     out = _http_get_json(f"https://api.dexscreener.com/latest/dex/tokens/{mint}")
     if not out or "pairs" not in out or not out["pairs"]:
         return None
     # Prefer a SOL pair with the mint as baseToken
     for p in out["pairs"]:
-        base = (p.get("baseToken") or {})
+        base = p.get("baseToken") or {}
         if base.get("address") == mint:
             sym = (base.get("symbol") or "").strip()
             name = (base.get("name") or "").strip()
             if sym or name:
                 return {"symbol": sym, "name": name, "src": "dexscreener"}
     # Fallback first pair
-    base = (out["pairs"][0].get("baseToken") or {})
+    base = out["pairs"][0].get("baseToken") or {}
     sym = (base.get("symbol") or "").strip()
     name = (base.get("name") or "").strip()
     if sym or name:
         return {"symbol": sym, "name": name, "src": "dexscreener"}
     return None
 
+
 def _name_from_jupiter(mint: str):
     # Cache Jupiter list for 24h
     try:
         stat = os.stat(JUP_CACHE_PATH)
-        fresh = (time.time() - stat.st_mtime) < 24*3600
+        fresh = (time.time() - stat.st_mtime) < 24 * 3600
     except Exception:
         fresh = False
     if not fresh:
         data = _http_get_json("https://tokens.jup.ag/strict")
         if isinstance(data, list) and data:
-            try: json.dump(data, open(JUP_CACHE_PATH, "w"))
-            except Exception: pass
+            try:
+                json.dump(data, open(JUP_CACHE_PATH, "w"))
+            except Exception:
+                pass
     try:
         data = json.load(open(JUP_CACHE_PATH))
     except Exception:
@@ -1856,106 +2332,171 @@ def _name_from_jupiter(mint: str):
                 return {"symbol": sym, "name": name, "src": "jupiter"}
     return None
 
+
 PRICE_HISTORY_FILE = "price_history.json"
+
+
 def _history_load():
-    import json, os
-    try: return json.load(open(PRICE_HISTORY_FILE))
-    except: return {}
+    import json
+
+    try:
+        return json.load(open(PRICE_HISTORY_FILE))
+    except:
+        return {}
+
+
 def _history_save(d):
     import json
-    json.dump(d, open(PRICE_HISTORY_FILE,"w"))
-def record_price_point(mint:str, price:float, src:str):
+
+    json.dump(d, open(PRICE_HISTORY_FILE, "w"))
+
+
+def record_price_point(mint: str, price: float, src: str):
     import time
-    if not (mint and price and price>0): return
-    d=_history_load()
-    lst=d.get(mint) or []
-    lst.append({"ts":int(time.time()), "price":float(price), "src":src})
+
+    if not (mint and price and price > 0):
+        return
+    d = _history_load()
+    lst = d.get(mint) or []
+    lst.append({"ts": int(time.time()), "price": float(price), "src": src})
     # keep last ~2 days at 30s cadence ≈ 6k points
-    d[mint]=lst[-6000:]
+    d[mint] = lst[-6000:]
     _history_save(d)
-def pct(a,b):
-    try: return ((a-b)/b)*100.0
-    except: return None
-def window_change(mint:str, secs:int):
+
+
+def pct(a, b):
+    try:
+        return ((a - b) / b) * 100.0
+    except:
+        return None
+
+
+def window_change(mint: str, secs: int):
     """return (pct_change, ref_price) where ref_price is the price at/just before now-secs"""
-    import time, bisect
-    hist=_history_load().get(mint) or []
-    if not hist: return (None, None)
-    cutoff=int(time.time())-secs
+    import time
+
+    hist = _history_load().get(mint) or []
+    if not hist:
+        return (None, None)
+    cutoff = int(time.time()) - secs
     # find the last point <= cutoff
-    ref=None
+    ref = None
     for p in reversed(hist):
-        if p["ts"]<=cutoff:
-            ref=p["price"]; break
-    if ref is None: return (None, None)
-    cur=hist[-1]["price"]
+        if p["ts"] <= cutoff:
+            ref = p["price"]
+            break
+    if ref is None:
+        return (None, None)
+    cur = hist[-1]["price"]
     return (pct(cur, ref), ref)
+
+
 def decorate_pct(x):
-    if x is None: return "n/a"
-    arrow = "🟢▲" if x>=0 else "🔴▼"
+    if x is None:
+        return "n/a"
+    arrow = "🟢▲" if x >= 0 else "🔴▼"
     return f"{arrow} {x:+.2f}%"
-def short_mint(m): return f"{m[:4]}..{m[-4:]}" if m and len(m)>12 else m
+
+
+def short_mint(m):
+    return f"{m[:4]}..{m[-4:]}" if m and len(m) > 12 else m
+
+
 def name_line(mint):
     nm = resolve_token_name(mint)  # existing
     # Expect "TICKER — Full Name"
     if "—" in nm:
-        sym, full = [s.strip() for s in nm.split("—",1)]
+        sym, full = (s.strip() for s in nm.split("—", 1))
     else:
         sym, full = nm, ""
     return sym, full
 
-def _alerts_cfg_load():
-    import json, os
-    try: return json.load(open("alerts_config.json"))
-    except: return {"enabled": True, "chat_id": None, "min_move_pct": 0.01, "rate_per_min": 60, "muted_until": 0, "muted": False}
-def _alerts_cfg_save(d):
-    import json; json.dump(d, open("alerts_config.json","w"))
 
-def get_price_auto(mint:str):
-    vals=[]
-    used=[]
-    for name,fn in [("birdeye", price_birdeye), ("dex", price_dex)]:
+def _alerts_cfg_load():
+    import json
+
+    try:
+        return json.load(open("alerts_config.json"))
+    except:
+        return {
+            "enabled": True,
+            "chat_id": None,
+            "min_move_pct": 0.01,
+            "rate_per_min": 60,
+            "muted_until": 0,
+            "muted": False,
+        }
+
+
+def _alerts_cfg_save(d):
+    import json
+
+    json.dump(d, open("alerts_config.json", "w"))
+
+
+def get_price_auto(mint: str):
+    vals = []
+    used = []
+    for name, fn in [("birdeye", price_birdeye), ("dex", price_dex)]:
         try:
-            r=fn(mint)
+            r = fn(mint)
             if r and r.get("ok") and r.get("price"):
-                vals.append(float(r["price"])); used.append(name)
-        except: pass
+                vals.append(float(r["price"]))
+                used.append(name)
+        except:
+            pass
     if not vals:
         return {"ok": True, "price": 0.06924, "source": "sim"}  # last-resort
     vals.sort()
-    median = vals[len(vals)//2] if len(vals)%2==1 else (vals[len(vals)//2-1]+vals[len(vals)//2])/2.0
+    median = (
+        vals[len(vals) // 2]
+        if len(vals) % 2 == 1
+        else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2.0
+    )
     return {"ok": True, "price": median, "source": f"auto({','.join(used)})"}
 
-DEXS_URL = "https://api.dexscreener.com/latest/dex/tokens/"
-JUP_URL  = "https://price.jup.ag/v6/price?ids="  # works with mint addresses
 
-def is_base58_mint(s:str)->bool:
+DEXS_URL = "https://api.dexscreener.com/latest/dex/tokens/"
+JUP_URL = "https://price.jup.ag/v6/price?ids="  # works with mint addresses
+
+
+def is_base58_mint(s: str) -> bool:
     # cheap check to avoid "wrong mint" surprises; we still pass through as-given for display
     return bool(s) and len(s) >= 32 and re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]+", s) is not None
+
 
 def _tf_merge(*dicts):
     out = {}
     for d in dicts:
-        if not d: continue
-        for k,v in d.items():
-            if v is None: continue
+        if not d:
+            continue
+        for k, v in d.items():
+            if v is None:
+                continue
             out[k] = v
     return out  # last writer wins
 
-def fetch_timeframes_dex(mint:str):
+
+def fetch_timeframes_dex(mint: str):
     try:
         r = _get(DEXS_URL + mint, timeout=6)
-        if r.status_code != 200: return {}
+        if r.status_code != 200:
+            return {}
         j = r.json()
         # pick best pair (highest liquidity) if many
         pairs = j.get("pairs") or []
-        if not pairs: return {}
-        best = max(pairs, key=lambda p: float(p.get("liquidity",{}).get("usd",0)))
+        if not pairs:
+            return {}
+        best = max(pairs, key=lambda p: float(p.get("liquidity", {}).get("usd", 0)))
         pc = best.get("priceChange", {})  # { "m5": "...", "h1": "...", "h6": "...", "h24": "..." }
+
         def f(key):
             v = pc.get(key)
-            try: return float(v)
-            except: return None
+            try:
+                return float(v)
+            except:
+                return None
+
         return {
             "5m": f("m5"),
             "1h": f("h1"),
@@ -1965,45 +2506,60 @@ def fetch_timeframes_dex(mint:str):
     except Exception:
         return {}
 
-def fetch_timeframes_jup(mint:str):
+
+def fetch_timeframes_jup(mint: str):
     try:
         r = _get(JUP_URL + mint, timeout=6)
-        if r.status_code != 200: return {}
+        if r.status_code != 200:
+            return {}
         j = r.json()
         data = (j.get("data") or {}).get(mint) or {}
         # Jupiter gives 24h change; sometimes also 1h; we normalize keys
         out = {}
-        for k_src, k_dst in (("24hChange", "24h"), ("1hChange","1h")):
+        for k_src, k_dst in (("24hChange", "24h"), ("1hChange", "1h")):
             v = data.get(k_src)
-            try: out[k_dst] = float(v)
-            except: pass
+            try:
+                out[k_dst] = float(v)
+            except:
+                pass
         return out
     except Exception:
         return {}
 
-def fetch_timeframes(mint:str):
+
+def fetch_timeframes(mint: str):
     # Merge Dexscreener first (more buckets), then layer any extra from Jupiter
     return _tf_merge(fetch_timeframes_dex(mint), fetch_timeframes_jup(mint))
 
+
 def _load_json(p):
     try:
-        import json, os
-        if not os.path.exists(p): return {}
+        import json
+        import os
+
+        if not os.path.exists(p):
+            return {}
         return json.load(open(p))
     except Exception:
         return {}
 
+
 def _save_json(p, obj):
-    import json, tempfile, os
+    import json
+    import os
+
     tmp = p + ".tmp"
     json.dump(obj, open(tmp, "w"))
     os.replace(tmp, p)
 
+
 def _load_baseline():
     return _load_json(BASELINE_PATH)
 
+
 def _save_baseline(b):
     _save_json(BASELINE_PATH, b)
+
 
 # ---------- Enhanced Token name resolution (multi-provider) ----------
 TOKEN_NAME_CACHE = "token_names.json"
@@ -2011,11 +2567,13 @@ SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
 PRICE_HISTORY_DIR = "price_history"  # per-mint .jsonl files for /info windows
 os.makedirs(PRICE_HISTORY_DIR, exist_ok=True)
 
+
 def _load_token_cache():
     try:
         return json.load(open(TOKEN_NAME_CACHE))
     except Exception:
         return {}
+
 
 def _save_token_cache(d):
     try:
@@ -2023,24 +2581,32 @@ def _save_token_cache(d):
     except Exception:
         pass
 
+
 def _short(mint: str) -> str:
     return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
 
+
 def _arrow(delta_pct: float) -> str:
-    if delta_pct > 0: return "🟢▲"
-    if delta_pct < 0: return "🔴▼"
+    if delta_pct > 0:
+        return "🟢▲"
+    if delta_pct < 0:
+        return "🔴▼"
     return "•"
+
 
 def _fmt_pct(delta_pct: float) -> str:
     return f"{_arrow(delta_pct)} {delta_pct:+.2f}%"
+
 
 # ----------------- shared: convert user arg -> (mint, name) -----------------
 
 _BASE58 = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
+
 def _looks_like_mint(s: str) -> bool:
     s = (s or "").strip()
     return len(s) >= 32 and all(c in _BASE58 for c in s)
+
 
 # if you have overrides set via _name_overrides_set(), the dict is usually _NAME_OVERRIDES
 # keys: mint -> (ticker, long_name)
@@ -2051,14 +2617,20 @@ def _mint_from_ticker_via_overrides(ticker: str):
         for mint, pair in d.items():
             if not pair:
                 continue
-            tk = pair[0] if isinstance(pair, (list, tuple)) else (pair.get("ticker") if isinstance(pair, dict) else None)
+            tk = (
+                pair[0]
+                if isinstance(pair, (list, tuple))
+                else (pair.get("ticker") if isinstance(pair, dict) else None)
+            )
             if tk and str(tk).upper() == tt:
                 return mint
     return None
 
+
 _BUILTIN_TICKERS = {
     "SOL": "So11111111111111111111111111111111111111112",
 }
+
 
 def _resolve_input_to_mint_and_name(user_arg: str):
     arg = (user_arg or "").strip()
@@ -2074,16 +2646,19 @@ def _resolve_input_to_mint_and_name(user_arg: str):
         return (None, None)
 
     try:
-        nm = resolve_token_name(mint)   # your existing function returns "TICKER\nLong Name"
+        nm = resolve_token_name(mint)  # your existing function returns "TICKER\nLong Name"
     except Exception:
         nm = None
     return (mint, nm)
 
+
 # --------------- end shared: user arg -> (mint, name) -----------------
+
 
 # --- lightweight price history (append-only jsonl per mint) ---
 def _history_path(mint: str) -> str:
     return os.path.join(PRICE_HISTORY_DIR, f"{mint}.jsonl")
+
 
 def _record_price(mint: str, price: float, src: str):
     try:
@@ -2092,13 +2667,15 @@ def _record_price(mint: str, price: float, src: str):
     except Exception:
         logging.exception("history append failed")
 
+
 def _load_price_at_or_before(mint: str, t_target: int) -> float | None:
     """
     Scan the mint's .jsonl backwards and return the latest price with ts <= t_target.
     For small files in our bot this is fine; can be optimized later.
     """
     path = _history_path(mint)
-    if not os.path.exists(path): return None
+    if not os.path.exists(path):
+        return None
     try:
         # read last ~200 lines to keep it light
         with open(path, "rb") as f:
@@ -2123,6 +2700,7 @@ def _load_price_at_or_before(mint: str, t_target: int) -> float | None:
         logging.exception("history read failed")
     return None
 
+
 # Build three-line identity for alerts: ticker, name, (short)
 def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
     """
@@ -2135,6 +2713,7 @@ def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
     if secondary and (not primary or secondary.lower() != (primary or "").lower()):
         nline = secondary.strip()
     return tline, nline, _short(mint)
+
 
 def _format_price_alert_card(
     mint: str,
@@ -2157,11 +2736,13 @@ def _format_price_alert_card(
     lines.append(f"Source: {source}")
     return "\n".join(lines)
 
+
 def _dot(pct):
     """Visual indicator for percentage changes"""
-    if pct is None: 
+    if pct is None:
         return "⚪︎"
     return "🟢▲" if pct >= 0 else "🔴▼"
+
 
 def _info_card(mint: str, price_now: float, src: str) -> str:
     """
@@ -2171,42 +2752,45 @@ def _info_card(mint: str, price_now: float, src: str) -> str:
     # Get token names using existing resolution system
     primary_name, secondary_name = _token_labels(mint)
     short_mint = _short(mint)
-    
+
     # Get API-based percentage changes
     ch = get_token_changes(mint)
-    
+
     # Build professional info card
     lines = [
-        f"*Info*",
+        "*Info*",
         f"Mint: {primary_name or short_mint}",
         f"{secondary_name or primary_name or short_mint}",
         f"({short_mint})",
         f"Price: ${price_now:.6f}",
         f"Source: {src}",
         "",
-        f"30m: {ch['m30']:+.2f}% {_dot(ch['m30'])}" if ch['m30'] is not None else "30m: n/a ⚪︎",
-        f"1h:  {ch['h1']:+.2f}% {_dot(ch['h1'])}"   if ch['h1']  is not None else "1h:  n/a ⚪︎",
-        f"4h:  {ch['h4']:+.2f}% {_dot(ch['h4'])}"   if ch['h4']  is not None else "4h:  n/a ⚪︎",
-        f"12h: {ch['h12']:+.2f}% {_dot(ch['h12'])}" if ch['h12'] is not None else "12h: n/a ⚪︎",
-        f"24h: {ch['h24']:+.2f}% {_dot(ch['h24'])}" if ch['h24'] is not None else "24h: n/a ⚪︎",
+        f"30m: {ch['m30']:+.2f}% {_dot(ch['m30'])}" if ch["m30"] is not None else "30m: n/a ⚪︎",
+        f"1h:  {ch['h1']:+.2f}% {_dot(ch['h1'])}" if ch["h1"] is not None else "1h:  n/a ⚪︎",
+        f"4h:  {ch['h4']:+.2f}% {_dot(ch['h4'])}" if ch["h4"] is not None else "4h:  n/a ⚪︎",
+        f"12h: {ch['h12']:+.2f}% {_dot(ch['h12'])}" if ch["h12"] is not None else "12h: n/a ⚪︎",
+        f"24h: {ch['h24']:+.2f}% {_dot(ch['h24'])}" if ch["h24"] is not None else "24h: n/a ⚪︎",
     ]
-    
+
     # Add tracking history if available (optional enhancement)
     path = _history_path(mint)
     if os.path.exists(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 first = f.readline().strip()
                 if first:
                     r = json.loads(first)
                     first_seen_price = float(r.get("price"))
                     first_seen_ts = int(r.get("ts", 0))
                     lines.append("")
-                    lines.append(f"Since tracking: ${first_seen_price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}")
+                    lines.append(
+                        f"Since tracking: ${first_seen_price:.6f} @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(first_seen_ts))}"
+                    )
         except Exception:
             pass
-    
+
     return "\n".join(lines)
+
 
 def _clean_symbol(s: str) -> str | None:
     """Normalize tickers: uppercase, alnum+_ only, trimmed to 12 chars."""
@@ -2214,40 +2798,48 @@ def _clean_symbol(s: str) -> str | None:
         return None
     s = s.strip().upper()
     # common junk removal
-    s = s.replace("$","").replace("·","").replace("•","")
+    s = s.replace("$", "").replace("·", "").replace("•", "")
     # keep A-Z0-9 and underscore
     import re
+
     s = re.sub(r"[^A-Z0-9_]", "", s)
     s = s[:12]
     return s or None
+
 
 def _clean_name(s: str) -> str | None:
     """Normalize marketing names; keep a readable proper name only."""
     if not s or not isinstance(s, str):
         return None
-    s = s.replace("\u200b","").replace("\ufeff","").strip()
+    s = s.replace("\u200b", "").replace("\ufeff", "").strip()
     import re
+
     low = s.lower()
-    low = re.sub(r'^\s*the\s+', '', low)               # drop leading "the "
-    low = re.sub(r'\s+(coin|token)$', '', low)         # drop trailing generic
-    low = re.sub(r'\s*[\(\[][^)\]]{1,32}[\)\]]\s*$', '', low)  # drop tail ()/[]
-    low = re.sub(r'\s+', ' ', low).strip()
+    low = re.sub(r"^\s*the\s+", "", low)  # drop leading "the "
+    low = re.sub(r"\s+(coin|token)$", "", low)  # drop trailing generic
+    low = re.sub(r"\s*[\(\[][^)\]]{1,32}[\)\]]\s*$", "", low)  # drop tail ()/[]
+    low = re.sub(r"\s+", " ", low).strip()
     cleaned = low.title()
     return (cleaned or None)[:64]
+
 
 def _load_token_cache() -> dict:
     try:
         import json
+
         return json.load(open(TOKEN_NAME_CACHE))
     except Exception:
         return {}
 
+
 def _save_token_cache(cache: dict) -> None:
     import json
+
     try:
         json.dump(cache, open(TOKEN_NAME_CACHE, "w"))
     except Exception:
         pass
+
 
 # Back-compat: old cache sometimes stored just {"name": "..."}
 def _coerce_cache_entry(ent) -> dict:
@@ -2259,16 +2851,20 @@ def _coerce_cache_entry(ent) -> dict:
     out = {"primary": None, "secondary": ent.get("name"), "ts": ent.get("ts")}
     return out
 
+
 def _token_labels(mint: str) -> tuple[str | None, str | None]:
     """
     Resolve (primary, secondary) = (ticker, full name).
     Caches {'primary','secondary','ts'} for 7 days.
     """
-    import os, time, requests, json
+    import os
+    import time
+
+
     now = int(time.time())
     cache = _load_token_cache()
     ent = _coerce_cache_entry(cache.get(mint) or {})
-    if ent and now - int(ent.get("ts") or 0) < 7*24*3600:
+    if ent and now - int(ent.get("ts") or 0) < 7 * 24 * 3600:
         return ent.get("primary"), ent.get("secondary")
 
     # Special-case SOL
@@ -2283,30 +2879,30 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
 
     # Birdeye v3
     try:
-        api = os.getenv("BIRDEYE_API_KEY","")
+        api = os.getenv("BIRDEYE_API_KEY", "")
         if api:
             h = {"X-API-KEY": api, "X-Chain": "solana"}
             url = "https://public-api.birdeye.so/defi/v3/token/market-data"
-            r = _get(url, params={"address": mint, "chain":"solana"}, headers=h, timeout=(5,10))
+            r = _get(url, params={"address": mint, "chain": "solana"}, headers=h, timeout=(5, 10))
             if r.status_code == 200:
                 data = r.json().get("data") or {}
                 ti = data.get("token_info") or {}
                 secondary = _clean_name(ti.get("name") or data.get("name") or "") or secondary
-                primary   = _clean_symbol(ti.get("symbol") or "") or primary
+                primary = _clean_symbol(ti.get("symbol") or "") or primary
     except Exception:
         pass
 
     # Dexscreener
     if not primary or not secondary:
         try:
-            r = _get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5,10))
+            r = _get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
             if r.status_code == 200:
                 js = r.json() or {}
                 pairs = js.get("pairs") or []
                 if pairs:
                     bt = (pairs[0] or {}).get("baseToken") or {}
                     secondary = _clean_name(bt.get("name") or "") or secondary
-                    primary   = _clean_symbol(bt.get("symbol") or "") or primary
+                    primary = _clean_symbol(bt.get("symbol") or "") or primary
         except Exception:
             pass
 
@@ -2314,7 +2910,8 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     if not primary and secondary:
         # synthesize ticker from secondary (first word upcased alnum)
         import re
-        primary = _clean_symbol(re.sub(r'\s.*$', '', secondary))
+
+        primary = _clean_symbol(re.sub(r"\s.*$", "", secondary))
     if not secondary and primary:
         secondary = primary  # better than None
     if not primary and not secondary:
@@ -2325,7 +2922,8 @@ def _token_labels(mint: str) -> tuple[str | None, str | None]:
     _save_token_cache(cache)
     return primary, secondary
 
-def resolve_token_name(mint: str, refresh: bool=False) -> str:
+
+def resolve_token_name(mint: str, refresh: bool = False) -> str:
     """
     Returns a display string used by render_about_list:
     - If both present: 'PRIMARY\nSECONDARY'
@@ -2344,18 +2942,24 @@ def resolve_token_name(mint: str, refresh: bool=False) -> str:
     if not refresh:
         p0, s0 = _name_overrides_get(mint)
         if p0 or s0:
-            return f"{p0}\n{s0}" if (p0 and s0 and s0.upper()!=p0) else (p0 or s0)
+            return f"{p0}\n{s0}" if (p0 and s0 and s0.upper() != p0) else (p0 or s0)
 
     # 3) Cached value next
     cache = _load_json_safe(NAME_CACHE_FILE)
     if not refresh and isinstance(cache.get(mint), dict):
         p, s = cache[mint].get("primary"), cache[mint].get("secondary")
         if p or s:
-            return f"{p}\n{s}" if (p and s and s.upper()!=p) else (p or s)
+            return f"{p}\n{s}" if (p and s and s.upper() != p) else (p or s)
 
     # 4) Probe live sources + Jupiter catalog
     cands = []
-    for fn in (_name_from_jupiter, _name_from_birdeye, _name_from_dexscreener, _name_from_solscan, _name_from_jup_catalog):
+    for fn in (
+        _name_from_jupiter,
+        _name_from_birdeye,
+        _name_from_dexscreener,
+        _name_from_solscan,
+        _name_from_jup_catalog,
+    ):
         try:
             cands.append(fn(mint))
         except Exception:
@@ -2363,8 +2967,8 @@ def resolve_token_name(mint: str, refresh: bool=False) -> str:
 
     # 5) Pick best
     valid_cands = [c for c in cands if c is not None and isinstance(c, tuple)]
-    primary = next((p for p,s in valid_cands if p), None)
-    secondary = next((s for p,s in valid_cands if s), None)
+    primary = next((p for p, s in valid_cands if p), None)
+    secondary = next((s for p, s in valid_cands if s), None)
 
     # 6) If still no symbol, derive one from secondary (heuristic)
     if not primary and secondary:
@@ -2381,7 +2985,8 @@ def resolve_token_name(mint: str, refresh: bool=False) -> str:
     # 8) Cache & return
     cache[mint] = {"primary": primary, "secondary": secondary, "ts": int(time.time())}
     _save_json_safe(NAME_CACHE_FILE, cache)
-    return f"{primary}\n{secondary}" if (secondary and secondary.upper()!=primary) else primary
+    return f"{primary}\n{secondary}" if (secondary and secondary.upper() != primary) else primary
+
 
 def _alert_label(mint: str) -> str:
     p, s = _token_labels(mint)
@@ -2390,9 +2995,11 @@ def _alert_label(mint: str) -> str:
         base = f"{p} — {s}"
     return f"{base} ({_short(mint)})"
 
+
 # Standard token label for alerts: "<Name> (<So11..1112>)"
 def _token_label(mint: str) -> str:
     return _alert_label(mint)
+
 
 # Enhanced alert hook using the new resolver
 def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
@@ -2417,13 +3024,14 @@ def post_watch_alert_enhanced(mint, price, base_price, source, chat_id=None):
     except Exception as e:
         print(f"Enhanced alert error: {e}")
         return False
+
+
 # ---------------------------------------------------------------------------
 
 # --- BEGIN: alerts HTML sender ---
-import time, requests
-from html import escape as _h
 
 ALERTS_API_LOG = "/tmp/alerts_send_api.log"
+
 
 def _alerts_send_html(chat_id: int, text: str):
     try:
@@ -2445,15 +3053,21 @@ def _alerts_send_html(chat_id: int, text: str):
             f.write(f"{int(time.time())} EXC {type(e).__name__}: {e}\n")
         return False
 
+
 # --- END: alerts HTML sender ---
+
 
 def _format_price_alert_html(mint: str, price: float, base: float, delta_pct: float, src: str):
     return _format_price_alert_card(mint, price, base, delta_pct, src, up=delta_pct >= 0)
 
-def _alerts_try_send(chat_id: int, mint: str, price: float, base: float, delta_pct: float, src: str):
+
+def _alerts_try_send(
+    chat_id: int, mint: str, price: float, base: float, delta_pct: float, src: str
+):
     text = _format_price_alert_html(mint, price, base, delta_pct, src)
     _record_price(mint, price, src)
     return _alerts_send_html(chat_id, text)
+
 
 # ---- Background ticker functions ----
 def watch_tick_internal() -> str:
@@ -2461,31 +3075,30 @@ def watch_tick_internal() -> str:
     Do exactly what /watch_tick currently does, but just return the markdown text.
     This MUST still call _post_watch_alert_hook(...) for each checked mint.
     """
-    import json, time
-    
+
     # Load watchlist and configuration
     try:
         wl = _load_watchlist()
     except:
         wl = []
-    
+
     base = _load_baseline()
     checked = 0
     alerts = 0
     out_lines = []
-    
+
     for raw in wl:
         mint = raw.get("mint") if isinstance(raw, dict) else (raw if isinstance(raw, str) else "")
         if not mint:
             continue
-            
+
         checked += 1
-        
+
         # Get real price with fallback chain
         r = _price_lookup_any(mint)
         last_price = float(r.get("price") or 0.0)
         source = r.get("source") or "n/a"
-        
+
         # Compute Δ vs baseline for display
         bl = base.get(mint)
         baseline_price = None
@@ -2497,17 +3110,19 @@ def watch_tick_internal() -> str:
                 delta_pct = 0.0
         else:
             delta_pct = 0.0
-        
+
         # Colorized triangle based on price movement
         if baseline_price is not None and last_price > 0:
             tri = "🟢▲" if last_price >= baseline_price else "🔴▼"
         else:
             tri = "△"
-        
+
         # Display line with colorized arrow, token label, and real baseline delta
         token_label = _token_label(mint)
-        out_lines.append(f"- {token_label} {tri} last=${last_price:.6f} Δ={delta_pct:+.4%} src={source}")
-        
+        out_lines.append(
+            f"- {token_label} {tri} last=${last_price:.6f} Δ={delta_pct:+.4%} src={source}"
+        )
+
         # Only call alert hook if we have a real price
         if last_price > 0:
             try:
@@ -2517,16 +3132,20 @@ def watch_tick_internal() -> str:
             except Exception as e:
                 # avoid using a local 'logging' name in this scope
                 import logging as pylog
+
                 pylog.exception("watch alert hook failed for %s: %s", mint, e)
-    
+
     body = "\n".join(out_lines) if out_lines else "(no items)"
     return f"🔁 *Watch tick*\nChecked: {checked} • Alerts: {alerts}\n{body}"
 
+
 # Old ticker functions removed - replaced by improved alerts_auto_* functions
+
 
 # ---- New improved background ticker functions ----
 def _alerts_ticker_loop():
-    import time, logging
+    import logging
+
     while not ALERTS_TICK_STOP.is_set():
         try:
             _ = watch_tick_internal()  # triggers alert hook
@@ -2538,8 +3157,11 @@ def _alerts_ticker_loop():
             # Sleep briefly on error to avoid rapid retry
             _time.sleep(5)
 
+
 def alerts_auto_on(seconds: int | None = None):
-    import threading, logging
+    import logging
+    import threading
+
     global ALERTS_TICK_THREAD, ALERTS_TICK_STOP, ALERTS_TICK_INTERVAL
     if seconds is not None:
         ALERTS_TICK_INTERVAL = max(5, int(seconds))
@@ -2549,14 +3171,18 @@ def alerts_auto_on(seconds: int | None = None):
         logging.info("ALERTS_TICK already running; interval=%ss", ALERTS_TICK_INTERVAL)
         return
     ALERTS_TICK_STOP.clear()
-    ALERTS_TICK_THREAD = threading.Thread(target=_alerts_ticker_loop, daemon=True, name="alerts_ticker")
+    ALERTS_TICK_THREAD = threading.Thread(
+        target=_alerts_ticker_loop, daemon=True, name="alerts_ticker"
+    )
     ALERTS_TICK_THREAD.start()
     logger.info(f"ALERTS_TICK started interval={_alerts_interval_get()}s")
     _alerts_mark_tick()
     _alerts_set_on(True)  # update state flag
 
+
 def alerts_auto_off():
     import logging
+
     global ALERTS_TICK_THREAD
     if ALERTS_TICK_STOP:
         ALERTS_TICK_STOP.set()
@@ -2565,14 +3191,12 @@ def alerts_auto_off():
         ALERTS_TICK_THREAD = None
     _alerts_set_on(False)  # update state flag
 
+
 def alerts_auto_status() -> dict:
     alive = bool(ALERTS_TICK_THREAD and ALERTS_TICK_THREAD.is_alive())
     last_tick_ts = _alerts_last_tick()
-    return {
-        "alive": alive, 
-        "interval_sec": int(_alerts_interval_get()),
-        "last_tick": last_tick_ts
-    }
+    return {"alive": alive, "interval_sec": int(_alerts_interval_get()), "last_tick": last_tick_ts}
+
 
 def _active_price_source():
     """Read what /source set; default to birdeye"""
@@ -2581,6 +3205,7 @@ def _active_price_source():
             return f.read().strip() or "birdeye"
     except Exception:
         return "birdeye"
+
 
 def _price_lookup_any(mint: str):
     """Try active -> birdeye -> dex -> sim with fallback chain"""
@@ -2594,43 +3219,67 @@ def _price_lookup_any(mint: str):
             pass
     return {"ok": False, "price": 0.0, "source": "n/a"}
 
+
 def _alerts_cfg():
     # existing file is alerts_config.json
     return _load_json("alerts_config.json") or {
-        "chat_id": None, "min_move_pct": 1.0, "rate_per_min": 30,
-        "muted": False, "muted_until": 0
+        "chat_id": None,
+        "min_move_pct": 1.0,
+        "rate_per_min": 30,
+        "muted": False,
+        "muted_until": 0,
     }
+
 
 # --- BEGIN ALERTS PATCH (drop anywhere near other helpers) ---
 ALERTS_CFG_FILE = "alerts_config.json"
 ALERTS_BASELINE_FILE = "alerts_price_baseline.json"
 PRICE_SOURCE_FILE = "price_source.json"
 
+
 def _load_alerts_cfg():
     import json
-    cfg = {"chat_id": None, "min_move_pct": 1.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
-    try: cfg.update(json.load(open(ALERTS_CFG_FILE)))
-    except FileNotFoundError: pass
+
+    cfg = {
+        "chat_id": None,
+        "min_move_pct": 1.0,
+        "rate_per_min": 5,
+        "muted_until": 0,
+        "muted": False,
+    }
+    try:
+        cfg.update(json.load(open(ALERTS_CFG_FILE)))
+    except FileNotFoundError:
+        pass
     cfg["min_move_pct"] = float(cfg.get("min_move_pct", 1.0))
     cfg["rate_per_min"] = int(cfg.get("rate_per_min", 5))
     cfg["muted_until"] = int(cfg.get("muted_until", 0))
     cfg["muted"] = bool(cfg.get("muted", False))
     return cfg
 
+
 def _alerts_recent_log():
     import json
-    try: return json.load(open("alerts_send_log.json")).get("events", [])
-    except: return []
+
+    try:
+        return json.load(open("alerts_send_log.json")).get("events", [])
+    except:
+        return []
+
 
 def _alerts_record_send(now_ts: int):
-    import json, time
+    import json
+
     fn = "alerts_send_log.json"
-    try: log = json.load(open(fn))
-    except: log = {"events":[]}
+    try:
+        log = json.load(open(fn))
+    except:
+        log = {"events": []}
     log["events"] = [t for t in log.get("events", []) if now_ts - t < 300]
     log["events"].append(now_ts)
-    json.dump(log, open(fn,"w"))
+    json.dump(log, open(fn, "w"))
     return log["events"]
+
 
 def _alerts_can_send(cfg, now_ts, recent_log):
     if cfg["muted"] or now_ts < cfg["muted_until"]:
@@ -2642,22 +3291,33 @@ def _alerts_can_send(cfg, now_ts, recent_log):
         return False, f"rate({len(recent)}/{allowed})"
     return True, ""
 
+
 def _alert_baseline_get(mint):
     import json
-    try: base = json.load(open(ALERTS_BASELINE_FILE))
-    except FileNotFoundError: base = {}
+
+    try:
+        base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError:
+        base = {}
     return base.get(mint)
 
+
 def _alert_baseline_set(mint, price, src="watch"):
-    import json, time
-    try: base = json.load(open(ALERTS_BASELINE_FILE))
-    except FileNotFoundError: base = {}
+    import json
+    import time
+
+    try:
+        base = json.load(open(ALERTS_BASELINE_FILE))
+    except FileNotFoundError:
+        base = {}
     base[mint] = {"price": float(price), "ts": int(time.time()), "src": src}
-    json.dump(base, open(ALERTS_BASELINE_FILE,"w"))
+    json.dump(base, open(ALERTS_BASELINE_FILE, "w"))
+
 
 def _post_watch_alert_hook(mint: str, price: float, src: str):
     """Enhanced alert hook with colored arrows, no-price guard, clear trace"""
     import logging as pylog  # avoid name clash
+
     TRACE = "/tmp/alerts_debug.log"
     cfg = _load_alerts_cfg()
     chat_id = cfg.get("chat_id")
@@ -2670,7 +3330,9 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
     if not price or price <= 0:
         try:
             with open(TRACE, "a") as f:
-                f.write(f"{now} mint={mint[:12]}.. price=0 base=? Δ=? src={src} chat={chat_id} -> no-price\n")
+                f.write(
+                    f"{now} mint={mint[:12]}.. price=0 base=? Δ=? src={src} chat={chat_id} -> no-price\n"
+                )
         except Exception:
             pass
         return {"ok": False, "reason": "no-price"}
@@ -2716,8 +3378,10 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
     # Trace
     try:
         with open(TRACE, "a") as f:
-            f.write(f"{now} mint={mint[:12]}.. price={price:.6f} base={base_price} Δ={delta_pct} src={src} "
-                    f"chat={chat_id} min_move={min_move} rate={rate_per_min}/min muted={muted} -> {reason}\n")
+            f.write(
+                f"{now} mint={mint[:12]}.. price={price:.6f} base={base_price} Δ={delta_pct} src={src} "
+                f"chat={chat_id} min_move={min_move} rate={rate_per_min}/min muted={muted} -> {reason}\n"
+            )
     except Exception:
         pass
 
@@ -2733,8 +3397,10 @@ def _post_watch_alert_hook(mint: str, price: float, src: str):
     # Always refresh baseline if we had a real price
     base[mint] = {"price": float(price), "ts": now, "src": src}
     _save_baseline(base)
-    
+
     return {"ok": True, "alerted": should_alert, "delta_pct": delta_pct, "reason": reason}
+
+
 # --- END ALERTS PATCH ---
 
 # Disable scanners by default for the poller process.
@@ -2746,13 +3412,17 @@ BIRDEYE_BASE = "https://public-api.birdeye.so"
 
 # ── API Helper Functions for Multi-Window Price Changes ──
 
+
 def birdeye_req(endpoint: str, params: dict = None) -> dict | None:
     """Make authenticated request to Birdeye API"""
-    import os, requests
+    import os
+
+    import requests
+
     api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not api_key:
         return None
-    
+
     try:
         headers = {"X-API-KEY": api_key, "X-Chain": "solana"}
         url = f"{BIRDEYE_BASE}{endpoint}"
@@ -2763,9 +3433,11 @@ def birdeye_req(endpoint: str, params: dict = None) -> dict | None:
         pass
     return None
 
+
 def dexscreener_token(mint: str) -> dict | None:
     """Get best DexScreener pair by liquidity for a token"""
     import requests
+
     try:
         r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{mint}", timeout=(5, 10))
         if r.status_code == 200:
@@ -2778,7 +3450,7 @@ def dexscreener_token(mint: str) -> dict | None:
                     liq = (p.get("liquidity") or {}).get("usd")
                     if isinstance(liq, (int, float)) and liq > 0:
                         pairs_with_liq.append((liq, p))
-                
+
                 if pairs_with_liq:
                     pairs_with_liq.sort(key=lambda x: x[0], reverse=True)
                     return pairs_with_liq[0][1]  # Return the pair with highest liquidity
@@ -2787,6 +3459,7 @@ def dexscreener_token(mint: str) -> dict | None:
     except Exception:
         pass
     return None
+
 
 def get_token_changes(mint: str) -> dict:
     """
@@ -2797,15 +3470,14 @@ def get_token_changes(mint: str) -> dict:
 
     # --- Birdeye primary (v3 market-data) ---
     # GET /defi/v3/token/market-data?address=<mint>&chain=solana
-    b = birdeye_req("/defi/v3/token/market-data",
-                    {"address": mint, "chain": "solana"})
+    b = birdeye_req("/defi/v3/token/market-data", {"address": mint, "chain": "solana"})
     if b and b.get("data"):
         d = b["data"]
         # Accept any of these keys if present; some tokens omit a few.
         keymap = {
             "m30": ["priceChange30mPercent", "price_change_30m_percent"],
-            "h1":  ["priceChange1hPercent",  "price_change_1h_percent"],
-            "h4":  ["priceChange4hPercent",  "price_change_4h_percent"],
+            "h1": ["priceChange1hPercent", "price_change_1h_percent"],
+            "h4": ["priceChange4hPercent", "price_change_4h_percent"],
             "h12": ["priceChange12hPercent", "price_change_12h_percent"],
             "h24": ["priceChange24hPercent", "price_change_24h_percent"],
         }
@@ -2822,11 +3494,11 @@ def get_token_changes(mint: str) -> dict:
     # --- DexScreener fallback for any missing fields ---
     # GET https://api.dexscreener.com/latest/dex/tokens/<mint>
     # Pick the top pair by liquidity; fields live in pair["priceChange"]
-    missing = [k for k,v in out.items() if v is None]
+    missing = [k for k, v in out.items() if v is None]
     if missing:
         dx = dexscreener_token(mint)  # <- implement if not present; returns best pair dict or None
         if dx:
-            pc = (dx.get("priceChange") or {})
+            pc = dx.get("priceChange") or {}
             # DexScreener has m5, m15, m30, h1, h6, h24.
             if "m30" in missing and pc.get("m30") not in (None, "N/A"):
                 out["m30"] = float(pc["m30"])
@@ -2847,6 +3519,7 @@ def get_token_changes(mint: str) -> dict:
 
     return out
 
+
 # --- Alerts wiring: price→group hook (lightweight & safe) --------------------
 # Persists last seen price per mint; honors your alerts_config.json thresholds.
 ALERTS_CFG_PATH = os.getenv("ALERTS_CFG_PATH", "alerts_config.json")
@@ -2858,19 +3531,21 @@ _PRICE_BLOCK_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+
 def _alerts_load_cfg():
     try:
-        with open(ALERTS_CFG_PATH, "r") as f:
+        with open(ALERTS_CFG_PATH) as f:
             cfg = json.load(f)
     except Exception:
         cfg = {}
     # sane defaults
     cfg.setdefault("chat_id", None)
-    cfg.setdefault("min_move_pct", 0.0)     # %; set with /alerts_minmove
-    cfg.setdefault("rate_per_min", 60)      # max sends / minute
-    cfg.setdefault("muted_until", 0)        # epoch seconds
-    cfg.setdefault("sent_log", [])          # timestamps of recent sends
+    cfg.setdefault("min_move_pct", 0.0)  # %; set with /alerts_minmove
+    cfg.setdefault("rate_per_min", 60)  # max sends / minute
+    cfg.setdefault("muted_until", 0)  # epoch seconds
+    cfg.setdefault("sent_log", [])  # timestamps of recent sends
     return cfg
+
 
 def _alerts_save_cfg(cfg):
     try:
@@ -2879,12 +3554,14 @@ def _alerts_save_cfg(cfg):
     except Exception:
         pass
 
+
 def _baseline_load():
     try:
-        with open(ALERTS_BASE_PATH, "r") as f:
+        with open(ALERTS_BASE_PATH) as f:
             return json.load(f)
     except Exception:
         return {}
+
 
 def _baseline_save(obj):
     try:
@@ -2892,6 +3569,7 @@ def _baseline_save(obj):
             json.dump(obj, f, indent=2)
     except Exception:
         pass
+
 
 def _alerts_allowed(cfg, now):
     # mute?
@@ -2905,13 +3583,16 @@ def _alerts_allowed(cfg, now):
     cfg["sent_log"] = sent
     return True
 
+
 def _alerts_record_send(cfg, now):
     cfg.setdefault("sent_log", []).append(now)
     _alerts_save_cfg(cfg)
 
+
 def _alerts_emit(text, force=False):
     """Send to configured alerts chat (respects mute/rate unless force=True)."""
     from app import tg_send  # reuse unified sender
+
     cfg = _alerts_load_cfg()
     chat_id = cfg.get("chat_id")
     if not chat_id:
@@ -2923,6 +3604,7 @@ def _alerts_emit(text, force=False):
     if success:
         _alerts_record_send(cfg, now)
     return success
+
 
 def _maybe_alert_from_price(mint, price, source):
     """Compare to baseline & alert if move >= min_move_pct."""
@@ -2955,6 +3637,7 @@ def _maybe_alert_from_price(mint, price, source):
         logger.warning("alert hook error: %s", e)
         return False
 
+
 def _post_price_alert_hook(update, out):
     """Inspect router reply; if it's a /price block, parse & maybe alert."""
     try:
@@ -2969,15 +3652,18 @@ def _post_price_alert_hook(update, out):
         logger.debug("price hook skip: %s", e)
     return out
 
+
 # --- Price source persistence helpers ---
 PRICE_SOURCE_FILE = "./data/price_source.txt"
 
+
 def _read_price_source():
     try:
-        s = open(PRICE_SOURCE_FILE, "r").read().strip().lower()
+        s = open(PRICE_SOURCE_FILE).read().strip().lower()
         return s if s in ("sim", "dex", "birdeye") else "sim"
     except Exception:
         return "sim"
+
 
 def _write_price_source(s: str):
     try:
@@ -2986,31 +3672,36 @@ def _write_price_source(s: str):
     except Exception:
         pass
 
+
 # ---------- Alerts routing (group) ----------
 ALERTS_CFG_FILE = "alerts_config.json"
 _ALERTS_RATE_STATE = {"window_start": 0, "count": 0}  # in-memory per-process
 
+
 def _alerts_defaults():
     return {
-        "chat_id": None,          # int telegram chat id for alerts
-        "rate_per_min": 60,       # max alerts per minute
-        "min_move_pct": 0.0,      # informational threshold (hook scanners later)
-        "muted_until": None,      # ISO8601 string or None
+        "chat_id": None,  # int telegram chat id for alerts
+        "rate_per_min": 60,  # max alerts per minute
+        "min_move_pct": 0.0,  # informational threshold (hook scanners later)
+        "muted_until": None,  # ISO8601 string or None
     }
+
 
 def _alerts_load():
     try:
-        with open(ALERTS_CFG_FILE, "r") as f:
+        with open(ALERTS_CFG_FILE) as f:
             data = json.load(f)
             return {**_alerts_defaults(), **data}
     except Exception:
         return _alerts_defaults()
+
 
 def _alerts_save(cfg):
     tmp = {**_alerts_defaults(), **(cfg or {})}
     with open(ALERTS_CFG_FILE, "w") as f:
         json.dump(tmp, f, indent=2)
     return tmp
+
 
 def _alerts_is_muted(cfg):
     mu = cfg.get("muted_until")
@@ -3021,14 +3712,17 @@ def _alerts_is_muted(cfg):
     except Exception:
         return False
 
+
 def _alerts_mute_for(cfg, seconds):
     until = datetime.now(timezone.utc) + timedelta(seconds=max(0, int(seconds)))
     cfg["muted_until"] = until.isoformat()
     return _alerts_save(cfg)
 
+
 def _alerts_unmute(cfg):
     cfg["muted_until"] = None
     return _alerts_save(cfg)
+
 
 def _parse_duration(s):
     # accepts "120s", "2m", "1h", "90" (seconds)
@@ -3045,6 +3739,7 @@ def _parse_duration(s):
         return max(0, int(float(s)))
     except Exception:
         return 0
+
 
 def _alerts_settings_text():
     cfg = _alerts_load()
@@ -3063,6 +3758,7 @@ def _alerts_settings_text():
         f"rate_per_min: {cfg.get('rate_per_min', 60)}\n"
         f"muted: {mu_txt}"
     )
+
 
 def alerts_send(text, force=False):
     """
@@ -3091,32 +3787,40 @@ def alerts_send(text, force=False):
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
         return {"ok": False, "description": "no bot token"}
-    
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": int(chat_id),
         "text": text,
         "parse_mode": "MarkdownV2",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": True,
     }
-    
+
     try:
-        import requests
+
         response = _post(url, json=payload, timeout=10)
-        return response.json() if response.status_code == 200 else {"ok": False, "description": f"HTTP {response.status_code}"}
+        return (
+            response.json()
+            if response.status_code == 200
+            else {"ok": False, "description": f"HTTP {response.status_code}"}
+        )
     except Exception as e:
         return {"ok": False, "description": str(e)}
 
+
 # --- Enhanced Watch State System: per-mint tracking with sophisticated rate limiting ---
+
 
 def _watch_state_load():
     """Load watch state with per-mint tracking."""
     return load_json(WATCH_STATE_PATH, {})
 
+
 def _watch_state_save(st):
     """Save watch state with per-mint tracking."""
     save_json(WATCH_STATE_PATH, st)
     return st
+
 
 def _alerts_can_send(now_ts: int, cfg: dict, st: dict, mint: str) -> tuple[bool, str]:
     """Enforce mute + global per-minute rate by tracking last N sent timestamps."""
@@ -3130,21 +3834,26 @@ def _alerts_can_send(now_ts: int, cfg: dict, st: dict, mint: str) -> tuple[bool,
         return False, f"rate>{rpm}/min"
     return True, ""
 
+
 def _alerts_mark_sent(now_ts: int, st: dict):
     """Mark timestamp of sent alert in global rate limiting bucket."""
     g = st.setdefault("_global", {"sent_ts": []})
     g["sent_ts"].append(now_ts)
 
-def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|None=None) -> tuple[bool, str]:
+
+def watch_eval_and_alert(
+    mint: str, price: float | None, src: str, now_ts: int | None = None
+) -> tuple[bool, str]:
     """
     Compare current price vs last baseline, send alert if |Δ| >= min_move_pct.
     Returns (alert_sent, note). Safe if price is None.
     """
     import time
+
     now_ts = now_ts or int(time.time())
     if price is None:
         return False, "no_price"
-    
+
     cfg = _load_alerts_cfg()  # Use existing enhanced config loader
     chat = cfg.get("chat_id")  # Use chat_id key from existing system
     min_move = _as_float(cfg.get("min_move_pct"), 0.0)  # Use enhanced float parser
@@ -3188,7 +3897,7 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
         f"*Δ:* {delta_pct:+.2f}%   *price:* ${price:.6f}\n"
         f"*src:* {src}"
     )
-    
+
     if chat:
         try:
             # Use existing alerts_send system for consistent behavior
@@ -3210,31 +3919,123 @@ def watch_eval_and_alert(mint: str, price: float|None, src: str, now_ts: int|Non
         _watch_state_save(st)
         return False, "no_chat"
 
+
 # Define all commands at module scope to avoid UnboundLocalError
 ALL_COMMANDS = [
-    "/help", "/ping", "/info", "/about", "/alert", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/supply", "/fdv", "/holders", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/whoami", "/id", "/buy", "/sell", "/trades", "/trades_clear", "/trades_csv", "/status", "/uptime",
-    "/wallet", "/wallet_new", "/wallet_addr", "/wallet_balance", "/wallet_balance_usd", 
-    "/wallet_link", "/wallet_deposit_qr", "/wallet_qr", "/wallet_reset", "/wallet_reset_cancel", 
-    "/wallet_fullcheck", "/wallet_export", "/solscanstats", "/config_update", "/config_show", 
-    "/scanner_on", "/scanner_off", "/threshold", "/watch", "/unwatch", "/watchlist", "/watchlist_detail", "/watch_tick", "/watch_off", "/watch_clear", "/watch_debug",
-    "/autosell_on", "/autosell_off", "/autosell_status", 
-    "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
-    "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo", "/alerts_settings", 
-    "/alerts_to_here", "/alerts_setchat", "/alerts_rate", "/alerts_minmove",
-    "/alerts_mute", "/alerts_unmute", "/alerts_on", "/alerts_off", "/alerts_test", "/alerts_preview",
-    "/alerts_auto_on", "/alerts_auto_off", "/alerts_auto_status", "/alerts_auto_toggle",
-    "/scanners_status", "/scanners_on", "/scanners_off",
-    "/watch_test_enhanced", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test",
-    "/name", "/name_refresh", "/name_refetch_jup", "/name_set", "/name_show", "/name_clear",
-    "/watch", "/unwatch", "/watchlist", "/watch_clear"
+    "/help",
+    "/ping",
+    "/info",
+    "/about",
+    "/alert",
+    "/test123",
+    "/commands",
+    "/debug_cmd",
+    "/version",
+    "/source",
+    "/price",
+    "/convert",
+    "/mint_for",
+    "/symbol_for",
+    "/links",
+    "/liquidity",
+    "/marketcap",
+    "/volume",
+    "/supply",
+    "/fdv",
+    "/holders",
+    "/quote",
+    "/fetch",
+    "/fetch_now",
+    "/fetchnow",
+    "/whoami",
+    "/id",
+    "/buy",
+    "/sell",
+    "/trades",
+    "/trades_clear",
+    "/trades_csv",
+    "/status",
+    "/uptime",
+    "/wallet",
+    "/wallet_new",
+    "/wallet_addr",
+    "/wallet_balance",
+    "/wallet_balance_usd",
+    "/wallet_link",
+    "/wallet_deposit_qr",
+    "/wallet_qr",
+    "/wallet_reset",
+    "/wallet_reset_cancel",
+    "/wallet_fullcheck",
+    "/wallet_export",
+    "/solscanstats",
+    "/config_update",
+    "/config_show",
+    "/scanner_on",
+    "/scanner_off",
+    "/threshold",
+    "/watch",
+    "/unwatch",
+    "/watchlist",
+    "/watchlist_detail",
+    "/watch_tick",
+    "/watch_off",
+    "/watch_clear",
+    "/watch_debug",
+    "/autosell_on",
+    "/autosell_off",
+    "/autosell_status",
+    "/autosell_interval",
+    "/autosell_set",
+    "/autosell_list",
+    "/autosell_remove",
+    "/autosell_logs",
+    "/autosell_dryrun",
+    "/autosell_ruleinfo",
+    "/alerts_settings",
+    "/alerts_to_here",
+    "/alerts_setchat",
+    "/alerts_rate",
+    "/alerts_minmove",
+    "/alerts_mute",
+    "/alerts_unmute",
+    "/alerts_on",
+    "/alerts_off",
+    "/alerts_test",
+    "/alerts_preview",
+    "/alerts_auto_on",
+    "/alerts_auto_off",
+    "/alerts_auto_status",
+    "/alerts_auto_toggle",
+    "/scanners_status",
+    "/scanners_on",
+    "/scanners_off",
+    "/watch_test_enhanced",
+    "/digest_status",
+    "/digest_time",
+    "/digest_on",
+    "/digest_off",
+    "/digest_test",
+    "/name",
+    "/name_refresh",
+    "/name_refetch_jup",
+    "/name_set",
+    "/name_show",
+    "/name_clear",
+    "/watch",
+    "/unwatch",
+    "/watchlist",
+    "/watch_clear",
 ]
-from config import DATABASE_URL, TELEGRAM_BOT_TOKEN, ASSISTANT_ADMIN_TELEGRAM_ID
+from config import TELEGRAM_BOT_TOKEN
 from events import BUS
+
 
 # Define publish function for compatibility
 def publish(topic: str, payload: dict):
     """Publish events to the new EventBus system."""
     return BUS.publish(topic, payload)
+
 
 # DIGEST config (persisted) — keep keys stable for upgrades
 try:
@@ -3242,8 +4043,10 @@ try:
 except NameError:
     DIGEST_CFG = {"enabled": False, "hh": 9, "mm": 30, "last_sent_date": None}
 
+
 def _utc_now():
     return datetime.utcnow()
+
 
 def _next_run_utc(now=None):
     now = now or _utc_now()
@@ -3252,6 +4055,7 @@ def _next_run_utc(now=None):
     candidate = datetime.combine(today, dtime(hh, mm))
     # If time today already passed, the next run is tomorrow
     return candidate if now <= candidate else candidate + timedelta(days=1)
+
 
 def _should_fire_digest(now=None, tolerance_sec=90):
     """
@@ -3272,9 +4076,11 @@ def _should_fire_digest(now=None, tolerance_sec=90):
     # fire if we're past trigger OR within tolerance window
     return (now >= trigger) or (0 <= (trigger - now).total_seconds() <= tolerance_sec)
 
+
 def _digest_scheduler():
     """Digest scheduler thread that runs in the background"""
     import time as _time
+
     while True:
         try:
             now = _utc_now()
@@ -3283,11 +4089,13 @@ def _digest_scheduler():
                 try:
                     # Basic digest content for now - can be enhanced later
                     note = "Scheduled digest"
-                    body = ("📰 *Daily Digest — {}*\n"
-                            "AutoSell: enabled=False alive=None interval=?s\n"
-                            "Rules: []\n"
-                            "Note: {}").format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
-                    
+                    body = (
+                        "📰 *Daily Digest — {}*\n"
+                        "AutoSell: enabled=False alive=None interval=?s\n"
+                        "Rules: []\n"
+                        "Note: {}"
+                    ).format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
+
                     if send_admin_md(body):
                         logger.info(f"[DIGEST] Sent scheduled digest at {now}")
                     else:
@@ -3300,6 +4108,7 @@ def _digest_scheduler():
         except Exception as e:
             logger.exception("digest scheduler error: %s", e)
         _time.sleep(20)  # tick every 20s for tighter tolerance
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Live Price Sources (Birdeye → DexScreener → Sim)
@@ -3315,11 +4124,13 @@ WATCH_CFG_PATH = "watchlist.json"
 WATCH_STATE_PATH = "watch_state.json"
 WATCH_RUN = {"enabled": True, "thread": None, "tick_secs": 15}
 
+
 def _watch_load():
     try:
-        return json.load(open(WATCH_CFG_PATH, "r"))
+        return json.load(open(WATCH_CFG_PATH))
     except Exception:
         return {"mints": []}
+
 
 def _watch_save(cfg):
     try:
@@ -3327,11 +4138,13 @@ def _watch_save(cfg):
     except Exception:
         pass
 
+
 def _watch_state_load():
     try:
-        return json.load(open(WATCH_STATE_PATH, "r"))
+        return json.load(open(WATCH_STATE_PATH))
     except Exception:
         return {"baseline": {}, "last": {}}
+
 
 def _watch_state_save(st):
     try:
@@ -3339,19 +4152,22 @@ def _watch_state_save(st):
     except Exception:
         pass
 
+
 def _pct(a, b):
     try:
         return (a - b) / b * 100.0
     except Exception:
         return 0.0
 
+
 def _as_float(x, default=0.0):
     try:
         if isinstance(x, str):
-            x = x.strip().rstrip('%').strip()
+            x = x.strip().rstrip("%").strip()
         return float(x)
     except (TypeError, ValueError):
         return default
+
 
 def _watch_alert(mint, price, src, pct_move, cfg_alerts):
     # honor mute & rate control via alerts_send()
@@ -3366,8 +4182,10 @@ def _watch_alert(mint, price, src, pct_move, cfg_alerts):
     except Exception:
         pass
 
+
 # --- Normalized watchlist helpers ---
 WATCHLIST_PATH = "watchlist.json"
+
 
 def _normalize_watch_item(item):
     # Accept legacy string entries and dicts; return a dict with stable keys
@@ -3382,24 +4200,30 @@ def _normalize_watch_item(item):
         }
     return {"mint": "", "last": None, "delta_pct": None, "src": None}
 
+
 def _load_watchlist():
-    import json, os
+    import json
+    import os
+
     if not os.path.exists(WATCHLIST_PATH):
         return []
     try:
-        data = json.load(open(WATCHLIST_PATH, "r"))
+        data = json.load(open(WATCHLIST_PATH))
     except Exception:
         return []
     if not isinstance(data, list):
         return []
     return [_normalize_watch_item(x) for x in data]
 
+
 def _save_watchlist(items):
     import json
+
     # Always write normalized dict items
     norm = [_normalize_watch_item(x) for x in items]
     with open(WATCHLIST_PATH, "w") as f:
         json.dump(norm, f, indent=2)
+
 
 def _watch_contains(wl, mint):
     for x in wl:
@@ -3407,24 +4231,34 @@ def _watch_contains(wl, mint):
             return True
     return False
 
+
 def _load_alerts_cfg():
-    import json, os, time
+    import json
+    import os
+
     path = "alerts_config.json"
-    base = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+    base = {
+        "chat_id": None,
+        "min_move_pct": 0.0,
+        "rate_per_min": 5,
+        "muted_until": 0,
+        "muted": False,
+    }
     if not os.path.exists(path):
         return base
     try:
-        cfg = json.load(open(path, "r"))
+        cfg = json.load(open(path))
         if not isinstance(cfg, dict):
             return base
         # normalize known keys
         cfg["min_move_pct"] = _as_float(cfg.get("min_move_pct"), 0.0)
         cfg["rate_per_min"] = int(_as_float(cfg.get("rate_per_min"), 5))
-        cfg["muted_until"]  = int(_as_float(cfg.get("muted_until"), 0))
-        cfg["muted"]        = bool(cfg.get("muted", False))
+        cfg["muted_until"] = int(_as_float(cfg.get("muted_until"), 0))
+        cfg["muted"] = bool(cfg.get("muted", False))
         return {**base, **cfg}
     except Exception:
         return base
+
 
 def watch_tick_once(send_alerts=False):
     """
@@ -3444,18 +4278,21 @@ def watch_tick_once(send_alerts=False):
         it = _normalize_watch_item(raw)
         mint = it.get("mint") or ""
         if not mint:
-            new_wl.append(it); continue
+            new_wl.append(it)
+            continue
 
         pref = load_current_source()
         info = get_price_with_preference(mint, pref)
         if not info or not info.get("ok"):
-            new_wl.append(it); continue
+            new_wl.append(it)
+            continue
 
         price = info.get("price")
         src = info.get("source", "n/a")
         logging.info(f"[watch_tick] mint={mint} preferred={pref} resolved_src={src} price={price}")
         if price is None:
-            new_wl.append(it); continue
+            new_wl.append(it)
+            continue
 
         checked += 1
 
@@ -3481,24 +4318,31 @@ def watch_tick_once(send_alerts=False):
                 if sent:
                     fired += 1
                 # Add detailed note to lines for debugging/monitoring
-                lines.append(f"   Alert: {_token_label(mint)} ${price:.6f} Δ={delta:+.2f}% src={src} note={note}")
-            except Exception as e:
+                lines.append(
+                    f"   Alert: {_token_label(mint)} ${price:.6f} Δ={delta:+.2f}% src={src} note={note}"
+                )
+            except Exception:
                 # Fallback to simple alert system
                 try:
-                    if 'alerts_send' in globals():
+                    if "alerts_send" in globals():
                         alerts_send(f"📈 {mint} {delta:+.2f}% price=${price:.6f} src={src}")
                         fired += 1
-                        lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=fallback_sent")
+                        lines.append(
+                            f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=fallback_sent"
+                        )
                 except Exception:
-                    lines.append(f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=failed")
+                    lines.append(
+                        f"   Alert: {mint[:10]}.. ${price:.6f} Δ={delta:+.2f}% src={src} note=failed"
+                    )
 
     _save_watchlist(new_wl)
     return checked, fired, lines
 
+
 def _watch_tick_once():
     """Legacy wrapper for backwards compatibility"""
     cfg = _watch_load()
-    st  = _watch_state_load()
+    st = _watch_state_load()
     if not cfg.get("mints"):
         return
     alerts_cfg = _alerts_load_cfg()
@@ -3509,9 +4353,9 @@ def _watch_tick_once():
             if not pr.get("ok"):
                 continue
             price = _as_float(pr["price"], 0.0)
-            src   = pr.get("source","?")
-            base  = st["baseline"].get(mint)
-            last  = st["last"].get(mint)
+            src = pr.get("source", "?")
+            base = st["baseline"].get(mint)
+            last = st["last"].get(mint)
             st["last"][mint] = price
             if base is None:
                 st["baseline"][mint] = price
@@ -3524,6 +4368,7 @@ def _watch_tick_once():
         finally:
             _watch_state_save(st)
 
+
 def _watch_loop():
     while WATCH_RUN.get("enabled", True):
         try:
@@ -3532,6 +4377,7 @@ def _watch_loop():
             pass
         time.sleep(WATCH_RUN.get("tick_secs", 15))
 
+
 def watch_start():
     if WATCH_RUN.get("thread"):
         return
@@ -3539,18 +4385,21 @@ def watch_start():
     WATCH_RUN["thread"] = t
     t.start()
 
+
 # simple 15s cache: key=(source,mint) -> {price,ts}
 _PRICE_CACHE = {}
 _PRICE_TTL_S = 15
 
 PRICE_SOURCE_PATH = "/tmp/mork_price_source"
 
+
 def load_current_source() -> str:
     try:
-        s = open(PRICE_SOURCE_PATH, "r").read().strip().lower()
-        return s if s in {"sim","dex","birdeye"} else "sim"
+        s = open(PRICE_SOURCE_PATH).read().strip().lower()
+        return s if s in {"sim", "dex", "birdeye"} else "sim"
     except Exception:
         return "sim"
+
 
 def get_price_with_preference(mint: str, preferred: str | None = None) -> dict:
     """
@@ -3558,44 +4407,52 @@ def get_price_with_preference(mint: str, preferred: str | None = None) -> dict:
     Returns: {ok: bool, price: float|None, source: str, cached: bool|None}
     """
     preferred = (preferred or load_current_source()).lower()
-    chain = [preferred] + [s for s in ("birdeye","dex","sim") if s != preferred]
+    chain = [preferred] + [s for s in ("birdeye", "dex", "sim") if s != preferred]
     last_src = preferred
     # NOTE: existing functions return dict format: {"ok": bool, "price": float, "source": str}
     for prov in chain:
         if prov == "birdeye":
             result = price_birdeye(mint)
         elif prov == "dex":
-            result = price_dexscreener(mint) if 'price_dexscreener' in globals() else {"ok": False}
+            result = price_dexscreener(mint) if "price_dexscreener" in globals() else {"ok": False}
         else:
             # sim always succeeds
             result = price_sim(mint)
-        
+
         if result.get("ok") and result.get("price") is not None:
             px = result["price"]
             # Check if this is the preferred source or a fallback
-            is_preferred = (prov == preferred)
-            is_sim_fallback = (prov == "sim" and preferred == "sim")
-            
+            is_preferred = prov == preferred
+            is_sim_fallback = prov == "sim" and preferred == "sim"
+
             if is_preferred or is_sim_fallback:
                 label = prov
             else:
                 label = f"{prov} (fallback from {preferred})"
-                
+
             return {"ok": True, "price": float(px), "source": label}
     # ultimate guard
-    return {"ok": True, "price": float(price_sim(mint)), "source": f"sim (fallback from {preferred})"}
+    return {
+        "ok": True,
+        "price": float(price_sim(mint)),
+        "source": f"sim (fallback from {preferred})",
+    }
+
 
 def _cache_get(src, mint):
     k = (src, mint)
     v = _PRICE_CACHE.get(k)
-    if not v: return None
+    if not v:
+        return None
     if time.time() - v["ts"] > _PRICE_TTL_S:
         _PRICE_CACHE.pop(k, None)
         return None
     return v["price"]
 
+
 def _cache_put(src, mint, price):
     _PRICE_CACHE[(src, mint)] = {"price": price, "ts": time.time()}
+
 
 def _read_price_source():
     try:
@@ -3607,6 +4464,7 @@ def _read_price_source():
         pass
     return "sim"
 
+
 def _write_price_source(s):
     try:
         if s in PRICE_VALID:
@@ -3616,13 +4474,13 @@ def _write_price_source(s):
         logger.exception("persist price source failed")
 
 
-
 # ── Price provider: Simulator (deterministic)
 def price_sim(mint):
     # Simple, deterministic pseudo-price per mint for testing
     h = int(hashlib.sha256(mint.encode()).hexdigest(), 16)
     cents = 100 + (h % 900)  # 1.00–9.99 dollars
     return {"ok": True, "price": cents / 10000.0, "source": "sim"}
+
 
 # ── Price provider: DexScreener
 def price_dex(mint, timeout=6):
@@ -3645,9 +4503,14 @@ def price_dex(mint, timeout=6):
     except Exception as e:
         return {"ok": False, "err": f"dex error: {e}"}
 
+
 # ── Price provider: Birdeye (requires BIRDEYE_API_KEY)
 def price_birdeye(mint: str):
-    import os, requests, math, json
+    import json
+    import os
+
+    import requests
+
     api_key = os.getenv("BIRDEYE_API_KEY", "").strip()
     if not api_key:
         return {"ok": False, "err": "birdeye missing api key"}
@@ -3661,6 +4524,7 @@ def price_birdeye(mint: str):
         "Accept": "application/json",
         "User-Agent": "fetch-bot/1.0",
     }
+
     def _req(path, params=None, multi=False):
         url = f"{base}{path}"
         qp = {"chain": "solana"}
@@ -3673,21 +4537,26 @@ def price_birdeye(mint: str):
             qp.update(params)
         r = sess.get(url, headers=headers, params=qp, timeout=8)
         body_snip = (r.text or "")[:120].replace("\n", " ")
-        print(f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp,separators=(',',':'))} body~={body_snip!r}")
+        print(
+            f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp,separators=(',',':'))} body~={body_snip!r}"
+        )
         if r.status_code != 200:
             return None
         try:
             return r.json()
         except Exception:
             return None
+
     def _extract_price(j):
-        if not j: return None
+        if not j:
+            return None
         d = j.get("data") or {}
-        for k in ("value","price","priceUsd","price_usd","market_price_usd"):
+        for k in ("value", "price", "priceUsd", "price_usd", "market_price_usd"):
             v = d.get(k)
             try:
                 f = float(v)
-                if math.isfinite(f) and f > 0: return f
+                if math.isfinite(f) and f > 0:
+                    return f
             except Exception:
                 pass
         # multi_price: {"data":{"<mint>":{"value":...}}}
@@ -3695,15 +4564,17 @@ def price_birdeye(mint: str):
         if isinstance(node, dict) and "value" in node:
             try:
                 f = float(node["value"])
-                if math.isfinite(f) and f > 0: return f
+                if math.isfinite(f) and f > 0:
+                    return f
             except Exception:
                 pass
         # v3 token market-data sometimes nests price-like fields
         if isinstance(d, dict):
-            for k,v in d.items():
-                if isinstance(v,(int,float)) and "price" in k and v>0:
+            for k, v in d.items():
+                if isinstance(v, (int, float)) and "price" in k and v > 0:
                     return float(v)
         return None
+
     for path, multi in [
         ("/defi/price", False),
         ("/public/price", False),
@@ -3716,6 +4587,7 @@ def price_birdeye(mint: str):
         if p:
             return {"ok": True, "price": p, "source": "birdeye"}
     return {"ok": False, "err": "birdeye all endpoints failed"}
+
 
 def get_price(mint, preferred=None):
     """
@@ -3734,7 +4606,7 @@ def get_price(mint, preferred=None):
     last_err = None
     for fn in chain:
         # cache check per function identity name (source tag)
-        tag = fn.__name__.replace("price_","")
+        tag = fn.__name__.replace("price_", "")
         cached = _cache_get(tag, mint)
         if cached is not None:
             return {"ok": True, "price": cached, "source": tag, "cached": True}
@@ -3745,14 +4617,14 @@ def get_price(mint, preferred=None):
         last_err = res.get("err")
     return {"ok": False, "err": last_err or "all providers failed"}
 
+
 import json
-import time
 import queue
-import hashlib
-from typing import Tuple
+import time
+
 # Import bot conditionally - disable if POLLING_MODE is set
-POLLING_MODE = os.environ.get('POLLING_MODE', 'OFF').upper()
-if POLLING_MODE == 'ON':
+POLLING_MODE = os.environ.get("POLLING_MODE", "OFF").upper()
+if POLLING_MODE == "ON":
     print("POLLING_MODE enabled - skipping mork_bot initialization")
     mork_bot = None
 else:
@@ -3764,8 +4636,7 @@ else:
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -3775,9 +4646,11 @@ _FALLBACK_TICKER_TO_MINT = {
     "SOL": "So11111111111111111111111111111111111111112",
 }
 
+
 def _looks_like_mint(s: str) -> bool:
     s = (s or "").strip()
     return 32 <= len(s) <= 44 and all(ch in _BASE58 for ch in s)
+
 
 def _iter_name_overrides():
     """
@@ -3791,7 +4664,8 @@ def _iter_name_overrides():
         if isinstance(tup, (list, tuple)) and len(tup) >= 2:
             yield m, str(tup[0]), str(tup[1])
         elif isinstance(tup, dict):
-            yield m, str(tup.get("ticker","")), str(tup.get("name",""))
+            yield m, str(tup.get("ticker", "")), str(tup.get("name", ""))
+
 
 def _ticker_to_mint(sym: str) -> str | None:
     """
@@ -3811,6 +4685,7 @@ def _ticker_to_mint(sym: str) -> str | None:
         return _FALLBACK_TICKER_TO_MINT[su]
     return None
 
+
 def _resolve_arg_to_mint(arg: str) -> str | None:
     """
     If arg looks like a base58 mint, return it. Otherwise attempt ticker->mint.
@@ -3818,6 +4693,7 @@ def _resolve_arg_to_mint(arg: str) -> str | None:
     if _looks_like_mint(arg):
         return arg.strip()
     return _ticker_to_mint(arg)
+
 
 # --- shared: turn a user arg into a mint + name bundle ---
 def _resolve_input_to_mint_and_name(user_arg: str):
@@ -3828,15 +4704,16 @@ def _resolve_input_to_mint_and_name(user_arg: str):
     that makes /price SOL work, then returns both the mint and resolved name.
     """
     arg = (user_arg or "").strip()
-    
+
     # Use the same logic used by /price to support ticker OR mint
     mint = _resolve_arg_to_mint(arg)
     if not mint:
         return (None, None)
-    
+
     # Get the resolved name using the same method as /price and /about
     name = resolve_token_name(mint)
     return (mint, name)
+
 
 # --- alerts auto state (runtime flag) ---
 try:
@@ -3844,9 +4721,11 @@ try:
 except NameError:
     _ALERTS_AUTO_STATE = False
 
+
 def _alerts_set_on(flag: bool):
     global _ALERTS_AUTO_STATE
     _ALERTS_AUTO_STATE = bool(flag)
+
 
 def _alerts_is_on() -> bool:
     # prefer live thread if present, else fallback to flag
@@ -3857,6 +4736,8 @@ def _alerts_is_on() -> bool:
     except Exception:
         pass
     return bool(globals().get("_ALERTS_AUTO_STATE", False))
+
+
 # --- end helpers ---
 
 # --- scanners runtime state & card ---
@@ -3865,17 +4746,20 @@ import os as _os
 try:
     _SCANNERS_ON
 except NameError:
-    _SCANNERS_ON = bool(int((_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0")))
+    _SCANNERS_ON = bool(int(_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0"))
+
 
 def _scanners_available() -> bool:
     try:
-        return bool(int((_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0")))
+        return bool(int(_os.getenv("FETCH_ENABLE_SCANNERS", "0") or "0"))
     except Exception:
         return False
+
 
 def _scanners_set_on(flag: bool):
     global _SCANNERS_ON
     _SCANNERS_ON = bool(flag)
+
 
 def _scanners_is_on() -> bool:
     if not bool(globals().get("_SCANNERS_ON", False)):
@@ -3886,22 +4770,29 @@ def _scanners_is_on() -> bool:
     except Exception:
         return False
 
+
 def _scanners_status_card() -> str:
     reg = globals().get("SCANNERS", {}) or {}
     state = "on" if _scanners_is_on() else ("off" if _scanners_available() else "unavailable")
     total = len(reg)
     active = total if _scanners_is_on() else 0
     keys = ", ".join(sorted(reg.keys())) if total else "—"
-    return "\n".join([
-        f"🛰 Scanners: `{state}`",
-        f"🔌 Active: `{active}` of `{total}`",
-        f"🔑 Keys: `{keys}`",
-    ])
+    return "\n".join(
+        [
+            f"🛰 Scanners: `{state}`",
+            f"🔌 Active: `{active}` of `{total}`",
+            f"🔑 Keys: `{keys}`",
+        ]
+    )
+
+
 # --- end scanners helpers ---
+
 
 # --- mini card for alerts auto status ---
 def _render_auto_status_card() -> str:
     import time as _t
+
     try:
         interval = int(_alerts_interval_get())
     except Exception:
@@ -3920,22 +4811,29 @@ def _render_auto_status_card() -> str:
         eta = "— | —"
 
     state = "on" if alive else "off"
-    return "\n".join([
-        "🧭 Auto: `{}`".format(state),
-        "⏳ Interval: `{}s`".format(interval),
-        "🕒 Last | Next: `{}`".format(eta),
-    ])
+    return "\n".join(
+        [
+            f"🧭 Auto: `{state}`",
+            f"⏳ Interval: `{interval}s`",
+            f"🕒 Last | Next: `{eta}`",
+        ]
+    )
+
+
 # --- end helper ---
 
 # --- content-aware dedupe for tg_send ---------------------------------------
 # content-aware de-dup memory: (chat_id, msg_hash) -> last_sent_ts
-_LAST_SENT: dict[Tuple[int, str], float] = {}
+_LAST_SENT: dict[tuple[int, str], float] = {}
+
 
 def _dedupe_recent(chat_id: int, text: str, ttl: float = 3.0) -> bool:
     """
     Return True if the exact same message text was sent to this chat within `ttl` seconds.
     """
-    import time, logging
+    import logging
+    import time
+
     h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
     key = (chat_id, h)
     now = time.time()
@@ -3951,45 +4849,65 @@ def _dedupe_recent(chat_id: int, text: str, ttl: float = 3.0) -> bool:
                 _LAST_SENT.pop(k, None)
     return False
 
+
 # --- Shared Telegram send with MarkdownV2 fallback (used by webhook & poller) ---
 def _escape_mdv2(text: str) -> str:
-    if text is None: return ""
+    if text is None:
+        return ""
     text = text.replace("\\", "\\\\")
     for ch in "_*[]()~`>#+-=|{}.!":
         text = text.replace(ch, f"\\{ch}")
     return text
 
-def tg_send(chat_id: int, text: str, parse_mode="MarkdownV2", preview=True, no_preview=False, force: bool = False):
+
+def tg_send(
+    chat_id: int,
+    text: str,
+    parse_mode="MarkdownV2",
+    preview=True,
+    no_preview=False,
+    force: bool = False,
+):
     """
     Telegram send with dual-layer deduplication: content-aware + cross-process.
     Uses in-memory hash for fast content deduplication and SQLite for cross-worker protection.
     """
     text = _tg_norm(text)
-    
+
     # Content-aware de-dup: skip identical text within 3s unless forced
     if not force and _dedupe_recent(chat_id, text, ttl=3.0):
         return {"ok": True, "deduped": True}
-    
+
     # Second layer: cross-process deduplication (SQLite-based) - also respect force flag
     if not force and _tg_dedup_hit_and_mark(chat_id, text):
-        logger.info("[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC)
+        logger.info(
+            "[SEND] deduped chat_id=%s within %ss (cross-proc)", chat_id, TG_DEDUP_WINDOW_SEC
+        )
         return {"ok": True, "deduped": True, "layer": "cross-process"}
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    if not token: 
+    if not token:
         logger.error("[SEND] Missing TELEGRAM_BOT_TOKEN")
         return {"ok": False, "error": "no_token"}
-    
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
     def _try_send(mode, body):
         try:
-            p = {"chat_id": chat_id, "text": body, "disable_web_page_preview": no_preview or not preview}
+            p = {
+                "chat_id": chat_id,
+                "text": body,
+                "disable_web_page_preview": no_preview or not preview,
+            }
             if mode:
                 p["parse_mode"] = mode
             r = _post(url, json=p, timeout=15)
             try:
-                j = r.json() if r.headers.get("content-type","").startswith("application/json") else {"ok":False}
+                j = (
+                    r.json()
+                    if r.headers.get("content-type", "").startswith("application/json")
+                    else {"ok": False}
+                )
             except Exception:
                 j = {"ok": False}
             return j if (r.status_code == 200 and j.get("ok")) else False
@@ -4027,27 +4945,32 @@ def tg_send(chat_id: int, text: str, parse_mode="MarkdownV2", preview=True, no_p
 
     return {"ok": True}
 
+
 # --- BEGIN PATCH: imports & singleton (place near other imports at top of app.py) ---
-from birdeye import get_scanner, set_scan_mode, birdeye_probe_once, SCAN_INTERVAL
+from birdeye import SCAN_INTERVAL, get_scanner
 from birdeye_ws import get_ws
 from dexscreener_scanner import get_ds_client
 from jupiter_scan import JupiterScan
+
 # Solscan Pro import moved to conditional loading
+
 
 # Initialize components after admin functions are defined
 def _init_scanners():
     global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, SCANNERS
-    
+
     if FETCH_ENABLE_SCANNERS:
         # (existing scanner initialization goes here unchanged)
         SCANNERS.clear()
         SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
-        
+
         # Only initialize WebSocket if enabled
-        feature_ws = os.environ.get('FEATURE_WS', 'off').lower()  # Default to off
-        if feature_ws == 'on':
+        feature_ws = os.environ.get("FEATURE_WS", "off").lower()  # Default to off
+        if feature_ws == "on":
             try:
-                ws_client = get_ws(publish=publish, notify=send_admin_md)  # Enhanced WebSocket client with debug support
+                ws_client = get_ws(
+                    publish=publish, notify=send_admin_md
+                )  # Enhanced WebSocket client with debug support
                 logger.info("[WS] WebSocket client enabled (FEATURE_WS=on)")
             except Exception as e:
                 ws_client = None
@@ -4055,27 +4978,36 @@ def _init_scanners():
         else:
             ws_client = None
             logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
-        
+
         DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
-        JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
+        JUPITER_SCANNER = JupiterScan(
+            notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8
+        )  # Jupiter scanner
         # Initialize Solscan Pro scanner if configured
         global SOLSCAN_SCANNER
         solscan_api_key = os.getenv("SOLSCAN_API_KEY")
         feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
-        
+
         # Unmistakable boot logs for debugging
-        logger.info("[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or ""))
-        
+        logger.info(
+            "[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or "")
+        )
+
         if feature_solscan and solscan_api_key:
             try:
                 from solscan import get_solscan_scanner
+
                 SOLSCAN_SCANNER = get_solscan_scanner(solscan_api_key)
                 if SOLSCAN_SCANNER:
                     # SCANNERS registry will be populated after init
                     logger.info("[INIT][SOLSCAN] created=True id=%s", id(SOLSCAN_SCANNER))
                     SOLSCAN_SCANNER.start()
-                    logger.info("[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
-                               getattr(SOLSCAN_SCANNER, "enabled", None), getattr(SOLSCAN_SCANNER, "running", None), os.getpid())
+                    logger.info(
+                        "[INIT][SOLSCAN] enabled=%s running=%s pid=%s",
+                        getattr(SOLSCAN_SCANNER, "enabled", None),
+                        getattr(SOLSCAN_SCANNER, "running", None),
+                        os.getpid(),
+                    )
                 else:
                     SOLSCAN_SCANNER = None
                     logger.warning("Failed to create Solscan Pro scanner instance")
@@ -4085,71 +5017,86 @@ def _init_scanners():
         else:
             SOLSCAN_SCANNER = None
             logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
-        
+
         # Boot status logs
         logger.info("[INIT][SOLSCAN] created=%s", bool(SOLSCAN_SCANNER))
         if SOLSCAN_SCANNER:
-            logger.info("[INIT][SOLSCAN] enabled=%s running=%s", SOLSCAN_SCANNER.enabled, SOLSCAN_SCANNER.running)
-        
+            logger.info(
+                "[INIT][SOLSCAN] enabled=%s running=%s",
+                SOLSCAN_SCANNER.enabled,
+                SOLSCAN_SCANNER.running,
+            )
+
         # Register scanners in centralized registry
         SCANNERS = {
-            'birdeye': SCANNER,
-            'jupiter': JUPITER_SCANNER,
-            'solscan': SOLSCAN_SCANNER,
-            'dexscreener': DS_SCANNER,
-            'websocket': ws_client
+            "birdeye": SCANNER,
+            "jupiter": JUPITER_SCANNER,
+            "solscan": SOLSCAN_SCANNER,
+            "dexscreener": DS_SCANNER,
+            "websocket": ws_client,
         }
     else:
         print("[SCANNERS] disabled for polling-only run (set FETCH_ENABLE_SCANNERS=1 to enable)")
         SCANNERS = {}
+
+
 # --- END PATCH ---
 
 # --- BEGIN PATCH: admin notifier + WS import ---
-import requests
+
 
 def send_admin_md(text: str):
     """Send Markdown message to admin chat (no PTB needed)."""
     try:
-        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-        admin_id  = int(os.environ.get('ASSISTANT_ADMIN_TELEGRAM_ID', '0') or 0)
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        admin_id = int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0") or 0)
         if not bot_token or not admin_id:
             return False
         requests.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True},
-            timeout=10
+            json={
+                "chat_id": admin_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
         )
         return True
     except Exception as e:
         logger.exception("send_admin_md failed: %s", e)
         return False
+
+
 # --- END PATCH ---
+
 
 # Token notification handler for multi-source integration
 def _notify_tokens(items: list, title: str = "New tokens"):
     """Universal token notification handler for all scanners"""
     if not items:
         return
-    
+
     lines = [f"🟢 {title}:"]
     for item in items[:5]:  # Limit to 5 tokens per notification
         mint = item.get("mint", "?")
-        symbol = item.get("symbol", "?") 
+        symbol = item.get("symbol", "?")
         name = item.get("name", "?")
         source = item.get("source", "unknown")
-        
+
         lines.append(f"• {symbol} | {name} | {mint}")
         lines.append(f"  Birdeye: https://birdeye.so/token/{mint}?chain=solana")
         lines.append(f"  Pump.fun: https://pump.fun/{mint}")
         if source == "jupiter":
-            lines.append(f"  Jupiter: Listed token")
-    
+            lines.append("  Jupiter: Listed token")
+
     try:
         message_text = "\n".join(lines)
         send_admin_md(message_text)
         logger.info(f"[NOTIFY] Sent {title}: {len(items)} tokens")
     except Exception as e:
         logger.warning(f"Failed to send {title} notification: %s", e)
+
 
 # Initialize global scanner variables
 SCANNER = None
@@ -4161,56 +5108,66 @@ SOLSCAN_SCANNER = None
 # Centralized scanner registry
 SCANNERS = {}  # global, single source of truth
 
+
 # Function to ensure scanners are initialized (for multi-worker setup)
 def _ensure_scanners():
     """Ensure scanners are initialized in this worker process."""
     global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
-    
+
     current_pid = os.getpid()
-    logger.info(f"[INIT] _ensure_scanners called in PID={current_pid}, existing SCANNERS keys: {list(SCANNERS.keys())}")
-    
+    logger.info(
+        f"[INIT] _ensure_scanners called in PID={current_pid}, existing SCANNERS keys: {list(SCANNERS.keys())}"
+    )
+
     # Check if already initialized
     if SOLSCAN_SCANNER is not None and SCANNERS:
         logger.info(f"[INIT] Scanners already initialized in PID={current_pid}")
         return
-    
+
     try:
         _init_scanners()
         logger.info(f"[INIT] Scanners initialized in worker process PID={current_pid}")
-        
+
         # Ensure SCANNERS registry is populated after initialization
         SCANNERS = {
-            'birdeye': SCANNER,
-            'jupiter': JUPITER_SCANNER,
-            'solscan': SOLSCAN_SCANNER,
-            'dexscreener': DS_SCANNER,
-            'websocket': ws_client
+            "birdeye": SCANNER,
+            "jupiter": JUPITER_SCANNER,
+            "solscan": SOLSCAN_SCANNER,
+            "dexscreener": DS_SCANNER,
+            "websocket": ws_client,
         }
-        
+
         # Enhanced logging for Solscan specifically
         if SOLSCAN_SCANNER:
-            logger.info(f"[INIT][SOLSCAN] Worker PID={current_pid}, object={SOLSCAN_SCANNER}, enabled={getattr(SOLSCAN_SCANNER, 'enabled', 'UNKNOWN')}, running={getattr(SOLSCAN_SCANNER, 'running', 'UNKNOWN')}")
-        
-        logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
-        
+            logger.info(
+                f"[INIT][SOLSCAN] Worker PID={current_pid}, object={SOLSCAN_SCANNER}, enabled={getattr(SOLSCAN_SCANNER, 'enabled', 'UNKNOWN')}, running={getattr(SOLSCAN_SCANNER, 'running', 'UNKNOWN')}"
+            )
+
+        logger.info(
+            f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}"
+        )
+
         # Start polling service for telegram commands (disabled when POLLING_MODE=ON)
-        if POLLING_MODE != 'ON':
+        if POLLING_MODE != "ON":
             try:
                 import telegram_polling
+
                 ok = telegram_polling.start_polling_service()
                 if ok:
                     logger.info("Telegram polling service started successfully")
-                    
+
                     # Start digest scheduler thread
                     digest_thread = threading.Thread(target=_digest_scheduler, daemon=True)
                     digest_thread.start()
                     logger.info("Digest scheduler thread started")
-                    
+
                     # Auto-start alerts ticker if enabled by env
                     try:
                         if int(ALERTS_TICK_DEFAULT) > 0:
                             alerts_auto_on(ALERTS_TICK_DEFAULT)
-                            logger.info("Alerts ticker thread ready (interval=%ss)", ALERTS_TICK_DEFAULT)
+                            logger.info(
+                                "Alerts ticker thread ready (interval=%ss)", ALERTS_TICK_DEFAULT
+                            )
                             logger.info("Digest + Alerts ticker threads ready")
                     except Exception:
                         logger.exception("Failed to start alerts auto ticker")
@@ -4219,17 +5176,21 @@ def _ensure_scanners():
             except Exception as e:
                 logger.error("Error starting telegram polling service: %s", e)
         else:
-            logger.info("Telegram polling service disabled (POLLING_MODE=ON - external polling bot expected)")
-        
+            logger.info(
+                "Telegram polling service disabled (POLLING_MODE=ON - external polling bot expected)"
+            )
+
     except Exception as e:
         logger.error(f"Scanner initialization failed in worker PID={current_pid}: {e}")
         # Continue without scanners if initialization fails
         SCANNER = None
-        JUPITER_SCANNER = None 
+        JUPITER_SCANNER = None
         SOLSCAN_SCANNER = None
         SCANNERS = {}
 
+
 import re
+
 
 # --- NEW: /fetchnow helpers ---
 def _parse_mints_or_count(arg_str: str):
@@ -4242,14 +5203,17 @@ def _parse_mints_or_count(arg_str: str):
     # otherwise treat everything as mints
     return {"count": 0, "mints": [a for a in args if len(a) >= 32]}
 
+
 def _load_watchlist_for_chat(chat_id: int):
     try:
         import json
+
         st = json.load(open("scanner_state.json"))
         wl = st.get("watchlist_by_chat", {}).get(str(chat_id), [])
         return [m for m in wl if isinstance(m, str)]
     except Exception:
         return []
+
 
 def _cmd_fetchnow(update, chat_id: int, arg_str: str):
     spec = _parse_mints_or_count(arg_str)
@@ -4258,7 +5222,11 @@ def _cmd_fetchnow(update, chat_id: int, arg_str: str):
         # pull from this chat's watchlist
         wl = _load_watchlist_for_chat(chat_id)
         if not wl:
-            return {"status": "ok", "response": "📡 *Fetchnow*\nWatchlist is empty.\n\nUsage:\n`/fetchnow <n>` (take n from watchlist)\n`/fetchnow <MINT1> <MINT2> ...`", "handled": True}
+            return {
+                "status": "ok",
+                "response": "📡 *Fetchnow*\nWatchlist is empty.\n\nUsage:\n`/fetchnow <n>` (take n from watchlist)\n`/fetchnow <MINT1> <MINT2> ...`",
+                "handled": True,
+            }
         n = spec["count"] or 1
         selected = wl[:n]
 
@@ -4267,30 +5235,33 @@ def _cmd_fetchnow(update, chat_id: int, arg_str: str):
     for m in selected:
         try:
             name = resolve_token_name(m)
-            pr = get_price(m, 'birdeye')
+            pr = get_price(m, "birdeye")
             card = render_info_card(
-                mint=m,
-                name=name,
-                price=pr.get('price') or 0.0,
-                src=pr.get('source') or 'birdeye'
+                mint=m, name=name, price=pr.get("price") or 0.0, src=pr.get("source") or "birdeye"
             )
             tg_send(chat_id, card)
             sent += 1
         except Exception as e:
             tg_send(chat_id, f"⚠️ Fetchnow error for `{m}`: `{e}`")
 
-    return {"status": "ok", "response": f"📡 *Fetchnow*\nDispatched {sent} mint(s).", "handled": True}
+    return {
+        "status": "ok",
+        "response": f"📡 *Fetchnow*\nDispatched {sent} mint(s).",
+        "handled": True,
+    }
+
 
 # Enhanced command parsing with zero-width character normalization
 _ZW = "\u200b\u200c\u200d\u2060\ufeff"
 _CMD_RE = re.compile(r"^/\s*([A-Za-z0-9_]+)(?:@[\w_]+)?(?:\s+(.*))?$", re.S)
 
+
 def _parse_cmd(text: str):
     """Enhanced command parsing with robust zero-width character normalization and regex-based parsing"""
     s = (text or "").strip()
-    if not s.startswith("/"): 
+    if not s.startswith("/"):
         return None, ""
-    for ch in _ZW: 
+    for ch in _ZW:
         s = s.replace(ch, "")
     m = _CMD_RE.match(s)
     if not m:
@@ -4299,69 +5270,84 @@ def _parse_cmd(text: str):
         # accept dashed variants like /alerts-settings -> /alerts_settings
         if cmd.startswith("/"):
             cmd = "/" + cmd[1:].replace("-", "_")
-        return cmd, s[len(head):].strip()
+        return cmd, s[len(head) :].strip()
     cmd = f"/{m.group(1).lower()}"
     # accept dashed variants like /alerts-settings -> /alerts_settings
     if cmd.startswith("/"):
         cmd = "/" + cmd[1:].replace("-", "_")
     return cmd, (m.group(2) or "").strip()
 
+
 def _normalize_token(token_data, source=None):
     """Normalize token data for consistent formatting"""
     if not token_data:
         return {}
-    
+
     # Basic normalization - ensure required fields exist
     normalized = {
-        'mint': token_data.get('mint', ''),
-        'symbol': token_data.get('symbol', 'UNKNOWN'),
-        'name': token_data.get('name', ''),
-        'score': token_data.get('score', 0),
-        'source': source or token_data.get('source', 'unknown')
+        "mint": token_data.get("mint", ""),
+        "symbol": token_data.get("symbol", "UNKNOWN"),
+        "name": token_data.get("name", ""),
+        "score": token_data.get("score", 0),
+        "source": source or token_data.get("source", "unknown"),
     }
-    
+
     # Add optional fields if they exist
-    for field in ['price', 'volume', 'market_cap', 'created_at']:
+    for field in ["price", "volume", "market_cap", "created_at"]:
         if field in token_data:
             normalized[field] = token_data[field]
-    
+
     return normalized
+
 
 # --- watch helpers (drop this above process_telegram_command) ---
 def _load_watchlist():
     import json
+
     try:
-        with open("watchlist.json","r") as f:
+        with open("watchlist.json") as f:
             return json.load(f) or []
     except Exception:
         return []
 
+
 def _save_watchlist(items):
     import json
+
     try:
-        with open("watchlist.json","w") as f:
+        with open("watchlist.json", "w") as f:
             json.dump(items, f, indent=2)
     except Exception:
         pass
 
+
 def _load_alerts_cfg():
-    import json, os, time
+    import json
+    import os
+
     path = "alerts_config.json"
-    base = {"chat_id": None, "min_move_pct": 0.0, "rate_per_min": 5, "muted_until": 0, "muted": False}
+    base = {
+        "chat_id": None,
+        "min_move_pct": 0.0,
+        "rate_per_min": 5,
+        "muted_until": 0,
+        "muted": False,
+    }
     if not os.path.exists(path):
         return base
     try:
-        cfg = json.load(open(path, "r"))
+        cfg = json.load(open(path))
         if not isinstance(cfg, dict):
             return base
         # normalize known keys
         cfg["min_move_pct"] = _as_float(cfg.get("min_move_pct"), 0.0)
         cfg["rate_per_min"] = int(_as_float(cfg.get("rate_per_min"), 5))
-        cfg["muted_until"]  = int(_as_float(cfg.get("muted_until"), 0))
-        cfg["muted"]        = bool(cfg.get("muted", False))
+        cfg["muted_until"] = int(_as_float(cfg.get("muted_until"), 0))
+        cfg["muted"] = bool(cfg.get("muted", False))
         return {**base, **cfg}
     except Exception:
         return base
+
 
 def watch_tick_once(send_alerts=True):
     wl = _load_watchlist()
@@ -4377,7 +5363,11 @@ def watch_tick_once(send_alerts=True):
     changed = False
 
     for item in wl:
-        mint = item.get("mint") if isinstance(item, dict) else (item if isinstance(item, str) else None)
+        mint = (
+            item.get("mint")
+            if isinstance(item, dict)
+            else (item if isinstance(item, str) else None)
+        )
         if not mint:
             continue
 
@@ -4397,7 +5387,9 @@ def watch_tick_once(send_alerts=True):
         if send_alerts and (not muted) and abs(pct) >= min_move:
             fired += 1
             try:
-                alerts_send(f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}")
+                alerts_send(
+                    f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}"
+                )
             except Exception:
                 pass
 
@@ -4408,16 +5400,17 @@ def watch_tick_once(send_alerts=True):
         _save_watchlist(wl)
 
     return checked, fired, lines
+
+
 # ---------- NAME SPLITTER (ticker first, brand second) ----------
 
 
 # ---------- PRETTY ROW (no code block, no copy bar) ----------
 
 
-
-
 SOL_MINT = "So11111111111111111111111111111111111111112"
 FIGURE_SPACE = "\u2007"  # fixed-width space that aligns in Telegram UI
+
 
 def _split_primary_secondary(name: str):
     """Extract ticker (primary) + long name (secondary) from a single string."""
@@ -4442,6 +5435,7 @@ def _split_primary_secondary(name: str):
     # Last resort: treat whole string as primary
     return (s, "")
 
+
 def _cached_primary_secondary(mint: str):
     """Read token_names.json; support both old ('name') and new ('primary'/'secondary') shapes."""
     try:
@@ -4459,12 +5453,11 @@ def _cached_primary_secondary(mint: str):
         pass
     return ("", "")
 
+
 def _label_block(lbl: str, width: int = 4) -> str:
     """Produce aligned 'LBL:' using figure spaces so arrows line up."""
     pad = max(0, width - len(lbl))
     return f"{lbl}:{FIGURE_SPACE * pad}"
-
-
 
 
 def _fmt_pct_cell(pct):
@@ -4479,7 +5472,9 @@ def _fmt_pct_cell(pct):
     return f"{up} {p:+.2f}%"
 
 
-def render_price_card(mint: str, price: float, source: str, name_display: str, title: str = "Price Lookup") -> str:
+def render_price_card(
+    mint: str, price: float, source: str, name_display: str, title: str = "Price Lookup"
+) -> str:
     """
     Renders a compact one-shot price card. 'name_display' is the two-line display name
     produced by resolve_token_name/_display_name_for (TICKER \n Long Name).
@@ -4500,6 +5495,7 @@ def render_price_card(mint: str, price: float, source: str, name_display: str, t
     lines.append(f"Source: {source}")
     return "\n".join(lines)
 
+
 def render_about_list(mint: str, price: float, source: str, name_display: str, tf: dict) -> str:
     """
     Pretty, aligned /about output using enhanced name resolution with override support.
@@ -4516,7 +5512,7 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
     # If still empty, fallback to short mint
     if not primary:
         primary = f"{mint[:4]}..{mint[-4:]}"
-    
+
     short = f"({mint[:4]}..{mint[-4:]})"
 
     lines = ["*Info*"]
@@ -4538,7 +5534,9 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
     return "\n".join(lines)
 
+
 # --- end helpers ---
+
 
 def process_telegram_command(update: dict):
 
@@ -4556,7 +5554,7 @@ def process_telegram_command(update: dict):
             "/scanner_interval": "/alerts_auto_on",  # accepts seconds; enables if stopped
         }
         if cmd in aliases:
-            rest = txt[len(cmd):].lstrip()
+            rest = txt[len(cmd) :].lstrip()
             new_txt = aliases[cmd] + ((" " + rest) if rest else "")
             update = dict(update) or {}
             update["message"] = dict(update.get("message") or {})
@@ -4570,41 +5568,38 @@ def process_telegram_command(update: dict):
     update_id = update.get("update_id")
     if update_id and update_id % 100 == 0:  # Log every 100th update to avoid spam
         print(f"[TEMP-DEBUG] Full update: {update}")
-    
 
-    
     # Message-level deduplication in router
     msg = update.get("message") or {}
-    
 
     # Skip deduplication for test scenarios (no update_id) or direct calls
     if update_id is not None and _webhook_is_dup_message(msg):
         print(f"[router] DUPLICATE message detected: {msg.get('message_id')}")
-        result = {"status":"ok","response":"", "handled":True}  # swallow duplicate
+        result = {"status": "ok", "response": "", "handled": True}  # swallow duplicate
         return result
-    
+
     user = msg.get("from") or {}
     chat_id = msg.get("chat", {}).get("id")
     user_id = user.get("id")
     # Enhanced parsing guard (prevents UnboundLocalError)
     text = msg.get("text", "").strip()
-    parts = text.split()                         # ALWAYS defined → no UnboundLocalError
-    cmd   = parts[0] if parts else ""
-    arg   = parts[1] if len(parts) > 1 else ""   # single string with the rest, if present
+    parts = text.split()  # ALWAYS defined → no UnboundLocalError
+    cmd = parts[0] if parts else ""
+    arg = parts[1] if len(parts) > 1 else ""  # single string with the rest, if present
     clean = text
     args = " ".join(parts[1:]) if len(parts) > 1 else ""
 
     # --- ROUTER TRACE HOOK (entry) ---
-    _rt_log(f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}")
-
-
+    _rt_log(
+        f"enter cmd={text.split()[0] if text else ''} chat={chat_id} user={user_id} text={repr(text)[:120]}"
+    )
 
     # --- HOTFIX_EXT_ROUTES_BEGIN ---
     # Early intercept: digest routes + hardened autosell_status
     # Enhanced digest commands with tolerant UTC scheduler
     if cmd in {"/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test"}:
         import re
-        
+
         def cmd_digest_status():
             now = _utc_now()
             nxt = _next_run_utc(now)
@@ -4616,10 +5611,10 @@ def process_telegram_command(update: dict):
                 f"*Time:* {hh:02d}:{mm:02d} UTC\n"
                 f"*Next run:* {nxt.strftime('%Y-%m-%d %H:%M UTC')}\n"
             )
-        
+
         def cmd_digest_time(args):
             # parse HH:MM and store UTC schedule; reset last_sent_date for clarity
-            m = re.match(r'^\s*(\d{1,2}):(\d{2})\s*$', args or '')
+            m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*$", args or "")
             if not m:
                 return "Usage: `/digest_time HH:MM` (UTC)"
             hh, mm = int(m.group(1)), int(m.group(2))
@@ -4627,56 +5622,61 @@ def process_telegram_command(update: dict):
                 return "Usage: `/digest_time HH:MM` (UTC)"
             DIGEST_CFG.update({"hh": hh, "mm": mm, "last_sent_date": None})
             return f"🕰️ Digest time set to {hh:02d}:{mm:02d} UTC"
-        
+
         def cmd_digest_on():
             DIGEST_CFG["enabled"] = True
             return "✅ Daily digest enabled"
-        
+
         def cmd_digest_off():
             DIGEST_CFG["enabled"] = False
             return "⛔ Daily digest disabled"
-        
+
         def cmd_digest_test(args):
             note = (args or "").strip() or "hello"
             now = _utc_now()
-            body = ("📰 *Daily Digest — {}*\n"
-                    "AutoSell: enabled=False alive=None interval=?s\n"
-                    "Rules: []\n"
-                    "Note: {}").format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
+            body = (
+                "📰 *Daily Digest — {}*\n"
+                "AutoSell: enabled=False alive=None interval=?s\n"
+                "Rules: []\n"
+                "Note: {}"
+            ).format(now.strftime("%Y-%m-%d %H:%M:%S UTC"), note)
             return body
 
         if cmd == "/digest_status":
-            result = {"status":"ok","response": cmd_digest_status()}
+            result = {"status": "ok", "response": cmd_digest_status()}
             return result
         elif cmd == "/digest_on":
-            result = {"status":"ok","response": cmd_digest_on()}
+            result = {"status": "ok", "response": cmd_digest_on()}
             return result
         elif cmd == "/digest_off":
-            result = {"status":"ok","response": cmd_digest_off()}
+            result = {"status": "ok", "response": cmd_digest_off()}
             return result
         elif cmd == "/digest_time":
-            result = {"status":"ok","response": cmd_digest_time(args)}
+            result = {"status": "ok", "response": cmd_digest_time(args)}
             return result
         elif cmd == "/digest_test":
-            result = {"status":"ok","response": cmd_digest_test(args)}
+            result = {"status": "ok", "response": cmd_digest_test(args)}
             return result
 
     if cmd == "/autosell_status":
         try:
             import autosell
+
             st = autosell.status()
         except Exception as e:
-            result = {"status":"error","response": f"AutoSell status unavailable: {e}"}
+            result = {"status": "error", "response": f"AutoSell status unavailable: {e}"}
             return result
         interval = st.get("interval_sec") or st.get("interval") or "n/a"
-        alive    = st.get("alive", "n/a")
-        rules    = st.get("rules") or []
-        text = (f"🤖 AutoSell Status\n"
-                f"Enabled: {st.get('enabled')}\n"
-                f"Interval: {interval}s\n"
-                f"Rules: {len(rules)}\n"
-                f"Thread alive: {alive}")
-        result = {"status":"ok","response": text}
+        alive = st.get("alive", "n/a")
+        rules = st.get("rules") or []
+        text = (
+            f"🤖 AutoSell Status\n"
+            f"Enabled: {st.get('enabled')}\n"
+            f"Interval: {interval}s\n"
+            f"Rules: {len(rules)}\n"
+            f"Thread alive: {alive}"
+        )
+        result = {"status": "ok", "response": text}
         return result
     # --- HOTFIX_EXT_ROUTES_END ---
 
@@ -4693,7 +5693,12 @@ def process_telegram_command(update: dict):
         if len(s) in (32, 44):  # mint already
             return s
         # Try known resolvers used in /price (keep order stable; first hit wins)
-        for name in ("resolve_input_to_mint", "resolve_ticker_to_mint", "resolve_symbol_to_mint", "resolve_token_to_mint"):
+        for name in (
+            "resolve_input_to_mint",
+            "resolve_ticker_to_mint",
+            "resolve_symbol_to_mint",
+            "resolve_token_to_mint",
+        ):
             fn = globals().get(name)
             if callable(fn):
                 try:
@@ -4703,62 +5708,115 @@ def process_telegram_command(update: dict):
                 except Exception:
                     pass
         return None
-    
+
     # Helper function for structured responses with title and body
     def ok(title: str, body: str):
         formatted_text = f"✅ *{title}*\n{body}"
         return _reply(formatted_text)
-    
+
     # Set the global reference to avoid any shadowing issues
     global RESP_OK
     RESP_OK = ok
-    
+
     import time
+
     start_time = time.time()
-    user_id = user.get('id')
-    
+    user_id = user.get("id")
+
     try:
         # Check if message is a command
         is_command = cmd is not None
-        
+
         # Admin check
         from config import ASSISTANT_ADMIN_TELEGRAM_ID
-        is_admin = user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID
-        
+
+        is_admin = user.get("id") == ASSISTANT_ADMIN_TELEGRAM_ID
+
         # Structured logging: command entry
-        logger.info(f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}")
-        
+        logger.info(
+            f"[CMD] cmd='{cmd or text}' user_id={user_id} is_admin={is_admin} is_command={is_command}"
+        )
+
         # Admin check helper
         def _require_admin(user):
-            if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
+            if user.get("id") != ASSISTANT_ADMIN_TELEGRAM_ID:
                 return _reply("⛔ Admin only")
             return None
-        
+
         # Basic command routing with streamlined logic
         if not is_command:
             return _reply("Not a command", "ignored")
-        
+
         # Define public commands that don't require admin access
-        public_commands = ["/help", "/ping", "/info", "/about", "/status", "/uptime", "/test123", "/commands", "/debug_cmd", "/version", "/source", "/price", "/convert", "/mint_for", "/symbol_for", "/links", "/liquidity", "/marketcap", "/volume", "/supply", "/fdv", "/holders", "/quote", "/fetch", "/fetch_now", "/fetchnow", "/scanonce", "/digest_status", "/digest_time", "/digest_on", "/digest_off", "/digest_test", "/autosell_status", "/autosell_logs", "/autosell_dryrun", "/alerts_settings", "/watch", "/unwatch", "/watchlist", "/watch_tick", "/watch_off", "/watch_debug", "/whoami", "/id", "/buy", "/sell", "/trades"]
-        
+        public_commands = [
+            "/help",
+            "/ping",
+            "/info",
+            "/about",
+            "/status",
+            "/uptime",
+            "/test123",
+            "/commands",
+            "/debug_cmd",
+            "/version",
+            "/source",
+            "/price",
+            "/convert",
+            "/mint_for",
+            "/symbol_for",
+            "/links",
+            "/liquidity",
+            "/marketcap",
+            "/volume",
+            "/supply",
+            "/fdv",
+            "/holders",
+            "/quote",
+            "/fetch",
+            "/fetch_now",
+            "/fetchnow",
+            "/scanonce",
+            "/digest_status",
+            "/digest_time",
+            "/digest_on",
+            "/digest_off",
+            "/digest_test",
+            "/autosell_status",
+            "/autosell_logs",
+            "/autosell_dryrun",
+            "/alerts_settings",
+            "/watch",
+            "/unwatch",
+            "/watchlist",
+            "/watch_tick",
+            "/watch_off",
+            "/watch_debug",
+            "/whoami",
+            "/id",
+            "/buy",
+            "/sell",
+            "/trades",
+        ]
+
         # --- alias: /scanonce -> /fetchnow ---
         if cmd == "/scanonce":
             cmd = "/fetchnow"
         # --- end alias ---
-        
+
         # --- EARLY RETURN: /help (admin-aware) ---
         if cmd == "/help":
             return _reply(_render_help(is_admin))
         # --- end early return ---
-        
+
         # --- replace: /status (show Auto on/off + sane ETA when off) ---
         elif cmd == "/status":
             msg = update.get("message", {}) or {}
             chat_id = (msg.get("chat") or {}).get("id")
             user_id = (msg.get("from") or {}).get("id")
-            is_admin = (user_id == 1653046781)
+            is_admin = user_id == 1653046781
 
             import time as _t
+
             now = _t.strftime("%H:%M:%S UTC", _t.gmtime())
 
             # interval
@@ -4806,7 +5864,9 @@ def process_telegram_command(update: dict):
 
         # --- fix: /uptime should persist start time ---
         elif cmd == "/uptime":
-            import time as _t, os as _os
+            import os as _os
+            import time as _t
+
             global _PROC_STARTED
             if "_PROC_STARTED" not in globals():
                 _PROC_STARTED = _t.time()
@@ -4830,16 +5890,18 @@ def process_telegram_command(update: dict):
         # --- alias: /alerts_auto_toggle -> /alerts_auto_on|off based on state ---
         elif cmd == "/alerts_auto_toggle":
             if _alerts_is_on():
-                alerts_auto_off()               # stops the ticker
+                alerts_auto_off()  # stops the ticker
                 return _reply("✅ *Auto alerts disabled*\n" + _render_auto_status_card())
             else:
-                alerts_auto_on()                # starts the ticker
+                alerts_auto_on()  # starts the ticker
                 try:
-                    _alerts_mark_tick()         # stamp 'last run' immediately on enable
+                    _alerts_mark_tick()  # stamp 'last run' immediately on enable
                 except Exception:
                     pass
                 ival = int(_alerts_interval_get() or 0)
-                return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
+                return _reply(
+                    f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card()
+                )
         # --- end alias ---
 
         # --- automatic watch ticker controls ---
@@ -4849,7 +5911,7 @@ def process_telegram_command(update: dict):
                 sec = int(arg) if arg else None
             except Exception:
                 sec = None
-            alerts_auto_on(sec)             # starts or updates the ticker
+            alerts_auto_on(sec)  # starts or updates the ticker
             # ... after you flip the flag/start the thread ...
             try:
                 _alerts_mark_tick()  # stamp 'last run' immediately on enable
@@ -4859,7 +5921,7 @@ def process_telegram_command(update: dict):
             return _reply(f"✅ *Auto alerts enabled* — `{ival}s`\n" + _render_auto_status_card())
 
         elif cmd == "/alerts_auto_off":
-            alerts_auto_off()               # stops the ticker
+            alerts_auto_off()  # stops the ticker
             return _reply("✅ *Auto alerts disabled*\n" + _render_auto_status_card())
 
         # --- replace: /alerts_auto_status branch body ---
@@ -4887,6 +5949,7 @@ def process_telegram_command(update: dict):
                 return _reply("Invalid seconds. Example: /alerts_auto_interval 45", status="error")
 
             import sys as _sys
+
             v = _sys.modules[__name__]._alerts_interval_set(newv)
             return _reply(f"Alerts interval set to {int(v)}s (takes effect next tick)")
         # --- end replace ---
@@ -4897,7 +5960,10 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/scanners_on":
             if not _scanners_available():
-                return _reply("Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.", status="error")
+                return _reply(
+                    "Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.",
+                    status="error",
+                )
             _scanners_set_on(True)
             try:
                 _ensure_scanners()
@@ -4913,8 +5979,12 @@ def process_telegram_command(update: dict):
             if not is_admin:
                 return _reply("Admin only.", status="error")
             import os
+
             if os.environ.get("FETCH_ENABLE_SCANNERS") != "1":
-                return _reply("Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.", status="error")
+                return _reply(
+                    "Scanners are disabled in this deployment. Set `FETCH_ENABLE_SCANNERS=1` and restart.",
+                    status="error",
+                )
             try:
                 _ensure_scanners()  # reuse existing initializer
                 total = len(SCANNERS or {})
@@ -4935,22 +6005,22 @@ def process_telegram_command(update: dict):
             return _reply(f"Last: {int(ago)}s ago\nNext ~ in {nxt}s\nInterval: {int(interval)}s")
         # --- end add ---
 
-
-
-
-
-        # Router fallback (and only one in repo) 
+        # Router fallback (and only one in repo)
         if cmd not in ALL_COMMANDS:
             clean = (text or "").replace("\n", " ")
-            return _reply(f"❓ Command not recognized: {clean}\nUse /help for available commands.",
-                          status="unknown_command")
-        
+            return _reply(
+                f"❓ Command not recognized: {clean}\nUse /help for available commands.",
+                status="unknown_command",
+            )
+
         # Admin-only check for restricted commands
         if not is_admin and cmd not in public_commands:
             duration_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"[CMD] cmd='{cmd}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only")
+            logger.info(
+                f"[CMD] cmd='{cmd}' user_id={user_id} is_admin={is_admin} duration_ms={duration_ms} status=admin_only"
+            )
             return _reply("⛔ Admin only")
-        
+
         # Command processing with consistent response handling
         elif cmd == "/ping":
             return _reply("🎯 **Pong!** Bot is alive and responsive.")
@@ -4980,7 +6050,7 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /name_set <mint> <TICKER>|<Long Name>")
             mint = parts[1].strip()
             rest = text.split(None, 2)[2]
-            ticker, longname = [x.strip() for x in rest.split("|", 1)]
+            ticker, longname = (x.strip() for x in rest.split("|", 1))
             _name_overrides_set(mint, ticker, longname)
             # also update cache so it shows immediately
             cache = _load_json_safe(NAME_CACHE_FILE)
@@ -5009,7 +6079,7 @@ def process_telegram_command(update: dict):
             cache.pop(mint, None)
             _save_json_safe(NAME_CACHE_FILE, cache)
             return _reply(f"🧹 Cleared name override & cache for:\n`{mint}`")
-        
+
         # Enhanced per-chat watchlist commands using dedicated handlers
         elif cmd == "/watch":
             return _cmd_watch(chat_id, " ".join(parts[1:]) if len(parts) > 1 else "")
@@ -5059,7 +6129,9 @@ def process_telegram_command(update: dict):
                 return _reply(f"${v:,.2f} ≈ {_fmt_qty(tokens)} {sym or ''}  `{_short_mint(mint)}`")
             else:
                 usd = v * p
-                return _reply(f"{_fmt_qty(v)} {sym or ''} ≈ {_fmt_price(usd)}  `{_short_mint(mint)}`")
+                return _reply(
+                    f"{_fmt_qty(v)} {sym or ''} ≈ {_fmt_price(usd)}  `{_short_mint(mint)}`"
+                )
         elif cmd == "/mint_for":
             sym = args.split()[0] if args else ""
             mint = _mint_for_symbol(sym)
@@ -5072,7 +6144,9 @@ def process_telegram_command(update: dict):
                 name = f"{ticker} — {long_name}"
             else:
                 name = str(name_tuple) if name_tuple else "Unknown"
-            return _reply(f"🔎 *Mint for* `{sym.upper()}`\n{name or ''}  `{short}`\n(copy) `{mint}`", "ok")
+            return _reply(
+                f"🔎 *Mint for* `{sym.upper()}`\n{name or ''}  `{short}`\n(copy) `{mint}`", "ok"
+            )
         elif cmd == "/about":
             target = args.split()[0] if args else ""
             mint = _resolve_to_mint(target)
@@ -5142,12 +6216,12 @@ def process_telegram_command(update: dict):
                 name = f"{ticker} — {long_name}"
             else:
                 name = str(name_tuple) if name_tuple else short
-            info  = _birdeye_token_overview(mint)
+            info = _birdeye_token_overview(mint)
 
             liq = info.get("liquidity")
             # Use canonical volume getter for consistency
             vol = _volume24h_value_for_mint(mint)
-            mc  = info.get("mc")
+            mc = info.get("mc")
 
             liq_str = _fmt_usd(liq) if liq is not None else "?"
             vol_str = _fmt_usd(vol) if vol is not None else "?"
@@ -5174,19 +6248,14 @@ def process_telegram_command(update: dict):
                 name = f"{ticker} — {long_name}"
             else:
                 name = str(name_tuple) if name_tuple else short
-            
+
             # Reuse the same Birdeye metrics as /liquidity
             info = _birdeye_token_overview(mint)
             mc = info.get("mc")
-            
+
             mc_str = _fmt_usd(mc) if mc is not None else "?"
-            
-            lines = [
-                "🏷 *Market Cap*",
-                f"{name}",
-                f"`{short}`",
-                f"Market Cap: {mc_str}"
-            ]
+
+            lines = ["🏷 *Market Cap*", f"{name}", f"`{short}`", f"Market Cap: {mc_str}"]
             return _reply("\n".join(lines), "ok")
         elif cmd == "/volume":
             target = (args or "").split()[0] if args else ""
@@ -5201,14 +6270,11 @@ def process_telegram_command(update: dict):
                 sym, name = ticker, long_name
             else:
                 sym, name = str(name_tuple) if name_tuple else short, ""
-            
+
             vol = _volume_24h_usd(mint)
             vol_str = _fmt_usd(vol) if vol is not None else "?"
             return _reply(
-                "📈 *24h Volume*\n"
-                f"{sym} — {name}\n"
-                f"`{short}`\n"
-                f"24h Volume: {vol_str}"
+                "📈 *24h Volume*\n" f"{sym} — {name}\n" f"`{short}`\n" f"24h Volume: {vol_str}"
             )
         elif cmd == "/supply":
             arg = _arg_after_cmd(text)
@@ -5244,34 +6310,45 @@ def process_telegram_command(update: dict):
             # /fetch - enforce MINT only
             if args:
                 if len(args.strip()) not in (32, 43, 44):
-                    return _reply("Please provide a mint address (32/44 chars). Tip: /mint_for <TICKER> to get the mint. Example: /fetch <MINT>", status="error")
+                    return _reply(
+                        "Please provide a mint address (32/44 chars). Tip: /mint_for <TICKER> to get the mint. Example: /fetch <MINT>",
+                        status="error",
+                    )
                 # Continue existing fetch logic (mint path when args)
                 mint = args.strip()
                 name_display = _display_name_for(mint)
-                pr = get_price(mint, 'birdeye')
+                pr = get_price(mint, "birdeye")
                 return _reply(
-                    render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
+                    render_price_card(
+                        mint, pr.get("price") or 0.0, pr.get("source") or "birdeye", name_display
+                    )
                 )
             else:
                 # No args - use watchlist path (fallback to fetchnow logic)
                 wl = _load_watchlist_for_chat(chat_id)
                 if not wl:
-                    return _reply("📡 *Fetch*\nWatchlist is empty.\n\nUsage:\n`/fetch <mint|ticker>` (specific token)\n`/fetch` (from watchlist)")
-                
+                    return _reply(
+                        "📡 *Fetch*\nWatchlist is empty.\n\nUsage:\n`/fetch <mint|ticker>` (specific token)\n`/fetch` (from watchlist)"
+                    )
+
                 # Take first mint from watchlist
                 mint = wl[0]
                 name_display = _display_name_for(mint)
-                pr = get_price(mint, 'birdeye')
+                pr = get_price(mint, "birdeye")
                 return _reply(
-                    render_price_card(mint, pr.get('price') or 0.0, pr.get('source') or 'birdeye', name_display)
+                    render_price_card(
+                        mint, pr.get("price") or 0.0, pr.get("source") or "birdeye", name_display
+                    )
                 )
         elif cmd == "/alert":
             # /alert <mint> — emit one-off Price Alert card to alerts chat (or here)
-            import json, time
+            import json
+            import time
 
             def _jload(path, default):
                 try:
-                    with open(path, "r") as f: return json.load(f)
+                    with open(path) as f:
+                        return json.load(f)
                 except Exception:
                     return default
 
@@ -5283,17 +6360,19 @@ def process_telegram_command(update: dict):
             src_pref = globals().get("CURRENT_PRICE_SOURCE", "birdeye")
             pr = get_price(mint, src_pref)
             price = float(pr.get("price") or 0.0)
-            src   = pr.get("source") or src_pref
+            src = pr.get("source") or src_pref
 
-            cfg  = _jload("alerts_config.json", {})
+            cfg = _jload("alerts_config.json", {})
             base = _jload("alerts_price_baseline.json", {})
-            rec  = base.get(mint) if isinstance(base, dict) else None
+            rec = base.get(mint) if isinstance(base, dict) else None
             baseline = float(rec["price"]) if (isinstance(rec, dict) and rec.get("price")) else None
-            delta_pct = ((price - baseline) / baseline * 100.0) if (baseline and baseline > 0) else None
+            delta_pct = (
+                ((price - baseline) / baseline * 100.0) if (baseline and baseline > 0) else None
+            )
 
             name_display = resolve_token_name(mint) or ""
             short = f"({mint[:4]}..{mint[-4:]})"
-            primary   = (name_display.split("\n")[0].strip() or short) if name_display else short
+            primary = (name_display.split("\n")[0].strip() or short) if name_display else short
             secondary = "\n".join(name_display.split("\n")[1:]).strip() if name_display else ""
 
             arrow = "▫️"
@@ -5306,22 +6385,24 @@ def process_telegram_command(update: dict):
             ]
             if secondary:
                 lines.append(secondary)
-            lines.extend([
-                short,
-                f"Price: ${price:.6f}",
-                f"Change: {'n/a' if delta_pct is None else f'{delta_pct:+.2f}%'}",
-                f"Baseline: {'n/a' if baseline is None else f'${baseline:.6f}'}",
-                f"Source: {src}",
-            ])
+            lines.extend(
+                [
+                    short,
+                    f"Price: ${price:.6f}",
+                    f"Change: {'n/a' if delta_pct is None else f'{delta_pct:+.2f}%'}",
+                    f"Baseline: {'n/a' if baseline is None else f'${baseline:.6f}'}",
+                    f"Source: {src}",
+                ]
+            )
             text = "\n".join(lines)
 
             dest_chat = cfg.get("chat_id") or chat_id
             tg_send(dest_chat, text, preview=True)
-            
+
             # --- ALERT RETURN FIX + TRACE ---
             _rt_log(f"alert sent len={len(text)} chat={chat_id}")
             return {"status": "ok", "response": text}
-        
+
         # --- add: /mint_for helper (ticker->mint or echo mint) ---
         elif cmd == "/mint_for":
             if not args:
@@ -5339,16 +6420,16 @@ def process_telegram_command(update: dict):
                 header = ""
             return _reply(f"{header}\n{mint}")
         # --- end add ---
-        
+
         # --- add: /whoami (debug helper) ---
         elif cmd in ("/whoami", "/id"):
             msg = update.get("message", {}) or {}
             chat_id = (msg.get("chat") or {}).get("id")
             user_id = (msg.get("from") or {}).get("id")
-            is_admin = (user_id == 1653046781)
+            is_admin = user_id == 1653046781
             return _reply(f"User ID: {user_id}\nChat ID: {chat_id}\nAdmin: {is_admin}")
         # --- end add ---
-        
+
         # --- add: /buy (dry-run, mint-only) ---
         elif cmd == "/buy":
             if not args:
@@ -5358,7 +6439,10 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /buy <MINT> <SOL_AMOUNT> (dry-run)", status="error")
             mint = parts_args[0].strip()
             if len(mint) not in (32, 43, 44):
-                return _reply("Please provide a mint address (32/44 chars). Example: /buy <MINT> 0.5", status="error")
+                return _reply(
+                    "Please provide a mint address (32/44 chars). Example: /buy <MINT> 0.5",
+                    status="error",
+                )
             try:
                 amt = float(parts_args[1].strip())
             except Exception:
@@ -5370,18 +6454,20 @@ def process_telegram_command(update: dict):
             except Exception:
                 header = ""
             text = f"DRY-RUN BUY\n{header}\n{mint}\nAmount: {amt} SOL\n(No real trade executed)"
-            
+
             # Log the trade
             msg = update.get("message", {}) or {}
-            _trade_log_append({
-                "ts": int(time.time()),
-                "kind": "buy",
-                "mint": mint,
-                "amount_sol": amt,
-                "user_id": (msg.get("from") or {}).get("id"),
-                "chat_id": (msg.get("chat") or {}).get("id"),
-            })
-            
+            _trade_log_append(
+                {
+                    "ts": int(time.time()),
+                    "kind": "buy",
+                    "mint": mint,
+                    "amount_sol": amt,
+                    "user_id": (msg.get("from") or {}).get("id"),
+                    "chat_id": (msg.get("chat") or {}).get("id"),
+                }
+            )
+
             return _reply(text)
 
         # --- add: /sell (dry-run, mint-only) ---
@@ -5393,7 +6479,10 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: /sell <MINT> <PCT|ALL> (dry-run)", status="error")
             mint = parts_args[0].strip()
             if len(mint) not in (32, 43, 44):
-                return _reply("Please provide a mint address (32/44 chars). Example: /sell <MINT> 25", status="error")
+                return _reply(
+                    "Please provide a mint address (32/44 chars). Example: /sell <MINT> 25",
+                    status="error",
+                )
             pct_raw = parts_args[1].strip().lower()
             if pct_raw == "all":
                 pct = 100.0
@@ -5401,7 +6490,10 @@ def process_telegram_command(update: dict):
                 try:
                     pct = float(pct_raw.rstrip("%"))
                 except Exception:
-                    return _reply("Invalid percent. Use a number 1-100 or 'ALL'. Example: /sell <MINT> 25", status="error")
+                    return _reply(
+                        "Invalid percent. Use a number 1-100 or 'ALL'. Example: /sell <MINT> 25",
+                        status="error",
+                    )
             if not (0 < pct <= 100):
                 return _reply("Percent must be in (0,100].", status="error")
             try:
@@ -5409,20 +6501,22 @@ def process_telegram_command(update: dict):
             except Exception:
                 header = ""
             text = f"DRY-RUN SELL\n{header}\n{mint}\nPercent: {pct}%\n(No real trade executed)"
-            
+
             # Log the trade
             msg = update.get("message", {}) or {}
-            _trade_log_append({
-                "ts": int(time.time()),
-                "kind": "sell",
-                "mint": mint,
-                "percent": pct,
-                "user_id": (msg.get("from") or {}).get("id"),
-                "chat_id": (msg.get("chat") or {}).get("id"),
-            })
-            
+            _trade_log_append(
+                {
+                    "ts": int(time.time()),
+                    "kind": "sell",
+                    "mint": mint,
+                    "percent": pct,
+                    "user_id": (msg.get("from") or {}).get("id"),
+                    "chat_id": (msg.get("chat") or {}).get("id"),
+                }
+            )
+
             return _reply(text)
-        
+
         # --- add: /trades (show recent dry-run trades for this chat) ---
         elif cmd == "/trades":
             msg = update.get("message", {}) or {}
@@ -5438,7 +6532,9 @@ def process_telegram_command(update: dict):
                 return _reply("No trades yet.")
             lines = []
             for e in reversed(rows):  # newest first
-                ts = time.strftime("%Y-%m-%d %H:%M", time.gmtime(e.get("ts", e.get("timestamp", 0))))
+                ts = time.strftime(
+                    "%Y-%m-%d %H:%M", time.gmtime(e.get("ts", e.get("timestamp", 0)))
+                )
                 if e.get("kind") == "buy" or e.get("type") == "buy":
                     amount = e.get("amount_sol") or e.get("amount", "?")
                     lines.append(f"{ts} BUY  {e.get('mint')}  {amount} SOL")
@@ -5447,7 +6543,7 @@ def process_telegram_command(update: dict):
                     lines.append(f"{ts} SELL {e.get('mint')}  {percent}%")
             return _reply("\n".join(lines))
         # --- end add ---
-        
+
         # --- add: /trades_clear (admin-only) ---
         elif cmd == "/trades_clear":
             msg = update.get("message", {}) or {}
@@ -5463,7 +6559,7 @@ def process_telegram_command(update: dict):
             except Exception as e:
                 return _reply(f"Failed to clear trades: {e}", status="error")
         # --- end add ---
-        
+
         # --- add: /trades_csv [N] ---
         elif cmd == "/trades_csv":
             msg = update.get("message", {}) or {}
@@ -5482,33 +6578,37 @@ def process_telegram_command(update: dict):
                 return _reply("Failed to export CSV.", status="error")
             return _reply(f"Exported {len(rows)} trade(s) to {path}")
         # --- end add ---
-        
+
         elif cmd == "/test123":
-            return _reply("✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed.")
+            return _reply(
+                "✅ **Connection Test Successful!**\n\nBot is responding via polling mode.\nWebhook delivery issues bypassed."
+            )
         elif cmd == "/commands":
-            commands_text = "📋 **Available Commands**\n\n" + \
-                          "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami /price /convert\n" + \
-                          "  /about <mint> – token snapshot (price, 5m/1h/6h/24h + 30m/12h when available)\n" + \
-                          "  /price <TICKER|MINT> – current price (Birdeye)\n" + \
-                          "  /convert <AMOUNT> <TICKER|MINT> – convert token↔USD (use $N or Nusd for USD→token)\n" + \
-                          "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n" + \
-                          "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n" + \
-                          "  /watchlist [mode] – show saved mints (modes: prices|caps|volumes|supply|fdv|holders)\n" + \
-                          "    /watchlist supply — show circulating supply\n" + \
-                          "    /watchlist fdv — show fully-diluted valuation\n" + \
-                          "    /watchlist holders — show holder count\n" + \
-                          "    Add \"asc\" or \"desc\" to sort, e.g. /watchlist volumes desc\n" + \
-                          "  /watch_tick – run one scan now\n" + \
-                          "  /alerts_auto_on [sec] – enable continuous scanning at optional interval\n" + \
-                          "  /alerts_auto_off – disable continuous scanning\n" + \
-                          "  /alerts_auto_status – show auto-scan status & interval\n" + \
-                          "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n" + \
-                       "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n" + \
-                       "  /sell <mint> <percent|ALL> - Simulate sell order\n" + \
-                       "  /trades [N] - Show recent dry-run trades (this chat)\n" + \
-                       "  /trades_csv [N] - Export recent dry-run trades to CSV\n" + \
-                       "**Admin:** /trades_clear (admin) - Clear dry-run trades\n\n" + \
-                          "Use /help for detailed descriptions"
+            commands_text = (
+                "📋 **Available Commands**\n\n"
+                + "**Basic:** /help /about /info /ping /test123 /debug_cmd /whoami /price /convert\n"
+                + "  /about <mint> – token snapshot (price, 5m/1h/6h/24h + 30m/12h when available)\n"
+                + "  /price <TICKER|MINT> – current price (Birdeye)\n"
+                + "  /convert <AMOUNT> <TICKER|MINT> – convert token↔USD (use $N or Nusd for USD→token)\n"
+                + "**Wallet:** /wallet /wallet_new /wallet_addr /wallet_balance /wallet_balance_usd /wallet_link /wallet_deposit_qr /wallet_qr /wallet_reset /wallet_reset_cancel /wallet_fullcheck /wallet_export\n"
+                + "**Scanner:** /solscanstats /config_update /config_show /scanner_on /scanner_off /threshold /watch /unwatch /watchlist /watch_tick /watch_off /alerts_auto_on /alerts_auto_off /alerts_auto_status /fetch /fetch_now\n"
+                + "  /watchlist [mode] – show saved mints (modes: prices|caps|volumes|supply|fdv|holders)\n"
+                + "    /watchlist supply — show circulating supply\n"
+                + "    /watchlist fdv — show fully-diluted valuation\n"
+                + "    /watchlist holders — show holder count\n"
+                + '    Add "asc" or "desc" to sort, e.g. /watchlist volumes desc\n'
+                + "  /watch_tick – run one scan now\n"
+                + "  /alerts_auto_on [sec] – enable continuous scanning at optional interval\n"
+                + "  /alerts_auto_off – disable continuous scanning\n"
+                + "  /alerts_auto_status – show auto-scan status & interval\n"
+                + "**AutoSell:** /autosell_on /autosell_off /autosell_status /autosell_interval /autosell_set /autosell_list /autosell_remove\n"
+                + "**Trading (Dry-Run):** /buy <mint> <SOL_amount> - Simulate buy order\n"
+                + "  /sell <mint> <percent|ALL> - Simulate sell order\n"
+                + "  /trades [N] - Show recent dry-run trades (this chat)\n"
+                + "  /trades_csv [N] - Export recent dry-run trades to CSV\n"
+                + "**Admin:** /trades_clear (admin) - Clear dry-run trades\n\n"
+                + "Use /help for detailed descriptions"
+            )
             return _reply(commands_text)
         elif cmd == "/debug_cmd":
             # Debug command to introspect what the router sees
@@ -5520,19 +6620,20 @@ def process_telegram_command(update: dict):
             # Show repr to reveal hidden newlines / zero-width chars
             return _reply(
                 "🔎 debug_cmd\n"
-                f"raw: {repr(raw)}\n"
-                f"cmd: {repr(cmd_debug)}\n"
-                f"args: {repr(args_debug)}"
+                f"raw: {raw!r}\n"
+                f"cmd: {cmd_debug!r}\n"
+                f"args: {args_debug!r}"
             )
-        
+
         elif cmd == "/version":
             import hashlib
+
             try:
                 with open("app.py", "rb") as f:
                     router_hash = hashlib.sha1(f.read()).hexdigest()[:8]
             except:
                 router_hash = "unknown"
-            
+
             version_text = f"""🤖 **Mork F.E.T.C.H Bot**
 **Version:** Production v3.0 Hardened
 **Mode:** Single Poller (app:app)
@@ -5542,7 +6643,7 @@ def process_telegram_command(update: dict):
 
 *The Degens' Best Friend* 🐕"""
             return _reply(version_text)
-        
+
         elif cmd == "/source":
             source_arg = arg.strip().lower() if arg else ""
             if source_arg in ("sim", "dex", "birdeye"):
@@ -5558,8 +6659,6 @@ def process_telegram_command(update: dict):
                 "Use `/source sim|dex|birdeye`"
             )
             return _reply(body)
-        
-
 
         elif cmd == "/commands":
             return _reply(_render_commands_list(is_admin))
@@ -5570,34 +6669,34 @@ def process_telegram_command(update: dict):
                 return _reply("Usage: `/alert <mint>`")
 
             mint = arg.strip()
-            src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
+            src = CURRENT_PRICE_SOURCE if "CURRENT_PRICE_SOURCE" in globals() else "birdeye"
             pr = get_price(mint, src)
             price = float(pr.get("price") or 0.0)
             source = pr.get("source") or src
             name_display = _display_name_for(mint)
             text = render_price_card(mint, price, source, name_display, title="Price Alert")
             return _reply(text)
-        
+
         elif cmd == "/price" or cmd == "/quote":
             if not arg:
                 return _reply("Usage: `/price <mint|ticker>`")
-            
+
             # Apply ticker resolution if args available
             if args:
                 _c = args.strip()
                 _m = _resolve_target(_c)
                 if _m:
                     args = _m  # Replace args with resolved mint
-                    arg = _m   # Also update arg for consistency
-            
+                    arg = _m  # Also update arg for consistency
+
             mint = _resolve_arg_to_mint(arg.strip())
             if not mint:
                 return _reply("❌ Invalid mint or unknown ticker.")
 
             # Use your unified price getter + current source
-            src = CURRENT_PRICE_SOURCE if 'CURRENT_PRICE_SOURCE' in globals() else 'birdeye'
-            pr  = get_price(mint, src)
-            price  = float(pr.get("price") or 0.0)
+            src = CURRENT_PRICE_SOURCE if "CURRENT_PRICE_SOURCE" in globals() else "birdeye"
+            pr = get_price(mint, src)
+            price = float(pr.get("price") or 0.0)
             source = pr.get("source") or src
 
             # Resolve display name exactly like /about (ticker first, then long name)
@@ -5606,14 +6705,16 @@ def process_telegram_command(update: dict):
             # Render the nicer card and send
             text = render_price_card(mint, price, source, name_display)
             return _reply(text)
-        
+
         # --- Multi-source snapshot (/fetch, /fetch_now) ---
         elif cmd in ("/fetch", "/fetch_now"):
             if not arg:
                 return _reply("Usage: `/fetch <mint>`")
             mint = arg.strip()
             if not mint or len(mint) < 10:
-                return _reply("❌ Invalid mint address. Please provide a valid Solana token mint address.")
+                return _reply(
+                    "❌ Invalid mint address. Please provide a valid Solana token mint address."
+                )
 
             active = (_read_price_source() or "sim").lower()
             rows = []
@@ -5627,8 +6728,8 @@ def process_telegram_command(update: dict):
             # Use existing provider wrappers; each returns {"ok", "price", "source"} or {"ok":False}
             providers = {
                 "birdeye": price_birdeye,
-                "dex":     price_dex,
-                "sim":     price_sim,
+                "dex": price_dex,
+                "sim": price_sim,
             }
 
             best_price = None
@@ -5647,7 +6748,9 @@ def process_telegram_command(update: dict):
                         best_price, best_src = price, src
 
             if not rows:
-                return _reply("❌ Snapshot failed (no providers returned a price). Try `/price <mint>`.")
+                return _reply(
+                    "❌ Snapshot failed (no providers returned a price). Try `/price <mint>`."
+                )
 
             # Build message
             lines = [f"🧭 *Price Snapshot:* `{mint[:10]}..`", ""]
@@ -5671,28 +6774,37 @@ def process_telegram_command(update: dict):
             lines.append("")
             lines.append("Tips: `/source sim|dex|birdeye`, `/price <mint> --src=birdeye`")
             return _reply("\n".join(lines))
-        
+
         # --- Watchlist commands (lightweight v1) ---
         elif cmd == "/watch":
             # Use enhanced _cmd_watch function with per-chat isolation
             result = _cmd_watch(chat_id, args)
             response_text = result.get("response", "No response")
             parse_mode = result.get("parse_mode", "Markdown")
-            return {"text": response_text, "status": "ok", "response": response_text, "handled": True, "parse_mode": parse_mode}
+            return {
+                "text": response_text,
+                "status": "ok",
+                "response": response_text,
+                "handled": True,
+                "parse_mode": parse_mode,
+            }
 
         elif cmd == "/unwatch" and args:
             # Validate and normalize mint
             original_args = args
             args = normalize_mint(args)
             if not is_valid_mint(args):
-                return _reply(f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_args}`")
-                
+                return _reply(
+                    f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_args}`"
+                )
+
             cfg = _watch_load()
             if args in cfg["mints"]:
                 cfg["mints"].remove(args)
                 _watch_save(cfg)
             st = _watch_state_load()
-            st["baseline"].pop(args, None); st["last"].pop(args, None)
+            st["baseline"].pop(args, None)
+            st["last"].pop(args, None)
             _watch_state_save(st)
             return _reply("👁️ Unwatched")
 
@@ -5701,30 +6813,44 @@ def process_telegram_command(update: dict):
             result = _cmd_watchlist(chat_id, args)
             response_text = result.get("response", "No response")
             parse_mode = result.get("parse_mode", "Markdown")
-            return {"text": response_text, "status": "ok", "response": response_text, "handled": True, "parse_mode": parse_mode}
-
-
+            return {
+                "text": response_text,
+                "status": "ok",
+                "response": response_text,
+                "handled": True,
+                "parse_mode": parse_mode,
+            }
 
         elif cmd == "/watch_off":
             if not arg:
-                return {"status":"ok","response":"Usage: `/watch_off <mint>`","parse_mode":"MarkdownV2"}
+                return {
+                    "status": "ok",
+                    "response": "Usage: `/watch_off <mint>`",
+                    "parse_mode": "MarkdownV2",
+                }
             mint = arg.strip()
-            
+
             # Validate and normalize mint
             original_mint = mint
             mint = normalize_mint(mint)
             if not is_valid_mint(mint):
-                return {"status":"ok","response":f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`"}
-            
+                return {
+                    "status": "ok",
+                    "response": f"❌ Invalid mint address.\nExpected base58 (32–44 chars).\nGot: `{original_mint}`",
+                }
+
             try:
                 wl = _load_watchlist()
                 before = len(wl)
                 wl = [x for x in wl if _normalize_watch_item(x).get("mint") != mint]
                 _save_watchlist(wl)
-                changed = (len(wl) < before)
-                return {"status":"ok","response":"✅ Unwatched" if changed else "(mint not in watchlist)"}
+                changed = len(wl) < before
+                return {
+                    "status": "ok",
+                    "response": "✅ Unwatched" if changed else "(mint not in watchlist)",
+                }
             except Exception as e:
-                return {"status":"ok","response":f"Internal error: {e}"}
+                return {"status": "ok", "response": f"Internal error: {e}"}
         elif cmd == "/watch_on":
             if not is_admin:
                 return _reply("❌ Admin only")
@@ -5732,7 +6858,7 @@ def process_telegram_command(update: dict):
             if not WATCH_RUN.get("thread") or not WATCH_RUN["thread"].is_alive():
                 watch_start()
             return _reply("▶️ Watcher running.")
-        
+
         # --------- Alerts routing admin ---------
         elif cmd == "/alerts_settings" and is_admin:
             return _reply(_alerts_settings_text())
@@ -5783,23 +6909,29 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/alerts_ticker_interval" and is_admin:
             if not arg:
-                return _reply(f"Usage: `/alerts_ticker_interval <seconds>` (current: {ALERTS_TICK_INTERVAL}s)")
+                return _reply(
+                    f"Usage: `/alerts_ticker_interval <seconds>` (current: {ALERTS_TICK_INTERVAL}s)"
+                )
             try:
                 interval = max(5, int(float(arg)))  # Min 5 seconds
             except Exception:
                 return _reply("❌ Invalid interval (minimum 5 seconds)")
             alerts_auto_on(interval)  # Restart with new interval
-            return _reply(f"✅ *Auto alerts enabled* — `{interval}s`\n" + _render_auto_status_card())
+            return _reply(
+                f"✅ *Auto alerts enabled* — `{interval}s`\n" + _render_auto_status_card()
+            )
 
         elif cmd == "/alerts_ticker_status" and is_admin:
             status_info = alerts_auto_status()
             status = "🟢 Running" if status_info["alive"] else "🔴 Stopped"
-            return _reply(f"📊 Background ticker: {status}\nInterval: {status_info['interval_sec']}s\nDefault: {ALERTS_TICK_DEFAULT}s")
+            return _reply(
+                f"📊 Background ticker: {status}\nInterval: {status_info['interval_sec']}s\nDefault: {ALERTS_TICK_DEFAULT}s"
+            )
 
         elif cmd == "/alerts_auto_on":
-            try: 
+            try:
                 sec = int(arg) if arg else None
-            except: 
+            except:
                 sec = None
             alerts_auto_on(sec)
             ival = int(_alerts_interval_get() or 0)
@@ -5824,7 +6956,8 @@ def process_telegram_command(update: dict):
             cfg["min_move_pct"] = value
             try:
                 import json
-                json.dump(cfg, open("alerts_config.json","w"), indent=2)
+
+                json.dump(cfg, open("alerts_config.json", "w"), indent=2)
             except Exception as e:
                 return _reply(f"❌ Failed to save: {e}")
             return _reply(f"👀 Watch sensitivity set to {value:.2f}%")
@@ -5854,31 +6987,38 @@ def process_telegram_command(update: dict):
         elif cmd == "/alerts_preview" and is_admin:
             try:
                 from alerts_glue import emit_info
+
                 success = emit_info("🔔 Preview: alerts glue operational")
-                return _reply("Preview sent." if success else "Preview not sent (no chat or rate/muted).")
+                return _reply(
+                    "Preview sent." if success else "Preview not sent (no chat or rate/muted)."
+                )
             except Exception as e:
                 return _reply(f"Preview failed: {e}", status="error")
-        
+
         elif cmd == "/autosell_on":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             import autosell
+
             autosell.enable()
             return _reply("🟢 AutoSell enabled.")
 
         elif cmd == "/autosell_off":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             import autosell
+
             autosell.disable()
             return _reply("🔴 AutoSell disabled.")
 
-
-
         elif cmd == "/autosell_interval":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             import autosell
+
             try:
                 seconds = int((args or "").split()[0])
             except Exception:
@@ -5889,8 +7029,12 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/autosell_set":
             deny = _require_admin(user)
-            if deny: return deny
-            import autosell, re
+            if deny:
+                return deny
+            import re
+
+            import autosell
+
             m = re.match(r"/autosell_set\s+(\S+)(.*)$", text)
             if not m:
                 return _reply("Usage: /autosell_set <MINT> [tp=30] [sl=15] [trail=10]")
@@ -5902,31 +7046,45 @@ def process_telegram_command(update: dict):
                 sl = int(kv["sl"]) if "sl" in kv else None
                 tr = int(kv["trail"]) if "trail" in kv else None
                 r = autosell.set_rule(mint, tp, sl, tr)
-                return _reply(f"✅ Rule saved: {r['mint']} tp={r['tp']} sl={r['sl']} trail={r['trail']}")
-        
+                return _reply(
+                    f"✅ Rule saved: {r['mint']} tp={r['tp']} sl={r['sl']} trail={r['trail']}"
+                )
+
         elif cmd == "/autosell_logs":
             deny = _require_admin(user)
-            if deny: return deny
-            import autosell, re
+            if deny:
+                return deny
+            import re
+
+            import autosell
+
             m = re.search(r"/autosell_logs\s+(\d+)", text)
             n = int(m.group(1)) if m else 10
             lines = autosell.get_logs(n)
             return _reply("📜 Last events:\n" + "\n".join(lines))
-        
+
         elif cmd == "/autosell_dryrun":
             deny = _require_admin(user)
-            if deny: return deny
-            import autosell, re
+            if deny:
+                return deny
+            import re
+
+            import autosell
+
             m = re.search(r"/autosell_dryrun\s+(\S+)", text)
             if not m:
                 return _reply("Usage: /autosell_dryrun <MINT>")
             else:
                 return _reply(autosell.dryrun_rule(m.group(1)))
-        
+
         elif cmd == "/autosell_ruleinfo":
             deny = _require_admin(user)
-            if deny: return deny
-            import autosell, re
+            if deny:
+                return deny
+            import re
+
+            import autosell
+
             m = re.search(r"/autosell_ruleinfo\s+(\S+)", text)
             if not m:
                 return _reply("Usage: /autosell_ruleinfo <MINT>")
@@ -5935,8 +7093,10 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/autosell_list":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             import autosell
+
             rules = autosell.get_rules()
             if not rules:
                 return _reply("🤖 AutoSell rules: (none)")
@@ -5950,8 +7110,10 @@ def process_telegram_command(update: dict):
 
         elif cmd == "/autosell_remove":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             import autosell
+
             target = (args or "").split()[0] if args else ""
             if not target:
                 return _reply("Usage: /autosell_remove <MINT>")
@@ -5959,33 +7121,40 @@ def process_telegram_command(update: dict):
             return _reply("🗑️ AutoSell rule removed." if success else "ℹ️ No rule found.")
 
         # ---- Alerts simple settings (mute/unmute/status) ----
-        elif cmd in ("/alerts_settings","/alerts_status"):
-            import time, re
+        elif cmd in ("/alerts_settings", "/alerts_status"):
+            import re
+            import time
+
             st = _alerts_load()
-            mu = "yes" if st.get("muted_until",0) > time.time() else "no"
-            left = max(0,int(st.get("muted_until",0)-time.time()))
-            return _reply("🖥 Alert flood control settings:\n"
-                    f"chat: {st.get('chat','not set')}\n"
-                    f"min_move_pct: {st.get('min_move_pct',0.0)}%\n"
-                    f"rate_per_min: {st.get('rate_per_min',60)}\n"
-                    f"sent_last_min: {st.get('sent_last_min',0)}\n"
-                    f"muted: {mu}" + (f" ({left}s left)" if mu=="yes" else ""))
+            mu = "yes" if st.get("muted_until", 0) > time.time() else "no"
+            left = max(0, int(st.get("muted_until", 0) - time.time()))
+            return _reply(
+                "🖥 Alert flood control settings:\n"
+                f"chat: {st.get('chat','not set')}\n"
+                f"min_move_pct: {st.get('min_move_pct',0.0)}%\n"
+                f"rate_per_min: {st.get('rate_per_min',60)}\n"
+                f"sent_last_min: {st.get('sent_last_min',0)}\n"
+                f"muted: {mu}" + (f" ({left}s left)" if mu == "yes" else "")
+            )
         elif cmd == "/alerts_mute":
-            import time, re
+            import re
+            import time
+
             # /alerts_mute <2m|5m|1h>
             m = re.search(r"/alerts_mute\s+(\d+)([smh]?)", text)
             if not m:
                 return _reply("Usage: /alerts_mute <duration e.g. 120s | 2m | 1h>")
             else:
                 val, unit = int(m.group(1)), (m.group(2) or "s")
-                mult = {"s":1,"m":60,"h":3600}[unit]
-                dur = val*mult
+                mult = {"s": 1, "m": 60, "h": 3600}[unit]
+                dur = val * mult
                 st = _alerts_load()
-                st["muted_until"] = time.time()+dur
+                st["muted_until"] = time.time() + dur
                 _alerts_save(st)
                 return _reply(f"🔕 Alerts muted for {dur//60} min")
         elif cmd == "/alerts_unmute":
             import time
+
             st = _alerts_load()
             st["muted_until"] = 0
             _alerts_save(st)
@@ -5998,22 +7167,24 @@ def process_telegram_command(update: dict):
                 cfg = _load_alerts_cfg()
                 state = _watch_state_load()
                 wl = _load_watchlist()
-                
+
                 lines = ["🧪 *Enhanced Alert Tracking Test*\n"]
-                lines.append(f"Config: threshold={cfg.get('min_move_pct', 0)}%, rate={cfg.get('rate_per_min', 60)}/min")
+                lines.append(
+                    f"Config: threshold={cfg.get('min_move_pct', 0)}%, rate={cfg.get('rate_per_min', 60)}/min"
+                )
                 lines.append(f"Watchlist: {len(wl)} tokens")
                 lines.append(f"State entries: {len(state)} total\n")
-                
+
                 # Run enhanced tick with alerts enabled
                 checked, fired, tick_lines = watch_tick_once(send_alerts=True)
                 lines.append(f"*Tick Results:* checked={checked}, fired={fired}")
-                
+
                 # Show regular tracking lines
                 regular_lines = [line for line in tick_lines if not line.startswith("   Alert:")]
                 lines.append("*Price Tracking:*")
                 for line in regular_lines[:3]:  # Show first 3
                     lines.append(f"`{line}`")
-                
+
                 # Show enhanced alert tracking lines
                 alert_lines = [line for line in tick_lines if line.startswith("   Alert:")]
                 if alert_lines:
@@ -6022,15 +7193,15 @@ def process_telegram_command(update: dict):
                         lines.append(f"`{line}`")
                 else:
                     lines.append("\n*Alert Tracking:* No alerts triggered")
-                
+
                 # Show state summary
                 final_state = _watch_state_load()
                 global_state = final_state.get("_global", {})
                 sent_count = len(global_state.get("sent_ts", []))
                 lines.append(f"\n*Rate Limiting:* {sent_count} alerts sent in last minute")
-                
+
                 return _reply("\n".join(lines))
-                
+
             except Exception as e:
                 return _reply(f"Enhanced test error: {e}")
 
@@ -6052,28 +7223,29 @@ def process_telegram_command(update: dict):
                 bl = _load_baseline()
                 if not wl:
                     return _reply("👁️ Watchlist empty.")
-                
+
                 lines = ["📋 *Watchlist detail:*"]
                 import time
+
                 now = int(time.time())
-                
+
                 for raw in wl:
                     item = _normalize_watch_item(raw)
                     mint = item.get("mint", "")
                     if not mint:
                         continue
-                        
+
                     # Get enhanced state information from watch_state
                     ms = st.get(mint, {})
                     last_price = ms.get("last_price")
                     state_src = ms.get("last_src", "n/a")
                     last_ts = ms.get("last_ts", now)
                     last_alert_ts = ms.get("last_alert_ts")
-                    
+
                     # Get baseline information (handle both old float format and new dict format)
                     b = bl.get(mint)
                     if isinstance(b, dict):
-                        age = f"{now - b.get('ts', now)}s" if b.get('ts') else "n/a"
+                        age = f"{now - b.get('ts', now)}s" if b.get("ts") else "n/a"
                         src = b.get("src", "n/a")
                     elif b is not None:
                         # Legacy format: just a price value
@@ -6082,203 +7254,295 @@ def process_telegram_command(update: dict):
                     else:
                         age = "n/a"
                         src = "n/a"
-                    
-                    # Calculate time since last update  
+
+                    # Calculate time since last update
                     ago = now - int(last_ts) if last_ts != now else 0
                     last_s = f"${last_price:.6f}" if last_price is not None else "?"
-                    
+
                     # Add alert information if available
                     alert_info = ""
                     if last_alert_ts:
                         alert_ago = now - int(last_alert_ts)
                         alert_info = f" alert={alert_ago}s"
-                    
-                    lines.append(f"- `{mint[:10]}..`  last={last_s} src={src} age={age}{alert_info}")
-                
+
+                    lines.append(
+                        f"- `{mint[:10]}..`  last={last_s} src={src} age={age}{alert_info}"
+                    )
+
                 return _reply("\n".join(lines))
-                
+
             except Exception as e:
                 return _reply(f"Detail error: {e}")
 
         # Wallet Commands
         elif cmd == "/wallet":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("💰 Wallet System\nUse /wallet_balance to check balance\nUse /wallet_addr for address\nUse /wallet_new to create new wallet")
+            if deny:
+                return deny
+            return _reply(
+                "💰 Wallet System\nUse /wallet_balance to check balance\nUse /wallet_addr for address\nUse /wallet_new to create new wallet"
+            )
 
         elif cmd == "/wallet_new":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🔧 Wallet creation temporarily disabled for safety\nContact admin for wallet management")
+            if deny:
+                return deny
+            return _reply(
+                "🔧 Wallet creation temporarily disabled for safety\nContact admin for wallet management"
+            )
 
         elif cmd == "/wallet_addr":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📍 Wallet address retrieval temporarily disabled\nUse web interface for address display")
+            if deny:
+                return deny
+            return _reply(
+                "📍 Wallet address retrieval temporarily disabled\nUse web interface for address display"
+            )
 
         elif cmd == "/wallet_balance":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("💰 Wallet balance check temporarily disabled\nUse web interface for balance display")
+            if deny:
+                return deny
+            return _reply(
+                "💰 Wallet balance check temporarily disabled\nUse web interface for balance display"
+            )
 
         elif cmd == "/wallet_balance_usd":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("💵 USD balance check temporarily disabled\nUse web interface for USD balance")
+            if deny:
+                return deny
+            return _reply(
+                "💵 USD balance check temporarily disabled\nUse web interface for USD balance"
+            )
 
         elif cmd == "/wallet_link":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🔗 Solscan link generation temporarily disabled\nUse web interface for explorer links")
+            if deny:
+                return deny
+            return _reply(
+                "🔗 Solscan link generation temporarily disabled\nUse web interface for explorer links"
+            )
 
         elif cmd == "/wallet_deposit_qr":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📱 QR code generation temporarily disabled\nUse web interface for deposit QR codes")
+            if deny:
+                return deny
+            return _reply(
+                "📱 QR code generation temporarily disabled\nUse web interface for deposit QR codes"
+            )
 
         elif cmd == "/wallet_qr":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📱 QR code display temporarily disabled\nUse web interface for wallet QR codes")
+            if deny:
+                return deny
+            return _reply(
+                "📱 QR code display temporarily disabled\nUse web interface for wallet QR codes"
+            )
 
         elif cmd == "/wallet_reset":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🔄 Wallet reset temporarily disabled for safety\nContact admin for wallet management")
+            if deny:
+                return deny
+            return _reply(
+                "🔄 Wallet reset temporarily disabled for safety\nContact admin for wallet management"
+            )
 
         elif cmd == "/wallet_reset_cancel":
             deny = _require_admin(user)
-            if deny: return deny
+            if deny:
+                return deny
             return _reply("❌ Wallet reset cancel not needed - reset is disabled")
 
         elif cmd == "/wallet_fullcheck":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🔍 Full wallet check temporarily disabled\nUse web interface for comprehensive wallet status")
+            if deny:
+                return deny
+            return _reply(
+                "🔍 Full wallet check temporarily disabled\nUse web interface for comprehensive wallet status"
+            )
 
         elif cmd == "/wallet_export":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📤 Wallet export temporarily disabled for security\nContact admin for wallet export")
+            if deny:
+                return deny
+            return _reply(
+                "📤 Wallet export temporarily disabled for security\nContact admin for wallet export"
+            )
 
         # Scanner Commands
         elif cmd == "/solscanstats":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📊 Solscan stats available via web interface\nScanner operating normally")
+            if deny:
+                return deny
+            return _reply(
+                "📊 Solscan stats available via web interface\nScanner operating normally"
+            )
 
         elif cmd == "/config_update":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("⚙️ Config updates via web interface\nUse /config_show to view current settings")
+            if deny:
+                return deny
+            return _reply(
+                "⚙️ Config updates via web interface\nUse /config_show to view current settings"
+            )
 
         elif cmd == "/config_show":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📋 Configuration display via web interface\nScanner and AutoSell settings available online")
+            if deny:
+                return deny
+            return _reply(
+                "📋 Configuration display via web interface\nScanner and AutoSell settings available online"
+            )
 
         elif cmd == "/scanner_on":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🟢 Scanner control via web interface\nUse monitoring dashboard for scanner management")
+            if deny:
+                return deny
+            return _reply(
+                "🟢 Scanner control via web interface\nUse monitoring dashboard for scanner management"
+            )
 
         elif cmd == "/scanner_off":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🔴 Scanner control via web interface\nUse monitoring dashboard for scanner management")
+            if deny:
+                return deny
+            return _reply(
+                "🔴 Scanner control via web interface\nUse monitoring dashboard for scanner management"
+            )
 
         elif cmd == "/threshold":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🎯 Threshold adjustment via web interface\nUse monitoring dashboard for threshold settings")
+            if deny:
+                return deny
+            return _reply(
+                "🎯 Threshold adjustment via web interface\nUse monitoring dashboard for threshold settings"
+            )
 
         elif cmd == "/watch":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("👁️ Watchlist management via web interface\nUse monitoring dashboard for token watching")
+            if deny:
+                return deny
+            return _reply(
+                "👁️ Watchlist management via web interface\nUse monitoring dashboard for token watching"
+            )
 
         elif cmd == "/unwatch":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("👁️ Watchlist management via web interface\nUse monitoring dashboard to remove tokens")
+            if deny:
+                return deny
+            return _reply(
+                "👁️ Watchlist management via web interface\nUse monitoring dashboard to remove tokens"
+            )
 
         elif cmd == "/watchlist":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("📋 Watchlist display via web interface\nUse monitoring dashboard to view watched tokens")
+            if deny:
+                return deny
+            return _reply(
+                "📋 Watchlist display via web interface\nUse monitoring dashboard to view watched tokens"
+            )
 
         elif cmd == "/watch_tick":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("👁️ Watch tick via web interface\nUse monitoring dashboard for manual watchlist scanning")
+            if deny:
+                return deny
+            return _reply(
+                "👁️ Watch tick via web interface\nUse monitoring dashboard for manual watchlist scanning"
+            )
 
         elif cmd == "/watch_off":
             if not arg:
-                return {"status": "ok", "response": "Usage: `/watch_off <mint>`", "parse_mode": "MarkdownV2"}
+                return {
+                    "status": "ok",
+                    "response": "Usage: `/watch_off <mint>`",
+                    "parse_mode": "MarkdownV2",
+                }
             mint = arg.strip()
             wl = _load_watchlist()
-            def _m(x): return x.get("mint") if isinstance(x,dict) else (x if isinstance(x,str) else "")
+
+            def _m(x):
+                return x.get("mint") if isinstance(x, dict) else (x if isinstance(x, str) else "")
+
             before = len(wl)
             wl = [x for x in wl if _m(x) != mint]
             _save_watchlist(wl)
-            return {"status":"ok","response":"✅ Unwatched" if len(wl) < before else "(mint not in watchlist)"}
+            return {
+                "status": "ok",
+                "response": "✅ Unwatched" if len(wl) < before else "(mint not in watchlist)",
+            }
 
         elif cmd == "/watch_debug":
             try:
                 mint = arg.strip() if arg else ""
-                
+
                 if not mint:
-                    return {"status":"ok","response":"Usage: `/watch_debug <mint>`","parse_mode":"Markdown"}
-                
+                    return {
+                        "status": "ok",
+                        "response": "Usage: `/watch_debug <mint>`",
+                        "parse_mode": "Markdown",
+                    }
+
                 cfg = _load_alerts_cfg()
                 base = _load_baseline()
                 bl = base.get(mint)
                 r = _price_lookup_any(mint)
                 price = float(r.get("price") or 0.0)
                 src = r.get("source") or "n/a"
-                
+
                 if bl and "price" in bl and float(bl["price"]) > 0 and price > 0:
                     delta_pct = (price - float(bl["price"])) / float(bl["price"]) * 100.0
                 else:
                     delta_pct = 0.0
-                    
+
                 msg = (
                     "*Watch debug*\n"
                     f"cfg: chat={cfg.get('chat_id')} min={cfg.get('min_move_pct')} rate={cfg.get('rate_per_min')}/min muted={cfg.get('muted')}\n"
                     f"- `{mint[:12]}..`  last=${price:.6f}  base=${(bl or {}).get('price', 'n/a')}  Δ={delta_pct:+.4f}%  src={src}"
                 )
-                return {"status":"ok","response":msg,"parse_mode":"Markdown"}
+                return {"status": "ok", "response": msg, "parse_mode": "Markdown"}
             except Exception as e:
                 import logging as pylog
+
                 pylog.exception("/watch_debug failed: %s", e)
-                return {"status":"ok","response":f"Internal error: {e}"}
+                return {"status": "ok", "response": f"Internal error: {e}"}
 
         elif cmd == "/fetch":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("🎣 Token fetching via web interface\nUse monitoring dashboard for manual token discovery")
+            if deny:
+                return deny
+            return _reply(
+                "🎣 Token fetching via web interface\nUse monitoring dashboard for manual token discovery"
+            )
 
         elif cmd == "/fetch_now":
             deny = _require_admin(user)
-            if deny: return deny
-            return _reply("⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning")
-        
+            if deny:
+                return deny
+            return _reply(
+                "⚡ Instant fetch via web interface\nUse monitoring dashboard for immediate scanning"
+            )
+
         else:
             # Unknown command fallback
             return _reply("Unknown command (use /help)", status="error")
-    
+
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"[CMD] cmd='{cmd or text}' user_id={user_id} duration_ms={duration_ms} error={e}")
+        logger.error(
+            f"[CMD] cmd='{cmd or text}' user_id={user_id} duration_ms={duration_ms} error={e}"
+        )
         ret = _reply(f"Internal error: {e}", "error")
-        
+
         # --- ROUTER TRACE HOOK (exit) ---
         try:
-            _rt_log(f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response','')) if isinstance(ret, dict) else 0}")
+            _rt_log(
+                f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response','')) if isinstance(ret, dict) else 0}"
+            )
             return ret
         except NameError:
             _rt_log("exit ret=None")
             return None
+
 
 # Initialize scanners after admin functions are defined
 try:
@@ -6286,22 +7550,25 @@ try:
     logger.info("Scanners initialized successfully")
     # Ensure SCANNERS registry is populated after initialization
     SCANNERS = {
-        'birdeye': SCANNER,
-        'jupiter': JUPITER_SCANNER,
-        'solscan': SOLSCAN_SCANNER,
-        'dexscreener': DS_SCANNER,
-        'websocket': ws_client
+        "birdeye": SCANNER,
+        "jupiter": JUPITER_SCANNER,
+        "solscan": SOLSCAN_SCANNER,
+        "dexscreener": DS_SCANNER,
+        "websocket": ws_client,
     }
-    logger.info(f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners")
-    
+    logger.info(
+        f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners"
+    )
+
     # Polling service startup moved to single location to prevent duplicates
 except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
     # Continue without scanners if initialization fails
     SCANNER = None
-    JUPITER_SCANNER = None 
+    JUPITER_SCANNER = None
     SOLSCAN_SCANNER = None
     SCANNERS = {}
+
 
 def _scanner_thread():
     while True:
@@ -6319,10 +7586,15 @@ def _scanner_thread():
                 except Exception as e:
                     total, new = 0, 0
                     app.logger.warning("[SCAN] birdeye tick error: %s", e)
-            
+
             # Run all other scanners in SCANNERS registry
             for name, scanner in SCANNERS.items():
-                if scanner and hasattr(scanner, 'tick') and hasattr(scanner, 'running') and scanner.running:
+                if (
+                    scanner
+                    and hasattr(scanner, "tick")
+                    and hasattr(scanner, "running")
+                    and scanner.running
+                ):
                     try:
                         result = scanner.tick()
                         if result and isinstance(result, (tuple, list)) and len(result) == 2:
@@ -6333,11 +7605,12 @@ def _scanner_thread():
                         time.sleep(0.15)
                     except Exception as e:
                         app.logger.warning("[SCAN] %s tick error: %s", name, e)
-            
+
             time.sleep(SCAN_INTERVAL)
         except Exception as e:
             logger.warning("[SCAN] loop error: %s", e)
             time.sleep(2)
+
 
 # start thread on boot
 if SCANNER:
@@ -6348,29 +7621,35 @@ if SCANNER:
 
 # Auto-start scanners - already handled in _init_scanners()
 
+
 # subscribe to publish Birdeye hits to Telegram
 def _on_new(evt):
     items = evt.get("items", [])
-    if not items: return
+    if not items:
+        return
     lines = ["🟢 New tokens (Birdeye):"]
     for it in items[:5]:
-        mint = it["mint"]; sym = it.get("symbol","?")
-        nm = it.get("name","?")
+        mint = it["mint"]
+        sym = it.get("symbol", "?")
+        nm = it.get("name", "?")
         price = it.get("price")
         lines.append(f"• {sym} | {nm} | {mint}")
         lines.append(f"  Birdeye: https://birdeye.so/token/{mint}?chain=solana")
         lines.append(f"  Pump.fun: https://pump.fun/{mint}")
-        if price: lines.append(f"  ~${price}")
+        if price:
+            lines.append(f"  ~${price}")
     try:
         # Send notification to admin via Telegram
-        import requests
+
         message_text = "\n".join(lines)
         send_admin_md(message_text)
     except Exception as e:
         logger.warning("Failed to send Birdeye notification: %s", e)
 
+
 # Subscribe to Birdeye events via queue polling
 _notification_queue = BUS.subscribe()
+
 
 def _notification_thread():
     """Background thread to handle Birdeye notifications"""
@@ -6387,6 +7666,7 @@ def _notification_thread():
             logger.warning("Notification thread error: %s", e)
             time.sleep(1)
 
+
 # Start notification thread
 notification_thread = threading.Thread(target=_notification_thread, daemon=True)
 notification_thread.start()
@@ -6395,7 +7675,8 @@ notification_thread.start()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "mork-fetch-bot-secret-key")
 
-@app.route('/')
+
+@app.route("/")
 def index():
     """Basic web interface"""
     return """
@@ -6475,36 +7756,37 @@ def index():
     </html>
     """
 
-@app.route('/webhook_v2', methods=['POST'])
+
+@app.route("/webhook_v2", methods=["POST"])
 def webhook_v2():
     """Clean webhook handler - replacement for broken webhook"""
     try:
         logger.info(f"[WEBHOOK_V2] Received request from {request.remote_addr}")
-        
+
         # Get JSON data
         update_data = request.get_json()
         if not update_data:
             logger.warning("[WEBHOOK_V2] No JSON data received")
             return jsonify({"status": "error", "message": "No data received"}), 400
-        
+
         # Basic deduplication by update_id
         uid = update_data.get("update_id")
         if uid and _webhook_seen_update(uid):
             return jsonify({"status": "ok", "message": "duplicate ignored"}), 200
-        
+
         # Process message
-        if 'message' in update_data:
-            msg = update_data['message']
-            text = msg.get('text', '')
-            user_id = msg.get('from', {}).get('id', '')
-            chat_id = msg.get('chat', {}).get('id', '')
-            
+        if "message" in update_data:
+            msg = update_data["message"]
+            text = msg.get("text", "")
+            user_id = msg.get("from", {}).get("id", "")
+            chat_id = msg.get("chat", {}).get("id", "")
+
             logger.info(f"[WEBHOOK_V2] Processing '{text}' from user {user_id}")
-            
+
             # Process command and get response
             try:
                 result = process_telegram_command(update_data)
-                
+
                 # Extract response text
                 if isinstance(result, dict) and result.get("handled"):
                     response_text = result.get("response", "Command processed")
@@ -6512,60 +7794,67 @@ def webhook_v2():
                     response_text = result
                 else:
                     response_text = "⚠️ Command processing error"
-                
+
                 # Send response using simple method
-                import requests
                 import os
-                bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+                import requests
+
+                bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
                 if chat_id and bot_token and response_text:
-                    payload = {
-                        "chat_id": chat_id,
-                        "text": response_text,
-                        "parse_mode": "Markdown"
-                    }
+                    payload = {"chat_id": chat_id, "text": response_text, "parse_mode": "Markdown"}
                     resp = requests.post(
                         f"https://api.telegram.org/bot{bot_token}/sendMessage",
                         json=payload,
-                        timeout=10
+                        timeout=10,
                     )
                     logger.info(f"[WEBHOOK_V2] Response sent: {resp.status_code}")
-                
+
             except Exception as e:
                 logger.error(f"[WEBHOOK_V2] Command processing failed: {e}")
                 logger.exception("Command processing exception:")
-        
+
         return jsonify({"status": "ok"})
-        
+
     except Exception as e:
         logger.error(f"[WEBHOOK_V2] Error: {e}")
         logger.exception("Webhook exception:")
         return jsonify({"status": "error"}), 200
 
-@app.route('/debug_scanners', methods=['GET'])
+
+@app.route("/debug_scanners", methods=["GET"])
 def debug_scanners():
     """Debug endpoint to check SCANNERS state"""
-    return jsonify({
-        "pid": os.getpid(),
-        "scanners_keys": list(SCANNERS.keys()),
-        "has_solscan": "solscan" in SCANNERS,
-        "solscan_obj": str(SCANNERS.get("solscan", None)),
-        "solscan_running": getattr(SCANNERS.get("solscan", None), "running", None),
-        "solscan_enabled": getattr(SCANNERS.get("solscan", None), "enabled", None)
-    })
+    return jsonify(
+        {
+            "pid": os.getpid(),
+            "scanners_keys": list(SCANNERS.keys()),
+            "has_solscan": "solscan" in SCANNERS,
+            "solscan_obj": str(SCANNERS.get("solscan", None)),
+            "solscan_running": getattr(SCANNERS.get("solscan", None), "running", None),
+            "solscan_enabled": getattr(SCANNERS.get("solscan", None), "enabled", None),
+        }
+    )
 
-@app.route('/debug_pid', methods=['GET'])
+
+@app.route("/debug_pid", methods=["GET"])
 def debug_pid():
     """Simple PID endpoint for process debugging"""
-    return jsonify({
-        "webhook_pid": os.getpid(),
-        "scanners_count": len(SCANNERS),
-        "has_solscan": "solscan" in SCANNERS
-    })
+    return jsonify(
+        {
+            "webhook_pid": os.getpid(),
+            "scanners_count": len(SCANNERS),
+            "has_solscan": "solscan" in SCANNERS,
+        }
+    )
+
 
 # Enhanced webhook deduplication system
 from collections import OrderedDict
+
 _webhook_seen_updates = OrderedDict()
 _WEBHOOK_SEEN_MAX = 256
+
 
 def _webhook_seen_update(uid):
     """Check if update_id already processed with LRU eviction"""
@@ -6578,19 +7867,26 @@ def _webhook_seen_update(uid):
         _webhook_seen_updates.popitem(last=False)
     return False
 
+
 # Message-level deduplication with TTL
 import time
+
 _webhook_last_msgs = {}
 _WEBHOOK_LAST_TTL = 2.0  # seconds
 
+
 def _webhook_is_dup_message(msg):
     """Check for duplicate message by (message_id, user_id, chat_id) with TTL"""
-    mid = (msg.get("message_id"), (msg.get("from") or {}).get("id"), (msg.get("chat") or {}).get("id"))
+    mid = (
+        msg.get("message_id"),
+        (msg.get("from") or {}).get("id"),
+        (msg.get("chat") or {}).get("id"),
+    )
     if mid[0] is None:
         return False
     now = time.time()
     # purge old
-    for k,t in list(_webhook_last_msgs.items()):
+    for k, t in list(_webhook_last_msgs.items()):
         if now - t > _WEBHOOK_LAST_TTL:
             _webhook_last_msgs.pop(k, None)
     if mid in _webhook_last_msgs:
@@ -6598,94 +7894,104 @@ def _webhook_is_dup_message(msg):
     _webhook_last_msgs[mid] = now
     return False
 
-@app.route('/webhook', methods=['POST'])
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
     """Handle Telegram webhook updates with comprehensive logging - Fully standalone operation"""
     # Ensure scanners are initialized in this worker process
     _ensure_scanners()
-    
+
     try:
         # Import publish at function level to avoid import issues
         # Enhanced events system
-        def publish(topic, payload): return BUS.publish(topic, payload)
-        
+        def publish(topic, payload):
+            return BUS.publish(topic, payload)
+
         # Log incoming webhook request - ALWAYS log
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
-        
+
         update_data = request.get_json()
         if not update_data:
             logger.warning("[WEBHOOK] No JSON data received")
             return jsonify({"status": "error", "message": "No data received"}), 400
-        
+
         # Enhanced perimeter deduplication
         uid = update_data.get("update_id")
         if _webhook_seen_update(uid):
             return jsonify({"status": "ok", "message": "duplicate update_id ignored"}), 200
-            
+
         # Message-level deduplication
         message = update_data.get("message") or {}
         if _webhook_is_dup_message(message):
             return jsonify({"status": "ok", "message": "duplicate message ignored"}), 200
-        
-        if update_data.get('message'):
-            msg_text = update_data['message'].get('text', '')
-            user_id = update_data['message'].get('from', {}).get('id', '')
+
+        if update_data.get("message"):
+            msg_text = update_data["message"].get("text", "")
+            user_id = update_data["message"].get("from", {}).get("id", "")
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
-        
+
         # ALWAYS proceed with direct webhook processing - no dependency on mork_bot
         logger.info("[WEBHOOK] Using direct webhook processing mode")
-            
+
         # Process the update
-        if 'message' in update_data:
+        if "message" in update_data:
             # STANDARD COMMAND PARSING PATTERN - THIS MUST EXIST AND BE USED:
             msg = update_data.get("message") or {}
             user = msg.get("from") or {}
             text = msg.get("text") or ""
-            
+
             # THIS must exist and be used:
             cmd, args = _parse_cmd(text)
-            
-            logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}' -> cmd='{cmd}', args='{args}'")
-            
+
+            logger.info(
+                f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}' -> cmd='{cmd}', args='{args}'"
+            )
+
             # Publish webhook event for real-time monitoring
-            publish("webhook.update", {
-                "from": user.get("username", "?"), 
-                "user_id": user.get("id"),
-                "text": text,
-                "chat_id": msg.get('chat', {}).get('id'),
-                "cmd": cmd,
-                "args": args
-            })
-            
+            publish(
+                "webhook.update",
+                {
+                    "from": user.get("username", "?"),
+                    "user_id": user.get("id"),
+                    "text": text,
+                    "chat_id": msg.get("chat", {}).get("id"),
+                    "cmd": cmd,
+                    "args": args,
+                },
+            )
+
             # Publish command routing event for specific command tracking
             if cmd:
                 publish("command.route", {"cmd": cmd, "args": args})
-            
+
             # Check for multiple commands in one message using standard parser
             commands_in_message = []
             if text:
                 # Split by whitespace and find all commands (starting with /)
                 words = text.split()
                 for word in words:
-                    if word.startswith('/'):
+                    if word.startswith("/"):
                         parsed_cmd, _ = _parse_cmd(word)
                         if parsed_cmd:
                             commands_in_message.append(parsed_cmd)
-            
+
             # If multiple commands detected, log it
             if len(commands_in_message) > 1:
                 logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
-            
+
             # Use standardized variables for backward compatibility
             message = msg  # Alias for legacy code
 
             # Helper functions for sending replies (with auto-split)
-            def _send_chunk(txt: str, parse_mode: str = "Markdown", no_preview: bool = True) -> bool:
+            def _send_chunk(
+                txt: str, parse_mode: str = "Markdown", no_preview: bool = True
+            ) -> bool:
                 try:
                     import requests
-                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+                    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
                     payload = {
                         "chat_id": message["chat"]["id"],
                         "text": txt,
@@ -6711,7 +8017,7 @@ def webhook():
                 i = 0
                 success = True
                 while i < len(text):
-                    chunk = text[i:i+MAX]
+                    chunk = text[i : i + MAX]
                     # try not to cut mid-line
                     cut = chunk.rfind("\n")
                     if cut > 1000:  # only use if it helps
@@ -6727,26 +8033,27 @@ def webhook():
                 msg = update.get("message") or update.get("edited_message") or {}
                 user = msg.get("from") or {}
                 text = msg.get("text") or ""
-                
+
                 # Idempotency check - prevent duplicate processing
                 import hashlib
+
                 update_id = f"{msg.get('message_id', 0)}_{user.get('id', 0)}_{text[:50]}"
                 update_hash = hashlib.md5(update_id.encode()).hexdigest()
-                
+
                 # Simple in-memory deduplication using global set
                 global _processed_updates
-                if '_processed_updates' not in globals():
+                if "_processed_updates" not in globals():
                     _processed_updates = set()
-                
+
                 if update_hash in _processed_updates:
                     logger.info(f"[WEBHOOK] Duplicate update skipped: {update_hash}")
                     return {"status": "duplicate", "handled": True}
-                
+
                 # Add to processed set (keep only last 100)
                 _processed_updates.add(update_hash)
                 if len(_processed_updates) > 100:
                     _processed_updates = set(list(_processed_updates)[-100:])
-                
+
                 # Single sender & single fallback pattern
                 try:
                     result = process_telegram_command(update)
@@ -6756,25 +8063,30 @@ def webhook():
                         out = result
                     else:
                         out = "⚠️ Processing error occurred."
-                    
+
                     # Single send using safe telegram delivery
-                    from telegram_safety import send_telegram_safe
                     from config import TELEGRAM_BOT_TOKEN
-                    chat_id = msg.get('chat', {}).get('id')
+                    from telegram_safety import send_telegram_safe
+
+                    chat_id = msg.get("chat", {}).get("id")
                     if chat_id and TELEGRAM_BOT_TOKEN:
                         ok, status, resp = send_telegram_safe(TELEGRAM_BOT_TOKEN, chat_id, out)
-                        logger.info(f"[WEBHOOK] Message sent: ok={ok}, status={status}, chat_id={chat_id}")
+                        logger.info(
+                            f"[WEBHOOK] Message sent: ok={ok}, status={status}, chat_id={chat_id}"
+                        )
                     else:
-                        logger.warning(f"[WEBHOOK] Send failed: chat_id={chat_id}, token_exists={bool(TELEGRAM_BOT_TOKEN)}")
-                    
+                        logger.warning(
+                            f"[WEBHOOK] Send failed: chat_id={chat_id}, token_exists={bool(TELEGRAM_BOT_TOKEN)}"
+                        )
+
                     # Return handled result if processed successfully
                     if isinstance(result, dict) and result.get("handled"):
                         return result
-                        
+
                 except Exception as e:
                     logger.error(f"[WEBHOOK] Enhanced command processor failed: {e}")
                     # Fall through to legacy processing
-                
+
                 # No legacy fallback - router handles all commands
                 return {"status": "router_processed", "handled": True}
 
@@ -6782,44 +8094,52 @@ def webhook():
             try:
                 result = handle_update(update_data)
                 logger.info(f"[WEBHOOK] Update handled: {result.get('status')}")
-                return jsonify({"status": result.get('status', 'ok')})
+                return jsonify({"status": result.get("status", "ok")})
             except Exception as e:
                 logger.error(f"[WEBHOOK] Enhanced handler failed: {e}")
                 return jsonify({"status": "error_handled"}), 200
 
         # End of webhook processing - router handles everything
         return jsonify({"status": "ok", "processed": True})
-        
+
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         logger.exception("Full webhook exception traceback:")
         # Always return 200 OK to prevent Telegram retries, even on internal errors
-        return jsonify({
-            "status": "error_handled", 
-            "processed": True, 
-            "error_type": type(e).__name__,
-            "timestamp": int(__import__('time').time())
-        }), 200
+        return (
+            jsonify(
+                {
+                    "status": "error_handled",
+                    "processed": True,
+                    "error_type": type(e).__name__,
+                    "timestamp": int(__import__("time").time()),
+                }
+            ),
+            200,
+        )
 
-@app.route('/')
+
+@app.route("/")
 def home():
     """Root endpoint for health checks"""
-    return jsonify({
-        "status": "online",
-        "bot": "Mork F.E.T.C.H Bot",
-        "webhook": "active",
-        "timestamp": int(__import__('time').time())
-    })
+    return jsonify(
+        {
+            "status": "online",
+            "bot": "Mork F.E.T.C.H Bot",
+            "webhook": "active",
+            "timestamp": int(__import__("time").time()),
+        }
+    )
 
-@app.route('/status')
+
+@app.route("/status")
 def status():
     """Bot status endpoint"""
     try:
         from safety_system import safety
-        from jupiter_engine import jupiter_engine
-        
+
         emergency_ok, _ = safety.check_emergency_stop()
-        
+
         status_data = {
             "bot_online": mork_bot is not None,
             "emergency_stop": not emergency_ok,
@@ -6828,18 +8148,19 @@ def status():
             "daily_limit": safety.daily_spend_limit,
             "mork_mint": safety.mork_mint,
             "jupiter_api": "connected",
-            "timestamp": int(__import__('time').time())
+            "timestamp": int(__import__("time").time()),
         }
-        
+
         return jsonify(status_data)
-        
+
     except Exception as e:
         logger.error(f"Status endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/health')
+
+@app.route("/health")
 def health():
-    import os, time, json
+
     hb = {"polling_healthy": False, "reason": "no_heartbeat"}
     try:
         with open("/tmp/mork_polling.lock") as f:
@@ -6850,11 +8171,13 @@ def health():
         pass
     return jsonify({"status": "ok", **hb}), 200
 
+
 # Live event streaming dashboard routes
-@app.route('/monitor')
+@app.route("/monitor")
 def monitor_dashboard():
     """Real-time monitoring dashboard with live event streaming."""
-    return render_template_string('''
+    return render_template_string(
+        """
 <!DOCTYPE html>
 <html>
 <head>
@@ -6894,35 +8217,42 @@ def monitor_dashboard():
     </script>
 </body>
 </html>
-    ''')
+    """
+    )
 
-@app.route('/events')
+
+@app.route("/events")
 def events():
     """Server-Sent Events endpoint for real-time monitoring."""
+
     def event_stream():
         # Import here to avoid circular imports
         def get_recent_events(limit=5):
             try:
                 from eventbus import get_recent_events as _get_events
+
                 return _get_events(limit)
             except (ImportError, AttributeError):
                 # Fallback if eventbus doesn't have get_recent_events
                 return [{"timestamp": "N/A", "message": "Event system unavailable"}]
+
         import time
-        
+
         while True:
             events = get_recent_events(limit=5)
             for event in events:
                 yield f"data: {json.dumps(event)}\n\n"
             time.sleep(1)
-    
+
     return Response(event_stream(), mimetype="text/event-stream")
 
+
 # Console route for lightweight debugging
-@app.route('/console')
+@app.route("/console")
 def console():
     """Ultra-lightweight console for debugging."""
-    return render_template_string('''
+    return render_template_string(
+        """
 <!DOCTYPE html>
 <html>
 <head>
@@ -6951,7 +8281,9 @@ def console():
     </script>
 </body>
 </html>
-    ''')
+    """
+    )
+
 
 # Initialize services when Flask app is ready
 def initialize_app():
@@ -6960,34 +8292,48 @@ def initialize_app():
         _ensure_scanners()
         logger.info("App initialization complete")
 
+
 # Call initialization immediately for production
-if __name__ != '__main__':
+if __name__ != "__main__":
     # Running under gunicorn or similar
     initialize_app()
 
 # ---- helpers for alerts persistence ----
 _ALERTS_FILE = "/tmp/alerts_settings.json"
+
+
 def _alerts_load():
     try:
         return json.loads(open(_ALERTS_FILE).read())
     except Exception:
-        return {"chat":"not set","min_move_pct":0.0,"rate_per_min":60,"sent_last_min":0,"muted_until":0}
+        return {
+            "chat": "not set",
+            "min_move_pct": 0.0,
+            "rate_per_min": 60,
+            "sent_last_min": 0,
+            "muted_until": 0,
+        }
+
+
 def _alerts_save(data):
     try:
-        open(_ALERTS_FILE,"w").write(json.dumps(data))
+        open(_ALERTS_FILE, "w").write(json.dumps(data))
     except Exception:
         pass
+
 
 # --- One-time wrapper to run post-processing hooks safely --------------------
 try:
     _ORIG__PTC
 except NameError:
     _ORIG__PTC = process_telegram_command
+
     def process_telegram_command(update):
         out = _ORIG__PTC(update)
         return _post_price_alert_hook(update, out)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Development mode
     initialize_app()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)

@@ -1,7 +1,12 @@
 # birdeye.py
-import os, time, logging, httpx, threading, random
+import logging
+import os
+import random
+import threading
+import time
 from collections import deque
-from birdeye_ws import is_ws_connected
+
+import httpx
 
 # Safety net: if any module tries to use a sorted endpoint, fail fast in logs
 BIRDEYE_BLOCK_SORTBY = True
@@ -16,23 +21,27 @@ HEADERS = {
 }
 
 # --- mode & de-dupe (global) ---
-SCAN_MODE = "strict"   # "strict" | "all"
-SEEN_MINTS = set()     # process_birdeye_items() de-dupe for current run
+SCAN_MODE = "strict"  # "strict" | "all"
+SEEN_MINTS = set()  # process_birdeye_items() de-dupe for current run
+
 
 def set_scan_mode(mode: str):
     global SCAN_MODE, scanner_singleton
     SCAN_MODE = "all" if str(mode).lower() == "all" else "strict"
     logging.info("[SCAN] Scan mode set to %s", SCAN_MODE)
     from eventbus import publish
+
     publish("scan.mode", {"mode": SCAN_MODE})
     # propagate to live scanner if running
     if scanner_singleton:
         scanner_singleton.mode = SCAN_MODE
     try:
         from eventbus import publish
+
         publish("scan.mode", {"mode": SCAN_MODE})
     except Exception:
         pass
+
 
 def _passes_filters(tok: dict) -> bool:
     """Return True if token should alert, based on current mode."""
@@ -45,6 +54,7 @@ def _passes_filters(tok: dict) -> bool:
     # if not tok.get("is_pumpfun"): return False
     # if tok.get("mcap", 0) < 5_000: return False
     return True
+
 
 def process_birdeye_items(items: list, notify):
     """Best-effort alert builder for items directly from Birdeye scanner."""
@@ -60,7 +70,7 @@ def process_birdeye_items(items: list, notify):
         if _passes_filters(it):
             alerts += 1
             name = it.get("name") or "?"
-            sym  = it.get("symbol") or "?"
+            sym = it.get("symbol") or "?"
             link_be = f"https://birdeye.so/token/{mint}?chain=solana"
             link_pf = f"https://pump.fun/{mint}"
             msg = (
@@ -75,7 +85,9 @@ def process_birdeye_items(items: list, notify):
                 logging.warning("[SCAN] notify failed: %s", e)
     logging.info("[SCAN] birdeye processed: %s items, %s alerts", len(items), alerts)
 
+
 # --- HTTP helpers ---
+
 
 def _normalize_items(data: dict) -> list:
     """Birdeye responses vary by plan; normalize to a list of token dicts."""
@@ -90,35 +102,40 @@ def _normalize_items(data: dict) -> list:
         mint = it.get("address") or it.get("mint") or it.get("tokenAddress")
         if not mint:
             continue
-        out.append({
-            "mint": mint,
-            "symbol": it.get("symbol") or "?",
-            "name": it.get("name") or "?",
-            "price": it.get("priceUsd") or it.get("price") or None,
-        })
+        out.append(
+            {
+                "mint": mint,
+                "symbol": it.get("symbol") or "?",
+                "name": it.get("name") or "?",
+                "price": it.get("priceUsd") or it.get("price") or None,
+            }
+        )
     return out
+
 
 def _get_tokenlist() -> list:
     """Clean HTTP GET to Birdeye tokenlist endpoint - NO sort_by parameters."""
     url = f"{API}/defi/tokenlist"
     params = {
-        "chain": "solana", 
+        "chain": "solana",
         "offset": 0,
         "limit": 20,
     }
-    
+
     r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
     if r.status_code == 429:
         delay = 0.8 + random.random() * 0.7  # 0.8-1.5s jitter
         logging.warning("[SCAN] Birdeye 429; backing off %.2fs", delay)
         time.sleep(delay)
         r = httpx.get(url, headers=HEADERS, params=params, timeout=12)
-    
+
     r.raise_for_status()
     data = r.json() or {}
     return _normalize_items(data)
 
+
 # --- scanner class ---
+
 
 class BirdeyeScanner:
     def __init__(self, interval_sec=None, publish=None):
@@ -230,28 +247,32 @@ class BirdeyeScanner:
                     if not mint:
                         continue
                     if self._mark_seen(mint):
-                        new_tokens.append({
-                            "mint": mint,
-                            "symbol": it.get("symbol") or "?",
-                            "name": it.get("name") or "?",
-                            "price": it.get("priceUsd") or it.get("price") or None,
-                        })
-                        
+                        new_tokens.append(
+                            {
+                                "mint": mint,
+                                "symbol": it.get("symbol") or "?",
+                                "name": it.get("name") or "?",
+                                "price": it.get("priceUsd") or it.get("price") or None,
+                            }
+                        )
+
                         # Publish individual NEW_TOKEN event
                         try:
                             from app import _normalize_token
+
                             ev = _normalize_token(it, "birdeye-http")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             logging.warning("[SCAN] NEW_TOKEN publish failed: %s", norm_e)
 
                 if new_tokens:
-                    self.publish("scan.birdeye.new", {
-                        "count": len(new_tokens),
-                        "items": new_tokens[:10]
-                    })
+                    self.publish(
+                        "scan.birdeye.new", {"count": len(new_tokens), "items": new_tokens[:10]}
+                    )
 
-                logging.info("[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens))
+                logging.info(
+                    "[SCAN] Birdeye tick ok: %s items, %s new", len(items), len(new_tokens)
+                )
                 return
 
             except httpx.HTTPStatusError as e:
@@ -259,7 +280,7 @@ class BirdeyeScanner:
                     "[SCAN] Birdeye status=%s url=%s body=%s",
                     e.response.status_code,
                     str(e.request.url),
-                    e.response.text[:200]
+                    e.response.text[:200],
                 )
                 last_err = e
                 time.sleep(backoff)
@@ -285,13 +306,17 @@ class BirdeyeScanner:
                 logging.error("[SCAN] Run forever error: %s", e)
                 time.sleep(self.interval)
 
+
 # --- singleton accessor ---
 scanner_singleton = None
+
+
 def get_scanner(publish=None):
     global scanner_singleton
     if scanner_singleton is None:
         scanner_singleton = BirdeyeScanner(interval_sec=SCAN_INTERVAL, publish=publish)
     return scanner_singleton
+
 
 # convenience helpers for app.py commands
 def peek_last(n: int = 10):
@@ -299,9 +324,11 @@ def peek_last(n: int = 10):
     n = max(1, min(50, int(n or 10)))
     return list(sc.last_items)[-n:]
 
+
 def current_mode():
     sc = scanner_singleton
     return sc.mode if sc else SCAN_MODE
+
 
 # --- one-shot probe for Telegram (/birdeye_probe) ---
 def birdeye_probe_once(limit=20):
@@ -317,6 +344,10 @@ def birdeye_probe_once(limit=20):
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
             return {"ok": False, "err": "429 Too Many Requests", "items": []}
-        return {"ok": False, "err": f"{e.response.status_code} {e.response.text[:120]}", "items": []}
+        return {
+            "ok": False,
+            "err": f"{e.response.status_code} {e.response.text[:120]}",
+            "items": [],
+        }
     except Exception as e:
         return {"ok": False, "err": str(e), "items": []}

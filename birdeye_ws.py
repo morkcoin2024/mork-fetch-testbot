@@ -1,12 +1,13 @@
+import json
+import logging
+import os
+import random
 import threading
 import time
-import json
-import os
-import logging
-import random
 from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
+
 
 class BirdeyeWS:
     def __init__(self, api_key: str):
@@ -30,24 +31,24 @@ class BirdeyeWS:
 
         # Track last message time
         self.last_msg_time = None
-        
+
         # last message timestamp (monotonic + wall clock)
         self._last_msg_monotonic = None
         self._last_msg_wall = None  # datetime.utcnow()
-        
+
         # Watchdog and stale-restart configuration
-        self._stale_after = float(os.getenv("WS_STALE_SECS", "60"))     # restart if idle > N seconds
-        self._min_backoff = float(os.getenv("WS_MIN_BACKOFF", "5"))     # seconds
-        self._max_backoff = float(os.getenv("WS_MAX_BACKOFF", "120"))   # seconds
-        self._backoff     = self._min_backoff
-        self._wd_stop     = threading.Event()
-        self._wd_thread   = None
+        self._stale_after = float(os.getenv("WS_STALE_SECS", "60"))  # restart if idle > N seconds
+        self._min_backoff = float(os.getenv("WS_MIN_BACKOFF", "5"))  # seconds
+        self._max_backoff = float(os.getenv("WS_MAX_BACKOFF", "120"))  # seconds
+        self._backoff = self._min_backoff
+        self._wd_stop = threading.Event()
+        self._wd_thread = None
         self._restart_lock = threading.Lock()
         self._restart_count = 0
-        
+
         # Optional callback functions for compatibility
         self.publish = None  # Event publishing function
-        self.notify = None   # Admin notification function
+        self.notify = None  # Admin notification function
 
     def status(self) -> dict:
         """Return current connection status in a JSON-serialisable dict."""
@@ -68,7 +69,7 @@ class BirdeyeWS:
             task = getattr(self, "_task", None)
             if task is not None:
                 # done() False == still alive
-                task_alive = (not task.done())
+                task_alive = not task.done()
         except Exception:
             task_alive = False
 
@@ -89,29 +90,33 @@ class BirdeyeWS:
             "mode": "strict",
             "tap_enabled": now < self._tap_until,
             "last_msg_time": self.last_msg_time,
-            "last_msg_ago": last_msg_ago
+            "last_msg_ago": last_msg_ago,
         }
-        
+
         # compute last_msg_ago (seconds) if we have a timestamp
         if self._last_msg_monotonic is not None:
-            data["last_msg_ago_secs"] = round(max(0.0, time.monotonic() - self._last_msg_monotonic), 2)
+            data["last_msg_ago_secs"] = round(
+                max(0.0, time.monotonic() - self._last_msg_monotonic), 2
+            )
         else:
             data["last_msg_ago_secs"] = None
-        
+
         # also expose wall-clock time for operators
         if self._last_msg_wall is not None:
             data["last_msg_iso"] = self._last_msg_wall.isoformat().replace("+00:00", "Z")
         else:
             data["last_msg_iso"] = None
-        
+
         # Add watchdog status information
-        data.update({
-            "watchdog": True,
-            "stale_after": self._stale_after,
-            "backoff": round(self._backoff, 1),
-            "restart_count": self._restart_count,
-        })
-            
+        data.update(
+            {
+                "watchdog": True,
+                "stale_after": self._stale_after,
+                "backoff": round(self._backoff, 1),
+                "restart_count": self._restart_count,
+            }
+        )
+
         return data
 
     def start(self):
@@ -124,11 +129,13 @@ class BirdeyeWS:
         self._th = threading.Thread(target=self._run_forever, daemon=True)
         self._th.start()
         log.info("[WS] Birdeye WS started with Launchpad priority")
-        
+
         # Start watchdog if not already running
         if self._wd_thread is None or not self._wd_thread.is_alive():
             self._wd_stop.clear()
-            self._wd_thread = threading.Thread(target=self._watchdog_loop, name="ws-watchdog", daemon=True)
+            self._wd_thread = threading.Thread(
+                target=self._watchdog_loop, name="ws-watchdog", daemon=True
+            )
             self._wd_thread.start()
             log.info("[WS] Watchdog started (stale_after=%ss)", self._stale_after)
 
@@ -140,12 +147,12 @@ class BirdeyeWS:
                 self._ws.close()
             except Exception:
                 pass
-        
+
         # Stop watchdog cleanly
         self._wd_stop.set()
         if self._wd_thread and self._wd_thread.is_alive():
             self._wd_thread.join(timeout=2.0)
-        
+
         log.info("[WS] Birdeye WS stopped")
 
     def _run_forever(self):
@@ -154,20 +161,22 @@ class BirdeyeWS:
             try:
                 # Production simulation demonstrates threading.Event fix
                 log.info("[WS] Attempting connection to Birdeye WebSocket")
-                
+
                 # Simulate connection establishment using threading.Event for atomic state
                 self._connected_event.set()
                 log.info("[WS] Connected to Birdeye feed")
-                
+
                 # Simulate sending subscriptions
-                log.info("[WS] Subscriptions sent for launchpad.created, token.created, token.updated")
-                
+                log.info(
+                    "[WS] Subscriptions sent for launchpad.created, token.created, token.updated"
+                )
+
                 # Enhanced simulation with threading.Event synchronization
                 connection_duration = 0
                 while self._running and connection_duration < 60:  # 60-second connection cycle
                     time.sleep(1)
                     connection_duration += 1
-                    
+
                     # Simulate periodic message receipt with enhanced timestamp tracking
                     if connection_duration % 10 == 0:
                         self.recv_count += 1
@@ -175,10 +184,10 @@ class BirdeyeWS:
                         # record last message time using helper method
                         self._note_message()
                         log.info("[WS] Message received: threading.Event status accurate")
-                        
+
                 # Simulate connection drop for reconnection testing
                 log.info("[WS] Connection cycle completed, reconnecting...")
-                        
+
             except Exception as e:
                 log.error("[WS] Connection error: %s", e)
             finally:
@@ -217,12 +226,13 @@ class BirdeyeWS:
                 if token_id:
                     self.seen_cache.add(token_id)
                     log.info("[WS] New token: %s", token_id)
-                    
+
                     # Publish NEW_TOKEN event to the bus
                     if self.publish:
                         try:
                             # Import here to avoid circular imports
                             from app import _normalize_token
+
                             ev = _normalize_token(token_data, "birdeye-ws")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
@@ -281,8 +291,13 @@ class BirdeyeWS:
                 self._restart_count += 1
                 jitter = random.uniform(-0.25, 0.25) * self._backoff
                 wait_for = max(0.0, self._backoff + jitter)
-                log.warning("[WS] watchdog: stale gap=%.1fs >= %.1fs — restarting (attempt=%d, backoff=%.1fs)",
-                            gap, self._stale_after, self._restart_count, wait_for)
+                log.warning(
+                    "[WS] watchdog: stale gap=%.1fs >= %.1fs — restarting (attempt=%d, backoff=%.1fs)",
+                    gap,
+                    self._stale_after,
+                    self._restart_count,
+                    wait_for,
+                )
                 # stop -> wait -> start
                 try:
                     self.stop()
@@ -296,8 +311,10 @@ class BirdeyeWS:
                 # bump backoff for next time (cap at max)
                 self._backoff = min(self._backoff * 1.6, self._max_backoff)
 
+
 # Global WebSocket instance for compatibility
 _global_ws = None
+
 
 def get_scanner(publish=None):
     """Get or create the global WebSocket scanner instance."""
@@ -311,6 +328,7 @@ def get_scanner(publish=None):
         _global_ws.publish = publish  # Store publish function for event forwarding
     return _global_ws
 
+
 def is_ws_connected():
     """Global function to check WebSocket connection status."""
     global _global_ws
@@ -318,12 +336,14 @@ def is_ws_connected():
         return False
     return _global_ws._connected_event.is_set()
 
+
 def get_ws(publish=None, notify=None):
     """Get the global WebSocket instance with optional publish and notify functions."""
     ws = get_scanner(publish)
     if ws and notify:
         ws.notify = notify  # Store notify function for admin notifications
     return ws
+
 
 # Additional compatibility functions that may be needed
 def start_ws():
@@ -334,6 +354,7 @@ def start_ws():
         return True
     return False
 
+
 def stop_ws():
     """Stop the WebSocket connection."""
     ws = get_scanner()
@@ -342,12 +363,14 @@ def stop_ws():
         return True
     return False
 
+
 def ws_status():
     """Get WebSocket status."""
     ws = get_scanner()
     if ws:
         return ws.status()
     return {"running": False, "connected": False}
+
 
 def set_ws_mode(mode):
     """Set WebSocket mode for compatibility."""

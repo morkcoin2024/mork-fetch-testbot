@@ -1,5 +1,8 @@
 # telegram_media.py
-import logging, requests
+import logging
+
+import requests
+
 
 def send_photo_safe(token: str, chat_id: int, image_path: str, caption: str | None = None):
     url = f"https://api.telegram.org/bot{token}/sendPhoto"

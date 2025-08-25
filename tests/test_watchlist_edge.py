@@ -1,6 +1,8 @@
 # tests/test_watchlist_edge.py
 
-import os, re, sys, multiprocessing as mp
+import multiprocessing as mp
+import os
+import sys
 
 # Ensure we can "import app" when running from tests/
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,29 +19,45 @@ SOL_S = "So1111…111112"
 
 TIMEOUT = float(os.getenv("TEST_TIMEOUT", "6"))
 
+
 def _worker(cmd, q):
-    upd = {"message":{"message_id":1,"date":0,"chat":{"id":CHAT,"type":"supergroup"},
-                      "from":{"id":ADMIN,"is_bot":False,"username":"turk"},"text":cmd}}
+    upd = {
+        "message": {
+            "message_id": 1,
+            "date": 0,
+            "chat": {"id": CHAT, "type": "supergroup"},
+            "from": {"id": ADMIN, "is_bot": False, "username": "turk"},
+            "text": cmd,
+        }
+    }
     out = app.process_telegram_command(upd) or {}
     q.put(out.get("text") or out.get("response") or "")
+
 
 def send(cmd, timeout=TIMEOUT):
     q = mp.Queue()
     p = mp.Process(target=_worker, args=(cmd, q), daemon=True)
-    p.start(); p.join(timeout)
+    p.start()
+    p.join(timeout)
     if p.is_alive():
-        p.terminate(); p.join(1); return "__TIMEOUT__"
+        p.terminate()
+        p.join(1)
+        return "__TIMEOUT__"
     return q.get() if not q.empty() else ""
+
 
 def data_rows(s):
     return [ln for ln in s.splitlines() if " `" in ln and "—" in ln]
 
+
 def header_line(s):
     return s.splitlines()[0] if s else ""
+
 
 def ck(ok, msg):
     print(("✅" if ok else "❌"), msg)
     return 0 if ok else 1
+
 
 def main():
     fails = 0
@@ -51,7 +69,7 @@ def main():
     fails += ck(bool(ack2) and "cleared" in ack2.lower(), "watch_clear #2 (idempotent)")
 
     # 2) Empty watchlist -> headers render; zero data rows for each mode
-    for mode in ["supply","fdv","holders","prices","caps","volumes"]:
+    for mode in ["supply", "fdv", "holders", "prices", "caps", "volumes"]:
         resp = send(f"/watchlist {mode}")
         ok_header = bool(resp) and "Watchlist" in resp
         ok_empty = len(data_rows(resp)) == 0
@@ -83,6 +101,7 @@ def main():
 
     print("\nPASS" if fails == 0 else f"FAIL({fails})")
     sys.exit(0 if fails == 0 else 1)
+
 
 if __name__ == "__main__":
     main()

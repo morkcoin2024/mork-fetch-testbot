@@ -1,6 +1,7 @@
 # solscan_scan.py
-import os, time, random, logging
-from typing import List, Dict
+import logging
+import os
+
 import httpx
 
 log = logging.getLogger(__name__)
@@ -8,8 +9,9 @@ log = logging.getLogger(__name__)
 # This endpoint requires a Pro key; adjust path if your plan differs.
 SOLSCAN_TOKENS_URL = "https://pro-api.solscan.io/v2.0/token/list?offset=0&limit=50&sortBy=createdBlockTime&direction=desc"
 
+
 class SolscanScan:
-    def __init__(self, notify_fn, cache_limit:int=8000, interval_sec:int=10):
+    def __init__(self, notify_fn, cache_limit: int = 8000, interval_sec: int = 10):
         self.notify = notify_fn
         self.interval = int(os.getenv("SCAN_INTERVAL_SEC", str(interval_sec)))
         self.key = os.getenv("SOLSCAN_API_KEY", "")
@@ -25,12 +27,11 @@ class SolscanScan:
             for _ in range(drop):
                 self.seen.pop()
 
-    def _fetch_latest(self) -> List[Dict]:
+    def _fetch_latest(self) -> list[dict]:
         if not self.key:
             raise RuntimeError("SOLSCAN_API_KEY not set")
         r = self.session.get(
-            SOLSCAN_TOKENS_URL,
-            headers={"token": self.key, "User-Agent": "mork-fetch/solscan"}
+            SOLSCAN_TOKENS_URL, headers={"token": self.key, "User-Agent": "mork-fetch/solscan"}
         )
         r.raise_for_status()
         data = r.json()
@@ -39,15 +40,17 @@ class SolscanScan:
         out = []
         for t in items:
             mint = t.get("mintAddress")
-            if not mint: 
+            if not mint:
                 continue
-            out.append({
-                "mint": mint,
-                "name": t.get("tokenName") or "",
-                "symbol": t.get("tokenSymbol") or "",
-                "decimals": t.get("decimals", 0),
-                "source": "solscan",
-            })
+            out.append(
+                {
+                    "mint": mint,
+                    "name": t.get("tokenName") or "",
+                    "symbol": t.get("tokenSymbol") or "",
+                    "decimals": t.get("decimals", 0),
+                    "source": "solscan",
+                }
+            )
         return out
 
     def tick(self):
@@ -74,13 +77,17 @@ class SolscanScan:
 
     def start(self):
         if not self.enabled:
-            log.info("[SCAN] Solscan disabled (set FEATURE_SOLSCAN=on and add SOLSCAN_API_KEY to enable)")
+            log.info(
+                "[SCAN] Solscan disabled (set FEATURE_SOLSCAN=on and add SOLSCAN_API_KEY to enable)"
+            )
             return
         self.running = True
         log.info("[SCAN] Solscan scanner started (every %ss)", self.interval)
 
     def stop(self):
         self.running = False
-        try: self.session.close()
-        except: pass
+        try:
+            self.session.close()
+        except:
+            pass
         log.info("[SCAN] Solscan scanner stopped")

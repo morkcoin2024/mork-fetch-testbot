@@ -1,6 +1,10 @@
 # eventbus.py
 from __future__ import annotations
-import time, json, threading, queue
+
+import queue
+import threading
+import time
+
 
 class EventBus:
     def __init__(self, maxsize=2000):
@@ -14,18 +18,22 @@ class EventBus:
             "type": typ,
             "data": payload or {},
         }
-        try: self.q.put_nowait(evt)
+        try:
+            self.q.put_nowait(evt)
         except queue.Full:
             # drop oldest-ish by draining a few
             for _ in range(20):
-                try: self.q.get_nowait()
-                except queue.Empty: break
+                try:
+                    self.q.get_nowait()
+                except queue.Empty:
+                    break
             self.q.put_nowait(evt)
         # fanout to live subscribers (non-blocking)
         with self.lock:
             dead = []
             for s in list(self.subscribers):
-                try: s.put_nowait(evt)
+                try:
+                    s.put_nowait(evt)
                 except queue.Full:
                     dead.append(s)
             for s in dead:
@@ -33,11 +41,18 @@ class EventBus:
 
     def subscribe(self):
         q = queue.Queue(maxsize=500)
-        with self.lock: self.subscribers.add(q)
+        with self.lock:
+            self.subscribers.add(q)
         return q
 
+
 BUS = EventBus()
-def publish(typ, payload=None): BUS.publish(typ, payload)
-def get_subscriber_count(): 
-    with BUS.lock: 
+
+
+def publish(typ, payload=None):
+    BUS.publish(typ, payload)
+
+
+def get_subscriber_count():
+    with BUS.lock:
         return len(BUS.subscribers)

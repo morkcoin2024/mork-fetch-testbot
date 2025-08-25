@@ -133,11 +133,12 @@ A reliable, consistent method to:
 Please analyze this implementation challenge and suggest reliable solutions for consistent token acquisition on Solana/pump.fun.
 """
 
+
 def save_analysis_request():
     """Save the ChatGPT analysis request to file"""
     with open("chatgpt_analysis.md", "w") as f:
         f.write(CHATGPT_ANALYSIS_REQUEST)
-    
+
     print("📝 CHATGPT ANALYSIS REQUEST SAVED")
     print("=" * 60)
     print("File: chatgpt_analysis.md")
@@ -145,11 +146,12 @@ def save_analysis_request():
     print()
     print("The analysis covers:")
     print("✓ Complete problem description")
-    print("✓ Current implementation details") 
+    print("✓ Current implementation details")
     print("✓ Specific failure patterns")
     print("✓ Test results with transaction hashes")
     print("✓ Technical constraints")
     print("✓ Alternative approaches to explore")
+
 
 if __name__ == "__main__":
     save_analysis_request()

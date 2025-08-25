@@ -1,11 +1,17 @@
 # Manual Router Pattern for Admin Alias Commands
 # Alternative implementation for environments with command registration conflicts
 
-import asyncio
 from alerts.telegram import (
-    cmd_status, cmd_logs_tail, cmd_logs_stream, cmd_logs_watch, cmd_mode,
-    cmd_ping, cmd_whoami, _is_admin
+    _is_admin,
+    cmd_logs_stream,
+    cmd_logs_tail,
+    cmd_logs_watch,
+    cmd_mode,
+    cmd_ping,
+    cmd_status,
+    cmd_whoami,
 )
+
 
 async def manual_admin_router(update, context):
     """
@@ -14,9 +20,9 @@ async def manual_admin_router(update, context):
     """
     if not update.message or not update.message.text:
         return
-    
+
     text = update.message.text.strip()
-    
+
     # Admin alias command routing
     if text.startswith("/a_status"):
         await cmd_status(update, context)
@@ -32,7 +38,7 @@ async def manual_admin_router(update, context):
         await cmd_ping(update, context)
     elif text.startswith("/a_whoami"):
         await cmd_whoami(update, context)
-    
+
     # Standard command routing (if needed)
     elif text.startswith("/status") and _is_admin(update):
         await cmd_status(update, context)
@@ -48,6 +54,7 @@ async def manual_admin_router(update, context):
         await cmd_ping(update, context)
     elif text.startswith("/whoami"):
         await cmd_whoami(update, context)
+
 
 # Usage in main.py for manual routing:
 # app.add_handler(MessageHandler(filters.TEXT, manual_admin_router), group=0)
@@ -70,6 +77,7 @@ ADMIN_COMMAND_MAP = {
     "/whoami": cmd_whoami,
 }
 
+
 async def dynamic_admin_router(update, context):
     """
     Dynamic router using command mapping.
@@ -77,16 +85,16 @@ async def dynamic_admin_router(update, context):
     """
     if not update.message or not update.message.text:
         return
-    
+
     text = update.message.text.strip()
     command = text.split()[0]  # Get first word (command)
-    
+
     if command in ADMIN_COMMAND_MAP:
         # Admin authorization check for non-alias commands
         if not command.startswith("/a_") and not _is_admin(update):
             await update.message.reply_text("Not authorized.")
             return
-        
+
         # Execute the command
         handler = ADMIN_COMMAND_MAP[command]
         await handler(update, context)

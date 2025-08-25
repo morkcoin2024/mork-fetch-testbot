@@ -1,5 +1,10 @@
 # birdeye_ws_enhanced.py
-import os, json, time, logging, threading
+import json
+import logging
+import os
+import threading
+import time
+
 import websocket  # pip install websocket-client
 
 BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "wss://public-api.birdeye.so/socket")
@@ -10,9 +15,10 @@ CHAIN = "solana"
 # If the Launchpad topic isn't supported in your account/tier,
 # server will ignore it—token.created keeps us alive.
 PREFERRED_TOPICS = [
-    "launchpad.created",     # target for Launchpad new token events
-    "token.created",         # fallback: generic new token events
+    "launchpad.created",  # target for Launchpad new token events
+    "token.created",  # fallback: generic new token events
 ]
+
 
 class BirdeyeWS:
     def __init__(self, publish=None, notify=None):
@@ -68,7 +74,8 @@ class BirdeyeWS:
                 logging.warning("[WS] loop error: %s", e)
             # backoff a little on reconnect
             for _ in range(5):
-                if self.stop_flag.is_set(): break
+                if self.stop_flag.is_set():
+                    break
                 time.sleep(0.5)
 
     def _connect_and_loop(self):
@@ -125,7 +132,7 @@ class BirdeyeWS:
 
         # Optional: server acks / heartbeats
         t = data.get("type") or data.get("event") or ""
-        if t in ("pong","ping","ack","hello","welcome"):
+        if t in ("pong", "ping", "ack", "hello", "welcome"):
             return
 
         # Normalize possible payload shapes; we care about newly created tokens
@@ -139,15 +146,13 @@ class BirdeyeWS:
                 self.publish("scan.ws.token", {"topic": topic, "item": item})
                 # Alert immediately (PoC). You can enrich later.
                 self._alert(item, topic)
-        else:
-            # Other topics—log quietly for debugging
-            if topic:
-                logging.debug("[WS] topic=%s payload=%s", topic, str(payload)[:300])
+        elif topic:
+            logging.debug("[WS] topic=%s payload=%s", topic, str(payload)[:300])
 
     def _normalize(self, p):
         # Try common field names; keep it minimal for PoC
         mint = p.get("mint") or p.get("address") or p.get("tokenAddress")
-        sym  = p.get("symbol") or "?"
+        sym = p.get("symbol") or "?"
         name = p.get("name") or "?"
         price = p.get("priceUsd") or p.get("price") or None
         return {"mint": mint, "symbol": sym, "name": name, "price": price}
@@ -164,8 +169,10 @@ class BirdeyeWS:
         )
         self.notify(msg)
 
+
 # --- singleton helpers ---
 _ws_singleton = None
+
 
 def get_ws(publish=None, notify=None):
     global _ws_singleton

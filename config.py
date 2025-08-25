@@ -9,9 +9,11 @@ import os
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_MODEL = os.getenv("ASSISTANT_MODEL", "gpt-4o")  # AI model for assistant code generation
 
-# Assistant Configuration  
+# Assistant Configuration
 ASSISTANT_ADMIN_TELEGRAM_ID = int(os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
-ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF")  # "OFF" = dry-run; "ON" = actually write
+ASSISTANT_WRITE_GUARD = os.getenv(
+    "ASSISTANT_WRITE_GUARD", "OFF"
+)  # "OFF" = dry-run; "ON" = actually write
 ASSISTANT_GIT_BRANCH = os.getenv("ASSISTANT_GIT_BRANCH", "")  # If set, stage changes on this branch
 ASSISTANT_FAILSAFE = os.getenv("ASSISTANT_FAILSAFE", "OFF").upper()  # "ON" or "OFF"
 

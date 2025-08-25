@@ -1,8 +1,10 @@
-import os, re, sys, multiprocessing as mp
+import multiprocessing as mp
+import os
+import sys
 
 # Ensure we can import the local app module even if PYTHONPATH isn't set
 sys.path.insert(0, os.getcwd())
-import app  # noqa: E402
+import app
 
 CHAT = -1002782542798
 ADMIN = 1653046781
@@ -12,6 +14,7 @@ SOL = "So11111111111111111111111111111111111111112"
 UNK = "So11111111111111111111111111111111111111113"
 
 TIMEOUT = float(os.getenv("TEST_TIMEOUT", "8"))
+
 
 def _worker(cmd, q):
     upd = {
@@ -26,29 +29,36 @@ def _worker(cmd, q):
     out = app.process_telegram_command(upd) or {}
     q.put(out.get("text") or out.get("response") or "")
 
+
 def send(cmd, timeout=TIMEOUT):
     q = mp.Queue()
     p = mp.Process(target=_worker, args=(cmd, q), daemon=True)
     p.start()
     p.join(timeout)
     if p.is_alive():
-        p.terminate(); p.join(1)
+        p.terminate()
+        p.join(1)
         return "__TIMEOUT__"
     return q.get() if not q.empty() else ""
+
 
 def rows(s: str):
     return [ln for ln in s.splitlines() if " `" in ln and "—" in ln]
 
+
 def present(resp: str, short_mint: str) -> bool:
     return f"`{short_mint}`" in resp or short_mint in resp
+
 
 def shortify(addr: str) -> str:
     # matches UI style like So1111…111112
     return addr[:6] + "…" + addr[-6:]
 
+
 def ck(ok, msg):
     print(("✅" if ok else "❌"), msg)
     return 0 if ok else 1
+
 
 fails = 0
 
@@ -62,7 +72,8 @@ send(f"/watch {UNK}")
 
 # verify both present in any mode (use prices)
 resp = send("/watchlist prices")
-sol_s = shortify(SOL); unk_s = shortify(UNK)
+sol_s = shortify(SOL)
+unk_s = shortify(UNK)
 fails += ck("Watchlist" in resp, "header present after add")
 fails += ck(present(resp, sol_s), "SOL present after add")
 fails += ck(present(resp, unk_s), "UNK present after add")

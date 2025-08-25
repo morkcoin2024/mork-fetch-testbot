@@ -5,8 +5,12 @@
 # - Retries + jitter. Returns normalized token dicts the rest of the bot expects.
 
 from __future__ import annotations
-import os, time, random, logging
-from typing import List, Dict, Any, Optional
+
+import logging
+import os
+import random
+import time
+from typing import Any
 
 import httpx
 
@@ -26,48 +30,45 @@ _SOLSCAN_MODE = os.getenv("SOLSCAN_MODE", "auto").lower()  # auto|new|trending
 # New tokens endpoints to probe (ordered by preference)
 _NEW_TOKEN_PATHS = [
     ("/v2/token/new", "data"),
-    ("/v1/token/new", "data"), 
+    ("/v1/token/new", "data"),
     ("/v1/market/new-tokens", "data"),
     ("/v1/market/tokens/new", "data"),
 ]
 
 # Trending fallback endpoints
 _TRENDING_PATHS = [
-    ("/v2.0/token/trending", "data"),           # trending tokens with market activity - WORKS!
-    ("/v1/market/token/trending", "data"),      # v1 trending fallback
+    ("/v2.0/token/trending", "data"),  # trending tokens with market activity - WORKS!
+    ("/v1/market/token/trending", "data"),  # v1 trending fallback
 ]
 
 # Legacy candidate paths (for compatibility)
 _CANDIDATE_PATHS = [
     # v2.0 endpoints (primary) - some don't accept limit param
-    ("/v2.0/token/trending", "data"),           # trending tokens with market activity - WORKS!
-    ("/v2.0/token/latest", None),               # newest tokens created on Solana - no limit param
-    ("/v2.0/token/list", None),                 # token list sortable by creation date - no limit param  
+    ("/v2.0/token/trending", "data"),  # trending tokens with market activity - WORKS!
+    ("/v2.0/token/latest", None),  # newest tokens created on Solana - no limit param
+    ("/v2.0/token/list", None),  # token list sortable by creation date - no limit param
     # v1 fallbacks with chain param
-    ("/v1/token/list", "data"),                 # v1 token list
-    ("/v1/token/meta", "data"),                 # token metadata
-    ("/v1/market/token/trending", "data"),      # v1 trending
+    ("/v1/token/list", "data"),  # v1 token list
+    ("/v1/token/meta", "data"),  # token metadata
+    ("/v1/market/token/trending", "data"),  # v1 trending
 ]
 
-def _build_headers_sequence(api_key: str) -> List[Dict[str, str]]:
+
+def _build_headers_sequence(api_key: str) -> list[dict[str, str]]:
     """Build sequence of auth headers to try in order until non-401/403"""
-    base_headers = {
-        "Accept": "application/json", 
-        "User-Agent": "mork-fetch-bot/1.0"
-    }
-    
+    base_headers = {"Accept": "application/json", "User-Agent": "mork-fetch-bot/1.0"}
+
     return [
         {**base_headers, "token": api_key},
         {**base_headers, "X-API-KEY": api_key},
-        {**base_headers, "Authorization": f"Bearer {api_key}"}
+        {**base_headers, "Authorization": f"Bearer {api_key}"},
     ]
 
+
 class SolscanScanner:
-    def __init__(self,
-                 api_key: str,
-                 base_url: str = _DEFAULT_BASE,
-                 network: str = "solana",
-                 limit: int = 20) -> None:
+    def __init__(
+        self, api_key: str, base_url: str = _DEFAULT_BASE, network: str = "solana", limit: int = 20
+    ) -> None:
         self.api_key = api_key.strip()
         self.base_url = base_url.rstrip("/")
         self.network = network
@@ -99,7 +100,7 @@ class SolscanScanner:
         self._new_tokens_cache_ttl = 30
         # Rate limiting and backoff
         self._last_request_ts = {}  # per endpoint
-        self._backoff_delays = {}   # per endpoint
+        self._backoff_delays = {}  # per endpoint
         self._last_rate_limit_log = 0  # for rate-limited logging
         # Use HTTP/2 if available, fallback to HTTP/1.1
         try:
@@ -124,18 +125,18 @@ class SolscanScanner:
     @property
     def running(self) -> bool:
         return self._running
-    
+
     @property
     def enabled(self) -> bool:
         """Check if scanner is enabled (has valid API key)"""
         return bool(self.api_key and self.api_key.strip())
-    
+
     @property
     def key(self) -> str:
         """Return API key (for status checking)"""
         return self.api_key
-    
-    def status(self) -> Dict[str, Any]:
+
+    def status(self) -> dict[str, Any]:
         """Return current scanner status"""
         cache_age = time.time() - self._trending_cache_ts if self._trending_cache_ts else None
         return {
@@ -159,29 +160,32 @@ class SolscanScanner:
             "last_new_count": self._last_new_count,
             "fallback_count": self._fallback_count,
             "new_tokens_cache_size": len(self._new_tokens_cache),
-            "new_tokens_cache_age": time.time() - self._new_tokens_cache_ts if self._new_tokens_cache_ts else None
+            "new_tokens_cache_age": (
+                time.time() - self._new_tokens_cache_ts if self._new_tokens_cache_ts else None
+            ),
         }
-    
+
     def tick(self) -> tuple[int, int]:
         """Scanner tick method for main scanning loop integration"""
         if not self._running:
             return 0, 0
-        
+
         self._last_tick_ts = time.time()
         log.info("[SOLSCAN] tick")
         try:
             tokens = self.fetch_new_tokens()
             new_count = 0
             for token in tokens:
-                addr = token.get('address', '')
+                addr = token.get("address", "")
                 if addr and addr not in self.seen:
                     self.seen.add(addr)
                     new_count += 1
-                    
+
                     # Publish NEW_TOKEN event
-                    if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                    if hasattr(self, "publish") and callable(getattr(self, "publish", None)):
                         try:
                             from app import _normalize_token
+
                             ev = _normalize_token(token, "solscan")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
@@ -192,41 +196,42 @@ class SolscanScanner:
             log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", False, 0, len(self.seen))
             log.warning("[SOLSCAN] tick error: %r", e)
             return 0, 0
-    
-    def ping(self) -> Dict[str, Any]:
+
+    def ping(self) -> dict[str, Any]:
         """Manual ping command - force immediate tick and return stats"""
         log.info("[SOLSCAN] ping -> tick start")
-        
+
         if not self._running:
             return {"error": "Scanner not running", "new": 0, "seen": len(self.seen)}
-        
+
         try:
             tokens = self.fetch_new_tokens()
             new_count = 0
-            
+
             for token in tokens:
-                addr = token.get('address')
+                addr = token.get("address")
                 if addr and addr not in self.seen:
                     self.seen.add(addr)
                     new_count += 1
-                    
+
                     # Publish NEW_TOKEN event
-                    if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                    if hasattr(self, "publish") and callable(getattr(self, "publish", None)):
                         try:
                             from app import _normalize_token
+
                             ev = _normalize_token(token, "solscan")
                             self.publish("NEW_TOKEN", ev)
                         except Exception as norm_e:
                             log.warning("[SOLSCAN] NEW_TOKEN publish failed: %s", norm_e)
-            
+
             log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", True, new_count, len(self.seen))
-            
+
             return {
                 "success": True,
                 "new": new_count,
                 "seen": len(self.seen),
                 "total_fetched": len(tokens),
-                "base_url": self.base_url
+                "base_url": self.base_url,
             }
         except Exception as e:
             log.info("[SOLSCAN] tick done ok=%s new=%d seen=%d", False, 0, len(self.seen))
@@ -245,7 +250,7 @@ class SolscanScanner:
         self._last_new_endpoint = None  # reset probe state
 
     # --- core fetch ----------------------------------------------------------
-    def fetch_new_tokens(self, count: Optional[int] = None) -> List[Dict[str, Any]]:
+    def fetch_new_tokens(self, count: int | None = None) -> list[dict[str, Any]]:
         """
         Returns a list of normalized token dicts based on scanner mode:
         - auto: try new token endpoints first, fallback to trending if all fail
@@ -257,7 +262,7 @@ class SolscanScanner:
             pass
 
         n = count or self.limit
-        
+
         if self._mode == "new":
             return self._fetch_with_endpoints(_NEW_TOKEN_PATHS, n)
         elif self._mode == "trending":
@@ -274,18 +279,22 @@ class SolscanScanner:
         else:
             # Fallback to legacy behavior
             return self._fetch_with_endpoints(_CANDIDATE_PATHS, n)
-    
-    def _fetch_with_endpoints(self, endpoints: List[tuple], count: int) -> List[Dict[str, Any]]:
+
+    def _fetch_with_endpoints(self, endpoints: list[tuple], count: int) -> list[dict[str, Any]]:
         """Core fetch logic with endpoint probing and auth header rotation"""
         now = time.time()
-        
+
         # Check cache for new tokens mode
         if endpoints == _NEW_TOKEN_PATHS and self._new_tokens_cache:
             cache_age = now - self._new_tokens_cache_ts
             if cache_age < self._new_tokens_cache_ttl:
-                log.info("[SOLSCAN-NEW] cache hit: %d items (age: %.1fs)", len(self._new_tokens_cache), cache_age)
+                log.info(
+                    "[SOLSCAN-NEW] cache hit: %d items (age: %.1fs)",
+                    len(self._new_tokens_cache),
+                    cache_age,
+                )
                 return self._new_tokens_cache.copy()
-        
+
         backoff = 0.8
         for attempt in range(3):
             for path, list_key in endpoints:
@@ -293,13 +302,13 @@ class SolscanScanner:
                 last_req = self._last_request_ts.get(path, 0)
                 required_delay = self._backoff_delays.get(path, 0)
                 since_last = now - last_req
-                
+
                 if since_last < required_delay:
                     sleep_time = required_delay - since_last
                     log.debug("[SOLSCAN] rate limit delay %.1fs for %s", sleep_time, path)
                     # Reduced sleep time for /fetch_now performance
                     time.sleep(min(sleep_time, 0.5))  # Cap at 500ms max
-                
+
                 # Build params based on endpoint requirements
                 request_params = {}
                 if "v1" in path:
@@ -307,49 +316,57 @@ class SolscanScanner:
                     request_params["limit"] = count
                 elif "trending" in path:
                     request_params["limit"] = count
-                
+
                 url = f"{self.base_url}{path}"
                 self._last_request_ts[path] = time.time()
-                
+
                 # Try auth headers in sequence
                 for auth_idx, headers in enumerate(_build_headers_sequence(self.api_key)):
                     auth_scheme = ["token", "X-API-KEY", "Authorization"][auth_idx]
-                    
+
                     try:
                         r = self._client.get(url, headers=headers, params=request_params)
-                        
+
                         # Handle rate limiting
                         if r.status_code == 429:
                             current_delay = self._backoff_delays.get(path, 0.8)
                             new_delay = min(current_delay * 1.6, 12.0)
                             self._backoff_delays[path] = new_delay
                             jitter = random.uniform(0.8, 1.4)
-                            
+
                             # Rate-limited logging (once per minute)
                             if now - self._last_rate_limit_log > 60:
-                                log.warning("[SOLSCAN] rate limited %s, backoff %.1fs", path, new_delay)
+                                log.warning(
+                                    "[SOLSCAN] rate limited %s, backoff %.1fs", path, new_delay
+                                )
                                 self._last_rate_limit_log = now
-                            
+
                             time.sleep(new_delay * jitter)
                             continue
-                        
+
                         # Log probe result
-                        log.info("[SOLSCAN-NEW] probe %s -> %d (%s)", path, r.status_code, auth_scheme)
-                        
+                        log.info(
+                            "[SOLSCAN-NEW] probe %s -> %d (%s)", path, r.status_code, auth_scheme
+                        )
+
                         if r.status_code == 200:
                             data = r.json()
                             items = data.get(list_key, []) if list_key else data
                             if isinstance(items, list) and items:
                                 # Reset backoff on success
                                 self._backoff_delays.pop(path, None)
-                                
+
                                 out = [self._normalize(tok) for tok in items]
-                                self._last_ok = {"when": time.time(), "count": len(out), "path": path}
+                                self._last_ok = {
+                                    "when": time.time(),
+                                    "count": len(out),
+                                    "path": path,
+                                }
                                 self._last_err = None
                                 self._requests_ok += 1
                                 self._last_status_code = 200
                                 self._last_successful_endpoint = path
-                                
+
                                 # Update mode-specific tracking
                                 if endpoints == _NEW_TOKEN_PATHS:
                                     self._last_new_endpoint = path
@@ -360,44 +377,49 @@ class SolscanScanner:
                                     log.info("[SOLSCAN-NEW] ok: %d items from %s", len(out), path)
                                 else:
                                     log.info("[SOLSCAN] %s ok: %d items", path, len(out))
-                                
+
                                 return out
                             else:
                                 log.warning("[SOLSCAN] %s empty or unexpected payload shape", path)
-                        
+
                         elif r.status_code in (401, 403):
                             # Try next auth scheme
-                            log.warning("[SOLSCAN] %s auth failed (%s): %d", path, auth_scheme, r.status_code)
+                            log.warning(
+                                "[SOLSCAN] %s auth failed (%s): %d",
+                                path,
+                                auth_scheme,
+                                r.status_code,
+                            )
                             continue
                         else:
                             self._requests_err += 1
                             self._last_status_code = r.status_code
                             safe_body = r.text[:240] if r.text else ""
-                            log.warning("[SOLSCAN] %s status=%s body=%s", path, r.status_code, safe_body)
+                            log.warning(
+                                "[SOLSCAN] %s status=%s body=%s", path, r.status_code, safe_body
+                            )
                             break  # Try next endpoint
-                            
+
                     except Exception as e:
                         self._requests_err += 1
                         log.warning("[SOLSCAN] %s error (%s): %r", path, auth_scheme, e)
                         continue
-                
+
                 # If all auth schemes failed for this endpoint, try next endpoint
-                
+
             # Small jittered backoff between attempts (skip in fast mode)
-            if not os.getenv('SOLSCAN_FAST_MODE'):
+            if not os.getenv("SOLSCAN_FAST_MODE"):
                 sleep = backoff + random.random() * 0.4
                 time.sleep(sleep)
                 backoff *= 1.6
-            else:
-                # In fast mode, use minimal delays to avoid webhook timeouts
-                if attempt > 0:  # Only delay after first attempt
-                    time.sleep(0.1)
+            elif attempt > 0:  # Only delay after first attempt
+                time.sleep(0.1)
 
         self._last_err = {"when": time.time(), "code": "exhausted"}
         return []
 
     # --- enrichment methods --------------------------------------------------
-    def get_trending_cache(self) -> List[Dict[str, Any]]:
+    def get_trending_cache(self) -> list[dict[str, Any]]:
         """Get cached trending tokens for enrichment (refreshes if stale)"""
         now = time.time()
         if (now - self._trending_cache_ts) > self._trending_cache_ttl:
@@ -409,14 +431,12 @@ class SolscanScanner:
             except Exception as e:
                 log.warning("[SOLSCAN] trending cache refresh failed: %r", e)
                 # Keep old cache if refresh fails
-        
+
         return self._trending_cache
-
-
 
     # --- helpers -------------------------------------------------------------
     @staticmethod
-    def _normalize(item: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize(item: dict[str, Any]) -> dict[str, Any]:
         """
         Map Solscan fields to our common token schema.
         We handle a few likely field names defensively.
@@ -425,9 +445,7 @@ class SolscanScanner:
         sym = item.get("symbol") or item.get("tokenSymbol") or ""
         name = item.get("name") or item.get("tokenName") or sym or addr[:6]
         price = (
-            item.get("price") or
-            item.get("priceUsd") or
-            (item.get("market", {}) or {}).get("price")
+            item.get("price") or item.get("priceUsd") or (item.get("market", {}) or {}).get("price")
         )
 
         links = {
@@ -446,70 +464,72 @@ class SolscanScanner:
             "links": links,
             "raw": item,
         }
-    
-    def get_new_tokens_cache(self) -> List[Dict[str, Any]]:
+
+    def get_new_tokens_cache(self) -> list[dict[str, Any]]:
         """Get cached new tokens for enrichment"""
         now = time.time()
         if (now - self._new_tokens_cache_ts) > self._new_tokens_cache_ttl:
             return []  # Cache expired
         return self._new_tokens_cache.copy()
-    
-    def enrich_token(self, address: str) -> Dict[str, Any]:
+
+    def enrich_token(self, address: str) -> dict[str, Any]:
         """Enhanced enrichment with new tokens detection"""
         enrichment = {}
-        
+
         # Check if in new tokens cache
         new_tokens = self.get_new_tokens_cache()
-        new_addresses = {t.get('address') for t in new_tokens if t.get('address')}
+        new_addresses = {t.get("address") for t in new_tokens if t.get("address")}
         if address in new_addresses:
-            enrichment['solscan_new_seen'] = True
-            enrichment['solscan_score'] = enrichment.get('solscan_score', 0) + 0.10
-        
+            enrichment["solscan_new_seen"] = True
+            enrichment["solscan_score"] = enrichment.get("solscan_score", 0) + 0.10
+
         # Check trending cache
         trending = self.get_trending_cache()
         for idx, token in enumerate(trending):
-            if token.get('address') == address:
+            if token.get("address") == address:
                 rank = idx + 1
-                enrichment['solscan_trending_rank'] = rank
-                enrichment['solscan_trending_total'] = len(trending)
-                enrichment['solscan_trending'] = True
-                
+                enrichment["solscan_trending_rank"] = rank
+                enrichment["solscan_trending_total"] = len(trending)
+                enrichment["solscan_trending"] = True
+
                 # Scoring bonus for trending rank
                 if rank <= 20:
-                    enrichment['solscan_score'] = enrichment.get('solscan_score', 0) + 0.05
+                    enrichment["solscan_score"] = enrichment.get("solscan_score", 0) + 0.05
                     # Higher rank = higher bonus (rank 1 gets 0.15, rank 20 gets 0.02)
                     rank_bonus = max(0.15 - (rank - 1) * 0.007, 0.02)
-                    enrichment['solscan_score'] = enrichment.get('solscan_score', 0) + rank_bonus
+                    enrichment["solscan_score"] = enrichment.get("solscan_score", 0) + rank_bonus
                 break
-        
+
         return enrichment
-    
+
     def get_enrichment_badge(self, address: str) -> str:
         """Generate badge string for Telegram output"""
         enrichment = self.enrich_token(address)
-        
-        if enrichment.get('solscan_new_seen'):
+
+        if enrichment.get("solscan_new_seen"):
             return "Solscan: NEW"
-        
-        rank = enrichment.get('solscan_trending_rank')
+
+        rank = enrichment.get("solscan_trending_rank")
         if rank:
             return f"Solscan: trending #{rank}"
-        
+
         return ""
 
+
 # --- factory function for easy integration ----------------------------------
-def get_solscan_scanner(api_key: str) -> Optional[SolscanScanner]:
+def get_solscan_scanner(api_key: str) -> SolscanScanner | None:
     """Factory function to create a Solscan Pro scanner instance"""
     if not api_key or not api_key.strip():
         return None
-    
+
     try:
         return SolscanScanner(api_key)
     except Exception as e:
         log.error("[SOLSCAN] Failed to create scanner: %r", e)
         return None
 
-def get_scanner(api_key: str = None) -> Optional[SolscanScanner]:
+
+def get_scanner(api_key: str = None) -> SolscanScanner | None:
     """Alias for get_solscan_scanner for consistency with other modules"""
     if api_key is None:
         api_key = os.getenv("SOLSCAN_API_KEY", "")

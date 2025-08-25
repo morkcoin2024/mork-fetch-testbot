@@ -1,11 +1,13 @@
 # jupiter_scan.py
-import os, time, random, logging
-from typing import List, Dict
+import logging
+import os
+
 import httpx
 
 log = logging.getLogger(__name__)
 
 JUP_ALL_URL = "https://token.jup.ag/all?includeCommunity=true"
+
 
 class JupiterScan:
     """
@@ -13,8 +15,9 @@ class JupiterScan:
     by THIS process yet. We don't rely on timestamps since the endpoint
     doesn't publish one.
     """
-    def __init__(self, notify_fn, cache_limit:int=8000, interval_sec:int=8):
-        self.notify = notify_fn                # callable(list[dict]) -> None
+
+    def __init__(self, notify_fn, cache_limit: int = 8000, interval_sec: int = 8):
+        self.notify = notify_fn  # callable(list[dict]) -> None
         self.interval = int(os.getenv("SCAN_INTERVAL_SEC", str(interval_sec)))
         self.session = httpx.Client(timeout=15)
         self.enabled = os.getenv("FEATURE_JUPITER", "on").lower() == "on"
@@ -30,7 +33,7 @@ class JupiterScan:
             for _ in range(drop):
                 self.seen.pop()
 
-    def _fetch_all(self) -> List[Dict]:
+    def _fetch_all(self) -> list[dict]:
         r = self.session.get(JUP_ALL_URL, headers={"User-Agent": "mork-fetch/1.0"})
         r.raise_for_status()
         data = r.json()
@@ -38,15 +41,17 @@ class JupiterScan:
         out = []
         for t in data:
             mint = t.get("address") or t.get("mint")  # jup uses 'address'
-            if not mint: 
+            if not mint:
                 continue
-            out.append({
-                "mint": mint,
-                "name": t.get("name") or "",
-                "symbol": t.get("symbol") or "",
-                "decimals": t.get("decimals", 0),
-                "source": "jupiter",
-            })
+            out.append(
+                {
+                    "mint": mint,
+                    "name": t.get("name") or "",
+                    "symbol": t.get("symbol") or "",
+                    "decimals": t.get("decimals", 0),
+                    "source": "jupiter",
+                }
+            )
         return out
 
     def tick(self):
@@ -64,11 +69,12 @@ class JupiterScan:
             if mint not in self.seen:
                 self.seen.add(mint)
                 new_items.append(t)
-                
+
                 # Publish NEW_TOKEN event
-                if hasattr(self, 'publish') and callable(getattr(self, 'publish', None)):
+                if hasattr(self, "publish") and callable(getattr(self, "publish", None)):
                     try:
                         from app import _normalize_token
+
                         ev = _normalize_token(t, "jupiter")
                         self.publish("NEW_TOKEN", ev)
                     except Exception as norm_e:
@@ -88,30 +94,38 @@ class JupiterScan:
 
     def stop(self):
         self.running = False
-        try: self.session.close()
-        except: pass
+        try:
+            self.session.close()
+        except:
+            pass
         log.info("[SCAN] Jupiter scanner stopped")
 
     def status(self):
         return {"enabled": self.enabled, "running": self.running}
 
+
 # Use a safer class name that matches the existing pattern
 class JupiterScanner(JupiterScan):
     pass
 
+
 # Global scanner instance
 scanner = JupiterScanner(lambda *args, **kwargs: None)  # Default no-op notify function
+
 
 def get_scanner():
     """Get the global Jupiter scanner instance"""
     return scanner
 
+
 # Register scanner after imports to avoid circular import
 def _register_scanner():
     try:
         from app import SCANNERS
+
         SCANNERS["jupiter"] = scanner
     except ImportError:
         pass  # SCANNERS not available yet, will be registered later
+
 
 _register_scanner()

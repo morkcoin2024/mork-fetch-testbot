@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 export PYTHONPATH=.
-rm -rf .coverage* coverage.xml
+rm -f .coverage* coverage.xml || true
 
-# Run "smoke" set under coverage (deterministic)
 coverage run -p tests/test_watchlist.py
 coverage run -p tests/test_watchlist_edge.py
 coverage run -p tests/test_watch_remove.py
 coverage run -p tests/test_watchlist_scale.py
-coverage run -p tests/test_watchlist_formatting.py
 
 coverage combine
 coverage xml

@@ -3,15 +3,22 @@ Complete Text Handler Router Implementation
 Manual routing pattern for admin alias commands in text handlers
 """
 
-from config import ASSISTANT_ADMIN_TELEGRAM_ID
 from alerts.telegram import (
-    cmd_status, cmd_logs_tail, cmd_logs_stream, cmd_logs_watch, cmd_mode,
-    cmd_ping, cmd_whoami
+    cmd_logs_stream,
+    cmd_logs_tail,
+    cmd_logs_watch,
+    cmd_mode,
+    cmd_ping,
+    cmd_status,
+    cmd_whoami,
 )
+from config import ASSISTANT_ADMIN_TELEGRAM_ID
+
 
 def _is_admin(u):
     """Local admin check function for text handler routing"""
     return getattr(u, "id", None) == ASSISTANT_ADMIN_TELEGRAM_ID
+
 
 async def handle_text_commands(update, context):
     """
@@ -19,7 +26,7 @@ async def handle_text_commands(update, context):
     Use this pattern inside your existing text command handler
     """
     text = (update.message.text or "").strip()
-    
+
     # --- Admin aliases that won't collide with legacy commands ---
     if text.startswith("/a_ping"):
         await cmd_ping(update, context)
@@ -140,6 +147,7 @@ async def handle_text_commands(update, context):
             await update.message.reply_text("Unknown command. Type /help for available commands.")
         return
 
+
 # Integration example for existing bots:
 """
 # In your existing message handler:
@@ -151,25 +159,26 @@ async def on_message(update, context):
     # (Only reached if no command was handled above)
 """
 
+
 # Alternative compact implementation for tight integration:
 async def handle_admin_aliases_only(update, context):
     """
     Compact version for bots that only need admin alias support
     """
     text = (update.message.text or "").strip()
-    
+
     if not text.startswith("/a_"):
         return False  # Not an admin alias
-    
+
     if not _is_admin(update.effective_user):
         await update.message.reply_text("Not authorized.")
         return True
-    
+
     # Parse command and arguments
     parts = text.split()
     cmd = parts[0][3:]  # Remove "/a_" prefix
     context.args = parts[1:] if len(parts) > 1 else []
-    
+
     # Route to appropriate handler
     handlers = {
         "ping": cmd_ping,
@@ -178,15 +187,15 @@ async def handle_admin_aliases_only(update, context):
         "logs_tail": cmd_logs_tail,
         "logs_stream": cmd_logs_stream,
         "logs_watch": cmd_logs_watch,
-        "mode": cmd_mode
+        "mode": cmd_mode,
     }
-    
+
     if cmd in handlers:
         # Special handling for logs_watch arguments
         if cmd == "logs_watch" and len(parts) > 1:
             context.args = [" ".join(parts[1:])]
-        
+
         await handlers[cmd](update, context)
         return True
-    
+
     return False  # Unknown admin alias

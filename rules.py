@@ -1,22 +1,26 @@
 # rules.py
-import yaml, time, os
+import os
 from dataclasses import dataclass
+
+import yaml
 
 _RULES_PATH = os.getenv("RULES_PATH", "rules.yaml")
 _RULES = None
 _RULES_MTIME = 0
+
 
 def load_rules(force=False):
     global _RULES, _RULES_MTIME
     try:
         st = os.stat(_RULES_PATH)
         if force or st.st_mtime != _RULES_MTIME or _RULES is None:
-            with open(_RULES_PATH, "r") as f:
+            with open(_RULES_PATH) as f:
                 _RULES = yaml.safe_load(f) or {}
             _RULES_MTIME = st.st_mtime
     except FileNotFoundError:
         _RULES = {}
     return _RULES
+
 
 @dataclass
 class RuleResult:
@@ -24,11 +28,14 @@ class RuleResult:
     reasons: list
     snapshot: dict
 
+
 def _bool(v, default=False):
-    if v is None: return default
+    if v is None:
+        return default
     return bool(v)
 
-def check_token(token:dict) -> RuleResult:
+
+def check_token(token: dict) -> RuleResult:
     """
     token fields expected (normalized):
       mint, symbol, name, source, ts
@@ -39,19 +46,23 @@ def check_token(token:dict) -> RuleResult:
     reasons = []
 
     liq_ok = (token.get("liq_usd") or 0) >= (R.get("min_liq_usd") or 0)
-    if not liq_ok: reasons.append(f"liq_usd<{R.get('min_liq_usd')}")
+    if not liq_ok:
+        reasons.append(f"liq_usd<{R.get('min_liq_usd')}")
 
     holders_ok = (token.get("holders") or 0) >= (R.get("min_holders") or 0)
-    if not holders_ok: reasons.append(f"holders<{R.get('min_holders')}")
+    if not holders_ok:
+        reasons.append(f"holders<{R.get('min_holders')}")
 
     mcap_ok = (token.get("mcap_usd") or 0) >= (R.get("min_mcap_usd") or 0)
-    if not mcap_ok: reasons.append(f"mcap_usd<{R.get('min_mcap_usd')}")
+    if not mcap_ok:
+        reasons.append(f"mcap_usd<{R.get('min_mcap_usd')}")
 
     age_ok = (token.get("age_min") or 9e9) <= (R.get("max_age_min") or 9e9)
-    if not age_ok: reasons.append(f"age_min>{R.get('max_age_min')}")
+    if not age_ok:
+        reasons.append(f"age_min>{R.get('max_age_min')}")
 
     risk = token.get("risk") or {}
-    risk_cfg = (R.get("risk") or {})
+    risk_cfg = R.get("risk") or {}
     if not _bool(risk_cfg.get("allow_freeze"), False) and _bool(risk.get("freeze"), False):
         reasons.append("risk.freeze")
     if not _bool(risk_cfg.get("allow_mint"), False) and _bool(risk.get("mint"), False):
