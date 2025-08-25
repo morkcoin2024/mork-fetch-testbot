@@ -6,14 +6,14 @@ We're building "Mork F.E.T.C.H Bot" - a Telegram cryptocurrency trading bot that
 
 ## CORE REQUIREMENTS
 1. **Automated token discovery** from pump.fun new launches
-2. **Real-time trading execution** with actual token acquisition  
+2. **Real-time trading execution** with actual token acquisition
 3. **Telegram bot interface** for user interaction
 4. **Wallet integration** with private key management
 5. **Token verification** - must confirm tokens actually arrive in wallet
 
 ## CURRENT ARCHITECTURE
 - **Python Flask** web application with Telegram webhook
-- **PumpPortal API** for transaction generation 
+- **PumpPortal API** for transaction generation
 - **Solana RPC** for blockchain interaction
 - **SQLAlchemy** for user session management
 - **Wallet system** with JSON-stored private keys
@@ -22,7 +22,7 @@ We're building "Mork F.E.T.C.H Bot" - a Telegram cryptocurrency trading bot that
 
 ### What Works:
 - ✅ Transactions broadcast successfully to Solana blockchain
-- ✅ Valid transaction hashes returned  
+- ✅ Valid transaction hashes returned
 - ✅ SOL balance decreases (gas fees paid)
 - ✅ Blockchain confirms transactions as successful
 - ✅ ONE SUCCESS: 7,500 CLIPPY tokens were actually delivered
@@ -38,13 +38,13 @@ We're building "Mork F.E.T.C.H Bot" - a Telegram cryptocurrency trading bot that
 CLIPPY Token (7eMJmn1bYWSQEwxAX7CyngBzGNGu1cT582asKxxRpump):
 ✅ SUCCESS - 7,500 tokens delivered and verified in wallet
 
-ESPURR Token: 
+ESPURR Token:
 ❌ FAILED - Transaction succeeded, 0 tokens delivered
 
 Whale Token (G4irCda4dFsePvSrhc1H1u9uZUR2TSUiUCsHm661pump):
 ❌ FAILED - All 3 parameter variations failed
    - Test 1: Transaction succeeded, 0 tokens delivered
-   - Test 2: "insufficient funds for rent" 
+   - Test 2: "insufficient funds for rent"
    - Test 3: "insufficient funds for fee"
 ```
 
@@ -53,7 +53,7 @@ Whale Token (G4irCda4dFsePvSrhc1H1u9uZUR2TSUiUCsHm661pump):
 ### PumpPortal Lightning Transaction API:
 ```python
 response = requests.post(
-    url="https://pumpportal.fun/api/trade-local", 
+    url="https://pumpportal.fun/api/trade-local",
     data={
         "publicKey": wallet_address,
         "action": "buy",

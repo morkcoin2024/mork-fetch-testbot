@@ -32,13 +32,13 @@ start_polling_bot() {
 restart_loop() {
     while true; do
         echo "$(date): Starting services..."
-        
+
         # Start web app
         start_web_app
-        
+
         # Start polling bot (foreground - main process)
         start_polling_bot
-        
+
         echo "$(date): Polling bot stopped - restarting in 2 seconds..."
         sleep 2
     done

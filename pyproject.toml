@@ -45,4 +45,3 @@ python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_ignores = true
 exclude = "(birdeye_ws_backup\\.py|final_.*\\.py|simple_.*\\.py|demo_.*\\.py|live_.*\\.py|.*_example\\.py|.*_demo\\.py|standalone_.*\\.py|production_.*\\.py|direct_.*\\.py|working_.*\\.py|scripts/.*)"
-

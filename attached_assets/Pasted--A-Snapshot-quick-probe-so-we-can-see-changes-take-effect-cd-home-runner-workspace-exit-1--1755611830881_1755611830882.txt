@@ -293,7 +293,7 @@ PY
 python3 - <<'PY'
 import os, requests, json
 T=os.getenv("TELEGRAM_BOT_TOKEN"); C=os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID")
-def send(t): 
+def send(t):
     r=requests.post(f"https://api.telegram.org/bot{T}/sendMessage", json={"chat_id":int(C),"text":t})
     print(t,"->",r.status_code)
 for t in ["/autosell_on","/autosell_interval 8","/autosell_set MINT1 tp=5 sl=5 trail=3","/autosell_status",

@@ -27,7 +27,7 @@ applypatch <<'PATCH'
 +def tg_send(chat_id: int, text: str, preview: bool = True):
 +    """Send a Telegram message with 3-tier fallback."""
 +    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-+    if not token: 
++    if not token:
 +        logger.error("[SEND] Missing TELEGRAM_BOT_TOKEN")
 +        return {"ok": False, "error": "no_token"}
 +    url = f"https://api.telegram.org/bot{token}/sendMessage"

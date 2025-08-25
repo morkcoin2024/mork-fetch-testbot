@@ -110,8 +110,8 @@ applypatch <<'PATCH'
 +        # Check if this is a recognized command
          all_commands = public_commands + [
 @@
--            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
-+            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status", 
+-            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status",
++            "/fetch", "/fetch_now", "/autosell_on", "/autosell_off", "/autosell_status",
              "/autosell_interval", "/autosell_set", "/autosell_list", "/autosell_remove",
              "/autosell_logs", "/autosell_dryrun", "/autosell_ruleinfo",
 +            "/watch", "/unwatch", "/watchlist", "/watch_sens"
@@ -162,7 +162,7 @@ applypatch <<'PATCH'
 +            if deny: return deny
 +            import autosell
 +            a = (args or "").strip()
-+            if not a: 
++            if not a:
 +                s = autosell.status().get("watch_sens_pct")
 +                return _reply(f"👁️ Watch sensitivity: {s:.2f}%")
 +            try:

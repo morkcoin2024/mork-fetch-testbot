@@ -65,7 +65,7 @@ for mode in ["supply","fdv","holders","prices","caps","volumes"]:
     resp = send(f"/watchlist {mode}")
     ok_resp = bool(resp) and "Watchlist" in resp
     fails += ck(ok_resp, f"resp {mode}")
-    if not ok_resp: 
+    if not ok_resp:
         continue
     sol_row = row_for(resp, SOL_S)
     unk_row = row_for(resp, UNK_S)

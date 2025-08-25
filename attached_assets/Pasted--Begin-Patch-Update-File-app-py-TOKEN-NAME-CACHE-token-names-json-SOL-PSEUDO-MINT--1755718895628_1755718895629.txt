@@ -3,11 +3,11 @@
 @@
  TOKEN_NAME_CACHE = "token_names.json"
  SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
- 
+
 @@
  def _short(mint: str) -> str:
      return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
- 
+
 +def _clean_symbol(s: str) -> str | None:
 +    """Normalize tickers: uppercase, alnum+_ only, trimmed to 12 chars."""
 +    if not s or not isinstance(s, str):

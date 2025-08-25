@@ -26,7 +26,7 @@ applypatch <<'PATCH'
 +def set_price_override(mint:str, price:float):
 +    try:
 +        p = float(price)
-+        if p <= 0: 
++        if p <= 0:
 +            return False
 +        with _LOCK:
 +            _PRICE_OVERRIDES[mint] = p

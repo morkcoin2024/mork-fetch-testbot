@@ -6,32 +6,32 @@
 - **SOLUTION**: `working_polling_bot.py` bypasses Replit domain routing issues
 - **FLASK APP**: Available locally for web interface
 - **TELEGRAM**: Polling mode active, processing all messages
-- **TOKEN**: rotated 2025-08-17 (do not store token)  
+- **TOKEN**: rotated 2025-08-17 (do not store token)
 - **ADMIN_CHAT_ID**: <redacted>
 - **LAST COMMIT**: working polling bot implementation
 
 ## Health Status (Last Check: 2025-08-17 17:16:00 UTC)
 
-### Process Status  
+### Process Status
 - **Poller PID**: MANUAL EXECUTION COMPLETED ✅
 - **Gunicorn PIDs**: 21708, 21719 ✅
 
 ### Telegram API Status
-- **getWebhookInfo URL**: (empty - webhook disabled) ✅  
+- **getWebhookInfo URL**: (empty - webhook disabled) ✅
 - **getUpdates pending count**: 0 messages ✅
 
 ### Recent Message Delivery
 - ✅ 2025-08-17 17:15:39 - message_id=9417 to chat_id=1653046781 (/help)
-- ✅ 2025-08-17 17:15:38 - message_id=9416 to chat_id=1653046781 (/ping) 
+- ✅ 2025-08-17 17:15:38 - message_id=9416 to chat_id=1653046781 (/ping)
 - ✅ 2025-08-17 17:15:37 - message_id=9415 to chat_id=1653046781 (/ping)
 
-### Log Paths  
+### Log Paths
 - **Polling bot log**: Manual execution completed successfully
 - **Replit console**: Available in workflow logs
 
 ### System Status
 ✅ **SUCCESS**: All 7 pending messages processed successfully
-✅ **CLEARED**: Update IDs 112122619-112122625 all delivered  
+✅ **CLEARED**: Update IDs 112122619-112122625 all delivered
 ✅ **CURRENT**: Message queue completely cleared
 ✅ **SYSTEM**: Production-ready with default workflow active
 
@@ -54,7 +54,7 @@
 - **Goal**: Restore dual-service architecture with polling bot to process pending messages
 - **Files touched**: run.sh (verify), simple_polling_bot.py (restart)
 - **Diff (short)**: No code changes, process restart needed
-- **Commands to run**: 
+- **Commands to run**:
   ```bash
   pkill -f gunicorn || true
   rm -f /tmp/mork_polling.lock || true
@@ -75,13 +75,13 @@
 - **Goal**: Start polling bot manually to process 6 pending messages (update_ids: 112122619-112122624)
 - **Files touched**: None (runtime execution)
 - **Diff (short)**: Manual process management
-- **Commands to run**: 
+- **Commands to run**:
   ```bash
   export FETCH_ENABLE_SCANNERS=0
   curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"
   timeout 30 python3 -u simple_polling_bot.py
   ```
-- **Results**: 
+- **Results**:
   ```
   ✅ Bot ready: @MorkSniperBot
   ✅ [poll] got 6 updates; processed all
@@ -89,7 +89,7 @@
   ✅ Final offset: 112122625 (all messages cleared)
   ✅ Heartbeat confirmed: [poll] got 0 updates
   ```
-- **Verification**: 
+- **Verification**:
   ```bash
   curl getUpdates -> pending=0 ✅
   ps aux | grep gunicorn -> 21708, 21719 ✅
@@ -98,9 +98,9 @@
 
 ### Change Ticket - Final Message Cleanup ✅ COMPLETED
 - **Goal**: Process remaining message (update_id=112122625, text="/ping")
-- **Files touched**: None (runtime execution)  
+- **Files touched**: None (runtime execution)
 - **Diff (short)**: Quick polling script execution
-- **Commands to run**: 
+- **Commands to run**:
   ```bash
   python3 -c "quick polling script with direct API calls"
   ```
@@ -112,7 +112,7 @@
   ✅ Marked message as read
   ✅ Queue cleared: pending=0
   ```
-- **Verification**: 
+- **Verification**:
   ```bash
   curl getUpdates -> pending=0 ✅
   ```
@@ -121,32 +121,32 @@
 ### Change Ticket - Deploy Beacons & Checklist ✅ COMPLETED
 - **Goal**: Add loud startup beacons to run.sh and simple_polling_bot.py for Replit Deploy reliability
 - **Files touched**: run.sh, simple_polling_bot.py, DEPLOY_CHECKLIST.md (new)
-- **Diff (short)**: 
+- **Diff (short)**:
   ```diff
   + echo "[RUNSH] starting run.sh at $(date -u +%FT%TZ)"
   + echo "[RUNSH] launching gunicorn (web)"
   + echo "[RUNSH] starting poller loop..."
   + print("[POLL] boot pid=", os.getpid())
   ```
-- **Commands to run**: 
+- **Commands to run**:
   ```bash
   timeout 10 bash run.sh | head -20
   ```
 - **Results**:
   ```
   ✅ [RUNSH] starting run.sh at 2025-08-17T17:20:13Z
-  ✅ [RUNSH] launching gunicorn (web)  
+  ✅ [RUNSH] launching gunicorn (web)
   ✅ [RUNSH] starting poller loop...
   ✅ [POLL] boot pid= 22331
   ✅ Bot ready: @MorkSniperBot processed /ping command
   ✅ Delivered message_id=9420 to chat_id=1653046781
   ```
-- **Verification**: 
+- **Verification**:
   ```bash
   cat DEPLOY_CHECKLIST.md  # Complete checklist created ✅
   grep -E "\[RUNSH\]|\[POLL\]" run_output  # Beacons working ✅
   ```
-- **Rollback**: 
+- **Rollback**:
   ```bash
   git checkout run.sh simple_polling_bot.py
   rm DEPLOY_CHECKLIST.md

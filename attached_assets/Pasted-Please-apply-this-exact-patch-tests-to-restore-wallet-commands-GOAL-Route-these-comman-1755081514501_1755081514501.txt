@@ -34,7 +34,7 @@ All replies must go through the existing safe_reply() so Telegram 500s are handl
 
 2) In wallets.py (or the module you already use), expose the four helpers with safe formatting and robust errors:
 
-    def cmd_wallet_new(user_id): 
+    def cmd_wallet_new(user_id):
         # generate keypair, persist per-user (KV/redis/file), return Markdown-safe notice
         # include ⚠️ burner wallet caution
         # return f"**Wallet created**\nAddress: `{addr}`\n\n⚠️ Burner wallet…"

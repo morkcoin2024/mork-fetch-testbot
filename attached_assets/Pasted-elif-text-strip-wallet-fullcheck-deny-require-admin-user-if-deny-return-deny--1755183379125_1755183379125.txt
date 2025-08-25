@@ -80,7 +80,7 @@ elif text.strip() == "/wallet_fullcheck":
 
         # small tail with raw (trimmed) snippets for debugging if anything shaky
         if not ok_addr_consistent or not ok_balance_parse or hard_fail:
-            def short(s): 
+            def short(s):
                 import re as _re
                 s = _re.sub(r"\s+", " ", s or "").strip()
                 return (s[:160] + "…") if len(s) > 160 else s

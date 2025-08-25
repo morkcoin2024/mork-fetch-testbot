@@ -48,7 +48,7 @@ def _init_scanners():
     global SCANNER, ws_client, DS_SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, SCANNERS
     SCANNERS.clear()
     SCANNER = get_scanner(publish)  # Birdeye scanner singleton bound to eventbus
-    
+
     # Only initialize WebSocket if enabled
     feature_ws = os.environ.get('FEATURE_WS', 'off').lower()  # Default to off
     if feature_ws == 'on':
@@ -61,17 +61,17 @@ def _init_scanners():
     else:
         ws_client = None
         logger.info("[WS] WebSocket client disabled (FEATURE_WS=off)")
-    
+
     DS_SCANNER = get_ds_client()  # DexScreener scanner singleton
     JUPITER_SCANNER = JupiterScan(notify_fn=_notify_tokens, cache_limit=8000, interval_sec=8)  # Jupiter scanner
     # Initialize Solscan Pro scanner if configured
     global SOLSCAN_SCANNER
     solscan_api_key = os.getenv("SOLSCAN_API_KEY")
     feature_solscan = os.getenv("FEATURE_SOLSCAN", "off").lower() == "on"
-    
+
     # Unmistakable boot logs for debugging
     logger.info("[INIT][SOLSCAN] feature=%s keylen=%s", feature_solscan, len(solscan_api_key or ""))
-    
+
     if feature_solscan and solscan_api_key:
         try:
             from solscan import get_solscan_scanner
@@ -91,12 +91,12 @@ def _init_scanners():
     else:
         SOLSCAN_SCANNER = None
         logger.info("Solscan scanner dormant (requires FEATURE_SOLSCAN=on and SOLSCAN_API_KEY)")
-    
+
     # Boot status logs
     logger.info("[INIT][SOLSCAN] created=%s", bool(SOLSCAN_SCANNER))
     if SOLSCAN_SCANNER:
         logger.info("[INIT][SOLSCAN] enabled=%s running=%s", SOLSCAN_SCANNER.enabled, SOLSCAN_SCANNER.running)
-    
+
     # Register scanners in centralized registry
     SCANNERS = {
         'birdeye': SCANNER,
@@ -133,20 +133,20 @@ def _notify_tokens(items: list, title: str = "New tokens"):
     """Universal token notification handler for all scanners"""
     if not items:
         return
-    
+
     lines = [f"🟢 {title}:"]
     for item in items[:5]:  # Limit to 5 tokens per notification
         mint = item.get("mint", "?")
-        symbol = item.get("symbol", "?") 
+        symbol = item.get("symbol", "?")
         name = item.get("name", "?")
         source = item.get("source", "unknown")
-        
+
         lines.append(f"• {symbol} | {name} | {mint}")
         lines.append(f"  Birdeye: https://birdeye.so/token/{mint}?chain=solana")
         lines.append(f"  Pump.fun: https://pump.fun/{mint}")
         if source == "jupiter":
             lines.append(f"  Jupiter: Listed token")
-    
+
     try:
         message_text = "\n".join(lines)
         send_admin_md(message_text)
@@ -168,19 +168,19 @@ SCANNERS = {}  # global, single source of truth
 def _ensure_scanners():
     """Ensure scanners are initialized in this worker process."""
     global SCANNER, JUPITER_SCANNER, SOLSCAN_SCANNER, DS_SCANNER, ws_client, SCANNERS
-    
+
     current_pid = os.getpid()
     logger.info(f"[INIT] _ensure_scanners called in PID={current_pid}, existing SCANNERS keys: {list(SCANNERS.keys())}")
-    
+
     # Check if already initialized
     if SOLSCAN_SCANNER is not None and SCANNERS:
         logger.info(f"[INIT] Scanners already initialized in PID={current_pid}")
         return
-    
+
     try:
         _init_scanners()
         logger.info(f"[INIT] Scanners initialized in worker process PID={current_pid}")
-        
+
         # Ensure SCANNERS registry is populated after initialization
         SCANNERS = {
             'birdeye': SCANNER,
@@ -189,18 +189,18 @@ def _ensure_scanners():
             'dexscreener': DS_SCANNER,
             'websocket': ws_client
         }
-        
+
         # Enhanced logging for Solscan specifically
         if SOLSCAN_SCANNER:
             logger.info(f"[INIT][SOLSCAN] Worker PID={current_pid}, object={SOLSCAN_SCANNER}, enabled={getattr(SOLSCAN_SCANNER, 'enabled', 'UNKNOWN')}, running={getattr(SOLSCAN_SCANNER, 'running', 'UNKNOWN')}")
-        
+
         logger.info(f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}")
-        
+
     except Exception as e:
         logger.error(f"Scanner initialization failed in worker PID={current_pid}: {e}")
         # Continue without scanners if initialization fails
         SCANNER = None
-        JUPITER_SCANNER = None 
+        JUPITER_SCANNER = None
         SOLSCAN_SCANNER = None
         SCANNERS = {}
 
@@ -221,7 +221,7 @@ except Exception as e:
     logger.error(f"Scanner initialization failed: {e}")
     # Continue without scanners if initialization fails
     SCANNER = None
-    JUPITER_SCANNER = None 
+    JUPITER_SCANNER = None
     SOLSCAN_SCANNER = None
     SCANNERS = {}
 
@@ -241,7 +241,7 @@ def _scanner_thread():
                 except Exception as e:
                     total, new = 0, 0
                     app.logger.warning("[SCAN] birdeye tick error: %s", e)
-            
+
             # Run all other scanners in SCANNERS registry
             for name, scanner in SCANNERS.items():
                 if scanner and hasattr(scanner, 'tick') and hasattr(scanner, 'running') and scanner.running:
@@ -255,7 +255,7 @@ def _scanner_thread():
                         time.sleep(0.15)
                     except Exception as e:
                         app.logger.warning("[SCAN] %s tick error: %s", name, e)
-            
+
             time.sleep(SCAN_INTERVAL)
         except Exception as e:
             logger.warning("[SCAN] loop error: %s", e)
@@ -323,16 +323,16 @@ def index():
     <head>
         <title>Mork F.E.T.C.H Bot</title>
         <style>
-            body { 
-                font-family: Arial, sans-serif; 
-                max-width: 800px; 
-                margin: 50px auto; 
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 50px auto;
                 padding: 20px;
                 background: #1a1a1a;
                 color: #ffffff;
             }
-            .header { 
-                text-align: center; 
+            .header {
+                text-align: center;
                 margin-bottom: 30px;
                 color: #7cb342;
             }
@@ -361,32 +361,32 @@ def index():
                 <a href="/live" style="color: #7cb342; text-decoration: none;">💻 Live Console</a>
             </div>
         </div>
-        
+
         <div class="status">
             <strong>🟢 Bot Status: Online</strong><br>
             Production-ready Solana trading bot with safety systems active.
         </div>
-        
+
         <div class="feature">
             <h3>🎯 Manual Sniping</h3>
             <p>Target specific tokens with <code>/snipe</code> command</p>
         </div>
-        
+
         <div class="feature">
             <h3>🤖 Auto F.E.T.C.H</h3>
             <p>Automated discovery and trading of new Pump.fun tokens</p>
         </div>
-        
+
         <div class="feature">
             <h3>🛡️ Safety First</h3>
             <p>MORK holder gates, spend limits, emergency stops, encrypted wallets</p>
         </div>
-        
+
         <div class="feature">
             <h3>⚡ Jupiter Integration</h3>
             <p>Secure swaps with preflight checks and token delivery verification</p>
         </div>
-        
+
         <div style="text-align: center; margin-top: 40px; color: #7cb342;">
             <p><strong>Ready to start fetching profits?</strong></p>
             <p>Find the bot on Telegram: <strong>@MorkFetchBot</strong></p>
@@ -430,28 +430,28 @@ def webhook():
     timestamp = time.time()
     print(f"[WEBHOOK-DEBUG-{timestamp}] Function entry - PID {os.getpid()}")
     app.logger.info(f"[WEBHOOK-ULTRA-ENTRY] Function entry - PID {os.getpid()} timestamp={timestamp}")
-    
+
     # Ensure scanners are initialized in this worker process
     _ensure_scanners()
-    
+
     try:
         # Import publish at function level to avoid import issues
         # Enhanced events system
                             def publish(topic, payload): return BUS.publish(topic, payload)
-        
+
         # Log incoming webhook request - ALWAYS log
         logger.info(f"[WEBHOOK] Received {request.method} request from {request.remote_addr}")
-        
+
         update_data = request.get_json()
         if not update_data:
             logger.warning("[WEBHOOK] No JSON data received")
             return jsonify({"status": "error", "message": "No data received"}), 400
-        
+
         if update_data.get('message'):
             msg_text = update_data['message'].get('text', '')
             user_id = update_data['message'].get('from', {}).get('id', '')
             logger.info(f"[WEBHOOK] Processing command: {msg_text} from user {user_id}")
-            
+
             # ULTRA DEBUG: Track /solscanstats at the earliest possible point
             if msg_text and msg_text.strip() == "/solscanstats":
                 logger.info(f"[WEBHOOK-ULTRA-DEBUG] /solscanstats detected at entry! user_id={user_id}")
@@ -463,30 +463,30 @@ def webhook():
                     pass
         else:
             logger.info(f"[WEBHOOK] Update data: {update_data}")
-        
+
         # ALWAYS proceed with direct webhook processing - no dependency on mork_bot
         logger.info("[WEBHOOK] Using direct webhook processing mode")
-            
+
         # Process the update
         if 'message' in update_data:
             message = update_data['message']
             user = message.get('from', {})
             text = message.get('text', '')
-            
+
             logger.info(f"[WEBHOOK] Message from {user.get('username', 'unknown')} ({user.get('id', 'unknown')}): '{text}'")
-            
+
             # Publish webhook event for real-time monitoring
             publish("webhook.update", {
-                "from": user.get("username", "?"), 
+                "from": user.get("username", "?"),
                 "user_id": user.get("id"),
                 "text": text,
                 "chat_id": message.get('chat', {}).get('id')
             })
-            
+
             # Publish command routing event for specific command tracking
             if text and text.startswith('/'):
                 publish("command.route", {"cmd": text.split()[0]})
-            
+
             # Check for multiple commands in one message
             commands_in_message = []
             if text:
@@ -495,7 +495,7 @@ def webhook():
                 for word in words:
                     if word.startswith('/'):
                         commands_in_message.append(word)
-            
+
             # If multiple commands detected, log it
             if len(commands_in_message) > 1:
                 logger.info(f"[WEBHOOK] Multiple commands detected: {commands_in_message}")
@@ -543,28 +543,28 @@ def webhook():
 
             # Simple admin command processing for immediate testing
             from config import ASSISTANT_ADMIN_TELEGRAM_ID
-            
+
             if user.get('id') == ASSISTANT_ADMIN_TELEGRAM_ID and text.startswith('/'):
                 logger.info(f"[WEBHOOK] Admin command detected: {text}")
-                
+
                 # Process admin commands directly without PTB
                 chat_id = message['chat']['id']
                 response_text = None
-                
+
                 # Handle multiple commands in one message
                 if len(commands_in_message) > 1:
                     logger.info(f"[WEBHOOK] Processing {len(commands_in_message)} commands sequentially")
                     responses = []
-                    
+
                     # Process each command separately by calling webhook recursively
                     for cmd in commands_in_message:
                         # Create a modified message for single command processing
                         temp_text = text
                         text = cmd  # Temporarily set text to single command
-                        
+
                         # Process the single command using existing logic
                         single_response = None
-                        
+
                         # Process actual commands for multiple command handling
                         if text.strip() == "/fetch":
                             try:
@@ -606,20 +606,20 @@ def webhook():
                                     single_response = "📊 Solscan: Not initialized"
                             except Exception as e:
                                 single_response = f"📊 Solscan error: {e}"
-                        
+
                         if single_response:
                             responses.append(f"*{cmd}*: {single_response}")
-                        
+
                         text = temp_text  # Restore original text
-                    
+
                     if responses:
                         response_text = "\n\n".join(responses)
                     else:
                         response_text = f"Processed {len(commands_in_message)} commands"
-                    
+
                     # Skip the rest of the command processing for multiple commands
                     logger.info(f"[WEBHOOK] Sending multiple command response: {response_text}")
-                    
+
                     # Add detailed logging for the Telegram API call
                     try:
                         import requests
@@ -631,7 +631,7 @@ def webhook():
                             "disable_web_page_preview": True,
                         }
                         logger.info(f"[WEBHOOK] Telegram payload: {payload}")
-                        
+
                         r = requests.post(
                             f"https://api.telegram.org/bot{bot_token}/sendMessage",
                             json=payload,
@@ -644,26 +644,26 @@ def webhook():
                     except Exception as e:
                         logger.exception(f"[WEBHOOK] Telegram API exception: {e}")
                         reply_success = False
-                    
+
                     logger.info(f"[WEBHOOK] Multiple command reply success: {reply_success}")
                     return jsonify({"status": "ok", "command": text, "response_sent": reply_success, "multiple_commands": len(commands_in_message)})
-                
+
                 # DEBUG: Track command routing for solscanstats
                 if text.strip() == "/solscanstats":
                     logger.info(f"[WEBHOOK-DEBUG] /solscanstats detected! About to enter command routing...")
                     logger.info(f"[WEBHOOK-DEBUG] Admin ID check: user={user.get('id')}, admin={ASSISTANT_ADMIN_TELEGRAM_ID}")
-                
+
                 # DEBUG: Log ALL command attempts for debugging
                 if text.startswith('/'):
                     logger.info(f"[WEBHOOK-COMMAND-DEBUG] Processing command: '{text}' from user {user.get('id')}")
-                
+
                 if text.strip() in ['/ping', '/a_ping']:
                     publish("admin.command", {"command": "ping", "user": user.get("username", "?")})
                     response_text = 'Pong! Webhook processing is working! 🎯'
                 elif text.strip() in ['/status', '/a_status']:
                     publish("admin.command", {"command": "status", "user": user.get("username", "?")})
                     response_text = f'''🤖 Mork F.E.T.C.H Bot Status
-                    
+
 Mode: Webhook Processing
 PTB: Disabled (import conflicts)
 Admin Commands: Direct webhook
@@ -703,7 +703,7 @@ Admin router with comprehensive logging active.'''
                     # Enhanced logs tail with ring buffer (ultra-fast)
                     try:
                         from robust_logging import get_ring_buffer_lines, get_ring_buffer_stats
-                        
+
                         # Parse command arguments
                         parts = text.strip().split()
                         args = parts[1:] if len(parts) > 1 else []
@@ -727,9 +727,9 @@ Admin router with comprehensive logging active.'''
                         # Optional substring filter
                         if contains:
                             lines = [ln for ln in lines if contains in ln]
-                        
+
                         stats = get_ring_buffer_stats()
-                        
+
                         if not lines:
                             filter_desc = f"level={level_filter}"
                             if contains:
@@ -737,22 +737,22 @@ Admin router with comprehensive logging active.'''
                             response_text = f'❌ No log entries found ({filter_desc})'
                         else:
                             log_text = '\n'.join(lines)
-                            
+
                             # Truncate if too long for Telegram (4096 char limit)
                             if len(log_text) > 3000:
                                 log_text = "..." + log_text[-2900:]
-                            
+
                             header = f"📋 Ring Buffer Log Entries (last {len(lines)} lines"
                             if level_filter != "all":
                                 header += f", level>={level_filter}"
                             if contains:
                                 header += f", contains='{contains}'"
                             header += "):"
-                            
+
                             buffer_info = ""
                             if stats.get("available"):
                                 buffer_info = f"\nBuffer: {stats['current_size']}/{stats['max_capacity']} ({stats['usage_percent']}%)"
-                            
+
                             response_text = f'''{header}
 
 ```
@@ -762,7 +762,7 @@ Admin router with comprehensive logging active.'''
 Source: Ring Buffer (ultra-fast access)
 Usage: /a_logs_tail [number] [level=error|warn|info|all] [contains=text]
 Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS'''
-                            
+
                     except Exception as e:
                         response_text = f'❌ Error reading ring buffer: {str(e)}'
                 elif text.startswith("/a_diag_fetch"):
@@ -771,19 +771,19 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         # Import the diagnostic function
                         import asyncio
                         from alerts.telegram import cmd_a_diag_fetch
-                        
+
                         # Create a mock update object for compatibility
                         class MockUpdateDiag:
                             def __init__(self, message_data):
                                 self.message = type('obj', (object,), message_data)()
                                 self.effective_user = type('obj', (object,), {'id': user.get('id')})()
-                        
+
                         mock_update = MockUpdateDiag({
                             'chat': type('obj', (object,), {'id': message['chat']['id']})(),
                             'from_user': type('obj', (object,), user)(),
                             'text': text
                         })
-                        
+
                         # Run the async diagnostic command
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -791,15 +791,15 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             response_text = loop.run_until_complete(cmd_a_diag_fetch(mock_update, None))
                         finally:
                             loop.close()
-                            
+
                     except Exception as e:
                         response_text = f'❌ Diagnostic command error: {str(e)}'
-                
+
                 # Assistant model and codegen integration
                 elif text.startswith("/assistant_model"):
                     try:
                         from assistant_dev import set_current_model, get_current_model
-                        
+
                         logger.info(f"[WEBHOOK] Routing /assistant_model")
                         if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                             response_text = "Not authorized."
@@ -852,7 +852,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     else:
                         try:
                             from data_fetcher import probe_pumpfun_sources
-                            
+
                             res = probe_pumpfun_sources(limit=50)
                             lines = [
                                 "🛠 Pump.fun Probe",
@@ -872,12 +872,12 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 rmark = "✅" if r.get("ok") else "❌"
                                 lines.append("")
                                 lines.append(f"{rmark} solana-rpc ({r.get('ms')} ms) url={r.get('url')}"+ (f"  err={r.get('error')}" if r.get("error") else ""))
-                            
+
                             response_text = "\n".join(lines)
                         except Exception as e:
                             response_text = f"❌ Probe failed: {str(e)}"
 
-                # /pumpfun_status (admin only) 
+                # /pumpfun_status (admin only)
                 elif text.strip().startswith("/pumpfun_status"):
                     logger.info("[WEBHOOK] Routing /pumpfun_status")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
@@ -886,7 +886,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         try:
                             from pumpfun_enrich import pumpfun_ping
                             import textwrap
-                            
+
                             url, status, n, err = pumpfun_ping(limit=10)
                             body = textwrap.dedent(f"""\
                                 Pump.fun status
@@ -912,7 +912,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             if interval:
                                 SCANNER.interval = max(5, interval)
                             SCANNER.start()
-                            
+
                             # Ensure all scanners are registered and start them
                             _ensure_scanners()
                             started_scanners = []
@@ -923,7 +923,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                         started_scanners.append(name)
                                 except Exception as e:
                                     app.logger.warning("[SCAN] %s start error: %s", name, e)
-                            
+
                             scanner_list = ", ".join(started_scanners) if started_scanners else "birdeye only"
                             response_text = f"✅ Scanners started: {scanner_list}\nBirdeye interval: {SCANNER.interval}s"
                             logger.info(f"[WEBHOOK] scan_start response ready: {len(response_text)} chars")
@@ -939,14 +939,14 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     else:
                         try:
                             SCANNER.stop()
-                            
+
                             # Stop all scanners in registry
                             for s in SCANNERS.values():
-                                try: 
+                                try:
                                     s.stop()
-                                except: 
+                                except:
                                     pass
-                            
+
                             response_text = "🛑 All scanners stopped"
                             logger.info(f"[WEBHOOK] scan_stop response ready: {len(response_text)} chars")
                         except Exception as e:
@@ -964,12 +964,12 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         try:
                             st = SCANNER.status()
                             from birdeye import SCAN_MODE
-                            
+
                             # Check actual scanner status with API key detection
                             import os
                             solscan_scanner = SCANNERS.get('solscan')
                             solscan_api_key = os.getenv('SOLSCAN_API_KEY', '')
-                            
+
                             # Determine Solscan status with proper key detection
                             if solscan_scanner and solscan_scanner.enabled and solscan_api_key:
                                 solscan_status = "ON"
@@ -977,11 +977,11 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 solscan_status = "ON (key present, scanner initializing)"
                             else:
                                 solscan_status = "OFF (no key)"
-                            
+
                             lines = [
                                 "🔍 Multi-Source Scan Status",
                                 f"running: {st['running']}",
-                                f"interval: {st['interval']}s", 
+                                f"interval: {st['interval']}s",
                                 f"seen_cache: {st['seen_cache']}",
                                 f"thread_alive: {st['thread_alive']}",
                                 f"mode: {SCAN_MODE}",
@@ -1096,7 +1096,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                         connected = is_ws_connected()
                         thread_alive = getattr(ws_client, "thread", None)
                         thread_alive = thread_alive.is_alive() if thread_alive else False
-                        
+
                         # human friendly last_msg_ago
                         ago = status.get("last_msg_ago_secs")
                         last_line = "last_msg_ago: —"
@@ -1263,7 +1263,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
                                 "",
                             ]
-                            
+
                             # Check data fetcher status
                             try:
                                 from data_fetcher import probe_pumpfun_sources
@@ -1271,11 +1271,11 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 working_sources = sum(1 for s in res["sources"] if s["status"] == 200)
                                 total_sources = len(res["sources"])
                                 lines.append(f"📊 Data Sources: {working_sources}/{total_sources} operational")
-                                
+
                                 for s in res["sources"]:
                                     mark = "✅" if s["status"] == 200 else "❌"
                                     lines.append(f"  {mark} {s['label']}: {s['status']} ({s['ms']}ms)")
-                                    
+
                                 # Check RPC connectivity
                                 rpc = res.get("rpc", {})
                                 if rpc:
@@ -1283,7 +1283,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                     lines.append(f"{mark} Solana RPC: {rpc.get('ms', 'N/A')}ms")
                             except Exception as e:
                                 lines.append(f"❌ Data sources check failed: {str(e)}")
-                            
+
                             # Check event bus
                             try:
                                 from eventbus import get_subscriber_count
@@ -1291,7 +1291,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 lines.append(f"📡 Event Bus: {count} active subscribers")
                             except:
                                 lines.append("📡 Event Bus: status unknown")
-                            
+
                             # Check logging system
                             try:
                                 from robust_logging import get_ring_buffer_stats
@@ -1302,7 +1302,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                     lines.append("📝 Logging: ring buffer unavailable")
                             except:
                                 lines.append("📝 Logging: status unknown")
-                            
+
                             response_text = "\n".join(lines)
                         except Exception as e:
                             response_text = f"❌ Scan status failed: {str(e)}"
@@ -1320,19 +1320,19 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 f"at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}",
                                 "",
                             ]
-                            
+
                             # Test data fetching
                             try:
                                 from data_fetcher import probe_pumpfun_sources
                                 res = probe_pumpfun_sources(limit=5)
-                                
+
                                 sample_count = 0
                                 for s in res["sources"]:
                                     if s.get("samples"):
                                         sample_count += len(s["samples"])
-                                
+
                                 lines.append(f"🔬 Data Test: {sample_count} sample tokens retrieved")
-                                
+
                                 # Show sample tokens if available
                                 for s in res["sources"]:
                                     if s.get("samples"):
@@ -1345,7 +1345,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                             lines.append(f"    ... and {len(s['samples']) - 2} more")
                             except Exception as e:
                                 lines.append(f"❌ Data test failed: {str(e)}")
-                            
+
                             # Test event publishing
                             try:
                                 # Enhanced events system with deduplication
@@ -1356,10 +1356,10 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 lines.append(f"📤 Event Test: published to {subscriber_count} subscribers")
                             except Exception as e:
                                 lines.append(f"❌ Event test failed: {str(e)}")
-                            
+
                             lines.append("")
                             lines.append("✅ System test complete")
-                            
+
                             response_text = "\n".join(lines)
                         except Exception as e:
                             response_text = f"❌ Scan test failed: {str(e)}"
@@ -1380,7 +1380,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
-                    
+
                     try:
                         from alerts.telegram import cmd_fetch_now_sync
                     except Exception as e:
@@ -1407,12 +1407,12 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     try:
                         from data_fetcher import probe_pumpfun_sources
                         result = probe_pumpfun_sources(limit=5)
-                        
+
                         lines = ["🔍 Pump.fun Source Status:"]
                         for source in result.get("sources", []):
                             status_icon = "✅" if source.get("status") == 200 else "❌"
                             lines.append(f"{status_icon} {source.get('label', 'Unknown')}: {source.get('status')} ({source.get('ms', 'N/A')}ms)")
-                            
+
                             # Show sample tokens if available
                             samples = source.get("samples", [])
                             if samples:
@@ -1421,7 +1421,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                     symbol = sample.get("symbol", "?")
                                     name = sample.get("name", "?")
                                     lines.append(f"   • {symbol} - {name}")
-                        
+
                         response_text = "\n".join(lines)
                     except Exception as e:
                         response_text = f"❌ pumpfunstatus failed: {e}"
@@ -1435,7 +1435,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     try:
                         from data_fetcher import fetch_candidates_from_pumpfun
                         tokens = fetch_candidates_from_pumpfun(limit=10, offset=0)
-                        
+
                         if not tokens:
                             response_text = "❌ No tokens retrieved from Pump.fun"
                         else:
@@ -1448,7 +1448,7 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                                 mcap = token.get("mcap_usd", "?")
                                 age = token.get("age_min", "?")
                                 lines.append(f"{symbol} | {name} | {holders} | {mcap} | {age}")
-                            
+
                             response_text = "```\n" + "\n".join(lines) + "\n```"
                     except Exception as e:
                         response_text = f"❌ pumpfunprobe failed: {e}"
@@ -1459,27 +1459,27 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         _reply("Not authorized.")
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
-                    
+
                     # Create mock update object for compatibility
                     class MockMessage:
                         def __init__(self, text, chat_id):
                             self.text = text
                             self.chat_id = chat_id
-                        
+
                         async def reply_text(self, text, parse_mode=None):
                             _reply(text)
-                    
+
                     class MockUpdate:
                         def __init__(self, message_text, user_data, chat_id):
                             self.message = MockMessage(message_text, chat_id)
                             self.effective_user = type('User', (), user_data)()
-                    
+
                     mock_update = MockUpdate(text, user, message['chat']['id'])
-                    
+
                     try:
                         import asyncio
                         from alerts.telegram import cmd_fetch_source_sync
-                        
+
                         # Run the async function
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -1487,14 +1487,14 @@ Examples: /a_logs_tail 100, /a_logs_tail level=error, /a_logs_tail contains=WS''
                             result = loop.run_until_complete(cmd_fetch_source_sync(mock_update, None))
                         finally:
                             loop.close()
-                        
+
                         return jsonify({"status": "ok", "command": text, "response_sent": True})
                     except Exception as e:
                         logger.exception("fetch_source error")
                         publish("command.error", {"cmd": text.split()[0], "err": str(e)})
                         _reply(f"❌ fetch_source failed: {e}")
                         return jsonify({"status": "error", "command": text, "error": str(e)})
-                        
+
                 elif text.strip() in ['/a_logs_stream', '/logs_stream']:
                     response_text = '''📡 Log Streaming:
 
@@ -1509,7 +1509,7 @@ Full streaming available via admin interface.'''
                     response_text = '''👁️ Log Monitoring:
 
 Current status: Enhanced logging active
-Webhook processing: Operational  
+Webhook processing: Operational
 Admin commands: Responding successfully
 Error tracking: No recent errors
 
@@ -1674,7 +1674,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         st = ws.status()
                         # Get subscription topics
                         topics = getattr(ws, 'subscription_topics', ['token.created'])
-                        
+
                         response_text = (
                             "🗂 *Birdeye WebSocket Status*\n"
                             f"running: {st['running']}\n"
@@ -1751,7 +1751,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                         mode = parts[1] if len(parts) > 1 else "strict"
                         set_ws_mode(mode)
                         response_text = f"⚙️ Birdeye WS mode set to: {mode}"
-                        
+
                 # /ws_restart - Enhanced WebSocket restart with Launchpad support
                 elif text.strip().startswith("/ws_restart"):
                     logger.info("[WEBHOOK] Routing /ws_restart")
@@ -1769,7 +1769,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             response_text = "🔄 *Birdeye WS restarted with Launchpad priority*"
                         except Exception as e:
                             response_text = f"❌ WS restart error: {e}"
-                            
+
                 # /ws_sub - Set subscription topics with Launchpad priority
                 elif text.strip().startswith("/ws_sub"):
                     logger.info("[WEBHOOK] Routing /ws_sub")
@@ -1781,21 +1781,21 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             # Enhanced events system
                             def publish(topic, payload): return BUS.publish(topic, payload)
                             ws = get_ws(publish=publish, notify=lambda m: _reply(m))
-                            
+
                             parts = text.split(maxsplit=1)
                             topics = []
                             if len(parts) > 1:
                                 topics = [t.strip() for t in parts[1].split(",") if t.strip()]
                             if not topics:
                                 topics = ["launchpad.created", "token.created"]
-                            
+
                             # Set subscription topics
                             ws.subscription_topics = topics
-                            
+
                             response_text = f"✅ *WS subscriptions set:* {', '.join(topics)}"
                         except Exception as e:
                             response_text = f"❌ WS subscription error: {e}"
-                            
+
                 # /ws_debug - Enhanced debug control
                 elif text.strip().startswith("/ws_debug"):
                     logger.info("[WEBHOOK] Routing /ws_debug")
@@ -1857,7 +1857,7 @@ API Key: {'Set' if os.environ.get('BIRDEYE_API_KEY') else 'Missing'}"""
                             response_text = f"❌ Jupiter start failed: {e}"
 
                 elif text.strip().startswith("/jupiter_stop"):
-                    logger.info("[WEBHOOK] Routing /jupiter_stop") 
+                    logger.info("[WEBHOOK] Routing /jupiter_stop")
                     if user.get('id') != ASSISTANT_ADMIN_TELEGRAM_ID:
                         response_text = "Not authorized."
                     else:
@@ -1936,17 +1936,17 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                             _ensure_scanners()
                             # Use SOLSCAN_SCANNER or scanners registry
                             scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
-                            
+
                             if scanner and hasattr(scanner, 'status'):
                                 st = scanner.status()
                                 import datetime
                                 last_tick = st.get('last_tick_ts')
                                 last_tick_str = "never" if not last_tick else datetime.datetime.fromtimestamp(last_tick).strftime("%H:%M:%S")
-                                
+
                                 # Enhanced stats display
                                 new_cache_age = st.get('new_tokens_cache_age')
                                 new_cache_age_str = f"{new_cache_age:.1f}s" if new_cache_age is not None else "N/A"
-                                
+
                                 response_text = (
                                     f"📊 *Solscan Pro Scanner Status*\n"
                                     f"Enabled: `{st.get('enabled', False)}`\n"
@@ -1978,7 +1978,7 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                             # Force scanner initialization in this worker process
                             _ensure_scanners()
                             scanner = SOLSCAN_SCANNER or SCANNERS.get("solscan")
-                            
+
                             if scanner and hasattr(scanner, 'ping'):
                                 result = scanner.ping()
                                 if result.get('success'):
@@ -1998,11 +1998,11 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                         # /solscan_mode [auto|new|trending]
                         parts = text.split()
                         mode = parts[1].strip().lower() if len(parts) > 1 else None
-                        
+
                         # Force scanner initialization in this worker process
                         _ensure_scanners()
                         ss = SCANNERS.get("solscan")
-                        
+
                         if not ss:
                             response_text = "❌ Solscan scanner not initialized"
                             logger.warning("[WEBHOOK] solscan_mode: scanner not found in SCANNERS")
@@ -2030,7 +2030,7 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                         import os
                         # Force scanner initialization in this worker process
                         _ensure_scanners()
-                        
+
                         scanner_keys = list(SCANNERS.keys()) if 'SCANNERS' in globals() else []
                         solscan_info = {}
                         if 'SCANNERS' in globals() and 'solscan' in SCANNERS:
@@ -2038,10 +2038,10 @@ URL: https://token.jup.ag/all?includeCommunity=true"""
                             if scanner:
                                 solscan_info = {
                                     "enabled": getattr(scanner, 'enabled', False),
-                                    "running": getattr(scanner, 'running', False), 
+                                    "running": getattr(scanner, 'running', False),
                                     "object_id": id(scanner)
                                 }
-                        
+
                         response_text = (
                             f"🔍 *Process Diagnostic*\n"
                             f"FEATURE_SOLSCAN={os.getenv('FEATURE_SOLSCAN', 'off')}\n"
@@ -2124,7 +2124,7 @@ Note: Requires SOLSCAN_API_KEY and FEATURE_SOLSCAN=on"""
 
 Admin Commands:
 /ping, /a_ping - Test responsiveness
-/status, /a_status - System status  
+/status, /a_status - System status
 /whoami, /a_whoami - Your Telegram info
 /scan_status, /a_scan_status - Comprehensive system health check
 /scan_test, /a_scan_test - Quick system test with sample data
@@ -2149,7 +2149,7 @@ Birdeye Scanner:
 /birdeye_tick - Manual scan
 
 WebSocket Enhanced Controls:
-/ws_start, /ws_stop - WebSocket scanner controls  
+/ws_start, /ws_stop - WebSocket scanner controls
 /ws_restart - Restart with Launchpad priority
 /ws_status - Enhanced connection and subscription stats
 /ws_sub [topics] - Set custom subscription topics
@@ -2167,7 +2167,7 @@ DexScreener Scanner:
 Multi-Source Token Discovery:
 /jupiter_start, /jupiter_stop - Jupiter scanner controls
 /jupiter_status - Jupiter scanner status and metrics
-/solscan_start, /solscan_stop - Solscan Pro API scanner controls  
+/solscan_start, /solscan_stop - Solscan Pro API scanner controls
 /solscan_status - Solscan scanner status (requires FEATURE_SOLSCAN=on + Pro API key)
 
 AI Assistant:
@@ -2183,7 +2183,7 @@ F.E.T.C.H Rules System:
 
 Bot is operational with direct webhook processing.
 Admin alias commands (a_*) available to avoid conflicts.'''
-                
+
                 if response_text:
                     logger.info(f"[WEBHOOK] About to send response for '{text}': {len(response_text)} chars")
                     sent_ok = _reply(response_text, parse_mode="Markdown", no_preview=True)
@@ -2199,27 +2199,27 @@ Admin alias commands (a_*) available to avoid conflicts.'''
                         })
                     except Exception as e:
                         logger.warning(f"Event publish failed: {e}")
-                    
+
                     return jsonify({"status": "ok", "command": text, "response_sent": bool(sent_ok)})
                 else:
                     logger.info(f"[WEBHOOK] Unknown admin command: {text}")
                     response_text = f"Unknown command: {text}\n\nAvailable commands: /ping, /status, /scan_status, /scan_test, /fetch, /fetch_now, /pumpfun_status, /pumpfun_probe, /help\n\nType /help for full command list."
-                
+
                 # Send response if we have one
                 if response_text:
                     _reply(response_text)
-                    
+
                 return jsonify({"status": "ok", "command": text, "response_sent": True})
-        
+
         return jsonify({"status": "ok", "processed": True})
-        
+
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         logger.exception("Full webhook exception traceback:")
         # Always return 200 OK to prevent Telegram retries, even on internal errors
         return jsonify({
-            "status": "error_handled", 
-            "processed": True, 
+            "status": "error_handled",
+            "processed": True,
             "error_type": type(e).__name__,
             "timestamp": int(__import__('time').time())
         }), 200
@@ -2230,9 +2230,9 @@ def status():
     try:
         from safety_system import safety
         from jupiter_engine import jupiter_engine
-        
+
         emergency_ok, _ = safety.check_emergency_stop()
-        
+
         status_data = {
             "bot_online": mork_bot is not None,
             "emergency_stop": not emergency_ok,
@@ -2243,9 +2243,9 @@ def status():
             "jupiter_api": "connected",
             "timestamp": int(__import__('time').time())
         }
-        
+
         return jsonify(status_data)
-        
+
     except Exception as e:
         logger.error(f"Status endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -2351,12 +2351,12 @@ def monitor_dashboard():
         <p>Real-time system monitoring and event streaming</p>
         <span class="status-indicator"></span> System Online
     </div>
-    
+
     <div class="controls">
         <button class="btn" onclick="triggerFetch()">Trigger Manual Fetch</button>
         <button class="btn" onclick="clearEvents()">Clear Events</button>
     </div>
-    
+
     <div class="stats">
         <div class="stat-box">
             <h3>System Status</h3>
@@ -2366,7 +2366,7 @@ def monitor_dashboard():
                 <div>Uptime: <span id="uptime">Calculating...</span></div>
             </div>
         </div>
-        
+
         <div class="stat-box">
             <h3>Token Data Sources</h3>
             <div id="source-stats">
@@ -2375,7 +2375,7 @@ def monitor_dashboard():
                 <div>DexScreener: <span id="dexscreener-count">0</span></div>
             </div>
         </div>
-        
+
         <div class="stat-box">
             <h3>Performance</h3>
             <div id="perf-stats">
@@ -2385,7 +2385,7 @@ def monitor_dashboard():
             </div>
         </div>
     </div>
-    
+
     <div class="events">
         <h3>Live Event Stream</h3>
         <div id="event-stream"></div>
@@ -2397,12 +2397,12 @@ def monitor_dashboard():
         let fallbacks = 0;
         let sources = {onchain: 0, pumpfun: 0, dexscreener: 0};
         const startTime = Date.now();
-        
+
         // Connect to event stream with optional token
         const token = new URLSearchParams(window.location.search).get('token') || '';
         const eventUrl = '/events' + (token ? '?token=' + encodeURIComponent(token) : '');
         const eventSource = new EventSource(eventUrl);
-        
+
         eventSource.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
@@ -2414,77 +2414,77 @@ def monitor_dashboard():
                 console.error('Error parsing event:', e);
             }
         };
-        
+
         function addEvent(event) {
             const eventDiv = document.createElement('div');
             eventDiv.className = 'event';
-            
+
             const timestamp = new Date(event.ts).toLocaleTimeString();
             const eventType = event.type;
             const eventData = JSON.stringify(event.data, null, 2);
-            
+
             eventDiv.innerHTML = `
                 <div class="timestamp">${timestamp}</div>
                 <div class="event-type">${eventType}</div>
                 <div class="event-data">${eventData}</div>
             `;
-            
+
             const stream = document.getElementById('event-stream');
             stream.insertBefore(eventDiv, stream.firstChild);
-            
+
             // Keep only last 50 events
             if (stream.children.length > 50) {
                 stream.removeChild(stream.lastChild);
             }
-            
+
             eventCount++;
             document.getElementById('event-count').textContent = eventCount;
             document.getElementById('last-activity').textContent = timestamp;
         }
-        
+
         function updateStats(event) {
             if (event.type === 'fetch_completed') {
                 fetchCycles++;
                 document.getElementById('fetch-cycles').textContent = fetchCycles;
-                
+
                 if (event.data.sources) {
                     sources.onchain += event.data.sources['pumpfun-chain'] || 0;
                     sources.pumpfun += event.data.sources['pumpfun'] || 0;
                     sources.dexscreener += event.data.sources['dexscreener'] || 0;
-                    
+
                     document.getElementById('onchain-count').textContent = sources.onchain;
                     document.getElementById('pumpfun-count').textContent = sources.pumpfun;
                     document.getElementById('dexscreener-count').textContent = sources.dexscreener;
                 }
             }
-            
+
             if (event.type === 'fallback_activated') {
                 fallbacks++;
                 document.getElementById('fallback-count').textContent = fallbacks;
-                
+
                 const successRate = fetchCycles > 0 ? Math.round(((fetchCycles - fallbacks) / fetchCycles) * 100) : 100;
                 document.getElementById('success-rate').textContent = successRate + '%';
             }
         }
-        
+
         function triggerFetch() {
             fetch('/api/trigger-fetch')
                 .then(response => response.json())
                 .then(data => console.log('Fetch triggered:', data))
                 .catch(error => console.error('Error:', error));
         }
-        
+
         function clearEvents() {
             document.getElementById('event-stream').innerHTML = '';
         }
-        
+
         // Update uptime every second
         setInterval(() => {
             const uptime = Math.floor((Date.now() - startTime) / 1000);
             const hours = Math.floor(uptime / 3600);
             const minutes = Math.floor((uptime % 3600) / 60);
             const seconds = uptime % 60;
-            document.getElementById('uptime').textContent = 
+            document.getElementById('uptime').textContent =
                 `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }, 1000);
     </script>
@@ -2521,7 +2521,7 @@ def stream_events():
             # Clean up subscriber when client disconnects
             with BUS.lock:
                 BUS.subscribers.discard(q)
-    
+
     return Response(
         gen(),
         mimetype="text/event-stream",
@@ -2592,7 +2592,7 @@ def _install_ws_debug_forwarder():
     if _WS_DEBUG_FORWARDER_SET:
         return
     _WS_DEBUG_FORWARDER_SET = True
-    
+
     try:
         admin_id = int(os.environ.get("ASSISTANT_ADMIN_TELEGRAM_ID", "0"))
     except Exception:
@@ -2600,7 +2600,7 @@ def _install_ws_debug_forwarder():
     if not admin_id:
         logger.warning("[WS] No admin ID for debug forwarding")
         return
-        
+
     def _send_admin_debug(text: str):
         """Send debug message to admin chat"""
         try:
@@ -2611,8 +2611,8 @@ def _install_ws_debug_forwarder():
             requests.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={
-                    "chat_id": admin_id, 
-                    "text": text, 
+                    "chat_id": admin_id,
+                    "text": text,
                     "parse_mode": "Markdown",
                     "disable_notification": True  # Don't spam with notifications
                 },
@@ -2620,19 +2620,19 @@ def _install_ws_debug_forwarder():
             )
         except Exception as e:
             logger.debug("Admin debug send failed: %s", e)
-    
+
     def _on_debug_event(evt):
         """Handle WS debug events from event bus"""
         if not isinstance(evt, dict):
             return
-            
+
         # Handle ws.debug events
         if evt.get("type") == "ws.debug":
             data = evt.get("data", {})
             event_type = data.get("event", "?")
             preview = data.get("preview", "")[:500]  # Limit length
             timestamp = data.get("ts", "")
-            
+
             debug_msg = (
                 f"🛰 *WS Debug Event*\n"
                 f"Event: `{event_type}`\n"
@@ -2640,19 +2640,19 @@ def _install_ws_debug_forwarder():
                 f"```json\n{preview}\n```"
             )
             _send_admin_debug(debug_msg)
-            
-        # Handle ws.debug.mode events  
+
+        # Handle ws.debug.mode events
         elif evt.get("type") == "ws.debug.mode":
             data = evt.get("data", {})
             mode_on = data.get("on", False)
             status_msg = f"🔬 *WebSocket Debug Mode: {'ON' if mode_on else 'OFF'}*"
             _send_admin_debug(status_msg)
-    
+
     # Subscribe to event bus
     try:
         q = BUS.subscribe()
         import threading
-        
+
         def _debug_forwarder_worker():
             """Background worker for debug event forwarding"""
             while True:
@@ -2661,11 +2661,11 @@ def _install_ws_debug_forwarder():
                     _on_debug_event(evt)
                 except Exception:
                     continue  # Keep running on any error
-        
+
         thread = threading.Thread(target=_debug_forwarder_worker, daemon=True)
         thread.start()
         logger.info("[WS] Debug event forwarder installed for admin chat")
-        
+
     except Exception as e:
         logger.warning("[WS] Debug forwarder setup failed: %s", e)
 
@@ -2677,7 +2677,7 @@ def trigger_fetch():
     """API endpoint to trigger a manual fetch for testing."""
     try:
         publish("manual_fetch_triggered", {"triggered_by": "web_api", "timestamp": int(time.time())})
-        
+
         # Trigger actual fetch in background
         import threading
         def background_fetch():
@@ -2689,11 +2689,11 @@ def trigger_fetch():
                 publish("manual_fetch_completed", {"tokens_found": len(results)})
             except Exception as e:
                 publish("manual_fetch_error", {"error": str(e)})
-        
+
         thread = threading.Thread(target=background_fetch)
         thread.daemon = True
         thread.start()
-        
+
         return jsonify({"status": "success", "message": "Fetch triggered"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -2712,7 +2712,7 @@ def start_services():
             logger.info("Birdeye scanner already running")
     except Exception as e:
         logger.warning("HTTP scanner start failed (ok to continue): %s", e)
-    
+
     # Auto-start enhanced WebSocket with Launchpad support
     try:
         from birdeye_ws import get_ws
@@ -2733,7 +2733,7 @@ def start_services():
             logger.info("Birdeye WS scanner auto-started on boot")
     except Exception as e:
         logger.warning("WS start failed: %s", e)
-        
+
     # Start DexScreener scanner
     try:
         if DS_SCANNER:
@@ -2750,16 +2750,16 @@ def start_services():
                 evt = q.get(timeout=30)
                 if not isinstance(evt, dict):
                     continue
-                    
+
                 event_type = evt.get("type", "")
                 data = evt.get("data", {})
-                
+
                 # Handle Birdeye WebSocket alerts
                 if event_type == "scan.birdeye.ws":
                     msg = data.get("alert")
                     if msg:
                         send_admin_md(msg)
-                        
+
                 # Handle DexScreener new token alerts
                 elif event_type == "scan.dexscreener.new" and data.get("items"):
                     lines = ["🟢 *New tokens (DexScreener):*"]
@@ -2768,20 +2768,20 @@ def start_services():
                         name = item.get("name") or "?"
                         symbol = item.get("symbol") or "?"
                         price = item.get("price")
-                        
+
                         lines.append(f"• *{name}* | `{symbol}` | `{mint}`")
-                        
+
                         if mint:
                             be_link = f"https://birdeye.so/token/{mint}?chain=solana"
                             pf_link = f"https://pump.fun/{mint}"
                             lines.append(f"  [Birdeye]({be_link}) • [Pump.fun]({pf_link})")
-                            
+
                         if price:
                             lines.append(f"  ~${price}")
-                    
+
                     alert_text = "\n".join(lines)
                     send_admin_md(alert_text)
-                    
+
             except queue.Empty:
                 continue
             except Exception as e:
@@ -2793,7 +2793,7 @@ def start_services():
     t = threading.Thread(target=_forward_scanner_alerts, daemon=True)
     t.start()
     logger.info("Scanner alert forwarding thread started")
-    
+
     # Publish startup event
     publish("app.services.started", {
         "http_scanner": True,

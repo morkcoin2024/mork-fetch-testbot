@@ -1,13 +1,13 @@
 # 🎯 Live Price Sources v1 - IMPLEMENTATION SUCCESS
 
-**Date:** August 19, 2025 08:14 UTC  
+**Date:** August 19, 2025 08:14 UTC
 **Feature:** Multi-Provider Price Sources with Fallback Logic
 
 ## ✅ Features Implemented
 
 ### **Price Providers System**
 - **sim**: Simulated prices with dynamic oscillation for testing
-- **dex**: DexScreener API integration with best liquidity pair selection  
+- **dex**: DexScreener API integration with best liquidity pair selection
 - **birdeye**: Birdeye API integration (requires BIRDEYE_API_KEY)
 
 ### **Fallback Logic**
@@ -36,7 +36,7 @@
 
 ### **API Integration**
 - **DexScreener**: Uses `/latest/dex/tokens/{mint}` endpoint
-- **Birdeye**: Uses `/public/price?address={mint}` endpoint  
+- **Birdeye**: Uses `/public/price?address={mint}` endpoint
 - **Timeout handling**: 6-8 second timeouts for all external calls
 - **Error resilience**: Graceful fallback on API failures
 
@@ -55,7 +55,7 @@
 # Set to DexScreener (with sim fallback)
 /source dex
 
-# Set to Birdeye (with dex→sim fallback chain)  
+# Set to Birdeye (with dex→sim fallback chain)
 /source birdeye
 
 # Get price using configured source
@@ -100,5 +100,5 @@
 
 ---
 
-**Status: READY FOR TESTING ✅**  
+**Status: READY FOR TESTING ✅**
 *Live price sources with intelligent fallback successfully integrated into Mork F.E.T.C.H Bot*

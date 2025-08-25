@@ -2,37 +2,38 @@ name: CI
 on:
   push:
   pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+        with:
+          python-version: '3.12'
+
       - name: Set up venv
         run: |
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
           PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements.txt -r requirements-dev.txt
+
       - name: Lint & Format (Ruff)
-        shell: bash
-        run: |
-          set -euxo pipefail
-          source .venv/bin/activate
-          python -V
-          pip --version
-          ruff --version
-          ruff check .
-          ruff format --check
         run: |
           source .venv/bin/activate
           ruff check .
           ruff format --check
-      - name: Pre-commit (optional but nice)
+
+      - name: Pre-commit (remote-managed hooks)
+        env:
+          PIP_CONFIG_FILE: /dev/null
         run: |
           source .venv/bin/activate
-          pre-commit run --all-files || true
+          pre-commit clean
+          pre-commit run --all-files
+
       - name: Watchlist tests
         env:
           PYTHONNOUSERSITE: "1"

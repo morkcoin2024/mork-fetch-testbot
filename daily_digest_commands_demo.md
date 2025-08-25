@@ -8,7 +8,7 @@ The Daily Heartbeat Digest feature provides automated status reports delivered a
 ### `/digest_status`
 Shows current digest configuration and target chat information.
 ```
-🗞 Digest: off @ 09:00 UTC  
+🗞 Digest: off @ 09:00 UTC
 chat: 1653046781
 ```
 
@@ -60,7 +60,7 @@ The digest system uses intelligent chat selection:
 - Extends existing 13-command suite to 18 commands
 - Uses same admin authentication and configuration patterns
 
-### AutoSell Integration  
+### AutoSell Integration
 - Real-time AutoSell status including enabled state, rules count
 - Heartbeat age and tick counter when available
 - Graceful handling when AutoSell module unavailable
@@ -90,14 +90,14 @@ The digest system uses intelligent chat selection:
 
 ## Technical Implementation
 - UTC-based time calculations with `datetime` module
-- Thread-safe global state management  
+- Thread-safe global state management
 - Regex-based time validation (00:00 to 23:59)
 - Atomic file operations for persistence
 - Integration with existing `tg_send()` messaging infrastructure
 
 ## Production Ready Features
 - Backward compatible with existing Alert Routing System
-- Thread-safe implementation suitable for multi-worker deployments  
+- Thread-safe implementation suitable for multi-worker deployments
 - Comprehensive error handling with graceful degradation
 - Persistent configuration across bot restarts
 - No performance impact when disabled

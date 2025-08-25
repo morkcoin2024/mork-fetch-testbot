@@ -13,7 +13,7 @@ MOCK_DIFF = '''--- a/token_fetcher.py
 +++ b/token_fetcher.py
 @@ -4,6 +4,7 @@ Handles token discovery and metadata retrieval
  """
- 
+
  import requests
 +import logging
  import json
@@ -22,13 +22,13 @@ MOCK_DIFF = '''--- a/token_fetcher.py
 @@ -11,10 +12,14 @@ from typing import List, Dict, Optional
  class TokenFetcher:
      """Token discovery and metadata fetching"""
-     
+
      def __init__(self):
 +        logging.basicConfig(level=logging.DEBUG)
 +        self.logger = logging.getLogger(__name__)
          self.pump_api = "https://api.pump.fun"
          self.birdeye_api = "https://public-api.birdeye.so"
-         
+
      def fetch_tokens(self, limit: int = 10) -> List[Dict]:
 +        self.logger.debug("Starting fetch_tokens() with limit=%d", limit)
          """Fetch trending tokens from Pump.fun"""
@@ -36,13 +36,13 @@ MOCK_DIFF = '''--- a/token_fetcher.py
              url = f"{self.pump_api}/tokens/trending"
 @@ -32,8 +37,10 @@ class TokenFetcher:
                      enriched_tokens.append(token)
-                 
+
 +                self.logger.debug("Completed fetch_tokens() - found %d tokens", len(enriched_tokens))
                  return enriched_tokens
              else:
 +                self.logger.debug("fetch_tokens() failed - status code: %d", response.status_code)
                  return []
-                 
+
          except Exception as e:
 +            self.logger.debug("fetch_tokens() exception: %s", e)
              print(f"Error fetching tokens: {e}")

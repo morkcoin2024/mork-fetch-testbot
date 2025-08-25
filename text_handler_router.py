@@ -154,7 +154,7 @@ async def handle_text_commands(update, context):
 async def on_message(update, context):
     # Handle admin alias commands first
     await handle_text_commands(update, context)
-    
+
     # Your existing message handling logic continues here...
     # (Only reached if no command was handled above)
 """

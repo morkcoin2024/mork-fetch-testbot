@@ -38,7 +38,7 @@ class JupiterScan:
         out = []
         for t in data:
             mint = t.get("address") or t.get("mint")  # jup uses 'address'
-            if not mint: 
+            if not mint:
                 continue
             out.append({
                 "mint": mint,

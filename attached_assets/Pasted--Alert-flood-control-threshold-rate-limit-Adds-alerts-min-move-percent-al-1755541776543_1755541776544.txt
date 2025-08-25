@@ -80,7 +80,7 @@ applypatch <<'PATCH'
                  return _reply("⚠️ No alerts chat set. Use /alerts_chat_set <chat_id>.")
              ok = tg_send(int(cid), f"[TEST] {args or 'hello'}", preview=True).get("ok", False)
              return _reply(f"🧪 Test sent: {ok}")
- 
+
 +        elif cmd == "/alerts_min_move":
 +            deny = _require_admin(user)
 +            if deny: return deny

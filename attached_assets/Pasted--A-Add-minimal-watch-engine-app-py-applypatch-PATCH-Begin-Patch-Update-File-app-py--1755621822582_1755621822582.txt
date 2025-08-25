@@ -5,7 +5,7 @@ applypatch <<'PATCH'
 @@
  # existing imports...
 +import threading, time, json, math
- 
+
 @@
  # === Globals / persistence ===
 +WATCH_CFG_PATH = "watchlist.json"
@@ -97,7 +97,7 @@ applypatch <<'PATCH'
 +    t = threading.Thread(target=_watch_loop, daemon=True)
 +    WATCH_RUN["thread"] = t
 +    t.start()
- 
+
 @@
  def process_telegram_command(update: dict):
      # existing router…
@@ -157,10 +157,10 @@ applypatch <<'PATCH'
 +        if not WATCH_RUN.get("thread") or not WATCH_RUN["thread"].is_alive():
 +            watch_start()
 +        return ok("▶️ Watcher running.")
- 
+
 *** End Patch
 PATCH
- 
+
 # B) Start the watcher when the app boots (once)
 applypatch <<'PATCH'
 *** Begin Patch

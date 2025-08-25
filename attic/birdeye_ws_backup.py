@@ -22,31 +22,31 @@ class DisabledWS:
 if FEATURE_WS != "on":
     # Export a no-op singleton so imports don't break
     ws_singleton = DisabledWS()
-    
+
     # Global WebSocket connection status (disabled)
     WS_CONNECTED = False
     WS_TAP_ENABLED = False
-    
+
     def is_ws_connected():
         """Check if WebSocket is currently connected to Birdeye feed"""
         return False
-    
+
     def set_ws_tap(enabled: bool):
         """Enable or disable WebSocket message tapping for debug"""
         logging.info("[WS] Disabled; tap control noop")
-        
+
     def get_ws_disabled(*args, **kwargs):
         """Return disabled WebSocket singleton"""
         return ws_singleton
-        
+
     def get_ws_scanner_disabled(*args, **kwargs):
         """Return disabled WebSocket scanner"""
         return ws_singleton
-    
+
     # Aliases for compatibility
     get_ws = get_ws_disabled
     get_ws_scanner = get_ws_scanner_disabled
-        
+
 else:
     # existing implementation (unchanged)
     import json, time, threading, re
@@ -89,7 +89,7 @@ else:
     BIRDEYE_KEY   = os.getenv("BIRDEYE_API_KEY", "")
     BIRDEYE_WS_URL = os.getenv("BIRDEYE_WS_URL", "wss://public-api.birdeye.so/socket")
 
-    # Auto-configure authenticated WebSocket URL 
+    # Auto-configure authenticated WebSocket URL
     if BIRDEYE_WS_URL == "wss://public-api.birdeye.so/socket" and BIRDEYE_KEY:
         # Use authenticated WebSocket endpoint with API key in URL (Birdeye WebSocket auth pattern)
         BIRDEYE_WS_URL = f"wss://public-api.birdeye.so/socket?x-api-key={BIRDEYE_KEY}"
@@ -140,19 +140,19 @@ else:
 
     # Import the clean synchronous implementation
     from birdeye_ws_sync import BirdeyeWS as SyncBirdeyeWS
-    
+
     # Use the synchronous implementation directly
     class BirdeyeWS(SyncBirdeyeWS):
         def __init__(self, publish=None, notify=None):
             # Initialize with the correct parameters for the sync implementation
             super().__init__(api_key=BIRDEYE_KEY, publish=publish)
             self.notify = notify or (lambda _m: None)
-            
+
             # Legacy compatibility attributes
             self.running = False  # legacy compatibility
             self.seen = deque(maxlen=8000)
             self._seen_set = set()
-            
+
             # --- Enhanced Debug Support ---
             self.ws_debug = False                 # on/off toggle
             self._debug_cache = deque(maxlen=100) # store recent WS messages/events
@@ -179,7 +179,7 @@ else:
             return True
 
         def start(self):
-            if self.running: 
+            if self.running:
                 return True
             if not websocket_available:
                 self._log("websocket-client lib missing", level="error")
@@ -197,7 +197,7 @@ else:
             self.publish("scan.birdeye.ws.start", {})
             self._log("Birdeye WS started (sync client)")
             return True
-            
+
         def _run_loop(self):
             """Synchronous WebSocket run loop using websocket-client"""
             backoff = 2
@@ -215,7 +215,7 @@ else:
             global WS_CONNECTED
             WS_CONNECTED = False
             self._connected = False
-            
+
             self._log("Creating WebSocket connection...")
             self._ws = websocket.WebSocketApp(
                 self.url,
@@ -226,7 +226,7 @@ else:
                 on_error=self._on_error,
                 on_close=self._on_close,
             )
-            
+
             # Run WebSocket with ping to keep connection alive
             self._log("Starting WebSocket run_forever...")
             self._ws.run_forever(ping_interval=20, ping_timeout=10)
@@ -237,14 +237,14 @@ else:
             WS_CONNECTED = True
             self._connected = True
             self._log("✅ Connected to Birdeye WebSocket feed")
-            
+
             # Send subscriptions for Launchpad priority
             subscriptions = [
                 {"type": "subscribe", "topic": "launchpad.created", "chain": "solana"},
                 {"type": "subscribe", "topic": "token.created", "chain": "solana"},
                 {"type": "subscribe", "topic": "token.updated", "chain": "solana"},
             ]
-            
+
             for sub in subscriptions:
                 try:
                     ws.send(json.dumps(sub))
@@ -255,10 +255,10 @@ else:
         def _on_message(self, ws, message):
             """WebSocket message received"""
             self.recv_count += 1
-            
+
             if self._debug:
                 self._log(f"📨 Message received (len={len(message) if hasattr(message, '__len__') else 'unknown'})")
-            
+
             # Process message for new tokens
             try:
                 data = json.loads(message) if isinstance(message, str) else message
@@ -266,14 +266,14 @@ else:
                     token_addr = data["address"]
                     if self._mark_seen(token_addr):
                         self.new_count += 1
-                        
+
                         # Publish new token event
                         self.publish("scan.birdeye.ws.new_token", {
                             "source": "birdeye_ws",
                             "address": token_addr,
                             "data": data
                         })
-                        
+
                         self._log(f"🚀 New token detected: {token_addr[:8]}... (total: {self.new_count})")
             except Exception as e:
                 if self._debug:
@@ -356,7 +356,7 @@ else:
             self._log("open")
             self._log("Connected to Birdeye feed")
             self.publish("scan.birdeye.ws.open", {})
-            
+
             # Send subscriptions async (ensure we're in async context)
             if hasattr(asyncio, '_get_running_loop') and asyncio._get_running_loop():
                 asyncio.create_task(self._send_subscriptions(ws))
@@ -379,7 +379,7 @@ else:
                 else:
                     # Try subscribing to multiple topics with priority for Launchpad
                     topics_to_try = getattr(self, 'subscription_topics', ["token.created"])
-                    
+
                     for topic in topics_to_try:
                         try:
                             # Try Birdeye topic-based subscription format
@@ -392,11 +392,11 @@ else:
                             self._log(f"sent {topic} subscription")
                         except Exception as e:
                             self._log(f"{topic} subscription failed: {e}", level="warning")
-                    
+
                     # Fallback: original channel-based format
                     try:
                         default_sub = {
-                            "type": "subscribe", 
+                            "type": "subscribe",
                             "channels": [{"name": "token.created"}]
                         }
                         await ws.send(json.dumps(default_sub))
@@ -410,11 +410,11 @@ else:
             self.recv_count += 1
             self._log(f"msg len={len(msg)}")
             self._log(f"Message received ({len(msg)} bytes)")
-            
+
             # Debug tap: log raw messages when enabled
             if WS_TAP_ENABLED or os.getenv("WS_TAP") == "1":
                 self._log(f"[TAP] Raw message: {msg[:200] + '...' if len(msg) > 200 else msg}")
-                
+
             try:
                 data = json.loads(msg)
             except Exception:
@@ -452,7 +452,7 @@ else:
 
             # Enhanced event handling for multiple topic types
             event_type = data.get("type") or data.get("topic", "")
-            
+
             # Handle specific Launchpad and token creation events
             if event_type in ("launchpad.created", "token.created"):
                 tok_data = data.get("data", {})
@@ -468,10 +468,10 @@ else:
                 tok = _extract_token(data)
                 if tok:
                     tok["source"] = "generic"
-                
+
             if not tok or not tok.get("mint"):
                 return
-                
+
             mint = tok["mint"]
             if not self._mark_seen(mint):
                 return
@@ -482,11 +482,11 @@ else:
                 name = tok["name"] or "?"
                 sym  = tok["symbol"] or "?"
                 source = tok.get("source", "ws")
-                
+
                 # Enhanced alert with source information
                 source_emoji = "🚀" if source == "launchpad.created" else "⚡"
                 source_text = "Launchpad" if source == "launchpad.created" else "WS"
-                
+
                 text = (
                     f"{source_emoji} *Birdeye {source_text} — New token*\n"
                     f"*{name}* ({sym})\n"
@@ -512,7 +512,7 @@ else:
                 "headers": WS_HEADERS,
                 "subprotocols": WS_SUBPROTOCOLS
             }
-            
+
             # Check if this is a handshake error (403 Forbidden, etc.)
             if "handshake" in str(err).lower() or "403" in str(err) or "forbidden" in str(err).lower():
                 self._log(f"HANDSHAKE ERROR: {err}", level="error")
@@ -525,7 +525,7 @@ else:
                     pass
             else:
                 self._log(f"error: {err}", level="warning")
-            
+
             self.publish("scan.birdeye.ws.error", error_details)
 
         def _on_close(self, ws, code, reason):
@@ -574,7 +574,7 @@ else:
             "label": label,
             "token": {
                 "name": "moonpepe",
-                "symbol": "moonpepe", 
+                "symbol": "moonpepe",
                 "mint": "8DX27KPjZMpLi3pBBTaEVqSNq33gAaWkL2v7N8kCNpump",
                 "price": "0.0000700144"
             }

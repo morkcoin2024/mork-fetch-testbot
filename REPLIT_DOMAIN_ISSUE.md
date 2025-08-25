@@ -1,12 +1,12 @@
 # Replit External Domain Routing Issue
 
 ## Problem Summary
-**Date**: August 17, 2025  
-**Issue**: External domain `https://morkcoin2024.replit.app` returns 404 for ALL routes  
-**Status**: Replit platform infrastructure problem  
+**Date**: August 17, 2025
+**Issue**: External domain `https://morkcoin2024.replit.app` returns 404 for ALL routes
+**Status**: Replit platform infrastructure problem
 
 ## Evidence
-1. **Flask App Works Locally**: 
+1. **Flask App Works Locally**:
    ```bash
    curl localhost:5000/  # ✅ Returns correct JSON
    ```
@@ -33,7 +33,7 @@
 
 ## Root Cause
 - **Not a code issue**: Flask app configured correctly
-- **Not a gunicorn issue**: Local server responds properly  
+- **Not a gunicorn issue**: Local server responds properly
 - **Platform routing failure**: Replit's external domain not forwarding to Flask app
 - **Excessive file watching**: `--reload` flag causing continuous restarts
 

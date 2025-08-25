@@ -38,7 +38,7 @@ def _birdeye_price(mint: str, ttl: float = 30.0):
     _cache_set(ck, out, now, ttl)
     return out
 
-3) Reuse the same token resolver you use in /mint_for (ticker→mint). 
+3) Reuse the same token resolver you use in /mint_for (ticker→mint).
 Name it whatever your code already uses; call it to get: (mint, symbol, name).
 If you don’t have a unified function, wrap the existing logic into:
 def _resolve_token_or_mint(arg: str):

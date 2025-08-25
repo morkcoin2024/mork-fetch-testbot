@@ -63,10 +63,10 @@ class ProductionBot:
 
         elif text.startswith("/status"):
             return f"""✅ **Mork F.E.T.C.H Bot Status**
-            
-**Mode**: Production Polling  
-**Status**: Operational  
-**Time**: {datetime.now().strftime("%H:%M:%S UTC")}  
+
+**Mode**: Production Polling
+**Status**: Operational
+**Time**: {datetime.now().strftime("%H:%M:%S UTC")}
 **Version**: 1.0
 
 Ready for trading commands!"""
@@ -75,14 +75,14 @@ Ready for trading commands!"""
             return """🐕 **Mork F.E.T.C.H Bot Help**
 
 **Available Commands:**
-• `/ping` - Test bot connectivity  
-• `/status` - Check system status  
-• `/help` - Show this help  
+• `/ping` - Test bot connectivity
+• `/status` - Check system status
+• `/help` - Show this help
 
 **Trading Commands:** _(Premium Features)_
-• `/wallet` - View wallet info  
-• `/snipe <token>` - Manual token snipe  
-• `/fetch` - Auto token discovery  
+• `/wallet` - View wallet info
+• `/snipe <token>` - Manual token snipe
+• `/fetch` - Auto token discovery
 
 Bot is running in production polling mode for maximum reliability."""
 

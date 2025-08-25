@@ -11,14 +11,14 @@ applypatch <<'PATCH'
 -import os, json, time, hashlib, inspect
 +import os, json, time, hashlib, inspect
 +from datetime import datetime
- 
+
 @@
 -PRICE_SOURCE_FILE = "/tmp/mork_price_source"
 +DATA_DIR = "./data"
 +os.makedirs(DATA_DIR, exist_ok=True)
 +PRICE_SOURCE_FILE = os.path.join(DATA_DIR, "price_source.txt")
  PRICE_VALID = {"sim", "dex", "birdeye"}
- 
+
 +# simple 15s cache: key=(source,mint) -> {price,ts}
 +_PRICE_CACHE = {}
 +_PRICE_TTL_S = 15
@@ -51,7 +51,7 @@ applypatch <<'PATCH'
          chain = [price_dex, price_birdeye, price_sim]
      else:
          chain = [price_sim, price_birdeye, price_dex]
- 
+
      last_err = None
      for fn in chain:
 +        # cache check per function identity name (source tag)
@@ -99,7 +99,7 @@ applypatch <<'PATCH'
 +        return ok(f"💰 *Price Lookup:* `{mint[:10]}..`\n\n*Current Price:* {p}{note}\n*Source:* {src}")
 *** End Patch
 PATCH
- 
+
 # Restart worker (single-poller mode stays intact)
 pkill -f gunicorn || true
 sleep 2

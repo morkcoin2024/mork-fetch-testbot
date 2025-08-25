@@ -176,7 +176,7 @@ applypatch <<'PATCH'
 *** Update File: app.py
 @@
              return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
- 
+
 +        elif cmd == "/autosell_restore":
 +            deny = _require_admin(user)
 +            if deny: return deny

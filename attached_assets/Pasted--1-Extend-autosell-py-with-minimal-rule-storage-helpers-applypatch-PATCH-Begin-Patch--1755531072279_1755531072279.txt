@@ -9,16 +9,16 @@ applypatch <<'PATCH'
  _LOCK = threading.RLock()
  _THREAD = {"t": None, "stop": False}
 +_RULES = []  # in-memory, dry-run only  [{mint,tp,sl,trail,size}]
- 
+
  def status():
      with _LOCK:
          return dict(_STATE)
- 
+
  def set_interval(seconds: int):
      with _LOCK:
          _STATE["interval"] = max(3, int(seconds))
      return status()
- 
+
 @@
  def _dry_run_tick():
      # This is intentionally a no-op placeholder that simulates “work”
@@ -62,7 +62,7 @@ applypatch <<'PATCH'
 +        return n0 - len(_RULES)
 *** End Patch
 PATCH
- 
+
 # 2) Update app.py handlers to match autosell API + parse args
 applypatch <<'PATCH'
 *** Begin Patch
@@ -165,7 +165,7 @@ applypatch <<'PATCH'
 +            return _reply("🧹 Removed rule" + ("s" if n>1 else "") + f": {n}")
 *** End Patch
 PATCH
- 
+
 # 3) Quick local smoke (no Telegram needed)
 python3 - <<'PY'
 from app import process_telegram_command

@@ -39,7 +39,7 @@ def name_override_clear(mint: str) -> bool:
 
 def _format_name_block_from_override(mint: str) -> str | None:
     ov = name_override_get(mint)
-    if not ov: 
+    if not ov:
         return None
     p = (ov.get("primary") or "").strip()
     s = (ov.get("secondary") or "").strip()
@@ -58,7 +58,7 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
     # name_display can be "TICKER\nLong Name" (preferred) or any string
     # Align labels + symbol + percentage visually (monospace-ish look in Telegram).
     def cell(pct):
-        if pct is None: 
+        if pct is None:
             return "n/a"
         sym = "🟢▲" if pct >= 0 else "🔴▼"
         return f"{sym} {pct:+.2f}%"

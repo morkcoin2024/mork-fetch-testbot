@@ -14,7 +14,7 @@ export FEATURE_WS='on'
 # 2) Fix dependency: ensure we have websocket-client (not 'websocket')
 python3 - <<'PY'
 import sys, subprocess, pkgutil
-def has(mod): 
+def has(mod):
     return pkgutil.find_loader(mod) is not None
 print("has websocket:", has("websocket"))
 print("has websocket_client:", has("websocket"))

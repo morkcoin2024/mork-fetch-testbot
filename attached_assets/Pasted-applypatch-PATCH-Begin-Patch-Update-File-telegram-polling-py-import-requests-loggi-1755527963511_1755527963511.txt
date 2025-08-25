@@ -129,7 +129,7 @@ applypatch <<'PATCH'
 +
 +        # graceful shutdown
 +        stop = {"v": False}
-+        def _sigterm(*_): 
++        def _sigterm(*_):
 +            stop["v"] = True
 +            logger.info("[sig] terminating…")
 +        signal.signal(signal.SIGTERM, _sigterm)

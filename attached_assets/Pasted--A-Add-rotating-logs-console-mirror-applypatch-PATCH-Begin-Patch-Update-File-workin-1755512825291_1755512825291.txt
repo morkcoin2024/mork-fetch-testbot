@@ -33,7 +33,7 @@ applypatch <<'PATCH'
 +    try:
 +        token = os.getenv("TELEGRAM_BOT_TOKEN","")
 +        admin = os.getenv("ASSISTANT_ADMIN_TELEGRAM_ID","")
-+        if not (token and admin): 
++        if not (token and admin):
 +            return
 +        url = f"https://api.telegram.org/bot{token}/sendMessage"
 +        requests.post(url, json={"chat_id": admin, "text": f"⚠️ F.E.T.C.H alert:\n{msg}"}, timeout=10)

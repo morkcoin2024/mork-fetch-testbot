@@ -52,15 +52,15 @@ print("Headers:", hdrs)
 
 err = None
 connected = False
-def on_open(ws): 
+def on_open(ws):
     global connected
     connected = True
     print("[probe] open")
-def on_error(ws, e): 
+def on_error(ws, e):
     global err
     err = e
     print("[probe] error:", e)
-def on_close(ws, *a): 
+def on_close(ws, *a):
     print("[probe] close")
 
 ws = websocket.WebSocketApp(

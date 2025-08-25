@@ -3,11 +3,11 @@
 @@
  TOKEN_NAME_CACHE = "token_names.json"
  SOL_PSEUDO_MINT = "So11111111111111111111111111111111111111112"
- 
+
 @@
  def _short(mint: str) -> str:
      return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
- 
+
 +def _clean_name(s: str) -> str | None:
 +    """Normalize token names; strip marketing fluff (keep *name*, not marketing)."""
 +    if not s or not isinstance(s, str):
@@ -51,7 +51,7 @@
 +        cache[mint] = {"name": name, "ts": now}
 +        _save_token_cache(cache)
 +        return name
- 
+
      # cache hit (7 days)
      ent = cache.get(mint)
      if ent and now - int(ent.get("ts", 0)) < 7*24*3600:
@@ -77,7 +77,7 @@
                          return nm
      except Exception:
          pass
- 
+
 -    # Dexscreener (prefer baseToken name then symbol)
 +    # Dexscreener (prefer baseToken.name then symbol)
      try:
@@ -97,7 +97,7 @@
                          return nm
      except Exception:
          pass
- 
+
      # fallback
      nm = _short(mint)
      cache[mint] = {"name": nm, "ts": now}

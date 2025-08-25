@@ -7,7 +7,7 @@ Please provide ONLY the following, in order. No refactors.
 A) Webhook and polling exclusivity checks
 1) Commands (I will run and paste outputs):
    curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ok'), d.get('result'))"
-   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok=',d.get('ok'),'n_updates=',len(d.get('result',[]))); 
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok=',d.get('ok'),'n_updates=',len(d.get('result',[])));
    [print((u.get('update_id'), u.get('message',{}).get('text'))) for u in d.get('result',[])]"
 2) Based on those results, state clearly:
    - webhook set? (yes/no)

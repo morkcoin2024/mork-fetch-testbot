@@ -3,7 +3,7 @@
 @@
  def _short(mint: str) -> str:
      return f"{mint[:4]}..{mint[-4:]}" if len(mint) > 12 else mint
- 
+
 +# Build three-line identity for alerts: ticker, name, (short)
 +def _alert_name_lines(mint: str) -> tuple[str, str | None, str]:
 +    """
@@ -54,7 +54,7 @@
 +    arrow_up = delta_pct >= 0
 +    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
 +    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
- 
+
  def _post_price_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
 -    arrow = "🟢▲" if delta_pct >= 0 else "🔴▼"
 -    label = _alert_label(mint)

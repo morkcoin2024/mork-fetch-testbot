@@ -5,7 +5,7 @@
 ### Step 1: Configure Environment Variables (CRITICAL)
 
 1. Go to **Replit → Deploy → Edit deployment**
-2. **IMPORTANT**: Set environment variable `POLLING_ENABLED=0` 
+2. **IMPORTANT**: Set environment variable `POLLING_ENABLED=0`
    - This prevents Deploy from polling Telegram (only RUN should poll)
    - Deploy conflicts are eliminated when Deploy stays webhook-only
 3. Ensure all other secrets are configured (TELEGRAM_BOT_TOKEN, etc.)
@@ -36,7 +36,7 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=1"
 
 Send these commands to @MorkSniperBot via Telegram:
 - `/ping` - Basic connectivity test
-- `/help` - Display available commands  
+- `/help` - Display available commands
 - `/status` - Show bot status
 - `/wallet` - Wallet management
 

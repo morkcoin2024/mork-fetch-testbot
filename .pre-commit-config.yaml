@@ -1,15 +1,15 @@
 repos:
-- repo: local
-  hooks:
-    - id: ruff
-      name: ruff (lint)
-      entry: ruff check .
-      language: system
-      pass_filenames: false
-      types: [python]
-    - id: ruff-format
-      name: ruff (format)
-      entry: ruff format
-      language: system
-      pass_filenames: false
-      types: [python]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

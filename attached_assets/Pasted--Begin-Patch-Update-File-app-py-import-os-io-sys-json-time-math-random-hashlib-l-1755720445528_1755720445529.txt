@@ -80,7 +80,7 @@
 +    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)
 +    tg_send(chat_id or _alerts_chat_id(), text, preview=False)
 +    _record_price(mint, price, src)
- 
+
  def _post_price_alert_hook(mint: str, price: float, baseline: float, delta_pct: float, src: str, chat_id: int | None):
 -    arrow_up = delta_pct >= 0
 -    text = _format_price_alert_card(mint, price, baseline, delta_pct, src, up=arrow_up)

@@ -60,7 +60,7 @@ TS=$(date -u +"%Y-%m-%dT%H-%M-%SZ"); REL="tg-stable-hardened-${TS}"
 mkdir -p releases release_logs
 python3 - <<'PY'
 import os, json, hashlib, inspect, time, app
-def sha(p): 
+def sha(p):
     try: return hashlib.sha256(open(p,"rb").read()).hexdigest()
     except: return "missing"
 info={

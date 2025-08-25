@@ -36,7 +36,7 @@ async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if admin
     is_admin = user_id == ADMIN_ID
 
-    response = f"""🏓 PONG! 
+    response = f"""🏓 PONG!
 
 **Bot Status**: ✅ Operational
 **Mode**: Polling (Flask webhook disabled)
@@ -87,7 +87,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Basic Commands:**
 • `/ping` - Test bot connectivity
-• `/status` - Show bot status  
+• `/status` - Show bot status
 • `/help` - This help message
 
 **Bot Info:**

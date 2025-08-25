@@ -57,7 +57,7 @@
 -                    return name
      except Exception:
          pass
- 
+
 -    # Try Dexscreener (no key). tokens endpoint by address.
 +    # Try Dexscreener (no key). Prefer baseToken.name (cleaned) then baseToken.symbol.
      try:
@@ -82,5 +82,5 @@
 +                        return name
      except Exception:
          pass
- 
+
 *** End Patch

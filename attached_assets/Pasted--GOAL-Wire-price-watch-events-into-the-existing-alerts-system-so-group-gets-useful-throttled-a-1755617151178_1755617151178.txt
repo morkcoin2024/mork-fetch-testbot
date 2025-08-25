@@ -82,7 +82,7 @@ applypatch <<'PATCH'
 @@
  from typing import Optional, Dict, Any
 +from alerts_glue import emit_price_move
- 
+
 @@
 -    # after you compute current price, change %, etc. (example variables: symbol, mint, price, move_pct)
 -    # previously: maybe just logging

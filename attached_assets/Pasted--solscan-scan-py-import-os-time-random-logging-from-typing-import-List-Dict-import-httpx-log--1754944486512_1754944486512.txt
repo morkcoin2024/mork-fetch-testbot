@@ -39,7 +39,7 @@ class SolscanScan:
         out = []
         for t in items:
             mint = t.get("mintAddress")
-            if not mint: 
+            if not mint:
                 continue
             out.append({
                 "mint": mint,

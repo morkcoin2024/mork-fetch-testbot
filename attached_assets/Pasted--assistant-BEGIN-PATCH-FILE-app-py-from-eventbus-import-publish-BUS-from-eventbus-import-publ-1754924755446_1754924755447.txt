@@ -31,7 +31,7 @@ FILE: app.py
 +                elif text.strip().startswith("/ws_status"):
                      # your existing status reply
                      ...
- 
+
 +                # ======= WS DEBUG CONTROLS =======
 +                elif text.strip().startswith("/ws_debug"):
 +                    # /ws_debug on  OR  /ws_debug off

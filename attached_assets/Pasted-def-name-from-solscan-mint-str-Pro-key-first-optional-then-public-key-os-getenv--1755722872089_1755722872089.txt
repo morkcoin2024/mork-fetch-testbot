@@ -11,7 +11,7 @@ def _name_from_solscan(mint: str):
                 return {"symbol": sym, "name": name, "src": "solscan-pro"}
     # Public
     out = _http_get_json("https://api.solscan.io/token/meta", params={"address": mint})
-    if not out or not isinstance(out, dict): 
+    if not out or not isinstance(out, dict):
         out = _http_get_json("https://public-api.solscan.io/token/meta", params={"tokenAddress": mint})
     if out and isinstance(out, dict):
         # public returns { "symbol": "...", "tokenName": "..." }

@@ -39,13 +39,13 @@ Implemented smart format detection that only applies Markdown parsing when text 
 def _send_response(self, chat_id: str, text: str):
     # Check if text contains Markdown formatting
     has_markdown = any(char in text for char in ['*', '_', '`', '[', ']'])
-    
+
     data = {
         "chat_id": chat_id,
         "text": text,
         "disable_web_page_preview": True
     }
-    
+
     # Only use Markdown if text appears to have formatting
     if has_markdown:
         data["parse_mode"] = "Markdown"

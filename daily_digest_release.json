@@ -35,7 +35,7 @@
   "new_commands": {
     "digest_status": "Show current digest configuration and target chat",
     "digest_on": "Enable daily digest delivery",
-    "digest_off": "Disable daily digest delivery", 
+    "digest_off": "Disable daily digest delivery",
     "digest_time": "Set digest delivery time (HH:MM UTC format)",
     "digest_test": "Send manual digest with optional note"
   },
@@ -66,7 +66,7 @@
     "functions_tested": [
       "_digest_compose() - generates proper status summary",
       "_digest_target_chat() - returns correct admin chat ID",
-      "_parse_hhmm() - validates time formats correctly", 
+      "_parse_hhmm() - validates time formats correctly",
       "_secs_until_next() - calculates scheduling intervals"
     ],
     "results": "All digest functionality tests passed"

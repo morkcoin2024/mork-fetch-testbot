@@ -12,7 +12,7 @@ applypatch <<'PATCH'
 +import os, json, time, hashlib, inspect
 +import requests
 +from datetime import datetime
- 
+
  # ──────────────────────────────────────────────────────────────────────────────
  # Utilities (existing)
 @@

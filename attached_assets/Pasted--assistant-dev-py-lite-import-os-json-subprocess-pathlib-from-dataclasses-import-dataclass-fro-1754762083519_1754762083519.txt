@@ -12,7 +12,7 @@ ASSISTANT_WRITE_GUARD = os.getenv("ASSISTANT_WRITE_GUARD", "OFF").upper()
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM = """You are the in-repo dev assistant for the Mork fetch bot on Replit.
-Return ONLY valid JSON with keys: plan (str), diffs (list[str]), commands (list[str]), restart ("safe"|"none"). 
+Return ONLY valid JSON with keys: plan (str), diffs (list[str]), commands (list[str]), restart ("safe"|"none").
 Diffs must be unified diffs (git-style) that apply cleanly to current working directory. Keep changes minimal. No secrets.
 """
 

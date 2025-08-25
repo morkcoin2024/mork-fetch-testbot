@@ -110,11 +110,11 @@ def _loop():
 
                 for mint, pos in positions.items():
                     qty = float(pos.get("qty", 0.0))
-                    if qty <= 0: 
+                    if qty <= 0:
                         trail_best.pop(mint, None)
                         continue
                     rule = rules.get(mint)
-                    if not rule: 
+                    if not rule:
                         continue
 
                     symbol = pos.get("symbol", "TKN")
@@ -146,7 +146,7 @@ def _loop():
                     if trigger:
                         size_pct = float(rule.get("size_pct", 100.0))
                         sell_qty = max(0.0, min(qty, qty * size_pct/100.0))
-                        if sell_qty <= 0: 
+                        if sell_qty <= 0:
                             continue
                         if live:
                             sol_out, fill_px = trade_engine.execute_sell(mint, symbol, sell_qty, slip)

@@ -98,7 +98,7 @@ def _loop():
                 best = []
                 for t in toks:
                     mint = t.get("mint")
-                    if not mint or mint in seen: 
+                    if not mint or mint in seen:
                         continue
                     s, v, details = flip_checklist.score(t)
                     if s >= threshold:
