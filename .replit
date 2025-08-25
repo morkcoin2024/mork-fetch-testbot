@@ -2,7 +2,7 @@ modules = ["python-3.11", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "freetype", "geckodriver", "glibcLocales", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "libyaml", "openjpeg", "openssl", "pkg-config", "postgresql", "rustc", "sqlite", "tcl", "tk", "zlib", "black", "ruff", "mypy", "git"]
+packages = ["black", "cargo", "freetype", "geckodriver", "git", "glibcLocales", "lcms2", "libiconv", "libimagequant", "libjpeg", "libsodium", "libtiff", "libwebp", "libxcrypt", "libyaml", "mypy", "openjpeg", "openssl", "pkg-config", "postgresql", "ruff", "rustc", "sqlite", "tcl", "tk", "zlib"]
 
 [deployment]
 deploymentTarget = "gce"
