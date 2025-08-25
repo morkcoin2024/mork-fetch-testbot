@@ -12,6 +12,8 @@ jobs:
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
+          python3 tests/test_watch_remove.py
+          python3 tests/test_watchlist_scale.py
 
   scanners:
     if: ${{ secrets.ENABLE_SCANNERS == 'true' }}
@@ -27,6 +29,9 @@ jobs:
           TEST_TIMEOUT: '12'
           SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
           BIRDEYE_API_KEY: ${{ secrets.BIRDEYE_API_KEY }}
+          WATCH_REMOVE_CMD: '/watch_remove'
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
+          python3 tests/test_watch_remove.py
+          python3 tests/test_watchlist_scale.py
