@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Prefer local venv if present
+if [ -d ".venv/bin" ]; then
+  export PATH="$PWD/.venv/bin:$PATH"
+fi
+
+# Ensure pip will not try a user install inside a venv
+export PIP_CONFIG_FILE=/dev/null
+export PIP_NO_USER=1
+set -euo pipefail
 export PYTHONPATH="${PYTHONPATH:-.}"
 
 echo "== Smoke (scanners OFF) =="

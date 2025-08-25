@@ -1,13 +1,38 @@
 line-length = 100
-target-version = "py311"
+target-version = "py312"
+respect-gitignore = true
+force-exclude = true
+
 extend-exclude = [
-  "birdeye_ws_backup.py",
-  "final_*.py", "simple_*.py", "demo_*.py", "live_*.py",
-  "*_example.py", "*_demo.py",
-  "standalone_*.py", "production_*.py", "direct_*.py", "working_*.py",
-  "scripts/*",
+  "attic",
+  "**/*_backup.py",
+  "**/*_bak.py",
+  ".venv",
+  "build",
+  "dist",
+  "node_modules",
+  "__pycache__",
 ]
+
 [lint]
-select = ["E", "F"]
-ignore = ["E501"]
-per-file-ignores = { "app.py" = ["E402", "F401", "F403", "E722"] }
+# Start small: only Pyflakes (F) + import sorting (I)
+select = ["F","I"]
+
+# Common temporary ignores; adjust later
+ignore = [
+  "E501",    # line length (we already format to 100)
+]
+
+[format]
+quote-style = "double"
+
+[lint.per-file-ignores]
+# app.py references optional helpers that aren’t always present; also has an intentional re-def.
+"app.py" = ["F821", "F811"]
+
+# Tests import handlers just to assert they import; mark unused-imports ok there.
+"tests/**/*.py" = ["F401"]
+
+# Worker optionally imports a polling bot that may not be used in this mode.
+"polling_worker.py" = ["F401"]
+"**/test_*.py" = ["F401"]

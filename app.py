@@ -1,4 +1,33 @@
 """
+
+# --- Optional helper fallbacks (safe in minimal/test mode) ---
+from pathlib import Path as _Path
+import json as _json
+from typing import Any as _Any
+
+def _maybe_call(name: str, *args: _Any, **kwargs: _Any) -> _Any | None:
+    fn = globals().get(name)
+    return fn(*args, **kwargs) if callable(fn) else None
+
+# Provide simple JSON helpers if project-level ones aren’t imported
+try:
+    load_json  # type: ignore[name-defined]
+except NameError:
+    def load_json(path: str | _Path, default: _Any) -> _Any:
+        try:
+            with open(path) as f:
+                return _json.load(f)
+        except Exception:
+            return default
+
+try:
+    save_json  # type: ignore[name-defined]
+except NameError:
+    def save_json(path: str | _Path, data: _Any) -> None:
+        _Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            _json.dump(data, f, indent=2, sort_keys=True)
+
 Flask Web Application for Mork F.E.T.C.H Bot
 Handles Telegram webhooks and provides web interface
 """
@@ -13,7 +42,7 @@ import re
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from datetime import time as dtime
 
 import requests
@@ -400,7 +429,7 @@ def render_name_status(mint: str) -> str:
     o_pair = _fmt_pair(overrides.get(mint))
     c_pair = _fmt_pair(cache.get(mint))
 
-    return "*Name status*\n" "Mint:\n" f"`{mint}`\n" f"Override: {o_pair}\n" f"Cache: {c_pair}"
+    return f"*Name status*\nMint:\n`{mint}`\nOverride: {o_pair}\nCache: {c_pair}"
 
 
 # Enhanced per-chat watchlist management helpers
@@ -1234,7 +1263,7 @@ _NUM_RE = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 def _to_float_any(x):
     if x is None:
         return None
-    if isinstance(x, (int, float)):
+    if isinstance(x, int | float):
         return float(x)
     s = str(x).strip()
     if not s:
@@ -2619,7 +2648,7 @@ def _mint_from_ticker_via_overrides(ticker: str):
                 continue
             tk = (
                 pair[0]
-                if isinstance(pair, (list, tuple))
+                if isinstance(pair, list | tuple)
                 else (pair.get("ticker") if isinstance(pair, dict) else None)
             )
             if tk and str(tk).upper() == tt:
@@ -3412,7 +3441,7 @@ BIRDEYE_BASE = "https://public-api.birdeye.so"
 # ── API Helper Functions for Multi-Window Price Changes ──
 
 
-def birdeye_req(endpoint: str, params: dict = None) -> dict | None:
+def birdeye_req(endpoint: str, params: dict | None = None) -> dict | None:
     """Make authenticated request to Birdeye API"""
     import os
 
@@ -3447,7 +3476,7 @@ def dexscreener_token(mint: str) -> dict | None:
                 pairs_with_liq = []
                 for p in pairs:
                     liq = (p.get("liquidity") or {}).get("usd")
-                    if isinstance(liq, (int, float)) and liq > 0:
+                    if isinstance(liq, int | float) and liq > 0:
                         pairs_with_liq.append((liq, p))
 
                 if pairs_with_liq:
@@ -3707,13 +3736,13 @@ def _alerts_is_muted(cfg):
     if not mu:
         return False
     try:
-        return datetime.now(timezone.utc) < datetime.fromisoformat(mu)
+        return datetime.now(UTC) < datetime.fromisoformat(mu)
     except Exception:
         return False
 
 
 def _alerts_mute_for(cfg, seconds):
-    until = datetime.now(timezone.utc) + timedelta(seconds=max(0, int(seconds)))
+    until = datetime.now(UTC) + timedelta(seconds=max(0, int(seconds)))
     cfg["muted_until"] = until.isoformat()
     return _alerts_save(cfg)
 
@@ -3796,7 +3825,6 @@ def alerts_send(text, force=False):
     }
 
     try:
-
         response = _post(url, json=payload, timeout=10)
         return (
             response.json()
@@ -4026,6 +4054,8 @@ ALL_COMMANDS = [
     "/watchlist",
     "/watch_clear",
 ]
+import contextlib
+
 from config import TELEGRAM_BOT_TOKEN
 from events import BUS
 
@@ -4132,10 +4162,8 @@ def _watch_load():
 
 
 def _watch_save(cfg):
-    try:
+    with contextlib.suppress(Exception):
         json.dump(cfg, open(WATCH_CFG_PATH, "w"))
-    except Exception:
-        pass
 
 
 def _watch_state_load():
@@ -4146,10 +4174,8 @@ def _watch_state_load():
 
 
 def _watch_state_save(st):
-    try:
+    with contextlib.suppress(Exception):
         json.dump(st, open(WATCH_STATE_PATH, "w"))
-    except Exception:
-        pass
 
 
 def _pct(a, b):
@@ -4176,10 +4202,8 @@ def _watch_alert(mint, price, src, pct_move, cfg_alerts):
         f"*Price:* ${price:.6f}\n"
         f"*Source:* {src}"
     )
-    try:
+    with contextlib.suppress(Exception):
         alerts_send(msg, cfg_alerts)
-    except Exception:
-        pass
 
 
 # --- Normalized watchlist helpers ---
@@ -4225,10 +4249,7 @@ def _save_watchlist(items):
 
 
 def _watch_contains(wl, mint):
-    for x in wl:
-        if _normalize_watch_item(x).get("mint") == mint:
-            return True
-    return False
+    return any(_normalize_watch_item(x).get("mint") == mint for x in wl)
 
 
 def _load_alerts_cfg():
@@ -4354,7 +4375,7 @@ def _watch_tick_once():
             price = _as_float(pr["price"], 0.0)
             src = pr.get("source", "?")
             base = st["baseline"].get(mint)
-            last = st["last"].get(mint)
+            st["last"].get(mint)
             st["last"][mint] = price
             if base is None:
                 st["baseline"][mint] = price
@@ -4370,10 +4391,8 @@ def _watch_tick_once():
 
 def _watch_loop():
     while WATCH_RUN.get("enabled", True):
-        try:
+        with contextlib.suppress(Exception):
             _watch_tick_once()
-        except Exception:
-            pass
         time.sleep(WATCH_RUN.get("tick_secs", 15))
 
 
@@ -4407,7 +4426,6 @@ def get_price_with_preference(mint: str, preferred: str | None = None) -> dict:
     """
     preferred = (preferred or load_current_source()).lower()
     chain = [preferred] + [s for s in ("birdeye", "dex", "sim") if s != preferred]
-    last_src = preferred
     # NOTE: existing functions return dict format: {"ok": bool, "price": float, "source": str}
     for prov in chain:
         if prov == "birdeye":
@@ -4537,7 +4555,7 @@ def price_birdeye(mint: str):
         r = sess.get(url, headers=headers, params=qp, timeout=8)
         body_snip = (r.text or "")[:120].replace("\n", " ")
         print(
-            f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp,separators=(',',':'))} body~={body_snip!r}"
+            f"INFO:birdeye_req status={r.status_code} path={path} qp={json.dumps(qp, separators=(',', ':'))} body~={body_snip!r}"
         )
         if r.status_code != 200:
             return None
@@ -4570,7 +4588,7 @@ def price_birdeye(mint: str):
         # v3 token market-data sometimes nests price-like fields
         if isinstance(d, dict):
             for k, v in d.items():
-                if isinstance(v, (int, float)) and "price" in k and v > 0:
+                if isinstance(v, int | float) and "price" in k and v > 0:
                     return float(v)
         return None
 
@@ -4658,9 +4676,9 @@ def _iter_name_overrides():
     name_override_* helpers if present. Falls back to empty if none exist.
     """
     store = globals().get("_NAME_OVERRIDES") or globals().get("NAME_OVERRIDES") or {}
-    for m, tup in getattr(store, "items", lambda: [])():
+    for m, tup in getattr(store, "items", list)():
         # support either tuple or dict shape
-        if isinstance(tup, (list, tuple)) and len(tup) >= 2:
+        if isinstance(tup, list | tuple) and len(tup) >= 2:
             yield m, str(tup[0]), str(tup[1])
         elif isinstance(tup, dict):
             yield m, str(tup.get("ticker", "")), str(tup.get("name", ""))
@@ -5143,7 +5161,7 @@ def _ensure_scanners():
             )
 
         logger.info(
-            f"[INIT] SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners in PID={current_pid}"
+            f"[INIT] SCANNERS registry populated with {len([k for k, v in SCANNERS.items() if v])} active scanners in PID={current_pid}"
         )
 
         # Start polling service for telegram commands (disabled when POLLING_MODE=ON)
@@ -5385,14 +5403,14 @@ def watch_tick_once(send_alerts=True):
 
         if send_alerts and (not muted) and abs(pct) >= min_move:
             fired += 1
-            try:
+            with contextlib.suppress(Exception):
                 alerts_send(
-                    f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source','?')}"
+                    f"⚠️ {mint}\nΔ={pct:+.2f}%  price=${price:.6f}  src={pr.get('source', '?')}"
                 )
-            except Exception:
-                pass
 
-        lines.append(f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}% src={pr.get('source','?')}")
+        lines.append(
+            f"- {mint[:10]}..  last=${price:.6f} Δ={pct:+.2f}% src={pr.get('source', '?')}"
+        )
         checked += 1
 
     if changed:
@@ -5525,7 +5543,7 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
     # Timeframes (omit 12h)
     for key in ["5m", "30m", "1h", "6h", "24h"]:
-        lines.append(f"{_label_block(key)} { _fmt_pct_cell(tf.get(key)) }")
+        lines.append(f"{_label_block(key)} {_fmt_pct_cell(tf.get(key))}")
 
     # Add quick-actions footer
     footer = f"\nActions: /price {mint} • /watch {mint} • /fetch {mint}"
@@ -5538,7 +5556,6 @@ def render_about_list(mint: str, price: float, source: str, name_display: str, t
 
 
 def process_telegram_command(update: dict):
-
     # (Helper functions moved to global scope above)
 
     # --- SCANNER_ALIAS_PATCH (rewrite scanner* to alerts_auto*) ---
@@ -5964,10 +5981,8 @@ def process_telegram_command(update: dict):
                     status="error",
                 )
             _scanners_set_on(True)
-            try:
+            with contextlib.suppress(Exception):
                 _ensure_scanners()
-            except Exception:
-                pass
             return _reply("✅ Scanners enabled\n" + _scanners_status_card())
 
         elif cmd == "/scanners_off":
@@ -6159,7 +6174,7 @@ def process_telegram_command(update: dict):
             else:
                 name = str(name_tuple) if name_tuple else "Unknown"
             px = _birdeye_price(mint)  # returns float or None; use "?" if None
-            price_s = f"${px:,.2f}" if isinstance(px, (int, float)) else "?"
+            price_s = f"${px:,.2f}" if isinstance(px, int | float) else "?"
             lines = [
                 "ℹ️ *Token*",
                 f"{name or 'Unknown'}  `{short}`",
@@ -6226,10 +6241,8 @@ def process_telegram_command(update: dict):
             vol_str = _fmt_usd(vol) if vol is not None else "?"
             cap_str = _fmt_usd(mc) if mc is not None else "?"
 
-            try:
+            with contextlib.suppress(Exception):
                 logger.info("LIQ_V2: formatted with _fmt_usd")
-            except Exception:
-                pass
 
             sym_line = name
             line = f"🌊 *Liquidity*\n{sym_line}\n`{short}`\nLiquidity: {liq_str}\n24h Volume: {vol_str}\nMarket Cap: {cap_str}"
@@ -6272,9 +6285,7 @@ def process_telegram_command(update: dict):
 
             vol = _volume_24h_usd(mint)
             vol_str = _fmt_usd(vol) if vol is not None else "?"
-            return _reply(
-                "📈 *24h Volume*\n" f"{sym} — {name}\n" f"`{short}`\n" f"24h Volume: {vol_str}"
-            )
+            return _reply(f"📈 *24h Volume*\n{sym} — {name}\n`{short}`\n24h Volume: {vol_str}")
         elif cmd == "/supply":
             arg = _arg_after_cmd(text)
             mint, sym, name, _ = _resolve_token_any(arg)
@@ -6407,10 +6418,7 @@ def process_telegram_command(update: dict):
             if not args:
                 return _reply("Usage: /mint_for <TICKER|MINT>", status="error")
             raw = args.strip()
-            if len(raw) in (32, 44):
-                mint = raw
-            else:
-                mint = _resolve_arg_to_mint(raw)
+            mint = raw if len(raw) in (32, 44) else _resolve_arg_to_mint(raw)
             if not mint:
                 return _reply("Unknown token. Provide a mint or known ticker.", status="error")
             try:
@@ -6617,9 +6625,7 @@ def process_telegram_command(update: dict):
             except Exception as e:
                 return _reply(f"debug_cmd error: {e}", status="error")
             # Show repr to reveal hidden newlines / zero-width chars
-            return _reply(
-                "🔎 debug_cmd\n" f"raw: {raw!r}\n" f"cmd: {cmd_debug!r}\n" f"args: {args_debug!r}"
-            )
+            return _reply(f"🔎 debug_cmd\nraw: {raw!r}\ncmd: {cmd_debug!r}\nargs: {args_debug!r}")
 
         elif cmd == "/version":
             import hashlib
@@ -6673,7 +6679,7 @@ def process_telegram_command(update: dict):
             text = render_price_card(mint, price, source, name_display, title="Price Alert")
             return _reply(text)
 
-        elif cmd == "/price" or cmd == "/quote":
+        elif cmd in {"/price", "/quote"}:
             if not arg:
                 return _reply("Usage: `/price <mint|ticker>`")
 
@@ -7126,10 +7132,10 @@ def process_telegram_command(update: dict):
             left = max(0, int(st.get("muted_until", 0) - time.time()))
             return _reply(
                 "🖥 Alert flood control settings:\n"
-                f"chat: {st.get('chat','not set')}\n"
-                f"min_move_pct: {st.get('min_move_pct',0.0)}%\n"
-                f"rate_per_min: {st.get('rate_per_min',60)}\n"
-                f"sent_last_min: {st.get('sent_last_min',0)}\n"
+                f"chat: {st.get('chat', 'not set')}\n"
+                f"min_move_pct: {st.get('min_move_pct', 0.0)}%\n"
+                f"rate_per_min: {st.get('rate_per_min', 60)}\n"
+                f"sent_last_min: {st.get('sent_last_min', 0)}\n"
                 f"muted: {mu}" + (f" ({left}s left)" if mu == "yes" else "")
             )
         elif cmd == "/alerts_mute":
@@ -7147,7 +7153,7 @@ def process_telegram_command(update: dict):
                 st = _alerts_load()
                 st["muted_until"] = time.time() + dur
                 _alerts_save(st)
-                return _reply(f"🔕 Alerts muted for {dur//60} min")
+                return _reply(f"🔕 Alerts muted for {dur // 60} min")
         elif cmd == "/alerts_unmute":
             import time
 
@@ -7234,7 +7240,7 @@ def process_telegram_command(update: dict):
                     # Get enhanced state information from watch_state
                     ms = st.get(mint, {})
                     last_price = ms.get("last_price")
-                    state_src = ms.get("last_src", "n/a")
+                    ms.get("last_src", "n/a")
                     last_ts = ms.get("last_ts", now)
                     last_alert_ts = ms.get("last_alert_ts")
 
@@ -7532,7 +7538,7 @@ def process_telegram_command(update: dict):
         # --- ROUTER TRACE HOOK (exit) ---
         try:
             _rt_log(
-                f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response','')) if isinstance(ret, dict) else 0}"
+                f"exit ret={type(ret).__name__} resp_len={len((ret or {}).get('response', '')) if isinstance(ret, dict) else 0}"
             )
             return ret
         except NameError:
@@ -7553,7 +7559,7 @@ try:
         "websocket": ws_client,
     }
     logger.info(
-        f"SCANNERS registry populated with {len([k for k,v in SCANNERS.items() if v])} active scanners"
+        f"SCANNERS registry populated with {len([k for k, v in SCANNERS.items() if v])} active scanners"
     )
 
     # Polling service startup moved to single location to prevent duplicates
@@ -7573,7 +7579,7 @@ def _scanner_thread():
             if SCANNER:
                 try:
                     result = SCANNER.tick()
-                    if result and isinstance(result, (tuple, list)) and len(result) >= 2:
+                    if result and isinstance(result, tuple | list) and len(result) >= 2:
                         total, new = result[0], result[1]
                         if total > 0:
                             logger.info(f"[SCAN] birdeye tick ok: {total} items, {new} new")
@@ -7593,7 +7599,7 @@ def _scanner_thread():
                 ):
                     try:
                         result = scanner.tick()
-                        if result and isinstance(result, (tuple, list)) and len(result) == 2:
+                        if result and isinstance(result, tuple | list) and len(result) == 2:
                             t, n = result
                             if t > 0:
                                 logger.info(f"[SCAN] {name} tick ok: {t} items, {n} new")
@@ -7680,16 +7686,16 @@ def index():
     <head>
         <title>Mork F.E.T.C.H Bot</title>
         <style>
-            body { 
-                font-family: Arial, sans-serif; 
-                max-width: 800px; 
-                margin: 50px auto; 
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 50px auto;
                 padding: 20px;
                 background: #1a1a1a;
                 color: #ffffff;
             }
-            .header { 
-                text-align: center; 
+            .header {
+                text-align: center;
                 margin-bottom: 30px;
                 color: #7cb342;
             }
@@ -7718,32 +7724,32 @@ def index():
                 <a href="/live" style="color: #7cb342; text-decoration: none;">💻 Live Console</a>
             </div>
         </div>
-        
+
         <div class="status">
             <strong>🟢 Bot Status: Online</strong><br>
             Production-ready Solana trading bot with safety systems active.
         </div>
-        
+
         <div class="feature">
             <h3>🎯 Manual Sniping</h3>
             <p>Target specific tokens with <code>/snipe</code> command</p>
         </div>
-        
+
         <div class="feature">
             <h3>🤖 Auto F.E.T.C.H</h3>
             <p>Automated discovery and trading of new Pump.fun tokens</p>
         </div>
-        
+
         <div class="feature">
             <h3>🛡️ Safety First</h3>
             <p>MORK holder gates, spend limits, emergency stops, encrypted wallets</p>
         </div>
-        
+
         <div class="feature">
             <h3>⚡ Jupiter Integration</h3>
             <p>Secure swaps with preflight checks and token delivery verification</p>
         </div>
-        
+
         <div style="text-align: center; margin-top: 40px; color: #7cb342;">
             <p><strong>Ready to start fetching profits?</strong></p>
             <p>Find the bot on Telegram: <strong>@MorkFetchBot</strong></p>
@@ -7826,9 +7832,9 @@ def debug_scanners():
             "pid": os.getpid(),
             "scanners_keys": list(SCANNERS.keys()),
             "has_solscan": "solscan" in SCANNERS,
-            "solscan_obj": str(SCANNERS.get("solscan", None)),
-            "solscan_running": getattr(SCANNERS.get("solscan", None), "running", None),
-            "solscan_enabled": getattr(SCANNERS.get("solscan", None), "enabled", None),
+            "solscan_obj": str(SCANNERS.get("solscan")),
+            "solscan_running": getattr(SCANNERS.get("solscan"), "running", None),
+            "solscan_enabled": getattr(SCANNERS.get("solscan"), "enabled", None),
         }
     )
 
@@ -8156,7 +8162,6 @@ def status():
 
 @app.route("/health")
 def health():
-
     hb = {"polling_healthy": False, "reason": "no_heartbeat"}
     try:
         with open("/tmp/mork_polling.lock") as f:
@@ -8312,10 +8317,8 @@ def _alerts_load():
 
 
 def _alerts_save(data):
-    try:
+    with contextlib.suppress(Exception):
         open(_ALERTS_FILE, "w").write(json.dumps(data))
-    except Exception:
-        pass
 
 
 # --- One-time wrapper to run post-processing hooks safely --------------------
