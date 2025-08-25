@@ -534,18 +534,17 @@ wheels = [
 
 [[package]]
 name = "httpx"
-version = "0.25.2"
+version = "0.28.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "certifi" },
     { name = "httpcore" },
     { name = "idna" },
-    { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/23/911d93a022979d3ea295f659fbe7edb07b3f4561a477e83b3a6d0e0c914e/httpx-0.25.2.tar.gz", hash = "sha256:8b8fcaa0c8ea7b05edd69a094e63a2094c4efcb48129fb757361bc423c0ad9e8", size = 123889 }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/65/6940eeb21dcb2953778a6895281c179efd9100463ff08cb6232bb6480da7/httpx-0.25.2-py3-none-any.whl", hash = "sha256:a05d3d052d9b2dfce0e3896636467f8a5342fb2b902c819428e1ac65413ca118", size = 74980 },
+    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517 },
 ]
 
 [[package]]
@@ -741,22 +740,27 @@ version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "base58" },
+    { name = "black" },
     { name = "coverage" },
     { name = "cryptography" },
     { name = "flask" },
     { name = "httpx" },
+    { name = "mypy" },
     { name = "openai" },
     { name = "pre-commit" },
     { name = "pynacl" },
     { name = "pytest" },
+    { name = "python-telegram-bot" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "ruff" },
     { name = "solana" },
     { name = "solders" },
     { name = "sqlalchemy" },
     { name = "telegram" },
     { name = "unidiff" },
     { name = "websocket" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -773,12 +777,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "base58", specifier = ">=2.1.1" },
+    { name = "black", specifier = ">=24.8.0" },
     { name = "black", marker = "extra == 'dev'", specifier = "==24.8.0" },
     { name = "coverage", specifier = ">=7.6.1" },
     { name = "coverage", marker = "extra == 'dev'", specifier = "==7.6.1" },
     { name = "cryptography", specifier = ">=45.0.6" },
     { name = "flask", specifier = ">=3.1.1" },
     { name = "httpx", specifier = ">=0.25.2" },
+    { name = "mypy", specifier = ">=1.10.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.10.0" },
     { name = "openai", specifier = ">=1.99.9" },
     { name = "pre-commit", specifier = ">=3.7.1" },
@@ -786,8 +792,10 @@ requires-dist = [
     { name = "pynacl", specifier = ">=1.5.0" },
     { name = "pytest", specifier = ">=8.3.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==8.3.2" },
+    { name = "python-telegram-bot", specifier = ">=22.3" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "requests", specifier = ">=2.32.4" },
+    { name = "ruff", specifier = ">=0.5.6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.5.6" },
     { name = "solana", specifier = ">=0.36.7" },
     { name = "solders", specifier = ">=0.26.0" },
@@ -796,6 +804,7 @@ requires-dist = [
     { name = "types-requests", marker = "extra == 'dev'", specifier = "==2.32.0.20240712" },
     { name = "unidiff", specifier = ">=0.7.5" },
     { name = "websocket", specifier = ">=0.2.1" },
+    { name = "websockets", specifier = ">=15.0.1" },
 ]
 
 [[package]]
@@ -1062,6 +1071,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b4/8c/9862305bdcd6020bc7b45b1b5e7397a6caf1a33d3025b9a003b39075ffb2/pytest-8.3.2.tar.gz", hash = "sha256:c132345d12ce551242c87269de812483f5bcc87cdbb4722e48487ba194f9fdce", size = 1439314 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/f9/cf155cf32ca7d6fa3601bc4c5dd19086af4b320b706919d48a4c79081cf9/pytest-8.3.2-py3-none-any.whl", hash = "sha256:4ba08f9ae7dcf84ded419494d229b48d0903ea6407b030eaec46df5e6a73bba5", size = 341802 },
+]
+
+[[package]]
+name = "python-telegram-bot"
+version = "22.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/db/fc/0196e0d7ad247011a560788db204e0a28d76ab75b3d7c7131878f8fb5a06/python_telegram_bot-22.3.tar.gz", hash = "sha256:513d5ab9db96dcf25272dad0a726555e80edf60d09246a7d0d425b77115f5440", size = 1464513 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/54/0955bd46a1e046169500e129c7883664b6675d580074d68823485e4d5de1/python_telegram_bot-22.3-py3-none-any.whl", hash = "sha256:88fab2d1652dbfd5379552e8b904d86173c524fdb9270d3a8685f599ffe0299f", size = 717115 },
 ]
 
 [[package]]
