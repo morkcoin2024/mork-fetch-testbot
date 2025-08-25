@@ -6,7 +6,7 @@ dependencies = []
 
 [tool.black]
 line-length = 100
-extend-exclude = '''(^birdeye_ws_backup\.py$)'''
+extend-exclude = "(birdeye_ws_backup\\.py)"
 
 [tool.ruff]
 line-length = 100
@@ -15,4 +15,4 @@ extend-exclude = ["birdeye_ws_backup.py"]
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = '(?x)(^birdeye_ws_backup\.py$)'
+exclude = "(birdeye_ws_backup\\.py)"
