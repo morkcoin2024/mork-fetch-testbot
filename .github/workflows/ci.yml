@@ -16,6 +16,15 @@ jobs:
           python -m pip install --upgrade pip
           PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements.txt -r requirements-dev.txt
       - name: Lint & Format (Ruff)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .venv/bin/activate
+          python -V
+          pip --version
+          ruff --version
+          ruff check .
+          ruff format --check
         run: |
           source .venv/bin/activate
           ruff check .

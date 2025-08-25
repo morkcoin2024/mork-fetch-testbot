@@ -2,3 +2,5 @@ ruff==0.12.10
 mypy==1.17.1
 typing-extensions==4.14.1
 types-requests==2.32.4.20250809
+
+pre-commit==3.7.1
