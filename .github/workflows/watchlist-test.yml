@@ -1,13 +1,46 @@
-name: watchlist-test
-on: [push, pull_request]
+name: Fetch Bot CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
 jobs:
-  test:
+  tests:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scanners: [off, on]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python3 -m pip install -r requirements.txt || true
-      # Adjust STRICT/TEST_TIMEOUT as you like (STRICT=1 will fail on '?')
-      - run: STRICT=1 TEST_TIMEOUT=8 python3 tests/test_watchlist.py
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # Fast smoke run (no external calls)
+      - name: Run tests (scanners OFF)
+        if: ${{ matrix.scanners == 'off' }}
+        env:
+          FETCH_ENABLE_SCANNERS: "0"
+          TEST_TIMEOUT: "8"
+        run: |
+          python tests/test_watchlist.py
+
+      # Integration run (external calls) — only runs if at least one API key is present
+      - name: Run tests (scanners ON)
+        if: ${{ matrix.scanners == 'on' && (secrets.SOLSCAN_API_KEY != '' || secrets.BIRDEYE_API_KEY != '' || secrets.JUPITER_API_KEY != '') }}
+        env:
+          FETCH_ENABLE_SCANNERS: "1"
+          FEATURE_WS: "on"
+          TEST_TIMEOUT: "12"
+          SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
+          BIRDEYE_API_KEY: ${{ secrets.BIRDEYE_API_KEY }}
+          JUPITER_API_KEY: ${{ secrets.JUPITER_API_KEY }}
+        run: |
+          python tests/test_watchlist.py
