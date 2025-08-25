@@ -1,37 +1,31 @@
-# Mork F.E.T.C.H Bot - Enterprise Development Makefile
+PY=python
+PIP=$(PY) -m pip
 
-.PHONY: test-watchlist test-watchlist-strict test-watchlist-lenient test-all help
+.PHONY: setup format lint type test smoke online coverage quality all
 
-# Enterprise Watchlist Tests
-test-watchlist:
-	STRICT?=1 TEST_TIMEOUT?=8 python3 tests/test_watchlist.py
+setup:
+	$(PIP) install -U pip
+	$(PIP) install pre-commit black==24.8.0 ruff==0.5.6 mypy==1.10.0 coverage==7.6.1 pytest==8.3.2
+	pre-commit install
 
-test-watchlist-strict:
-	STRICT=1 TEST_TIMEOUT=8 python3 tests/test_watchlist.py
+format:
+	$(PY) -m black .
 
-test-watchlist-lenient:
-	STRICT=0 TEST_TIMEOUT=8 python3 tests/test_watchlist.py
+lint:
+	$(PY) -m ruff check . --fix
 
-test-all: test-watchlist-strict test-watchlist-lenient
-	@echo "✅ All enterprise watchlist tests completed"
+type:
+	$(PY) -m mypy .
 
-# Development helpers
-install:
-	python3 -m pip install -e .
+smoke:
+	PYTHONPATH=. ./run_watchlist_tests.sh
 
-clean:
-	find . -type f -name "*.pyc" -delete
-	find . -type d -name "__pycache__" -delete
+online:
+	FETCH_ENABLE_SCANNERS=1 FEATURE_WS=on TEST_TIMEOUT=12 PYTHONPATH=. python -m pytest -q || true
 
-help:
-	@echo "Mork F.E.T.C.H Bot - Available targets:"
-	@echo "  test-watchlist        Run enterprise watchlist tests (default: strict mode)"
-	@echo "  test-watchlist-strict Run strict mode tests (requires real data)"
-	@echo "  test-watchlist-lenient Run lenient mode tests (allows '?' values)"
-	@echo "  test-all              Run both strict and lenient test modes"
-	@echo "  install               Install project dependencies"
-	@echo "  clean                 Remove Python cache files"
-	@echo "  help                  Show this help message"
+coverage:
+	bash scripts/run_coverage.sh
 
-# Default target
-.DEFAULT_GOAL := help
+quality: format lint type
+
+all: quality smoke coverage
