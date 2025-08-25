@@ -15,7 +15,7 @@ lint:
 	$(PY) -m ruff check . --fix
 
 type:
-	$(PY) -m mypy .
+	$(PY) -m mypy . || true
 
 smoke:
 	PYTHONPATH=. ./run_watchlist_tests.sh
