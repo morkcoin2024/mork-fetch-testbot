@@ -1,16 +1,14 @@
 [tool.black]
 line-length = 100
 target-version = ["py310"]
-extend-exclude = '''
-(^|/)(birdeye_ws_backup\\.py|.*_backup\\.py|\\.venv/|dist/|build/|\\.git/)
-'''
+extend-exclude = "(^|/)(attic/|.*_backup\\.py)"
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 select = ["E","F","I","UP","B","SIM","PL","RUF"]
 ignore = ["E501"]
-extend-exclude = ["birdeye_ws_backup.py", "*_backup.py", ".venv", "dist", "build"]
+extend-exclude = ["attic", "*_backup.py"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -19,4 +17,4 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unreachable = true
 no_implicit_optional = true
-exclude = '(^|/)(birdeye_ws_backup\\.py|.*_backup\\.py|\\.venv/|dist/|build/)'
+exclude = '(^|/)(attic/|.*_backup\\.py)'
