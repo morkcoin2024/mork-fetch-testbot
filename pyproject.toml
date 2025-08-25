@@ -41,3 +41,31 @@ dependencies = [
     "websockets>=15.0.1",
     "werkzeug>=3.1.3",
 ]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+exclude = "(\.venv|build|dist|.*/generated/|.*/__pycache__/|tests/fixtures/)"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [".venv", "build", "dist", "tests/fixtures"]
+select = ["E","F","I","UP","B","SIM","PL","RUF"]
+ignore = [
+  "E501",  # handled by black
+  "SIM117" # sometimes explicit is clearer
+]
+
+[tool.ruff.isort]
+known-first-party = ["app"]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+exclude = "tests/fixtures"
