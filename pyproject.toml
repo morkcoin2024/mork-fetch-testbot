@@ -6,11 +6,7 @@ dependencies = []
 
 [tool.black]
 line-length = 100
-extend-exclude = '''
-(
-  ^birdeye_ws_backup\.py$
-)
-'''
+extend-exclude = '''(^birdeye_ws_backup\.py$)'''
 
 [tool.ruff]
 line-length = 100

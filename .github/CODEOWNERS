@@ -1,0 +1,4 @@
+*                       @your-org/maintainers
+/tests/                 @your-org/qa-team
+/app.py                 @your-handle
+/telegram_polling.py    @your-handle

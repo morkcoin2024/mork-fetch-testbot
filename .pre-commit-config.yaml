@@ -1,10 +1,3 @@
-# Pre-commit checks run on STAGED files by default — so legacy files won't block you
-# If you run `pre-commit run -a`, we exclude the known-bad backup file.
-exclude: |
-  (?x)^(
-    birdeye_ws_backup\.py
-  )$
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -23,16 +16,11 @@ repos:
     rev: v0.5.7
     hooks:
       - id: ruff
-        args: [--fix]        # auto-fix
-      - id: ruff-format      # ruff formatter (safe; after black it's a no-op for py)
+        args: [--fix]
+      - id: ruff-format
 
-  # Optional: mypy on changed files (kept fast/safe)
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.11.1
     hooks:
       - id: mypy
-        additional_dependencies: []
-        args:
-          - --ignore-missing-imports
-          - --install-types
-          - --non-interactive
+        args: [--ignore-missing-imports, --install-types, --non-interactive]
