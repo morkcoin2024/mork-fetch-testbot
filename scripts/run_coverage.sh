@@ -9,6 +9,7 @@ coverage run -p tests/test_watchlist.py
 coverage run -p tests/test_watchlist_edge.py
 coverage run -p tests/test_watch_remove.py
 coverage run -p tests/test_watchlist_scale.py
+coverage run -p tests/test_watchlist_formatting.py
 
 coverage combine
 coverage xml

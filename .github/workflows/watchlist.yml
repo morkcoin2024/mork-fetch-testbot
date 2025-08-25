@@ -43,6 +43,7 @@ jobs:
           PYTHONPATH=. python3 tests/test_watchlist_edge.py
           PYTHONPATH=. python3 tests/test_watch_remove.py
           PYTHONPATH=. python3 tests/test_watchlist_scale.py
+          PYTHONPATH=. python3 tests/test_watchlist_formatting.py
       - name: Run tests (full, scanners ON)
         if: matrix.scanners == 'on'
         env:
@@ -55,6 +56,7 @@ jobs:
           PYTHONPATH=. python3 tests/test_watchlist_edge.py
           PYTHONPATH=. python3 tests/test_watch_remove.py
           PYTHONPATH=. python3 tests/test_watchlist_scale.py
+          PYTHONPATH=. python3 tests/test_watchlist_formatting.py
 
       - name: Coverage (smoke only)
         if: matrix.scanners == 'off'
