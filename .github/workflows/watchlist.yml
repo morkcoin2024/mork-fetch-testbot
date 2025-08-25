@@ -1,86 +1,57 @@
-name: Watchlist tests
+name: watchlist
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-  schedule:
-    - cron: '17 3 * * *' # nightly @ 03:17 UTC
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  smoke:
-    name: Smoke (scanners OFF)
+  quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      PYTHONUNBUFFERED: "1"
-      PYTHONPATH: .
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies (if present)
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Install dev tools
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
+          pip install -r dev-requirements.txt
+      - name: Ruff (lint)
+        run: ruff check .
+      - name: Black (format check)
+        run: black --check .
+      - name: MyPy (type check)
+        run: mypy .
 
-      - name: Run smoke tests
-        run: |
-          python3 tests/test_watchlist.py
-          python3 tests/test_watchlist_edge.py
-          python3 tests/test_watch_remove.py
-          python3 tests/test_watchlist_scale.py
-
-  full:
-    name: Full (scanners ON)
-    needs: smoke
-    # Skip for pull_request runs (secrets unavailable on forks)
-    if: github.event_name != 'pull_request'
+  tests:
+    needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      PYTHONUNBUFFERED: "1"
-      PYTHONPATH: .
-      FETCH_ENABLE_SCANNERS: "1"
-      FEATURE_WS: "on"
-      TEST_TIMEOUT: "12"
-      # API keys pulled from repo/org secrets (configure in Settings → Secrets and variables → Actions)
-      SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
-      BIRDEYE_API_KEY: ${{ secrets.BIRDEYE_API_KEY }}
-      JUPITER_API_KEY: ${{ secrets.JUPITER_API_KEY }}
+    strategy:
+      matrix:
+        scanners: [off, on]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies (if present)
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Install dev tools
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f dev-requirements.txt ]; then pip install -r dev-requirements.txt; fi
-
-      - name: Run full tests
+          pip install -r dev-requirements.txt
+      - name: Run tests (smoke, scanners OFF)
+        if: matrix.scanners == 'off'
         run: |
-          python3 tests/test_watchlist.py
-          python3 tests/test_watchlist_edge.py
-          python3 tests/test_watch_remove.py
-          python3 tests/test_watchlist_scale.py
+          PYTHONPATH=. python3 tests/test_watchlist.py
+          PYTHONPATH=. python3 tests/test_watchlist_edge.py
+          PYTHONPATH=. python3 tests/test_watch_remove.py
+          PYTHONPATH=. python3 tests/test_watchlist_scale.py
+      - name: Run tests (full, scanners ON)
+        if: matrix.scanners == 'on'
+        env:
+          FETCH_ENABLE_SCANNERS: "1"
+          FEATURE_WS: "on"
+          TEST_TIMEOUT: "12"
+          SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
+        run: |
+          PYTHONPATH=. python3 tests/test_watchlist.py
+          PYTHONPATH=. python3 tests/test_watchlist_edge.py
+          PYTHONPATH=. python3 tests/test_watch_remove.py
+          PYTHONPATH=. python3 tests/test_watchlist_scale.py
