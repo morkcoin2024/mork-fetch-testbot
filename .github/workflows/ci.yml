@@ -26,3 +26,15 @@ jobs:
         with: { python-version: '3.11' }
       - run: pip install -r requirements-dev.txt
       - run: scripts/qa_changed.sh
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - uses: pre-commit/action@v3.0.1
+        with:
+          # Run only against diff from main -> HEAD (fast, matches our philosophy)
+          extra_args: --from-ref origin/main --to-ref HEAD
