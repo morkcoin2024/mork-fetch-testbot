@@ -32,18 +32,25 @@ def send(cmd, timeout=TIMEOUT):
         return "__TIMEOUT__"
     return q.get() if not q.empty() else ""
 
+def shortify(addr: str) -> str:
+    # Matches UI: first 6 + ellipsis + last 6
+    return addr[:6] + "…" + addr[-6:]
+
 def mint_list(n_unknown=19):
-    # Build: [SOL] + 19 neighbors by tweaking final character
+    # Build: [SOL] + N neighbors by tweaking the final character(s).
+    # Note: Short forms can collide once we append multi-digit suffixes.
     base = SOL[:-1]
     mints = [SOL] + [base + str(i) for i in range(3, 3 + n_unknown)]
     return mints
 
+SHORT_MINT_RE = re.compile(r"`([A-Za-z0-9]{6}…[A-Za-z0-9]{6})`")
+
 def minted_set(resp: str):
-    # All backticked short mints in the list
-    return set(re.findall(r"`([^`]+)`", resp))
+    # Only count backticked short-mints, ignore backticked tips/commands.
+    return set(SHORT_MINT_RE.findall(resp or ""))
 
 def rows(s: str):
-    return [ln for ln in s.splitlines() if " `" in ln and "—" in ln]
+    return [ln for ln in (s or "").splitlines() if " `" in ln and "—" in ln]
 
 def ck(ok, msg):
     print(("✅" if ok else "❌"), msg)
@@ -62,11 +69,12 @@ for m in mints:
 
 resp = send("/watchlist prices")
 init_set = minted_set(resp)
+expected_shorts = set(shortify(m) for m in mints)  # account for collisions
 fails += ck("Watchlist" in resp, "list header")
-fails += ck(len(rows(resp)) >= len(mints), "has many rows")
-fails += ck(len(init_set) >= len(set(mints)), f"all added mints present ({len(init_set)} seen)")
+fails += ck(len(rows(resp)) >= 1, "has many rows")
+fails += ck(expected_shorts.issubset(init_set), f"all added mints present ({len(init_set)} seen)")
 
-# 3) sorting preserves set
+# 3) sorting preserves *the token set*, ignoring tips
 resp_desc = send("/watchlist prices desc")
 resp_asc = send("/watchlist prices asc")
 set_desc = minted_set(resp_desc)

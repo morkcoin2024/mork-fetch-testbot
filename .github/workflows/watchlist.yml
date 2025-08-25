@@ -43,6 +43,8 @@ jobs:
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
+          python3 tests/test_watch_remove.py
+          python3 tests/test_watchlist_scale.py
 
   full:
     name: Full (scanners ON)
@@ -80,6 +82,5 @@ jobs:
         run: |
           python3 tests/test_watchlist.py
           python3 tests/test_watchlist_edge.py
-          # Optional extras if present
-          [ -f tests/test_watch_remove.py ] && python3 tests/test_watch_remove.py || true
-          [ -f tests/test_watchlist_scale.py ] && python3 tests/test_watchlist_scale.py || true
+          python3 tests/test_watch_remove.py
+          python3 tests/test_watchlist_scale.py
