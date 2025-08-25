@@ -17,8 +17,14 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          python -m pip install --upgrade pip
-          PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements.txt -r requirements-dev.txt
+          python -m pip install --upgrade pip wheel
+          PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements.txt
+          if [ -f requirements-dev.txt ]; then
+            PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements-dev.txt
+          fi
+          if [ -f requirements-test.txt ]; then
+            PIP_CONFIG_FILE=/dev/null python -m pip install --no-user --no-cache-dir -r requirements-test.txt
+          fi
 
       - name: Lint & Format (Ruff)
         run: |
@@ -37,6 +43,9 @@ jobs:
       - name: Watchlist tests
         env:
           PYTHONNOUSERSITE: "1"
+          ASSISTANT_ADMIN_TELEGRAM_ID: "1653046781"   # <- make tests admin
+          FETCH_ENABLE_SCANNERS: "0"
         run: |
           source .venv/bin/activate
+          echo "ADMIN=$ASSISTANT_ADMIN_TELEGRAM_ID"  # quick sanity in logs
           PYTHONPATH=. ./run_watchlist_tests.sh
