@@ -1,0 +1,46 @@
+name: nightly-smoke
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC nightly
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    if: github.repository_owner == 'YOUR_ORG_OR_USER'   # avoid running on forks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install pytest coverage
+
+      - name: Run watchlist suite (offline + online)
+        env:
+          PYTHONPATH: .
+          FEATURE_WS: "on"
+          FETCH_ENABLE_SCANNERS: "1"
+          SOLSCAN_API_KEY: ${{ secrets.SOLSCAN_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_ID: ${{ secrets.TELEGRAM_ADMIN_ID }}
+        run: |
+          ./run_watchlist_tests.sh
+          bash scripts/run_coverage.sh || echo "coverage step non-blocking"
+
+      - name: Upload coverage + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-artifacts
+          path: |
+            coverage.xml
+            .coverage*
+            **/pytest-*.log
+            **/test-output*.log
